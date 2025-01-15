@@ -19,7 +19,6 @@ const GET_LOANS = gql`
       requestedAmount
       amountGived
       amountToPay
-      paidAmount
       pendingAmount
       totalProfitAmount
       signDate
@@ -30,6 +29,15 @@ const GET_LOANS = gql`
       borrower {
         personalData {
           fullName
+          phones {
+            number
+          }
+        }
+      }
+      avals {
+        fullName
+        phones {
+          number
         }
       }
       previousLoan {
@@ -50,6 +58,8 @@ const GET_LOAN_TYPES = gql`
     loantypes {
       id
       name
+      rate
+      weekDuration
     }
   }
 `;
@@ -78,7 +88,6 @@ type Loan = {
   requestedAmount: string;
   amountGived: string;
   amountToPay: string;
-  paidAmount: string;
   pendingAmount: string;
   totalProfitAmount: string;
   signDate: string;
@@ -91,14 +100,20 @@ type Loan = {
   borrower: {
     personalData: {
       fullName: string
+      phones: Array<{ number: string }>
     }
   }
+  avals: Array<{
+      fullName: string
+      phones: Array<{ number: string }>
+  }>
   previousLoan: {
     id: string;
     pendingAmount: string;
     borrower: {
       personalData: {
         fullName: string
+        phones: Array<{ number: string }>
       }
     }
   }
@@ -107,6 +122,8 @@ type Loan = {
 type LoanType = {
   id: string;
   name: string;
+  weekDuration: number;
+  rate: string;
 };
 
 type Option = {
@@ -141,7 +158,6 @@ function CreateLoanForm() {
         requestedAmount: '',
         amountGived: '',
         amountToPay: '',
-        paidAmount: '0',
         pendingAmount: '0',
         totalProfitAmount: '0',
         signDate: '',
@@ -153,15 +169,35 @@ function CreateLoanForm() {
         loantype: { id: '', name: '' },
         borrower: {
           personalData: {
-            fullName: ''
+            fullName: '',
+            phones: [
+              {
+                number: ''
+              }
+            ]
           }
         },
+        avals: [
+          {
+            fullName: '',
+            phones: [
+              {
+                number: ''
+              }
+            ]
+          }
+        ],
         previousLoan: {
           id: '',
           pendingAmount: '0',
           borrower: {
             personalData: {
-              fullName: ''
+              fullName: '',
+              phones: [
+                {
+                  number: ''
+                }
+              ]
             }
           },
         }
@@ -181,17 +217,56 @@ function CreateLoanForm() {
       updatedLoans[index][field] = { id: value, name: loanTypesData?.loantypes.find(type => type.id === value)?.name || '' };
     } else {
       if (field === 'borrower') {
-        updatedLoans[index][field] = { personalData: { fullName: value } };
+        updatedLoans[index][field] = { personalData: { fullName: value, phones: [{ number: '' }] } };
       }else if(field === 'previousLoan') {
-        updatedLoans[index][field] = { 
+        const previousLoan = loans.find(loan => loan.id === value);
+
+        console.log("///////", previousLoan?.pendingAmount);
+        updatedLoans[index][field] = {
           id: value, 
-          pendingAmount: loans.find(loan => loan.id === value)?.pendingAmount || '0',
-          borrower: loans.find(loan => loan.id === value)?.borrower || { personalData: { fullName: '' } }
+          pendingAmount: previousLoan?.pendingAmount === undefined ? '0' : previousLoan.pendingAmount,
+          borrower: previousLoan?.borrower || { personalData: { fullName: '', phones: [{ number: '' }] } }
         };
-      }else {
+        updatedLoans[index].pendingAmount = previousLoan?.pendingAmount === undefined ? '0' : previousLoan.pendingAmount;
+
+        console.log(updatedLoans)
+        console.log("///////", previousLoan?.borrower?.personalData?.fullName);
+        console.log("///////", previousLoan?.borrower?.personalData?.phones[0]?.number);
+        updatedLoans[index].borrower = { 
+          ...updatedLoans[index].borrower, 
+          personalData: { 
+            ...updatedLoans[index].borrower.personalData, 
+            fullName: previousLoan?.borrower?.personalData?.fullName || '', 
+            phones: previousLoan?.borrower?.personalData?.phones || [{ number: '' }] 
+
+          } 
+        };
+        // Assuming you have fields for aval name and phone number
+        updatedLoans[index].avals = previousLoan?.avals.map(aval => ({
+          fullName: aval.fullName,
+          phones: aval.phones
+        })) || [{ fullName: '', phones: [{ number: '' }] }];
+      }else if(field === 'requestedAmount') {
         updatedLoans[index][field] = value;
+        updatedLoans[index].amountGived = value;
+        //updatedLoans[index].amountToPay = (Number(value) * 1.2).toString();
+        if (updatedLoans[index].loantype.id) {
+          const selectedLoanType = loanTypesData?.loantypes.find(type => type.id === updatedLoans[index].loantype.id);
+          if (selectedLoanType) {
+            const amountToPay = (1 + parseFloat(selectedLoanType.rate)) * parseFloat(value);
+            updatedLoans[index].amountToPay = amountToPay.toString();
+            updatedLoans[index].amountGived = amountToPay.toString();
+            const previousLoan = loans.find(loan => loan.id === value);
+            if(previousLoan) {
+              updatedLoans[index].amountGived = (amountToPay - parseFloat(previousLoan.pendingAmount)).toString();
+              //updatedLoans[index].pendingAmount = previousLoan.pendingAmount;
+            }
+
+          }
+        }
       }
     }
+    console.log(updatedLoans);
     setNewLoans(updatedLoans);
   };
 
@@ -276,12 +351,12 @@ function CreateLoanForm() {
           <thead>
             <tr>
               <th style={{ width: '150px' }}>Prestamo Previo</th>
+              <th style={{ width: '400px' }}>Tipo Prestamo</th>
               <th style={{ width: '370px' }}>Nombre</th>
               <th>Cantidad Solicitada</th>
               <th>Cantidad Entregada</th>
               <th>Cantidad a pagar</th>
               <th style={{ width: '150px' }}>Deuda Previa</th>
-              <th style={{ width: '400px' }}>Tipo Prestamo</th>
               <th style={{ width: '300px' }}>Nombre Aval</th>
               <th style={{ width: '230px' }}>Telefono Aval</th>
               <th style={{ width: '230px' }}>Telefono Titular</th>
@@ -299,13 +374,19 @@ function CreateLoanForm() {
                         ? { value: loan.previousLoan.id, label: `${loan.previousLoan.borrower.personalData.fullName} ($${loan.previousLoan.pendingAmount})` }
                         : null
                     }
-                    /* onChange={(option) => handleChange(index, 'loantype', (option as Option).value)} */
                     onChange={(option) => handleChange(index, 'previousLoan', (option as Option).value)}
 
                   />
                 </td>
+                <td>
+                  <Select
+                    options={loanTypesData?.loantypes.map(type => ({ value: type.id, label: type.name })) || []}
+                    value={loan.loantype ? { value: loan.loantype.id, label: loan.loantype.name } : null}
+                    onChange={(option) => handleChange(index, 'loantype', (option as Option).value)}
+                  />
+                </td>
                 <td style={{ width: '200px' }}>
-                  <TextInput value={loan.weeklyPaymentAmount} onChange={(e) => handleChange(index, 'weeklyPaymentAmount', e.target.value)} />
+                  <TextInput value={loan.borrower.personalData.fullName} onChange={(e) => handleChange(index, 'borrower', e.target.value)} />
                 </td>
                 <td>
                   <TextInput value={loan.requestedAmount} onChange={(e) => handleChange(index, 'requestedAmount', e.target.value)} />
@@ -322,25 +403,18 @@ function CreateLoanForm() {
                 </td>
                 
                 <td>
-                  <TextInput value={loan.amountGived} onChange={(e) => handleChange(index, 'amountGived', e.target.value)} 
+                  <TextInput value={loan.pendingAmount} 
                     readOnly style={{ backgroundColor: '#f0f0f0', color: '#888' }}
-                    />
-                </td>
-                <td>
-                  <Select
-                    options={loanTypesData?.loantypes.map(type => ({ value: type.id, label: type.name })) || []}
-                    value={loan.loantype ? { value: loan.loantype.id, label: loan.loantype.name } : null}
-                    onChange={(option) => handleChange(index, 'loantype', (option as Option).value)}
                   />
                 </td>
                 <td>
-                  <TextInput value={loan.requestedAmount} onChange={(e) => handleChange(index, 'requestedAmount', e.target.value)} />
+                  <TextInput value={loan.avals[0]?.fullName} onChange={(e) => handleChange(index, 'avals', e.target.value)} />
                 </td>
                 <td>
-                  <TextInput value={loan.amountGived} onChange={(e) => handleChange(index, 'amountGived', e.target.value)} />
+                  <TextInput value={loan.avals[0]?.phones[0]?.number} onChange={(e) => handleChange(index, 'avals', e.target.value)} />
                 </td>
                 <td>
-                  <TextInput value={loan.amountToPay} onChange={(e) => handleChange(index, 'amountToPay', e.target.value)} />
+                  <TextInput value={loan.borrower?.personalData?.phones[0]?.number} onChange={(e) => handleChange(index, 'borrower', e.target.value)} />
                 </td>
                 <td>
                 <Button onClick={() => handleRemoveLoan(index)}><FaTrash /></Button>
