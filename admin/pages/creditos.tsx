@@ -10,40 +10,49 @@ import { useRouter } from 'next/router';
 import { PageContainer, GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
 import { DatePicker, Select, TextInput } from '@keystone-ui/fields';
 import { FaTrash } from 'react-icons/fa'; // Import the trash icon
+import './creditos.css';
+
+
+const UPDATE_PERSONAL_DATA = gql`
+  mutation UpdatePersonalData($where: PersonalDataWhereUniqueInput!, $data: PersonalDataUpdateInput!) {
+    updatePersonalData(where: $where, data: $data) {
+      id
+    }
+  }
+`;
 
 const GET_LOANS = gql`
-  query GetLoans {
-    loans {
+  query GetLoans($leadId: ID!) {
+    loans(where: { lead: { id: { equals: $leadId } } }) {
       id
       weeklyPaymentAmount
       requestedAmount
       amountGived
       amountToPay
       pendingAmount
-      totalProfitAmount
       signDate
       finishedDate
-      loanLeadId
       createdAt
       updatedAt
       borrower {
+        id
         personalData {
+          id
           fullName
           phones {
             number
           }
         }
       }
-      avals {
-        fullName
-        phones {
-          number
-        }
-      }
+      avalName
+      avalPhone
       previousLoan {
         id
         pendingAmount
+        avalName
+        avalPhone
         borrower {
+          id
           personalData {
             fullName
           }
@@ -82,6 +91,42 @@ const CREATE_LOAN = gql`
   }
 `;
 
+type PhoneCreateInput = {
+  create: { number: string }[] | null;
+};
+
+type PersonalDataCreateInput = {
+  create: {
+    phones: PhoneCreateInput;
+    fullName: string | null;
+  };
+};
+
+type BorrowerCreateOrConnectInput = {
+  create?: {
+    email?: string | null;
+    personalData: PersonalDataCreateInput;
+  } | null;
+  connect?: { id: string } | null;
+};
+
+type LoanCreateInput = {
+  weeklyPaymentAmount: string
+  requestedAmount: string
+  amountToPay: string
+  amountGived: string
+  loantype: { connect: { id: string } }
+  signDate: Date
+  avalName: string
+  avalPhone: string
+  grantor?: { connect: { id: string } }
+  lead: { connect: { id: string } }
+  borrower: BorrowerCreateOrConnectInput
+  previousLoan?: { connect: { id: string } }
+  comissionAmount: string
+};
+
+
 type Loan = {
   id: string;
   weeklyPaymentAmount: string;
@@ -89,28 +134,37 @@ type Loan = {
   amountGived: string;
   amountToPay: string;
   pendingAmount: string;
-  totalProfitAmount: string;
+  /* totalProfitAmount: string; */
   signDate: string;
   firstPaymentDate: string;
   finishedDate: string;
-  loanLeadId: string;
   createdAt: string;
   updatedAt: string;
-  loantype: { id: string; name: string }; 
+  loantype: LoanType; 
+  lead: {
+    connect: {
+      id: string
+    }
+  };
+  borrowerPhone: string;
   borrower: {
+    id: string;
     personalData: {
+      id: string;
       fullName: string
       phones: Array<{ number: string }>
     }
   }
-  avals: Array<{
-      fullName: string
-      phones: Array<{ number: string }>
-  }>
+  comission: string;
+  avalName: string;
+  avalPhone: string;
   previousLoan: {
     id: string;
     pendingAmount: string;
+    avalName: string;
+    avalPhone: string;
     borrower: {
+      id: string;
       personalData: {
         fullName: string
         phones: Array<{ number: string }>
@@ -135,17 +189,40 @@ function CreateLoanForm() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [newLoans, setNewLoans] = useState<Loan[]>([]);
   const [loans, setLoans] = useState<Loan[]>([]);
-  const { data: loansData, loading: loansLoading, error: loansError } = useQuery<{ loans: Loan[] }>(GET_LOANS);
+  const [selectedLead, setSelectedLead] = useState<Option | null>(null);
+  const { data: loansData, loading: loansLoading, error: loansError } = useQuery(GET_LOANS, {
+    variables: { leadId: selectedLead?.value || '' },
+    skip: !selectedLead,
+  });
   const { data: loanTypesData, loading: loanTypesLoading, error: loanTypesError } = useQuery<{ loantypes: LoanType[] }>(GET_LOAN_TYPES);
   const { data: leadsData, loading: leadsLoading, error: leadsError } = useQuery<{ employees: Lead[] }>(GET_LEADS);
-  const [selectedLead, setSelectedLead] = useState<Option | null>(null);
-  
-  const [createLoan, { error: loanError, loading: loanLoading }] = useMutation(CREATE_LOAN);
+  const [comission, setComission] = useState<number>(8);
+  const [updatePersonalData] = useMutation(UPDATE_PERSONAL_DATA);
+
+  const [createLoan, { error: loanError, loading: loanLoading }] = useMutation<LoanCreateInput>(CREATE_LOAN);
   const router = useRouter();
+  const [focusedInput, setFocusedInput] = useState<string | null>(null);
 
   useEffect(() => {
     if (loansData) {
-      setLoans(loansData.loans);
+      // Crear una copia del array antes de ordenarlo
+    const loansCopy = [...loansData.loans];
+
+    // Ordenar los préstamos por fecha de signDate en orden descendente
+    const sortedLoans = loansCopy.sort((a, b) => new Date(a.signDate).getTime() - new Date(b.signDate).getTime());
+
+    // Agrupar los préstamos por borrowerId, manteniendo solo el último préstamo
+    const groupedLoans = sortedLoans.reduce((acc, loan) => {
+      acc[loan.borrower.id] = loan;
+      return acc;
+    }, {} as { [key: string]: Loan });
+
+    const uniqueLoans:Loan[] = Object.values(groupedLoans);
+
+    console.log("grouped loans" ,groupedLoans);
+    console.log("unique loans" ,uniqueLoans);
+    console.log(loansData.loans);
+    setLoans(uniqueLoans);
     }
   }, [loansData]);
 
@@ -159,16 +236,19 @@ function CreateLoanForm() {
         amountGived: '',
         amountToPay: '',
         pendingAmount: '0',
-        totalProfitAmount: '0',
+        /* totalProfitAmount: '0', */
         signDate: '',
         firstPaymentDate: '',
         finishedDate: '',
-        loanLeadId: '',
         createdAt: '',
         updatedAt: '',
-        loantype: { id: '', name: '' },
+        loantype: { id: '', name: '', weekDuration: 0, rate: '' },
+        lead: { connect: { id: '' }},
+        borrowerPhone: '',
         borrower: {
+          id: '',
           personalData: {
+            id: '',
             fullName: '',
             phones: [
               {
@@ -177,20 +257,15 @@ function CreateLoanForm() {
             ]
           }
         },
-        avals: [
-          {
-            fullName: '',
-            phones: [
-              {
-                number: ''
-              }
-            ]
-          }
-        ],
+        avalName: '',
+        avalPhone: '',
         previousLoan: {
           id: '',
           pendingAmount: '0',
+          avalName: '',
+          avalPhone: '',
           borrower: {
+            id: '',
             personalData: {
               fullName: '',
               phones: [
@@ -200,7 +275,8 @@ function CreateLoanForm() {
               ]
             }
           },
-        }
+        },
+        comission: comission.toString()
       }
     ]);
   };
@@ -210,60 +286,109 @@ function CreateLoanForm() {
     setNewLoans(updatedLoans);
   };
 
-  const handleChange = (index: number, field: keyof Loan, value: string) => {
+  const handleChange = (index: number, field: keyof Omit<Loan, 'lead'>, value: string) => {
     const updatedLoans = [...newLoans];
     updatedLoans[index] = { ...updatedLoans[index] }; // Create a shallow copy of the loan object
     if (field === 'loantype') {
-      updatedLoans[index][field] = { id: value, name: loanTypesData?.loantypes.find(type => type.id === value)?.name || '' };
+      updatedLoans[index][field] = {
+        id: value,
+        name: loanTypesData?.loantypes.find(type => type.id === value)?.name || '' ,
+        weekDuration: loanTypesData?.loantypes.find(type => type.id === value)?.weekDuration || 0,
+        rate: loanTypesData?.loantypes.find(type => type.id === value)?.rate || ''
+      };
     } else {
       if (field === 'borrower') {
-        updatedLoans[index][field] = { personalData: { fullName: value, phones: [{ number: '' }] } };
-      }else if(field === 'previousLoan') {
-        const previousLoan = loans.find(loan => loan.id === value);
-
-        console.log("///////", previousLoan?.pendingAmount);
-        updatedLoans[index][field] = {
-          id: value, 
-          pendingAmount: previousLoan?.pendingAmount === undefined ? '0' : previousLoan.pendingAmount,
-          borrower: previousLoan?.borrower || { personalData: { fullName: '', phones: [{ number: '' }] } }
-        };
-        updatedLoans[index].pendingAmount = previousLoan?.pendingAmount === undefined ? '0' : previousLoan.pendingAmount;
-
-        console.log(updatedLoans)
-        console.log("///////", previousLoan?.borrower?.personalData?.fullName);
-        console.log("///////", previousLoan?.borrower?.personalData?.phones[0]?.number);
         updatedLoans[index].borrower = { 
           ...updatedLoans[index].borrower, 
           personalData: { 
             ...updatedLoans[index].borrower.personalData, 
-            fullName: previousLoan?.borrower?.personalData?.fullName || '', 
-            phones: previousLoan?.borrower?.personalData?.phones || [{ number: '' }] 
-
+            fullName: value 
           } 
         };
-        // Assuming you have fields for aval name and phone number
-        updatedLoans[index].avals = previousLoan?.avals.map(aval => ({
-          fullName: aval.fullName,
-          phones: aval.phones
-        })) || [{ fullName: '', phones: [{ number: '' }] }];
+      } else if (field === 'borrowerPhone') {
+        updatedLoans[index].borrower = { 
+          ...updatedLoans[index].borrower, 
+          personalData: { 
+            ...updatedLoans[index].borrower.personalData, 
+            phones: [{ number: value }] 
+          } 
+        };
+      
+      }else if (field === 'previousLoan' && value === '') {
+          updatedLoans[index].previousLoan = {
+            id: '',
+            pendingAmount: '0',
+            avalName: '',
+            avalPhone: '',
+            borrower: {
+              id: '',
+              personalData: {
+                fullName: '',
+                phones: [{ number: '' }]
+              }
+            }
+          };
+          updatedLoans[index].amountGived = '';
+          updatedLoans[index].amountToPay = '';
+          updatedLoans[index].avalName = '';
+          updatedLoans[index].avalPhone = '';
+          updatedLoans[index].borrower = {
+            id: '',
+            personalData: {
+              id: '',
+              fullName: '',
+              phones: [{ number: '' }]
+            }
+          };
+        } else if (field === 'previousLoan') {
+        const previousLoan = loans.find(loan => loan.id === value);
+        updatedLoans[index]['borrower'] = {
+          id: previousLoan?.borrower?.id || '',
+          personalData: {
+            id: previousLoan?.borrower?.personalData.id || '',
+            fullName: previousLoan?.borrower?.personalData.fullName || '',
+            phones: previousLoan?.borrower?.personalData.phones || [{ number: '' }]
+          }
+        };
+        updatedLoans[index]['avalName'] = previousLoan?.avalName || '';
+        updatedLoans[index]['avalPhone'] = previousLoan?.avalPhone || '';
+        updatedLoans[index]['pendingAmount'] = previousLoan?.pendingAmount || '0';
+        
+        if (previousLoan) {
+          updatedLoans[index]['previousLoan'] = previousLoan;
+        }
+        
+        console.log("previoooooos", previousLoan)
+        console.log("ACA ANDO", updatedLoans)
+        
       }else if(field === 'requestedAmount') {
         updatedLoans[index][field] = value;
         updatedLoans[index].amountGived = value;
         //updatedLoans[index].amountToPay = (Number(value) * 1.2).toString();
+        console.log("ACA ANDO1", field)
         if (updatedLoans[index].loantype.id) {
+          console.log("ACA ANDO")
           const selectedLoanType = loanTypesData?.loantypes.find(type => type.id === updatedLoans[index].loantype.id);
+          console.log("ACA ANDO88", updatedLoans[index], selectedLoanType)
           if (selectedLoanType) {
             const amountToPay = (1 + parseFloat(selectedLoanType.rate)) * parseFloat(value);
             updatedLoans[index].amountToPay = amountToPay.toString();
             updatedLoans[index].amountGived = amountToPay.toString();
-            const previousLoan = loans.find(loan => loan.id === value);
+            console.log("ACA ANDO2", value)
+            const previousLoan = updatedLoans[index].previousLoan;
+            console.log("ACA ANDO3", previousLoan)
+
             if(previousLoan) {
-              updatedLoans[index].amountGived = (amountToPay - parseFloat(previousLoan.pendingAmount)).toString();
-              //updatedLoans[index].pendingAmount = previousLoan.pendingAmount;
+            console.log("ACA ANDO4")
+              updatedLoans[index].amountGived = (parseFloat(updatedLoans[index].requestedAmount) - parseFloat(previousLoan.pendingAmount)).toString();
+              updatedLoans[index].pendingAmount = previousLoan.pendingAmount;
             }
 
           }
         }
+      }else{
+        updatedLoans[index][field] = value;
+        console.log("ACA ANDO5", updatedLoans[index][field]);
       }
     }
     console.log(updatedLoans);
@@ -280,8 +405,67 @@ function CreateLoanForm() {
   };
 
   const handleSubmit = async () => {
-    for (const loan of loans) {
-      await createLoan({ variables: { data: loan } });
+    console.log("handleSubmit");
+    if (!selectedDate) {
+      alert('Please select a date');
+      return;
+    }
+    console.log("handleSubmit2");
+
+    for (const loan of newLoans) {
+      console.log("handleSubmit3");
+      const weeklyPaymentAmount = parseFloat(loan.amountToPay) / loan.loantype.weekDuration;
+      const loanData:LoanCreateInput =  {
+        weeklyPaymentAmount: weeklyPaymentAmount.toString(),
+        requestedAmount: loan.requestedAmount,
+        amountToPay: loan.amountToPay,
+        amountGived: loan.amountGived,
+        loantype: { connect: { id: loan.loantype.id } },
+        signDate: selectedDate,
+        avalName: loan.avalName,
+        avalPhone: loan.avalPhone,
+        lead: { connect: { id: selectedLead?.value || '' }},
+        borrower: loan.previousLoan?.id
+        ? { connect: { id: loan.borrower.id } }
+        : {
+            create: {
+              personalData: {
+                create: {
+                  phones: { create: loan.borrower.personalData.phones },
+                  fullName: loan.borrower.personalData.fullName,
+                },
+              },
+            },
+          },
+        comissionAmount: loan.comission.toString()
+      }
+      if (loan.previousLoan.id) {
+        loanData.previousLoan = { connect: { id: loan.previousLoan.id } };
+        // Verificar si los datos del aval o del titular han cambiado
+      const previousLoan = loans.find(l => l.id === loan.previousLoan.id);
+      if (
+        loan.avalName !== previousLoan?.avalName ||
+        loan.avalPhone !== previousLoan?.avalPhone ||
+        loan.borrower.personalData.fullName !== previousLoan?.borrower.personalData.fullName ||
+        loan.borrower.personalData.phones[0]?.number !== previousLoan?.borrower.personalData.phones[0]?.number
+      ) {
+        // Actualizar la información del borrower
+        const updatePersonalDataInput = {
+          where: { id: loan.borrower?.personalData?.id },
+          data: {
+            fullName: loan.borrower.personalData.fullName,
+            phones: {
+              create: loan.borrower.personalData.phones.map(phone => ({
+                number: loan.borrower.personalData.phones[loan.borrower.personalData.phones.length - 1]?.number,
+              })),
+            },
+          },
+        };
+
+        await updatePersonalData({ variables: updatePersonalDataInput });
+      }
+    }
+      await createLoan({ variables: { data: loanData } });
     }
 
     alert('Loans created successfully!');
@@ -326,6 +510,16 @@ function CreateLoanForm() {
             }}
           />
         </Box>
+        <Box style={{ flex: 1 }} marginRight="medium">
+          <label>Comision</label>
+          <TextInput 
+            value={comission.toString()}
+            type='number'
+            onChange={(e) => setComission(parseInt(e.target.value))}
+          />
+          
+          
+        </Box>
       </Box>
       <Box
         style={{
@@ -347,82 +541,140 @@ function CreateLoanForm() {
       </Box>
       <Box>
 
-      <table style={{ overflow: 'visible' }}>
-          <thead>
-            <tr>
-              <th style={{ width: '150px' }}>Prestamo Previo</th>
-              <th style={{ width: '400px' }}>Tipo Prestamo</th>
-              <th style={{ width: '370px' }}>Nombre</th>
-              <th>Cantidad Solicitada</th>
-              <th>Cantidad Entregada</th>
-              <th>Cantidad a pagar</th>
-              <th style={{ width: '150px' }}>Deuda Previa</th>
-              <th style={{ width: '300px' }}>Nombre Aval</th>
-              <th style={{ width: '230px' }}>Telefono Aval</th>
-              <th style={{ width: '230px' }}>Telefono Titular</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {newLoans.map((loan, index) => (
-              <tr key={index}>
-                <td style={{ width: '400px' }}>
-                <Select
-                    options={loansData?.loans.map(loan => ({ value: loan.id, label: `${loan.borrower?.personalData?.fullName} (${loan.pendingAmount})` })) || []}
-                    value={
-                      loan.previousLoan?.id
-                        ? { value: loan.previousLoan.id, label: `${loan.previousLoan.borrower.personalData.fullName} ($${loan.previousLoan.pendingAmount})` }
-                        : null
-                    }
-                    onChange={(option) => handleChange(index, 'previousLoan', (option as Option).value)}
-
-                  />
-                </td>
-                <td>
-                  <Select
-                    options={loanTypesData?.loantypes.map(type => ({ value: type.id, label: type.name })) || []}
-                    value={loan.loantype ? { value: loan.loantype.id, label: loan.loantype.name } : null}
-                    onChange={(option) => handleChange(index, 'loantype', (option as Option).value)}
-                  />
-                </td>
-                <td style={{ width: '200px' }}>
-                  <TextInput value={loan.borrower.personalData.fullName} onChange={(e) => handleChange(index, 'borrower', e.target.value)} />
-                </td>
-                <td>
-                  <TextInput value={loan.requestedAmount} onChange={(e) => handleChange(index, 'requestedAmount', e.target.value)} />
-                </td>
-                <td>
-                  <TextInput value={loan.amountGived} onChange={(e) => handleChange(index, 'amountGived', e.target.value)} 
-                    readOnly style={{ backgroundColor: '#f0f0f0', color: '#888' }}
-                  />
-                </td>
-                <td>
-                  <TextInput value={loan.amountToPay} onChange={(e) => handleChange(index, 'amountToPay', e.target.value)} 
-                    readOnly style={{ backgroundColor: '#f0f0f0', color: '#888' }}
-                    />
-                </td>
-                
-                <td>
-                  <TextInput value={loan.pendingAmount} 
-                    readOnly style={{ backgroundColor: '#f0f0f0', color: '#888' }}
-                  />
-                </td>
-                <td>
-                  <TextInput value={loan.avals[0]?.fullName} onChange={(e) => handleChange(index, 'avals', e.target.value)} />
-                </td>
-                <td>
-                  <TextInput value={loan.avals[0]?.phones[0]?.number} onChange={(e) => handleChange(index, 'avals', e.target.value)} />
-                </td>
-                <td>
-                  <TextInput value={loan.borrower?.personalData?.phones[0]?.number} onChange={(e) => handleChange(index, 'borrower', e.target.value)} />
-                </td>
-                <td>
-                <Button onClick={() => handleRemoveLoan(index)}><FaTrash /></Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <Box className="table">
+        <div className="table-row table-header">
+        <div className="table-cell fixed-width">Prestamo Previo</div>
+  <div className="table-cell fixed-width">Tipo Prestamo</div>
+  <div className="table-cell fixed-width">Nombre</div>
+  <div className="table-cell fixed-width">Cantidad Solicitada</div>
+  <div className="table-cell fixed-width">Cantidad Entregada</div>
+  <div className="table-cell fixed-width">Cantidad a pagar</div>
+  <div className="table-cell fixed-width">Deuda Previa</div>
+  <div className="table-cell fixed-width">Nombre Aval</div>
+  <div className="table-cell fixed-width">Telefono Aval</div>
+  <div className="table-cell fixed-width">Telefono Titular</div>
+  <div className="table-cell">Comision</div>
+  <div className="table-cell"></div>
+        </div>
+        {newLoans.map((loan, index) => (
+          <div key={index} className="table-row">
+            <div className={`fixed-width table-cell input-cell ${focusedInput === `previousLoan-${index}` ? 'focused' : ''}`}>
+              <Select
+                options={[
+                  { value: '', label: 'Seleccionar cliente' }, // Opción vacía
+                  ...(loans.map(loan => ({ 
+                    value: loan.id, 
+                    label: `${loan.borrower?.personalData?.fullName} (${loan.pendingAmount})` 
+                  })) || [])
+                ]}
+                value={
+                  loan.previousLoan?.id
+                    ? { value: loan.previousLoan.id, label: `${loan.previousLoan.borrower?.personalData?.fullName} ($${loan.previousLoan?.pendingAmount})` }
+                    : { value: '', label: 'Seleccionar cliente' } // Valor por defecto
+                }
+                onChange={(option) => {
+                  const selectedValue = (option as Option).value;
+                  if (selectedValue === '') {
+                    handleChange(index, 'previousLoan', ''); // Limpiar la selección
+                  } else {
+                    handleChange(index, 'previousLoan', selectedValue);
+                  }
+                }}
+                onFocus={() => setFocusedInput(`previousLoan-${index}`)}
+                onBlur={() => setFocusedInput(null)}
+              />
+            </div>
+            <div className={`fixed-width table-cell input-cell ${focusedInput === `loantype-${index}` ? 'focused' : ''}`}>
+              <Select
+                options={loanTypesData?.loantypes.map(type => ({ value: type.id, label: type.name })) || []}
+                value={loan.loantype ? { value: loan.loantype.id, label: loan.loantype.name } : null}
+                onChange={(option) => handleChange(index, 'loantype', (option as Option).value)}
+                onFocus={() => setFocusedInput(`loantype-${index}`)}
+                onBlur={() => setFocusedInput(null)}
+              />
+            </div>
+            <div className={`fixed-width table-cell input-cell ${focusedInput === `borrower-${index}` ? 'focused' : ''}`}>
+              <TextInput 
+                value={loan.borrower?.personalData.fullName}
+                onChange={(e) => handleChange(index, 'borrower', e.target.value)}
+                onFocus={() => setFocusedInput(`borrower-${index}`)}
+                onBlur={() => setFocusedInput(null)}
+              />
+            </div>
+            <div className={`fixed-width table-cell input-cell ${focusedInput === `requestedAmount-${index}` ? 'focused' : ''}`}>
+              <TextInput 
+                value={loan.requestedAmount} 
+                onChange={(e) => handleChange(index, 'requestedAmount', e.target.value)} 
+                onFocus={() => setFocusedInput(`requestedAmount-${index}`)}
+                onBlur={() => setFocusedInput(null)}
+              />
+            </div>
+            <div className={`fixed-width table-cell input-cell ${focusedInput === `amountGived-${index}` ? 'focused' : ''}`}>
+              <TextInput 
+                value={loan.amountGived} 
+                onChange={(e) => handleChange(index, 'amountGived', e.target.value)} 
+                readOnly 
+                style={{ backgroundColor: '#f0f0f0', color: '#888' }}
+                onFocus={() => setFocusedInput(`amountGived-${index}`)}
+                onBlur={() => setFocusedInput(null)}
+              />
+            </div>
+            <div className={`fixed-width table-cell input-cell ${focusedInput === `amountToPay-${index}` ? 'focused' : ''}`}>
+              <TextInput 
+                value={loan.amountToPay} 
+                onChange={(e) => handleChange(index, 'amountToPay', e.target.value)} 
+                readOnly 
+                style={{ backgroundColor: '#f0f0f0', color: '#888' }}
+                onFocus={() => setFocusedInput(`amountToPay-${index}`)}
+                onBlur={() => setFocusedInput(null)}
+              />
+            </div>
+            <div className={`fixed-width table-cell input-cell ${focusedInput === `pendingAmount-${index}` ? 'focused' : ''}`}>
+              <TextInput 
+                value={loan.pendingAmount} 
+                onChange={(e) => handleChange(index, 'pendingAmount', e.target.value)} 
+                readOnly 
+                style={{ backgroundColor: '#f0f0f0', color: '#888' }}
+                onFocus={() => setFocusedInput(`pendingAmount-${index}`)}
+                onBlur={() => setFocusedInput(null)}
+              />
+            </div>
+            <div className={`fixed-width table-cell input-cell ${focusedInput === `avalName-${index}` ? 'focused' : ''}`}>
+              <TextInput 
+                value={loan.avalName} 
+                onChange={(e) => handleChange(index, 'avalName', e.target.value)} 
+                onFocus={() => setFocusedInput(`avalName-${index}`)}
+                onBlur={() => setFocusedInput(null)}
+              />
+            </div>
+            <div className={`fixed-width table-cell input-cell ${focusedInput === `avalPhone-${index}` ? 'focused' : ''}`}>
+              <TextInput 
+                value={loan.avalPhone} 
+                onChange={(e) => handleChange(index, 'avalPhone', e.target.value)} 
+                onFocus={() => setFocusedInput(`avalPhone-${index}`)}
+                onBlur={() => setFocusedInput(null)}
+              />
+            </div>
+            <div className={`fixed-width table-cell input-cell ${focusedInput === `borrowerPhone-${index}` ? 'focused' : ''}`}>
+              <TextInput 
+                value={loan.borrower?.personalData?.phones[loan.borrower.personalData.phones.length - 1]?.number || ''} 
+                onChange={(e) => handleChange(index, 'borrowerPhone', e.target.value)}
+                onFocus={() => setFocusedInput(`borrowerPhone-${index}`)}
+                onBlur={() => setFocusedInput(null)}
+              />
+            </div>
+            <div className={`table-cell input-cell ${focusedInput === `borrowerPhone-${index}` ? 'focused' : ''}`}>
+              <TextInput 
+                defaultValue={comission.toString()}
+                onChange={(e) => handleChange(index, 'comission', e.target.value)}
+              />
+            </div>
+            <div className="table-cell">
+              <Button onClick={() => handleRemoveLoan(index)}><FaTrash /></Button>
+            </div>
+          </div>
+        ))}
+      </Box>
       </Box>
       <Box marginTop="large">
         <Button onClick={handleAddLoan}>Add Another Loan</Button>

@@ -158,7 +158,6 @@ export const Address = list({
 export const Borrower = list({
   access: allowAll,
   fields: {
-    email: text({ isIndexed: 'unique' }),
     personalData: relationship({ ref: 'PersonalData.borrower' }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),
@@ -181,8 +180,6 @@ export const PersonalData = list({
     updatedAt: timestamp(),
     employee: relationship({ ref: 'Employee.personalData' }),
     borrower: relationship({ ref: 'Borrower.personalData' }),
-    curp: text({ isIndexed: 'unique' }),
-    loan: relationship({ ref: 'Loan.avals' }),
   },
 });
 
@@ -231,27 +228,33 @@ export const Loan = list({
       }
     }),
     loantype: relationship({ ref: 'Loantype.loan' }),
-    previousAmountGived: decimal(),
-    renovationProfitAmount: decimal({ defaultValue: "0"}),
-    renovationPendingAmount: decimal({ defaultValue: "0"}),
-    baseProfitAmount: decimal({ defaultValue: "0"}),
-    totalProfitAmount: decimal({ defaultValue: "0"}),
-    signDate: timestamp({ defaultValue: { kind: 'now' } }),
-    finishedDate: timestamp(),
-    loanLeadId: text(),
-    createdAt: timestamp({ defaultValue: { kind: 'now' } }),
+    /* previousAmountGived: decimal(), */
+    /* renovationProfitAmount: decimal({ defaultValue: "0"}), */
+    //renovationPendingAmount: decimal({ defaultValue: "0"}),
+    /* baseProfitAmount: decimal({ defaultValue: "0"}),
+    totalProfitAmount: decimal({ defaultValue: "0"}), */
+    signDate: timestamp({ defaultValue: { kind: 'now' }, validation: { isRequired: true } }),
+    
+    /* loanLeadId: text(), */
+    /* phoneNumber: text(), */
+    avalName: text(),
+    avalPhone: text(),
     grantor: relationship({ ref: 'Employee.loan' }),
-    updatedAt: timestamp(),
     //loanTypeId: text(),
     //grantorId: text(),
-    transaction: relationship({ ref: 'Transaction.loan' }),
+    transaction: relationship({ ref: 'Transaction.loan', many: true }),
     lead: relationship({ ref: 'Employee.LeadManagedLoans'}),
     borrower: relationship({ 
       ref: 'Borrower.loans',
-     }),
-    avals: relationship({ ref: 'PersonalData.loan', many: true }),
-    commissionPayment: relationship({ ref: 'CommissionPayment.loan', many: true }),
+    }),
     previousLoan: relationship({ ref: 'Loan' }), // Agrego esta línea
+    commissionPayment: relationship({ ref: 'CommissionPayment.loan', many: true }),
+    //avals: relationship({ ref: 'PersonalData.loan', many: true }),
+    comissionAmount: decimal(),
+    finishedDate: timestamp({validation: { isRequired: false }}),
+    updatedAt: timestamp(),
+    createdAt: timestamp({ defaultValue: { kind: 'now' } }),
+    //virtual fields
     totalpayedAmount: virtual({
       field: graphql.field({
         type: graphql.Float,
@@ -274,6 +277,14 @@ export const Loan = list({
         },
       }),
     }),
+    status: select({
+      options: [
+        { label: 'ACTIVO', value: 'ACTIVE' },
+        { label: 'FINALIZADO', value: 'FINISHED' },
+        { label: 'RENOVADO', value: 'RENOVATED' },
+        { label: 'CANCELADO', value: 'CANCELED' },
+      ],
+    }),
   },
   hooks: {
     afterOperation: async ({ operation, item, context }) => {
@@ -291,6 +302,15 @@ export const Loan = list({
         const lead = await context.db.Employee.findOne({
           where: { id: leadId },            
         });
+
+        // si status es igual a finalizado/renavado/cancelado, entonces se setea la fecha de termino
+        if(item.status === 'FINISHED' || item.status === 'RENOVATED' || item.status === 'CANCELED'){
+          context.db.Loan.updateOne({
+            where: { id: item.id.toString() },
+            data: { finishedDate: new Date() },
+          })
+        }
+
         console.log("////////////LEADID///////////", lead)
 
 
@@ -299,8 +319,9 @@ export const Loan = list({
         });
 
 
-        const transaction = await context.db.Transaction.createOne({
-          data: {
+        const transactions = await context.db.Transaction.createMany({
+          data: [
+            {
             amount: item.amountGived,
             date: item.signDate,
             type: 'EXPENSE',
@@ -308,8 +329,18 @@ export const Loan = list({
             sourceAccount: { connect: { id: account[0].id } },
             loan: { connect: { id: item.id } },
           },
+          {
+            amount: item.comissionAmount,
+            date: item.signDate,
+            type: 'EXPENSE',
+            expenseSource: 'LOAN_GRANTED_COMISSION',
+            sourceAccount: { connect: { id: account[0].id } },
+            loan: { connect: { id: item.id } },
+          }
+        ]
         });
-        console.log("////////////transaction///////////", transaction)
+       
+        console.log("////////////transaction///////////", transactions)
         //vamos a descontar la cantidad otorgada de la cuenta asociada a la ruta a la que pertence la loanLEad
         /* const route = await context..Route.findOne({
           where: { id: data.loanLeadId },

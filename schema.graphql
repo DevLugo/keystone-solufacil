@@ -880,7 +880,6 @@ input LocationRelateToOneForCreateInput {
 
 type Borrower {
   id: ID!
-  email: String
   personalData: PersonalData
   createdAt: DateTime
   updatedAt: DateTime
@@ -891,7 +890,6 @@ type Borrower {
 
 input BorrowerWhereUniqueInput {
   id: ID
-  email: String
 }
 
 input BorrowerWhereInput {
@@ -899,7 +897,6 @@ input BorrowerWhereInput {
   OR: [BorrowerWhereInput!]
   NOT: [BorrowerWhereInput!]
   id: IDFilter
-  email: StringFilter
   personalData: PersonalDataWhereInput
   createdAt: DateTimeNullableFilter
   updatedAt: DateTimeNullableFilter
@@ -909,14 +906,12 @@ input BorrowerWhereInput {
 
 input BorrowerOrderByInput {
   id: OrderDirection
-  email: OrderDirection
   createdAt: OrderDirection
   updatedAt: OrderDirection
   loanFinishedCount: OrderDirection
 }
 
 input BorrowerUpdateInput {
-  email: String
   personalData: PersonalDataRelateToOneForUpdateInput
   createdAt: DateTime
   updatedAt: DateTime
@@ -930,7 +925,6 @@ input BorrowerUpdateArgs {
 }
 
 input BorrowerCreateInput {
-  email: String
   personalData: PersonalDataRelateToOneForCreateInput
   createdAt: DateTime
   updatedAt: DateTime
@@ -950,13 +944,10 @@ type PersonalData {
   updatedAt: DateTime
   employee: Employee
   borrower: Borrower
-  curp: String
-  loan: Loan
 }
 
 input PersonalDataWhereUniqueInput {
   id: ID
-  curp: String
 }
 
 input PersonalDataWhereInput {
@@ -972,8 +963,6 @@ input PersonalDataWhereInput {
   updatedAt: DateTimeNullableFilter
   employee: EmployeeWhereInput
   borrower: BorrowerWhereInput
-  curp: StringFilter
-  loan: LoanWhereInput
 }
 
 input PhoneManyRelationFilter {
@@ -988,7 +977,6 @@ input PersonalDataOrderByInput {
   birthDate: OrderDirection
   createdAt: OrderDirection
   updatedAt: OrderDirection
-  curp: OrderDirection
 }
 
 input PersonalDataUpdateInput {
@@ -1000,8 +988,6 @@ input PersonalDataUpdateInput {
   updatedAt: DateTime
   employee: EmployeeRelateToOneForUpdateInput
   borrower: BorrowerRelateToOneForUpdateInput
-  curp: String
-  loan: LoanRelateToOneForUpdateInput
 }
 
 input PhoneRelateToManyForUpdateInput {
@@ -1014,12 +1000,6 @@ input PhoneRelateToManyForUpdateInput {
 input BorrowerRelateToOneForUpdateInput {
   create: BorrowerCreateInput
   connect: BorrowerWhereUniqueInput
-  disconnect: Boolean
-}
-
-input LoanRelateToOneForUpdateInput {
-  create: LoanCreateInput
-  connect: LoanWhereUniqueInput
   disconnect: Boolean
 }
 
@@ -1037,8 +1017,6 @@ input PersonalDataCreateInput {
   updatedAt: DateTime
   employee: EmployeeRelateToOneForCreateInput
   borrower: BorrowerRelateToOneForCreateInput
-  curp: String
-  loan: LoanRelateToOneForCreateInput
 }
 
 input PhoneRelateToManyForCreateInput {
@@ -1051,11 +1029,6 @@ input BorrowerRelateToOneForCreateInput {
   connect: BorrowerWhereUniqueInput
 }
 
-input LoanRelateToOneForCreateInput {
-  create: LoanCreateInput
-  connect: LoanWhereUniqueInput
-}
-
 type Loan {
   id: ID!
   payments(where: LoanPaymentWhereInput! = {}, orderBy: [LoanPaymentOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: LoanPaymentWhereUniqueInput): [LoanPayment!]
@@ -1065,27 +1038,24 @@ type Loan {
   amountGived: Decimal
   amountToPay: Decimal
   loantype: Loantype
-  previousAmountGived: Decimal
-  renovationProfitAmount: Decimal
-  renovationPendingAmount: Decimal
-  baseProfitAmount: Decimal
-  totalProfitAmount: Decimal
   signDate: DateTime
-  finishedDate: DateTime
-  loanLeadId: String
-  createdAt: DateTime
+  avalName: String
+  avalPhone: String
   grantor: Employee
-  updatedAt: DateTime
-  transaction: Transaction
+  transaction(where: TransactionWhereInput! = {}, orderBy: [TransactionOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TransactionWhereUniqueInput): [Transaction!]
+  transactionCount(where: TransactionWhereInput! = {}): Int
   lead: Employee
   borrower: Borrower
-  avals(where: PersonalDataWhereInput! = {}, orderBy: [PersonalDataOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: PersonalDataWhereUniqueInput): [PersonalData!]
-  avalsCount(where: PersonalDataWhereInput! = {}): Int
+  previousLoan: Loan
   commissionPayment(where: CommissionPaymentWhereInput! = {}, orderBy: [CommissionPaymentOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: CommissionPaymentWhereUniqueInput): [CommissionPayment!]
   commissionPaymentCount(where: CommissionPaymentWhereInput! = {}): Int
-  previousLoan: Loan
+  comissionAmount: Decimal
+  finishedDate: DateTime
+  updatedAt: DateTime
+  createdAt: DateTime
   totalpayedAmount: Float
   pendingAmount: Float
+  status: String
 }
 
 input LoanWhereUniqueInput {
@@ -1103,23 +1073,20 @@ input LoanWhereInput {
   amountGived: DecimalFilter
   amountToPay: DecimalFilter
   loantype: LoantypeWhereInput
-  previousAmountGived: DecimalNullableFilter
-  renovationProfitAmount: DecimalNullableFilter
-  renovationPendingAmount: DecimalNullableFilter
-  baseProfitAmount: DecimalNullableFilter
-  totalProfitAmount: DecimalNullableFilter
-  signDate: DateTimeNullableFilter
-  finishedDate: DateTimeNullableFilter
-  loanLeadId: StringFilter
-  createdAt: DateTimeNullableFilter
+  signDate: DateTimeFilter
+  avalName: StringFilter
+  avalPhone: StringFilter
   grantor: EmployeeWhereInput
-  updatedAt: DateTimeNullableFilter
-  transaction: TransactionWhereInput
+  transaction: TransactionManyRelationFilter
   lead: EmployeeWhereInput
   borrower: BorrowerWhereInput
-  avals: PersonalDataManyRelationFilter
-  commissionPayment: CommissionPaymentManyRelationFilter
   previousLoan: LoanWhereInput
+  commissionPayment: CommissionPaymentManyRelationFilter
+  comissionAmount: DecimalNullableFilter
+  finishedDate: DateTimeNullableFilter
+  updatedAt: DateTimeNullableFilter
+  createdAt: DateTimeNullableFilter
+  status: StringNullableFilter
 }
 
 input LoanPaymentManyRelationFilter {
@@ -1139,10 +1106,21 @@ input DecimalFilter {
   not: DecimalFilter
 }
 
-input PersonalDataManyRelationFilter {
-  every: PersonalDataWhereInput
-  some: PersonalDataWhereInput
-  none: PersonalDataWhereInput
+input DateTimeFilter {
+  equals: DateTime
+  in: [DateTime!]
+  notIn: [DateTime!]
+  lt: DateTime
+  lte: DateTime
+  gt: DateTime
+  gte: DateTime
+  not: DateTimeFilter
+}
+
+input TransactionManyRelationFilter {
+  every: TransactionWhereInput
+  some: TransactionWhereInput
+  none: TransactionWhereInput
 }
 
 input LoanOrderByInput {
@@ -1151,16 +1129,14 @@ input LoanOrderByInput {
   requestedAmount: OrderDirection
   amountGived: OrderDirection
   amountToPay: OrderDirection
-  previousAmountGived: OrderDirection
-  renovationProfitAmount: OrderDirection
-  renovationPendingAmount: OrderDirection
-  baseProfitAmount: OrderDirection
-  totalProfitAmount: OrderDirection
   signDate: OrderDirection
+  avalName: OrderDirection
+  avalPhone: OrderDirection
+  comissionAmount: OrderDirection
   finishedDate: OrderDirection
-  loanLeadId: OrderDirection
-  createdAt: OrderDirection
   updatedAt: OrderDirection
+  createdAt: OrderDirection
+  status: OrderDirection
 }
 
 input LoanUpdateInput {
@@ -1170,23 +1146,20 @@ input LoanUpdateInput {
   amountGived: Decimal
   amountToPay: Decimal
   loantype: LoantypeRelateToOneForUpdateInput
-  previousAmountGived: Decimal
-  renovationProfitAmount: Decimal
-  renovationPendingAmount: Decimal
-  baseProfitAmount: Decimal
-  totalProfitAmount: Decimal
   signDate: DateTime
-  finishedDate: DateTime
-  loanLeadId: String
-  createdAt: DateTime
+  avalName: String
+  avalPhone: String
   grantor: EmployeeRelateToOneForUpdateInput
-  updatedAt: DateTime
-  transaction: TransactionRelateToOneForUpdateInput
+  transaction: TransactionRelateToManyForUpdateInput
   lead: EmployeeRelateToOneForUpdateInput
   borrower: BorrowerRelateToOneForUpdateInput
-  avals: PersonalDataRelateToManyForUpdateInput
-  commissionPayment: CommissionPaymentRelateToManyForUpdateInput
   previousLoan: LoanRelateToOneForUpdateInput
+  commissionPayment: CommissionPaymentRelateToManyForUpdateInput
+  comissionAmount: Decimal
+  finishedDate: DateTime
+  updatedAt: DateTime
+  createdAt: DateTime
+  status: String
 }
 
 input LoanPaymentRelateToManyForUpdateInput {
@@ -1202,17 +1175,17 @@ input LoantypeRelateToOneForUpdateInput {
   disconnect: Boolean
 }
 
-input TransactionRelateToOneForUpdateInput {
-  create: TransactionCreateInput
-  connect: TransactionWhereUniqueInput
-  disconnect: Boolean
+input TransactionRelateToManyForUpdateInput {
+  disconnect: [TransactionWhereUniqueInput!]
+  set: [TransactionWhereUniqueInput!]
+  create: [TransactionCreateInput!]
+  connect: [TransactionWhereUniqueInput!]
 }
 
-input PersonalDataRelateToManyForUpdateInput {
-  disconnect: [PersonalDataWhereUniqueInput!]
-  set: [PersonalDataWhereUniqueInput!]
-  create: [PersonalDataCreateInput!]
-  connect: [PersonalDataWhereUniqueInput!]
+input LoanRelateToOneForUpdateInput {
+  create: LoanCreateInput
+  connect: LoanWhereUniqueInput
+  disconnect: Boolean
 }
 
 input LoanUpdateArgs {
@@ -1227,23 +1200,20 @@ input LoanCreateInput {
   amountGived: Decimal
   amountToPay: Decimal
   loantype: LoantypeRelateToOneForCreateInput
-  previousAmountGived: Decimal
-  renovationProfitAmount: Decimal
-  renovationPendingAmount: Decimal
-  baseProfitAmount: Decimal
-  totalProfitAmount: Decimal
   signDate: DateTime
-  finishedDate: DateTime
-  loanLeadId: String
-  createdAt: DateTime
+  avalName: String
+  avalPhone: String
   grantor: EmployeeRelateToOneForCreateInput
-  updatedAt: DateTime
-  transaction: TransactionRelateToOneForCreateInput
+  transaction: TransactionRelateToManyForCreateInput
   lead: EmployeeRelateToOneForCreateInput
   borrower: BorrowerRelateToOneForCreateInput
-  avals: PersonalDataRelateToManyForCreateInput
-  commissionPayment: CommissionPaymentRelateToManyForCreateInput
   previousLoan: LoanRelateToOneForCreateInput
+  commissionPayment: CommissionPaymentRelateToManyForCreateInput
+  comissionAmount: Decimal
+  finishedDate: DateTime
+  updatedAt: DateTime
+  createdAt: DateTime
+  status: String
 }
 
 input LoanPaymentRelateToManyForCreateInput {
@@ -1256,14 +1226,14 @@ input LoantypeRelateToOneForCreateInput {
   connect: LoantypeWhereUniqueInput
 }
 
-input TransactionRelateToOneForCreateInput {
-  create: TransactionCreateInput
-  connect: TransactionWhereUniqueInput
+input TransactionRelateToManyForCreateInput {
+  create: [TransactionCreateInput!]
+  connect: [TransactionWhereUniqueInput!]
 }
 
-input PersonalDataRelateToManyForCreateInput {
-  create: [PersonalDataCreateInput!]
-  connect: [PersonalDataWhereUniqueInput!]
+input LoanRelateToOneForCreateInput {
+  create: LoanCreateInput
+  connect: LoanWhereUniqueInput
 }
 
 type LoanPayment {
@@ -1333,6 +1303,12 @@ input LoanPaymentUpdateInput {
   paymentMethod: String
 }
 
+input TransactionRelateToOneForUpdateInput {
+  create: TransactionCreateInput
+  connect: TransactionWhereUniqueInput
+  disconnect: Boolean
+}
+
 input LeadPaymentReceivedRelateToOneForUpdateInput {
   create: LeadPaymentReceivedCreateInput
   connect: LeadPaymentReceivedWhereUniqueInput
@@ -1357,6 +1333,11 @@ input LoanPaymentCreateInput {
   type: String
   leadPaymentReceived: LeadPaymentReceivedRelateToOneForCreateInput
   paymentMethod: String
+}
+
+input TransactionRelateToOneForCreateInput {
+  create: TransactionCreateInput
+  connect: TransactionWhereUniqueInput
 }
 
 input LeadPaymentReceivedRelateToOneForCreateInput {
@@ -1707,12 +1688,6 @@ input AccountWhereInput {
   createdAt: DateTimeNullableFilter
 }
 
-input TransactionManyRelationFilter {
-  every: TransactionWhereInput
-  some: TransactionWhereInput
-  none: TransactionWhereInput
-}
-
 input AccountOrderByInput {
   id: OrderDirection
   name: OrderDirection
@@ -1733,13 +1708,6 @@ input AccountUpdateInput {
   createdAt: DateTime
 }
 
-input TransactionRelateToManyForUpdateInput {
-  disconnect: [TransactionWhereUniqueInput!]
-  set: [TransactionWhereUniqueInput!]
-  create: [TransactionCreateInput!]
-  connect: [TransactionWhereUniqueInput!]
-}
-
 input AccountUpdateArgs {
   where: AccountWhereUniqueInput!
   data: AccountUpdateInput!
@@ -1754,11 +1722,6 @@ input AccountCreateInput {
   route: RouteRelateToOneForCreateInput
   updatedAt: DateTime
   createdAt: DateTime
-}
-
-input TransactionRelateToManyForCreateInput {
-  create: [TransactionCreateInput!]
-  connect: [TransactionWhereUniqueInput!]
 }
 
 """

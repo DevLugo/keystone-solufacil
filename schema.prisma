@@ -127,7 +127,6 @@ model Address {
 
 model Borrower {
   id                String        @id @default(cuid())
-  email             String        @unique @default("")
   personalData      PersonalData? @relation("Borrower_personalData", fields: [personalDataId], references: [id])
   personalDataId    String?       @unique @map("personalData")
   createdAt         DateTime?     @default(now())
@@ -146,45 +145,36 @@ model PersonalData {
   updatedAt DateTime?
   employee  Employee? @relation("Employee_personalData")
   borrower  Borrower? @relation("Borrower_personalData")
-  curp      String    @unique @default("")
-  loan      Loan?     @relation("PersonalData_loan", fields: [loanId], references: [id])
-  loanId    String?   @map("loan")
-
-  @@index([loanId])
 }
 
 model Loan {
-  id                      String              @id @default(cuid())
-  payments                LoanPayment[]       @relation("LoanPayment_loan")
-  weeklyPaymentAmount     Decimal             @postgresql.Decimal(10, 2)
-  requestedAmount         Decimal             @postgresql.Decimal(10, 2)
-  amountGived             Decimal             @postgresql.Decimal(10, 2)
-  amountToPay             Decimal             @postgresql.Decimal(10, 2)
-  loantype                Loantype?           @relation("Loan_loantype", fields: [loantypeId], references: [id])
-  loantypeId              String?             @map("loantype")
-  previousAmountGived     Decimal?            @postgresql.Decimal(18, 4)
-  renovationProfitAmount  Decimal?            @default("0") @postgresql.Decimal(18, 4)
-  renovationPendingAmount Decimal?            @default("0") @postgresql.Decimal(18, 4)
-  baseProfitAmount        Decimal?            @default("0") @postgresql.Decimal(18, 4)
-  totalProfitAmount       Decimal?            @default("0") @postgresql.Decimal(18, 4)
-  signDate                DateTime?           @default(now())
-  finishedDate            DateTime?
-  loanLeadId              String              @default("")
-  createdAt               DateTime?           @default(now())
-  grantor                 Employee?           @relation("Loan_grantor", fields: [grantorId], references: [id])
-  grantorId               String?             @map("grantor")
-  updatedAt               DateTime?
-  transaction             Transaction?        @relation("Loan_transaction", fields: [transactionId], references: [id])
-  transactionId           String?             @unique @map("transaction")
-  lead                    Employee?           @relation("Loan_lead", fields: [leadId], references: [id])
-  leadId                  String?             @map("lead")
-  borrower                Borrower?           @relation("Loan_borrower", fields: [borrowerId], references: [id])
-  borrowerId              String?             @map("borrower")
-  avals                   PersonalData[]      @relation("PersonalData_loan")
-  commissionPayment       CommissionPayment[] @relation("CommissionPayment_loan")
-  previousLoan            Loan?               @relation("Loan_previousLoan", fields: [previousLoanId], references: [id])
-  previousLoanId          String?             @map("previousLoan")
-  from_Loan_previousLoan  Loan[]              @relation("Loan_previousLoan")
+  id                     String              @id @default(cuid())
+  payments               LoanPayment[]       @relation("LoanPayment_loan")
+  weeklyPaymentAmount    Decimal             @postgresql.Decimal(10, 2)
+  requestedAmount        Decimal             @postgresql.Decimal(10, 2)
+  amountGived            Decimal             @postgresql.Decimal(10, 2)
+  amountToPay            Decimal             @postgresql.Decimal(10, 2)
+  loantype               Loantype?           @relation("Loan_loantype", fields: [loantypeId], references: [id])
+  loantypeId             String?             @map("loantype")
+  signDate               DateTime            @default(now())
+  avalName               String              @default("")
+  avalPhone              String              @default("")
+  grantor                Employee?           @relation("Loan_grantor", fields: [grantorId], references: [id])
+  grantorId              String?             @map("grantor")
+  transaction            Transaction[]       @relation("Transaction_loan")
+  lead                   Employee?           @relation("Loan_lead", fields: [leadId], references: [id])
+  leadId                 String?             @map("lead")
+  borrower               Borrower?           @relation("Loan_borrower", fields: [borrowerId], references: [id])
+  borrowerId             String?             @map("borrower")
+  previousLoan           Loan?               @relation("Loan_previousLoan", fields: [previousLoanId], references: [id])
+  previousLoanId         String?             @map("previousLoan")
+  commissionPayment      CommissionPayment[] @relation("CommissionPayment_loan")
+  comissionAmount        Decimal?            @postgresql.Decimal(18, 4)
+  finishedDate           DateTime?
+  updatedAt              DateTime?
+  createdAt              DateTime?           @default(now())
+  status                 String?
+  from_Loan_previousLoan Loan[]              @relation("Loan_previousLoan")
 
   @@index([loantypeId])
   @@index([grantorId])
@@ -226,11 +216,13 @@ model Transaction {
   sourceAccountId      String?      @map("sourceAccount")
   destinationAccount   Account?     @relation("Transaction_destinationAccount", fields: [destinationAccountId], references: [id])
   destinationAccountId String?      @map("destinationAccount")
-  loan                 Loan?        @relation("Loan_transaction")
+  loan                 Loan?        @relation("Transaction_loan", fields: [loanId], references: [id])
+  loanId               String?      @map("loan")
   loanPayment          LoanPayment? @relation("LoanPayment_transaction")
 
   @@index([sourceAccountId])
   @@index([destinationAccountId])
+  @@index([loanId])
 }
 
 model CommissionPayment {
