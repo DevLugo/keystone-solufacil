@@ -124,10 +124,12 @@ input UserCreateInput {
 
 type Employee {
   id: ID!
-  name: String
+  oldId: String
   routes: Route
   expenses(where: ExpenseWhereInput! = {}, orderBy: [ExpenseOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ExpenseWhereUniqueInput): [Expense!]
   expensesCount(where: ExpenseWhereInput! = {}): Int
+  transactions(where: TransactionWhereInput! = {}, orderBy: [TransactionOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TransactionWhereUniqueInput): [Transaction!]
+  transactionsCount(where: TransactionWhereInput! = {}): Int
   personalData: PersonalData
   loan(where: LoanWhereInput! = {}, orderBy: [LoanOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: LoanWhereUniqueInput): [Loan!]
   loanCount(where: LoanWhereInput! = {}): Int
@@ -144,6 +146,7 @@ type Employee {
 
 input EmployeeWhereUniqueInput {
   id: ID
+  oldId: String
 }
 
 input EmployeeWhereInput {
@@ -151,9 +154,10 @@ input EmployeeWhereInput {
   OR: [EmployeeWhereInput!]
   NOT: [EmployeeWhereInput!]
   id: IDFilter
-  name: StringFilter
+  oldId: StringNullableFilter
   routes: RouteWhereInput
   expenses: ExpenseManyRelationFilter
+  transactions: TransactionManyRelationFilter
   personalData: PersonalDataWhereInput
   loan: LoanManyRelationFilter
   commissionPayment: CommissionPaymentManyRelationFilter
@@ -163,10 +167,31 @@ input EmployeeWhereInput {
   type: StringNullableFilter
 }
 
+input StringNullableFilter {
+  equals: String
+  in: [String!]
+  notIn: [String!]
+  lt: String
+  lte: String
+  gt: String
+  gte: String
+  contains: String
+  startsWith: String
+  endsWith: String
+  mode: QueryMode
+  not: StringNullableFilter
+}
+
 input ExpenseManyRelationFilter {
   every: ExpenseWhereInput
   some: ExpenseWhereInput
   none: ExpenseWhereInput
+}
+
+input TransactionManyRelationFilter {
+  every: TransactionWhereInput
+  some: TransactionWhereInput
+  none: TransactionWhereInput
 }
 
 input LoanManyRelationFilter {
@@ -187,31 +212,17 @@ input LeadPaymentReceivedManyRelationFilter {
   none: LeadPaymentReceivedWhereInput
 }
 
-input StringNullableFilter {
-  equals: String
-  in: [String!]
-  notIn: [String!]
-  lt: String
-  lte: String
-  gt: String
-  gte: String
-  contains: String
-  startsWith: String
-  endsWith: String
-  mode: QueryMode
-  not: StringNullableFilter
-}
-
 input EmployeeOrderByInput {
   id: OrderDirection
-  name: OrderDirection
+  oldId: OrderDirection
   type: OrderDirection
 }
 
 input EmployeeUpdateInput {
-  name: String
+  oldId: String
   routes: RouteRelateToOneForUpdateInput
   expenses: ExpenseRelateToManyForUpdateInput
+  transactions: TransactionRelateToManyForUpdateInput
   personalData: PersonalDataRelateToOneForUpdateInput
   loan: LoanRelateToManyForUpdateInput
   commissionPayment: CommissionPaymentRelateToManyForUpdateInput
@@ -232,6 +243,13 @@ input ExpenseRelateToManyForUpdateInput {
   set: [ExpenseWhereUniqueInput!]
   create: [ExpenseCreateInput!]
   connect: [ExpenseWhereUniqueInput!]
+}
+
+input TransactionRelateToManyForUpdateInput {
+  disconnect: [TransactionWhereUniqueInput!]
+  set: [TransactionWhereUniqueInput!]
+  create: [TransactionCreateInput!]
+  connect: [TransactionWhereUniqueInput!]
 }
 
 input PersonalDataRelateToOneForUpdateInput {
@@ -267,9 +285,10 @@ input EmployeeUpdateArgs {
 }
 
 input EmployeeCreateInput {
-  name: String
+  oldId: String
   routes: RouteRelateToOneForCreateInput
   expenses: ExpenseRelateToManyForCreateInput
+  transactions: TransactionRelateToManyForCreateInput
   personalData: PersonalDataRelateToOneForCreateInput
   loan: LoanRelateToManyForCreateInput
   commissionPayment: CommissionPaymentRelateToManyForCreateInput
@@ -287,6 +306,11 @@ input RouteRelateToOneForCreateInput {
 input ExpenseRelateToManyForCreateInput {
   create: [ExpenseCreateInput!]
   connect: [ExpenseWhereUniqueInput!]
+}
+
+input TransactionRelateToManyForCreateInput {
+  create: [TransactionCreateInput!]
+  connect: [TransactionWhereUniqueInput!]
 }
 
 input PersonalDataRelateToOneForCreateInput {
@@ -886,6 +910,7 @@ type Borrower {
   loanFinishedCount: Int
   loans(where: LoanWhereInput! = {}, orderBy: [LoanOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: LoanWhereUniqueInput): [Loan!]
   loansCount(where: LoanWhereInput! = {}): Int
+  fullName: String
 }
 
 input BorrowerWhereUniqueInput {
@@ -1031,14 +1056,15 @@ input BorrowerRelateToOneForCreateInput {
 
 type Loan {
   id: ID!
+  oldId: String
   payments(where: LoanPaymentWhereInput! = {}, orderBy: [LoanPaymentOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: LoanPaymentWhereUniqueInput): [LoanPayment!]
   paymentsCount(where: LoanPaymentWhereInput! = {}): Int
-  weeklyPaymentAmount: Decimal
   requestedAmount: Decimal
   amountGived: Decimal
-  amountToPay: Decimal
   loantype: Loantype
   signDate: DateTime
+  badDebtDate: DateTime
+  profitAmount: Decimal
   avalName: String
   avalPhone: String
   grantor: Employee
@@ -1053,13 +1079,18 @@ type Loan {
   finishedDate: DateTime
   updatedAt: DateTime
   createdAt: DateTime
-  totalpayedAmount: Float
+  pendingProfitAmount: Float
+  earnedProfit: Float
+  totalPayedAmount: Float
   pendingAmount: Float
+  weeklyPaymentAmount: Float
+  amountToPay: Float
   status: String
 }
 
 input LoanWhereUniqueInput {
   id: ID
+  oldId: String
 }
 
 input LoanWhereInput {
@@ -1067,13 +1098,14 @@ input LoanWhereInput {
   OR: [LoanWhereInput!]
   NOT: [LoanWhereInput!]
   id: IDFilter
+  oldId: StringNullableFilter
   payments: LoanPaymentManyRelationFilter
-  weeklyPaymentAmount: DecimalFilter
   requestedAmount: DecimalFilter
   amountGived: DecimalFilter
-  amountToPay: DecimalFilter
   loantype: LoantypeWhereInput
   signDate: DateTimeFilter
+  badDebtDate: DateTimeNullableFilter
+  profitAmount: DecimalNullableFilter
   avalName: StringFilter
   avalPhone: StringFilter
   grantor: EmployeeWhereInput
@@ -1117,19 +1149,14 @@ input DateTimeFilter {
   not: DateTimeFilter
 }
 
-input TransactionManyRelationFilter {
-  every: TransactionWhereInput
-  some: TransactionWhereInput
-  none: TransactionWhereInput
-}
-
 input LoanOrderByInput {
   id: OrderDirection
-  weeklyPaymentAmount: OrderDirection
+  oldId: OrderDirection
   requestedAmount: OrderDirection
   amountGived: OrderDirection
-  amountToPay: OrderDirection
   signDate: OrderDirection
+  badDebtDate: OrderDirection
+  profitAmount: OrderDirection
   avalName: OrderDirection
   avalPhone: OrderDirection
   comissionAmount: OrderDirection
@@ -1140,13 +1167,14 @@ input LoanOrderByInput {
 }
 
 input LoanUpdateInput {
+  oldId: String
   payments: LoanPaymentRelateToManyForUpdateInput
-  weeklyPaymentAmount: Decimal
   requestedAmount: Decimal
   amountGived: Decimal
-  amountToPay: Decimal
   loantype: LoantypeRelateToOneForUpdateInput
   signDate: DateTime
+  badDebtDate: DateTime
+  profitAmount: Decimal
   avalName: String
   avalPhone: String
   grantor: EmployeeRelateToOneForUpdateInput
@@ -1175,13 +1203,6 @@ input LoantypeRelateToOneForUpdateInput {
   disconnect: Boolean
 }
 
-input TransactionRelateToManyForUpdateInput {
-  disconnect: [TransactionWhereUniqueInput!]
-  set: [TransactionWhereUniqueInput!]
-  create: [TransactionCreateInput!]
-  connect: [TransactionWhereUniqueInput!]
-}
-
 input LoanRelateToOneForUpdateInput {
   create: LoanCreateInput
   connect: LoanWhereUniqueInput
@@ -1194,13 +1215,14 @@ input LoanUpdateArgs {
 }
 
 input LoanCreateInput {
+  oldId: String
   payments: LoanPaymentRelateToManyForCreateInput
-  weeklyPaymentAmount: Decimal
   requestedAmount: Decimal
   amountGived: Decimal
-  amountToPay: Decimal
   loantype: LoantypeRelateToOneForCreateInput
   signDate: DateTime
+  badDebtDate: DateTime
+  profitAmount: Decimal
   avalName: String
   avalPhone: String
   grantor: EmployeeRelateToOneForCreateInput
@@ -1226,11 +1248,6 @@ input LoantypeRelateToOneForCreateInput {
   connect: LoantypeWhereUniqueInput
 }
 
-input TransactionRelateToManyForCreateInput {
-  create: [TransactionCreateInput!]
-  connect: [TransactionWhereUniqueInput!]
-}
-
 input LoanRelateToOneForCreateInput {
   create: LoanCreateInput
   connect: LoanWhereUniqueInput
@@ -1245,6 +1262,7 @@ type LoanPayment {
   receivedAt: DateTime
   createdAt: DateTime
   updatedAt: DateTime
+  oldLoanId: String
   loan: Loan
   transaction: Transaction
   type: String
@@ -1268,6 +1286,7 @@ input LoanPaymentWhereInput {
   receivedAt: DateTimeNullableFilter
   createdAt: DateTimeNullableFilter
   updatedAt: DateTimeNullableFilter
+  oldLoanId: StringNullableFilter
   loan: LoanWhereInput
   transaction: TransactionWhereInput
   type: StringNullableFilter
@@ -1284,6 +1303,7 @@ input LoanPaymentOrderByInput {
   receivedAt: OrderDirection
   createdAt: OrderDirection
   updatedAt: OrderDirection
+  oldLoanId: OrderDirection
   type: OrderDirection
   paymentMethod: OrderDirection
 }
@@ -1296,6 +1316,7 @@ input LoanPaymentUpdateInput {
   receivedAt: DateTime
   createdAt: DateTime
   updatedAt: DateTime
+  oldLoanId: String
   loan: LoanRelateToOneForUpdateInput
   transaction: TransactionRelateToOneForUpdateInput
   type: String
@@ -1328,6 +1349,7 @@ input LoanPaymentCreateInput {
   receivedAt: DateTime
   createdAt: DateTime
   updatedAt: DateTime
+  oldLoanId: String
   loan: LoanRelateToOneForCreateInput
   transaction: TransactionRelateToOneForCreateInput
   type: String
@@ -1352,6 +1374,8 @@ type Transaction {
   type: String
   incomeSource: String
   expenseSource: String
+  description: String
+  lead: Employee
   sourceAccount: Account
   destinationAccount: Account
   loan: Loan
@@ -1372,6 +1396,8 @@ input TransactionWhereInput {
   type: StringNullableFilter
   incomeSource: StringNullableFilter
   expenseSource: StringNullableFilter
+  description: StringFilter
+  lead: EmployeeWhereInput
   sourceAccount: AccountWhereInput
   destinationAccount: AccountWhereInput
   loan: LoanWhereInput
@@ -1385,6 +1411,7 @@ input TransactionOrderByInput {
   type: OrderDirection
   incomeSource: OrderDirection
   expenseSource: OrderDirection
+  description: OrderDirection
 }
 
 input TransactionUpdateInput {
@@ -1393,6 +1420,8 @@ input TransactionUpdateInput {
   type: String
   incomeSource: String
   expenseSource: String
+  description: String
+  lead: EmployeeRelateToOneForUpdateInput
   sourceAccount: AccountRelateToOneForUpdateInput
   destinationAccount: AccountRelateToOneForUpdateInput
   loan: LoanRelateToOneForUpdateInput
@@ -1416,6 +1445,8 @@ input TransactionCreateInput {
   type: String
   incomeSource: String
   expenseSource: String
+  description: String
+  lead: EmployeeRelateToOneForCreateInput
   sourceAccount: AccountRelateToOneForCreateInput
   destinationAccount: AccountRelateToOneForCreateInput
   loan: LoanRelateToOneForCreateInput

@@ -54,12 +54,13 @@ export const Municipality = list({
 export const Employee = list({
   access: allowAll,
   fields: {
-    name: text(),
+    oldId: text({db: { isNullable: true }, isIndexed: 'unique'}),
     routes: relationship({
       ref: 'Route.employees',
       many: false,
     }),
     expenses: relationship({ ref: 'Expense.employee', many: true }), // Agrego esta línea
+    transactions: relationship({ ref: 'Transaction.lead', many: true }),
     //comissionPaymentConfigurationLead: relationship({ ref: 'ComissionPaymentConfiguration.leadId' }),
     personalData: relationship({ ref: 'PersonalData.employee' }),
     loan: relationship({ ref: 'Loan.grantor', many: true }),
@@ -108,13 +109,13 @@ export const Expense = list({
 
 export const Loantype = list({
   access: allowAll,
+  db: {
+    idField: { kind: 'cuid' }, // Usa db.idField para definir el campo id
+  },
   fields: {
     name: text(),
     weekDuration: integer(),
     rate: decimal(),  // Decimal type used for percentage, adjust precision as necessary
-    /* weeksToRenew: integer(), */
-    /* overdueRate: decimal(), */
-    /* initialAmount: decimal({ defaultValue: '3000' }), */
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),
     loan: relationship({ ref: 'Loan.loantype', many: true, ui:{
@@ -163,7 +164,40 @@ export const Borrower = list({
     updatedAt: timestamp(),
     loanFinishedCount: integer({ defaultValue: 0 }),
     loans: relationship({ ref: 'Loan.borrower', many: true }),
+    fullName: virtual({
+      isFilterable: true,
+      field: graphql.field({
+        type: graphql.String,
+        resolve: async (item, args, context) => {
+          console.log("////////////ITEM///////////", item);
+          /* const borrower = await context.db.Borrower.findOne({
+            where: { id: {equal:(item as { id: string }).id }
+            },
+          });
+          console.log("////////////BORROWER///////////", borrower);
+          
+          if(borrower === null){
+            return "";
+          } */
+          const personalData = await context.db.PersonalData.findMany({
+            where: { id: {
+              equals: (item as { personalDataId: string }).personalDataId,
+            } },
+          });
+
+          if(personalData.length === 0){
+            return "";
+          }
+          return personalData[0]?.fullName;
+        },
+      }),
+    }),
   },
+  ui: {
+    listView: {
+      initialColumns: ['fullName', 'id'],
+    },
+  }
 });
 
 export const PersonalData = list({
@@ -185,7 +219,11 @@ export const PersonalData = list({
 
 export const Loan = list({
   access: allowAll,
+  db: {
+    idField: { kind: 'cuid' }, // Usa db.idField para definir el campo id
+  },
   fields: {
+    oldId: text({db: { isNullable: true }, isIndexed: 'unique', isFilterable: true}),
     payments: relationship({
       ref: 'LoanPayment.loan',
       many: true,
@@ -197,7 +235,7 @@ export const Loan = list({
         inlineCreate: { fields: ['amount'] },
       },
     }),
-    weeklyPaymentAmount: decimal(
+    /* weeklyPaymentAmount: decimal(
       {
         precision: 10,
         scale: 2,
@@ -205,7 +243,7 @@ export const Loan = list({
           isRequired: true,
         }
       }
-    ),
+    ), */
     requestedAmount: decimal({
       precision: 10,
       scale: 2,
@@ -220,13 +258,13 @@ export const Loan = list({
         isRequired: true,
       }
     }),
-    amountToPay: decimal({
+    /* amountToPay: decimal({
       precision: 10,
       scale: 2,
       validation: {
         isRequired: true,
       }
-    }),
+    }), */
     loantype: relationship({ ref: 'Loantype.loan' }),
     /* previousAmountGived: decimal(), */
     /* renovationProfitAmount: decimal({ defaultValue: "0"}), */
@@ -234,7 +272,13 @@ export const Loan = list({
     /* baseProfitAmount: decimal({ defaultValue: "0"}),
     totalProfitAmount: decimal({ defaultValue: "0"}), */
     signDate: timestamp({ defaultValue: { kind: 'now' }, validation: { isRequired: true } }),
-    
+    badDebtDate: timestamp({ validation: { isRequired: false } }),
+    profitAmount: decimal(
+      {
+        precision: 10,
+        scale: 2,
+        validation: { isRequired: false }
+    }),
     /* loanLeadId: text(), */
     /* phoneNumber: text(), */
     avalName: text(),
@@ -254,8 +298,55 @@ export const Loan = list({
     finishedDate: timestamp({validation: { isRequired: false }}),
     updatedAt: timestamp(),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
+    // ((deuda pendoiente * % del prestamo ) / 10 )+ 
+    pendingProfitAmount: virtual({
+      field: graphql.field({
+        type: graphql.Float,
+        resolve: async (item, args, context) => {
+          const loan = await context.db.Loan.findOne({
+            where: { id: (item as { id: string }).id.toString() },          
+          });
+          console.log("////////////LOAN///////////", loan);
+          const loanType = await context.db.Loantype.findOne({
+            where: { id: loan?.loantypeId as string },
+          });
+          console.log("////////////LOANTYPE///////////", loanType);
+          const payments = await context.db.LoanPayment.findMany({
+            where: { loan: { id: { equals: (item as { id: string }).id.toString() } } },
+          });
+
+          const totalAmountToPay = parseFloat(loan.amountToPay);
+          const amountGiven = parseFloat(loan.amountGived);
+          const rate = parseFloat(loanType.rate);
+          const totalProfit = amountGiven * rate;
+          const earnedProfitAmount = payments.reduce((sum, payment) => sum + parseFloat(payment.profitAmount), 0);
+          return totalProfit - earnedProfitAmount;
+        },
+      }),
+    }),
+    earnedProfit: virtual({
+      field: graphql.field({
+        type: graphql.Float,
+        resolve: async (item, args, context) => {
+          const loan = await context.db.Loan.findOne({
+            where: { id: (item as { id: string }).id.toString() },          
+          });
+          console.log("////////////LOAN///////////", loan);
+          const loanType = await context.db.Loantype.findOne({
+            where: { id: loan?.loantypeId as string },
+          });
+          console.log("////////////LOANTYPE///////////", loanType);
+          const payments = await context.db.LoanPayment.findMany({
+            where: { loan: { id: { equals: (item as { id: string }).id.toString() } } },
+          });
+
+          return payments.reduce((sum, payment) => sum + parseFloat(payment.profitAmount), 0);
+          
+        },
+      }),
+    }),
     //virtual fields
-    totalpayedAmount: virtual({
+    totalPayedAmount: virtual({
       field: graphql.field({
         type: graphql.Float,
         resolve: async (item, args, context) => {
@@ -273,7 +364,51 @@ export const Loan = list({
           const payments = await context.db.LoanPayment.findMany({
             where: { loan: { id: { equals: (item as { id: string }).id } } },
           });
-          return parseFloat((item as { amountToPay: string }).amountToPay) - payments.reduce((sum, payment) => sum + parseFloat(payment.amount), 0);
+          const loan = await context.db.Loan.findOne({
+            where: { id: (item as { id: string }).id.toString() },          
+          });
+          const loanType = await context.db.Loantype.findOne({
+            where: { id: loan?.loantypeId as string },
+          });
+          const rate = parseFloat(loanType.rate);
+          const totalAmountToPay = loan.requestedAmount * (1 + rate);
+          const payedAmount = payments.reduce((sum, payment) => sum + parseFloat(payment.amount), 0);
+          return (totalAmountToPay - payedAmount);
+        },
+      }),
+    }),
+    weeklyPaymentAmount: virtual({
+      field: graphql.field({
+        type: graphql.Float,
+        resolve: async (item, args, context) => {
+          const loan = await context.db.Loan.findOne({
+            where: { id: (item as { id: string }).id.toString() },          
+          });
+          const loanType = await context.db.Loantype.findOne({
+            where: { id: loan?.loantypeId as string },
+          });
+          const rate = parseFloat(loanType.rate);
+          const totalAmountToPay = loan.requestedAmount * (1 + rate);
+          const amountGiven = parseFloat(loan.amountGived);
+          const totalProfit = amountGiven * rate;
+          console.log("////////////LOANTYPE///////////", loan, totalAmountToPay, totalProfit, loanType.weekDuration);
+          return (totalAmountToPay / loanType.weekDuration);
+        },
+      }),
+    }),
+    amountToPay: virtual({
+      field: graphql.field({
+        type: graphql.Float,
+        resolve: async (item, args, context) => {
+          const loan = await context.db.Loan.findOne({
+            where: { id: (item as { id: string }).id.toString() },          
+          });
+          const loanType = await context.db.Loantype.findOne({
+            where: { id: loan?.loantypeId as string },
+          });
+          const rate = parseFloat(loanType.rate);
+          const totalAmountToPay = loan.requestedAmount * (1 + rate);
+          return totalAmountToPay;
         },
       }),
     }),
@@ -287,22 +422,18 @@ export const Loan = list({
     }),
   },
   hooks: {
-    afterOperation: async ({ operation, item, context }) => {
+    afterOperation: async ({ operation, item, context, originalItem }) => {
+      
       if ((operation === 'create' || operation === 'update') && item) {
         
-        /* const loan = await context.query.Loan.findOne({
-          where: { id: item?.id?.toString() || '' },
-        }); */
-        console.log("////////////ITEM///////////")
-        console.log(item);
-        console.log("////////////LOAN///////////")
-        console.log(item.leadId);
-
         const leadId: string = item.leadId as string;
+        if(leadId === null){
+          return;
+        }
         const lead = await context.db.Employee.findOne({
           where: { id: leadId },            
         });
-
+        console.log("////////////LEAD///////////", item, lead);
         // si status es igual a finalizado/renavado/cancelado, entonces se setea la fecha de termino
         if(item.status === 'FINISHED' || item.status === 'RENOVATED' || item.status === 'CANCELED'){
           context.db.Loan.updateOne({
@@ -310,15 +441,14 @@ export const Loan = list({
             data: { finishedDate: new Date() },
           })
         }
-
-        console.log("////////////LEADID///////////", lead)
+        console.log("////////////LEAD1///////////", );
 
 
         const account = await context.db.Account.findMany({
           where: { route: {id:lead?.routeId}},            
         });
 
-
+        console.log("////////////LEAD2///////////", account);
         const transactions = await context.db.Transaction.createMany({
           data: [
             {
@@ -339,19 +469,28 @@ export const Loan = list({
           }
         ]
         });
-       
-        console.log("////////////transaction///////////", transactions)
-        //vamos a descontar la cantidad otorgada de la cuenta asociada a la ruta a la que pertence la loanLEad
-        /* const route = await context..Route.findOne({
-          where: { id: data.loanLeadId },
-          query: 'account{id}',
-        }); */
+        console.log("////////////originalItem///////////", originalItem, item);
+        // Trigger afterOperation hook for LoanPayment
+        if (originalItem && originalItem.loantypeId !== item.loantypeId) {
+          // Trigger afterOperation hook for LoanPayment
+          const payments = await context.db.LoanPayment.findMany({
+            where: { loan: { id: { equals: item.id.toString() } } },
+          });
+
+          for (const payment of payments) {
+            await context.db.LoanPayment.updateOne({
+              where: { id: payment.id as string},
+              data: { updatedAt: new Date() }, // Trigger the afterOperation hook
+            });
+          }
+        }
+        
       }
-    }
+    },
   },
   ui: {
     listView: {
-      initialColumns: ['totalPayments', 'signDate', 'payments'],
+      initialColumns: ['totalPayments', 'signDate', 'payments', 'oldId'],
     },
   }, 
 
@@ -360,13 +499,24 @@ export const Loan = list({
 export const LoanPayment = list({
   access: allowAll,
   fields: {
-    amount: decimal(),
+    amount: decimal({
+      precision: 10,
+      scale: 2,
+    }),
     comission: decimal(),
-    profitAmount: decimal(),
-    returnToCapital: decimal(),
+    profitAmount: decimal({
+      precision: 10,
+      scale: 2,
+    }
+    ),
+    returnToCapital: decimal({
+      precision: 10,
+      scale: 2,
+    }),
     receivedAt: timestamp({ defaultValue: { kind: 'now' } }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),
+    oldLoanId: text({db: { isNullable: true }}),
     loan: relationship({ ref: 'Loan.payments' }),
     //collector: relationship({ ref: 'Employee.loanPayment' }),
     transaction: relationship({ ref: 'Transaction.loanPayment' }),
@@ -388,12 +538,100 @@ export const LoanPayment = list({
     }),
   },
   hooks: {
-    afterOperation: async ({ operation, item, context }) => {
+    /* resolveInput: async ({ resolvedData, context, item, inputData, listKey }) => {
+      if (resolvedData.amount || resolvedData.loanId) {
+        console.log("1111111", item);
+        const loanId = item?.loanId || resolvedData.loanId;
+        console.log("11111112")
+        if(loanId === null){
+          throw new Error("No hay Credito asociado a este pago");
+        }
+        console.log("11111113")
+        const loan = await context.db.Loan.findOne({
+          where: { id: loanId.toString() },
+        });
+        console.log("11111114")
+
+        const loanType = await context.db.Loantype.findOne({
+          where: { id: loan?.loantypeId },
+        });
+        console.log("////////////LOANTYPE///////////", loan);
+
+        const totalAmountToPay = parseFloat(loan.amountToPay);
+        const amountGiven = parseFloat(loan.amountGived);
+        const rate = parseFloat(loanType.rate);
+        const totalProfit = amountGiven * rate;
+
+        // Calculate profit for the current payment
+        const paymentAmount = parseFloat(resolvedData.amount || existingItem.amount);
+        const paymentProfit = (paymentAmount * totalProfit) / totalAmountToPay;
+
+        resolvedData.profitAmount = paymentProfit.toString();
+        resolvedData.returnToCapital = (paymentAmount - paymentProfit).toString();
+      }
+      console.log("////////////RESOLVED DATA///////////", resolvedData);
+      return resolvedData;
+    }, */
+    afterOperation: async ({ operation, item, context, resolvedData }) => {
+      if (context.skipAfterOperation) {
+        return;
+      }
+      context.skipAfterOperation = true;
+
+      console.log("////////////AFTER OPERATION1///////////", operation);
       if ((operation === 'create' || operation === 'update') && item) {
-        if (item.type === 'PAYMENT') {
-          const loan = await context.db.Loan.findOne({
-            where: { id: item.loanId as string },
+        console.log("////////////ITEM///////////", item);
+        if (item.type !== 'WITHOUT_PAYMENT') {
+          //calculate the profit amount of the payment
+          console.log("////////////DOSSSS///////////");
+          //calculate pending profit and earned profit
+          const payment = await context.db.LoanPayment.findOne({
+            where: { id: item.id as string },
           });
+          if(payment?.loanId === null)
+            throw new Error("No hay Credito asociado a este pago");
+          const loan = await context.db.Loan.findOne({
+            where: { id: payment?.loanId as string },
+          });
+
+          const loanType = await context.db.Loantype.findOne({
+            where: { id: loan?.loantypeId?.toString() },
+          });
+          console.log("////////////LOANTYPE///////////3333", loanType);
+
+          const payments = await context.db.LoanPayment.findMany({
+            where: { loan: { id: { equals: payment?.loanId } } },
+          });
+          console.log("////////////payments///////////444444", payments, loan);
+
+          const totalAmountToPay = parseFloat(loan.amountToPay);
+          const amountGiven = parseFloat(loan.amountGived);
+          const rate = parseFloat(loanType.rate);
+          const totalProfit = amountGiven * rate;
+          const totalPayed = payments.reduce((sum, payment) => sum + parseFloat(payment.amount), 0);
+          const pendingDebt = totalAmountToPay - totalPayed;
+          const pendingProfit = (pendingDebt * totalProfit) / totalAmountToPay;
+          const earnedProfit = totalProfit - pendingProfit;
+          console.log(item.amount);
+          const paymentProfit = (parseFloat(item.amount) * totalProfit) / totalAmountToPay;
+          console.log("////////////paymentProfit///////////", paymentProfit);
+          console.log("////////////pendingProfit///////////", pendingProfit);
+          console.log("////////////earnedProfit///////////", earnedProfit);
+          resolvedData.profitAmount = paymentProfit.toString();
+          resolvedData.returnToCapital = (parseFloat(item.amount as string) - paymentProfit).toString();
+          console.log("////////////loan?.id///////////", loan?.id, earnedProfit.toString());
+          
+          //resolvedData.earnedProfitAmount = earnedProfit.toString();
+          await context.db.LoanPayment.updateOne({
+            where: { id: item.id as string },
+            data: {
+              profitAmount: paymentProfit.toString(),
+              returnToCapital: (parseFloat(item.amount as string) - paymentProfit).toString(),
+            },
+          });
+
+
+          
           const lead = await context.db.Employee.findOne({
             where: { id: loan?.leadId as string },
           });
@@ -430,8 +668,6 @@ export const LoanPayment = list({
               },
             });
           }
-
-          
           await context.db.Transaction.createOne({
             data: {
               amount: item.comission,
@@ -442,10 +678,12 @@ export const LoanPayment = list({
               loanPayment: { connect: { id: item.id } },
             },
           });
-
         }
       }
-    }
+      context.skipAfterOperation = false;
+
+    },
+    
   }
 });
 
@@ -482,6 +720,8 @@ export const Transaction = list({
         { label: 'LEAD_COMISSION', value: 'LEAD_COMISSION' },
       ],
     }),
+    description: text(),
+    lead: relationship({ ref: 'Employee.transactions' }),
     sourceAccount: relationship({ ref: 'Account.transactions' }),
     destinationAccount: relationship({ ref: 'Account.receivedTransactions' }),
     loan: relationship({ ref: 'Loan.transaction' }),
