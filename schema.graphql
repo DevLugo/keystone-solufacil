@@ -126,8 +126,6 @@ type Employee {
   id: ID!
   oldId: String
   routes: Route
-  expenses(where: ExpenseWhereInput! = {}, orderBy: [ExpenseOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ExpenseWhereUniqueInput): [Expense!]
-  expensesCount(where: ExpenseWhereInput! = {}): Int
   transactions(where: TransactionWhereInput! = {}, orderBy: [TransactionOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TransactionWhereUniqueInput): [Transaction!]
   transactionsCount(where: TransactionWhereInput! = {}): Int
   personalData: PersonalData
@@ -156,7 +154,6 @@ input EmployeeWhereInput {
   id: IDFilter
   oldId: StringNullableFilter
   routes: RouteWhereInput
-  expenses: ExpenseManyRelationFilter
   transactions: TransactionManyRelationFilter
   personalData: PersonalDataWhereInput
   loan: LoanManyRelationFilter
@@ -180,12 +177,6 @@ input StringNullableFilter {
   endsWith: String
   mode: QueryMode
   not: StringNullableFilter
-}
-
-input ExpenseManyRelationFilter {
-  every: ExpenseWhereInput
-  some: ExpenseWhereInput
-  none: ExpenseWhereInput
 }
 
 input TransactionManyRelationFilter {
@@ -221,7 +212,6 @@ input EmployeeOrderByInput {
 input EmployeeUpdateInput {
   oldId: String
   routes: RouteRelateToOneForUpdateInput
-  expenses: ExpenseRelateToManyForUpdateInput
   transactions: TransactionRelateToManyForUpdateInput
   personalData: PersonalDataRelateToOneForUpdateInput
   loan: LoanRelateToManyForUpdateInput
@@ -236,13 +226,6 @@ input RouteRelateToOneForUpdateInput {
   create: RouteCreateInput
   connect: RouteWhereUniqueInput
   disconnect: Boolean
-}
-
-input ExpenseRelateToManyForUpdateInput {
-  disconnect: [ExpenseWhereUniqueInput!]
-  set: [ExpenseWhereUniqueInput!]
-  create: [ExpenseCreateInput!]
-  connect: [ExpenseWhereUniqueInput!]
 }
 
 input TransactionRelateToManyForUpdateInput {
@@ -287,7 +270,6 @@ input EmployeeUpdateArgs {
 input EmployeeCreateInput {
   oldId: String
   routes: RouteRelateToOneForCreateInput
-  expenses: ExpenseRelateToManyForCreateInput
   transactions: TransactionRelateToManyForCreateInput
   personalData: PersonalDataRelateToOneForCreateInput
   loan: LoanRelateToManyForCreateInput
@@ -301,11 +283,6 @@ input EmployeeCreateInput {
 input RouteRelateToOneForCreateInput {
   create: RouteCreateInput
   connect: RouteWhereUniqueInput
-}
-
-input ExpenseRelateToManyForCreateInput {
-  create: [ExpenseCreateInput!]
-  connect: [ExpenseWhereUniqueInput!]
 }
 
 input TransactionRelateToManyForCreateInput {
@@ -620,94 +597,6 @@ input StateRelateToOneForCreateInput {
   connect: StateWhereUniqueInput
 }
 
-type Expense {
-  id: ID!
-  amountToPay: Decimal
-  dueDate: DateTime
-  payedAt: DateTime
-  employee: Employee
-  createdAt: DateTime
-  updatedAt: DateTime
-  userId: String
-}
-
-scalar Decimal
-
-input ExpenseWhereUniqueInput {
-  id: ID
-}
-
-input ExpenseWhereInput {
-  AND: [ExpenseWhereInput!]
-  OR: [ExpenseWhereInput!]
-  NOT: [ExpenseWhereInput!]
-  id: IDFilter
-  amountToPay: DecimalNullableFilter
-  dueDate: DateTimeNullableFilter
-  payedAt: DateTimeNullableFilter
-  employee: EmployeeWhereInput
-  createdAt: DateTimeNullableFilter
-  updatedAt: DateTimeNullableFilter
-  userId: StringFilter
-}
-
-input DecimalNullableFilter {
-  equals: Decimal
-  in: [Decimal!]
-  notIn: [Decimal!]
-  lt: Decimal
-  lte: Decimal
-  gt: Decimal
-  gte: Decimal
-  not: DecimalNullableFilter
-}
-
-input ExpenseOrderByInput {
-  id: OrderDirection
-  amountToPay: OrderDirection
-  dueDate: OrderDirection
-  payedAt: OrderDirection
-  createdAt: OrderDirection
-  updatedAt: OrderDirection
-  userId: OrderDirection
-}
-
-input ExpenseUpdateInput {
-  amountToPay: Decimal
-  dueDate: DateTime
-  payedAt: DateTime
-  employee: EmployeeRelateToOneForUpdateInput
-  createdAt: DateTime
-  updatedAt: DateTime
-  userId: String
-}
-
-input EmployeeRelateToOneForUpdateInput {
-  create: EmployeeCreateInput
-  connect: EmployeeWhereUniqueInput
-  disconnect: Boolean
-}
-
-input ExpenseUpdateArgs {
-  where: ExpenseWhereUniqueInput!
-  data: ExpenseUpdateInput!
-}
-
-input ExpenseCreateInput {
-  amountToPay: Decimal
-  dueDate: DateTime
-  payedAt: DateTime
-  employee: EmployeeRelateToOneForCreateInput
-  createdAt: DateTime
-  updatedAt: DateTime
-  userId: String
-}
-
-input EmployeeRelateToOneForCreateInput {
-  create: EmployeeCreateInput
-  connect: EmployeeWhereUniqueInput
-}
-
 type Loantype {
   id: ID!
   name: String
@@ -718,6 +607,8 @@ type Loantype {
   loan(where: LoanWhereInput! = {}, orderBy: [LoanOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: LoanWhereUniqueInput): [Loan!]
   loanCount(where: LoanWhereInput! = {}): Int
 }
+
+scalar Decimal
 
 input LoantypeWhereUniqueInput {
   id: ID
@@ -745,6 +636,17 @@ input IntNullableFilter {
   gt: Int
   gte: Int
   not: IntNullableFilter
+}
+
+input DecimalNullableFilter {
+  equals: Decimal
+  in: [Decimal!]
+  notIn: [Decimal!]
+  lt: Decimal
+  lte: Decimal
+  gt: Decimal
+  gte: Decimal
+  not: DecimalNullableFilter
 }
 
 input LoantypeOrderByInput {
@@ -1022,6 +924,12 @@ input PhoneRelateToManyForUpdateInput {
   connect: [PhoneWhereUniqueInput!]
 }
 
+input EmployeeRelateToOneForUpdateInput {
+  create: EmployeeCreateInput
+  connect: EmployeeWhereUniqueInput
+  disconnect: Boolean
+}
+
 input BorrowerRelateToOneForUpdateInput {
   create: BorrowerCreateInput
   connect: BorrowerWhereUniqueInput
@@ -1047,6 +955,11 @@ input PersonalDataCreateInput {
 input PhoneRelateToManyForCreateInput {
   create: [PhoneCreateInput!]
   connect: [PhoneWhereUniqueInput!]
+}
+
+input EmployeeRelateToOneForCreateInput {
+  create: EmployeeCreateInput
+  connect: EmployeeWhereUniqueInput
 }
 
 input BorrowerRelateToOneForCreateInput {
@@ -1587,11 +1500,12 @@ input FalcoCompensatoryPaymentCreateInput {
 
 type LeadPaymentReceived {
   id: ID!
-  type: String
   expectedAmount: Decimal
   paidAmount: Decimal
   falco: Decimal
   pendingFalcoAmount: Decimal
+  cashAmount: Decimal
+  bankAmount: Decimal
   createdAt: DateTime
   updatedAt: DateTime
   agent: Employee
@@ -1611,11 +1525,12 @@ input LeadPaymentReceivedWhereInput {
   OR: [LeadPaymentReceivedWhereInput!]
   NOT: [LeadPaymentReceivedWhereInput!]
   id: IDFilter
-  type: StringNullableFilter
   expectedAmount: DecimalNullableFilter
   paidAmount: DecimalNullableFilter
   falco: DecimalNullableFilter
   pendingFalcoAmount: DecimalNullableFilter
+  cashAmount: DecimalNullableFilter
+  bankAmount: DecimalNullableFilter
   createdAt: DateTimeNullableFilter
   updatedAt: DateTimeNullableFilter
   agent: EmployeeWhereInput
@@ -1632,21 +1547,23 @@ input FalcoCompensatoryPaymentManyRelationFilter {
 
 input LeadPaymentReceivedOrderByInput {
   id: OrderDirection
-  type: OrderDirection
   expectedAmount: OrderDirection
   paidAmount: OrderDirection
   falco: OrderDirection
   pendingFalcoAmount: OrderDirection
+  cashAmount: OrderDirection
+  bankAmount: OrderDirection
   createdAt: OrderDirection
   updatedAt: OrderDirection
 }
 
 input LeadPaymentReceivedUpdateInput {
-  type: String
   expectedAmount: Decimal
   paidAmount: Decimal
   falco: Decimal
   pendingFalcoAmount: Decimal
+  cashAmount: Decimal
+  bankAmount: Decimal
   createdAt: DateTime
   updatedAt: DateTime
   agent: EmployeeRelateToOneForUpdateInput
@@ -1668,11 +1585,12 @@ input LeadPaymentReceivedUpdateArgs {
 }
 
 input LeadPaymentReceivedCreateInput {
-  type: String
   expectedAmount: Decimal
   paidAmount: Decimal
   falco: Decimal
   pendingFalcoAmount: Decimal
+  cashAmount: Decimal
+  bankAmount: Decimal
   createdAt: DateTime
   updatedAt: DateTime
   agent: EmployeeRelateToOneForCreateInput
@@ -1797,12 +1715,6 @@ type Mutation {
   updateMunicipalities(data: [MunicipalityUpdateArgs!]!): [Municipality]
   deleteMunicipality(where: MunicipalityWhereUniqueInput!): Municipality
   deleteMunicipalities(where: [MunicipalityWhereUniqueInput!]!): [Municipality]
-  createExpense(data: ExpenseCreateInput!): Expense
-  createExpenses(data: [ExpenseCreateInput!]!): [Expense]
-  updateExpense(where: ExpenseWhereUniqueInput!, data: ExpenseUpdateInput!): Expense
-  updateExpenses(data: [ExpenseUpdateArgs!]!): [Expense]
-  deleteExpense(where: ExpenseWhereUniqueInput!): Expense
-  deleteExpenses(where: [ExpenseWhereUniqueInput!]!): [Expense]
   createLoantype(data: LoantypeCreateInput!): Loantype
   createLoantypes(data: [LoantypeCreateInput!]!): [Loantype]
   updateLoantype(where: LoantypeWhereUniqueInput!, data: LoantypeUpdateInput!): Loantype
@@ -1922,9 +1834,6 @@ type Query {
   municipality(where: MunicipalityWhereUniqueInput!): Municipality
   municipalities(where: MunicipalityWhereInput! = {}, orderBy: [MunicipalityOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: MunicipalityWhereUniqueInput): [Municipality!]
   municipalitiesCount(where: MunicipalityWhereInput! = {}): Int
-  expense(where: ExpenseWhereUniqueInput!): Expense
-  expenses(where: ExpenseWhereInput! = {}, orderBy: [ExpenseOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ExpenseWhereUniqueInput): [Expense!]
-  expensesCount(where: ExpenseWhereInput! = {}): Int
   loantype(where: LoantypeWhereUniqueInput!): Loantype
   loantypes(where: LoantypeWhereInput! = {}, orderBy: [LoantypeOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: LoantypeWhereUniqueInput): [Loantype!]
   loantypesCount(where: LoantypeWhereInput! = {}): Int

@@ -59,7 +59,7 @@ export const Employee = list({
       ref: 'Route.employees',
       many: false,
     }),
-    expenses: relationship({ ref: 'Expense.employee', many: true }), // Agrego esta línea
+    //expenses: relationship({ ref: 'Expense.employee', many: true }), // Agrego esta línea
     transactions: relationship({ ref: 'Transaction.lead', many: true }),
     //comissionPaymentConfigurationLead: relationship({ ref: 'ComissionPaymentConfiguration.leadId' }),
     personalData: relationship({ ref: 'PersonalData.employee' }),
@@ -79,7 +79,7 @@ export const Employee = list({
   },
 });
 
-export const Expense = list({
+/* export const Expense = list({
   access: allowAll,
   fields: {
     amountToPay: decimal(),
@@ -88,15 +88,14 @@ export const Expense = list({
     employee: relationship({ ref: 'Employee.expenses' }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),
-    userId: text(),  // Assuming user ID is a text field; adjust as necessary
-    /* employeeId: text(), */
+    userId: text(),
   },
   hooks: {
     afterOperation: async ({ operation, item, context }) => {
 
     }
   }
-});
+}); */
 
 /* export const ComissionPaymentConfiguration = list({
   access: allowAll,
@@ -702,7 +701,8 @@ export const Transaction = list({
     }),
     incomeSource: select({
       options: [
-        { label: 'LOAN_PAYMENT', value: 'LOAN_PAYMENT' },
+        { label: 'CASH_LOAN_PAYMENT', value: 'CASH_LOAN_PAYMENT' },
+        { label: 'BANK_LOAN_PAYMENT', value: 'BANK_LOAN_PAYMENT' },
         { label: 'MONEY_INVESMENT', value: 'MONEY_INVESMENT' },
       ],
     }),
@@ -810,16 +810,18 @@ export const FalcoCompensatoryPayment = list({
 export const LeadPaymentReceived = list({
   access: allowAll,
   fields: {
-    type: select({
+    /* type: select({
       options: [
         { label: 'PENDING_MONEY', value: 'PENDING_MONEY' },
         { label: 'COMPENSATORY_PENDING_MONEY', value: 'COMPENSATORY_PENDING_MONEY' },
       ],
-    }),
+    }), */
     expectedAmount: decimal(),
     paidAmount: decimal(),
     falco: decimal(),
-    pendingFalcoAmount: decimal(),
+    pendingFalcoAmount: decimal(), // Amount pending to pay to Falco
+    cashAmount: decimal(),
+    bankAmount: decimal(), // If bank amount > than 0. Then remove that amount from the cashAccount balance and inser it into the bankAccount balance
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),
     //leadId: text(),
@@ -862,7 +864,7 @@ export const lists = {
   Location,
   State,
   Municipality,
-  Expense,
+  /* Expense, */
   //ComissionPaymentConfiguration,
   Loantype,
   Phone,

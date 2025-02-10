@@ -24,7 +24,6 @@ model Employee {
   oldId                     String?               @unique
   routes                    Route?                @relation("Employee_routes", fields: [routesId], references: [id])
   routesId                  String?               @map("routes")
-  expenses                  Expense[]             @relation("Expense_employee")
   transactions              Transaction[]         @relation("Transaction_lead")
   personalData              PersonalData?         @relation("Employee_personalData", fields: [personalDataId], references: [id])
   personalDataId            String?               @unique @map("personalData")
@@ -73,20 +72,6 @@ model Municipality {
   location Location[] @relation("Location_municipality")
 
   @@index([stateId])
-}
-
-model Expense {
-  id          String    @id @default(cuid())
-  amountToPay Decimal?  @postgresql.Decimal(18, 4)
-  dueDate     DateTime?
-  payedAt     DateTime?
-  employee    Employee? @relation("Expense_employee", fields: [employeeId], references: [id])
-  employeeId  String?   @map("employee")
-  createdAt   DateTime? @default(now())
-  updatedAt   DateTime?
-  userId      String    @default("")
-
-  @@index([employeeId])
 }
 
 model Loantype {
@@ -262,11 +247,12 @@ model FalcoCompensatoryPayment {
 
 model LeadPaymentReceived {
   id                        String                     @id @default(cuid())
-  type                      String?
   expectedAmount            Decimal?                   @postgresql.Decimal(18, 4)
   paidAmount                Decimal?                   @postgresql.Decimal(18, 4)
   falco                     Decimal?                   @postgresql.Decimal(18, 4)
   pendingFalcoAmount        Decimal?                   @postgresql.Decimal(18, 4)
+  cashAmount                Decimal?                   @postgresql.Decimal(18, 4)
+  bankAmount                Decimal?                   @postgresql.Decimal(18, 4)
   createdAt                 DateTime?                  @default(now())
   updatedAt                 DateTime?
   agent                     Employee?                  @relation("LeadPaymentReceived_agent", fields: [agentId], references: [id])
