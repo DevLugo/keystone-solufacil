@@ -68,52 +68,57 @@ export default withAuth(
           doc.fontSize(12).fillColor('black').text('Los divorsiados', 100, detailsY, { align: 'left', baseline: 'middle' });
           doc.fontSize(12).fillColor('gray').text('Lider:', 400, detailsY, { align: 'left', baseline: 'middle' });
           doc.fontSize(12).fillColor('black').text('Stephanie de los angeles cocom cabrera', 450, detailsY, { align: 'left', baseline: 'middle' });
-          
+
           //doc.moveDown().fontSize(30);
           const additionalDetailsY = detailsY + 20;
           doc.fontSize(12).fillColor('black').text(`Total de clientas: ${50}`, 30, additionalDetailsY, { align: 'left' });
           doc.text(`Comisión a pagar a la líder: ${1200}`, 30, additionalDetailsY + 15, { align: 'left' });
           doc.text(`Total de cobranza esperada: ${70000}`, 30, additionalDetailsY + 30, { align: 'left' });
-
-
-          // Add table headers
-          doc.moveDown().fontSize(8);
-          const headers = ['NOMBRE', 'TELEFONO', 'ABONO', 'ADEUDO', 'PLAZOS', 'PAGO VDO', 'COBRO SEMANA', 'ABONO PARCIAL', 'F INICIO', 'N° SEMANA', 'AVAL'];
-          const tableTop = 150;
-          const itemHeight = 20;
-          const headerHeight = 30;
           const columnWidths = {
             name: 90,
             phone: 60,
-            abono: 30,
+            abono: 35,
             adeudo: 45,
             plazos: 40,
             pagoVdo: 30,
             cobroSemana: 40,
             abonoParcial: 40,
-            fInicio: 50,
+            fInicio: 55,
             nSemana: 40,
             aval: 100,
           };
+          // Function to draw table headers
+          const drawTableHeaders = (y) => {
+            const headers = ['NOMBRE', 'TELEFONO', 'ABONO', 'ADEUDO', 'PLAZOS', 'PAGO VDO', 'COBRO SEMANA', 'ABONO PARCIAL', 'FECHA INICIO', 'NUMERO SEMANA', 'AVAL'];
 
+            const headerHeight = 30;
 
-          // Draw table headers with background and border
-          doc.rect(30, tableTop, Object.values(columnWidths).reduce((a, b) => a + b, 0), headerHeight).fillAndStroke('#f0f0f0', '#000');
-          doc.fillColor('#000');
-          headers.forEach((header, i) => {
-            const x = 30 + Object.values(columnWidths).slice(0, i).reduce((a, b) => a + b, 0);
-            if (header.includes(' ')) {
-              const [firstLine, secondLine] = header.split(' ');
-              doc.text(firstLine, x, tableTop + 5, { width: columnWidths[header.toLowerCase()], align: 'left' });
-              doc.text(secondLine, x, tableTop + 15, { width: columnWidths[header.toLowerCase()], align: 'left' });
-            } else {
-              doc.text(header, x, tableTop + 10, { width: columnWidths[header.toLowerCase()], align: 'left' });
-            }
-          });
+            // Draw table headers with background and border
+            doc.rect(30, y, Object.values(columnWidths).reduce((a, b) => a + b, 0), headerHeight).fillAndStroke('#f0f0f0', '#000');
+            doc.fillColor('#000').fontSize(9);
+            headers.forEach((header, i) => {
+              const x = 30 + Object.values(columnWidths).slice(0, i).reduce((a, b) => a + b, 0);
+              if (header.includes(' ')) {
+                const [firstLine, secondLine] = header.split(' ');
+                doc.text(firstLine, x, y + 5, { width: columnWidths[header.toLowerCase()], align: 'left' });
+                doc.text(secondLine, x, y + 15, { width: columnWidths[header.toLowerCase()], align: 'left' });
+              } else {
+                doc.text(header, x, y + 10, { width: columnWidths[header.toLowerCase()], align: 'left' });
+              }
+            });
+            return y + headerHeight;
+          };
 
-          // Add table rows
-          // Reset font color for table rows
-          doc.fillColor('#000').fontSize(8);
+           // Function to add page numbers
+          const addPageNumber = (pageNumber) => {
+            doc.fontSize(10).text(`Page ${pageNumber}`, doc.page.width - 100, doc.page.height - 42, { align: 'right' });
+          };
+
+          // Initial table headers
+          let currentY = drawTableHeaders(additionalDetailsY + 50);
+          let pageNumber = 1;
+          addPageNumber(pageNumber);
+          
           const payments = [
             // Example data, replace with actual data
             { name: 'Juan Carlos Pérez Rodríguez', phone: '1234567890', abono: '100', adeudo: '500', plazos: '5', pagoVdo: '100', cobroSemana: '100', abonoParcial: '50', fInicio: '01/01/2022', nSemana: '1', aval: 'María López García' },
@@ -139,30 +144,31 @@ export default withAuth(
           }
 
           const paddingBottom = 5;
+          const itemHeight = 20;
+          const pageHeight = doc.page.height - doc.page.margins.bottom;
+
           payments.forEach((payment, rowIndex) => {
-            const y = tableTop + headerHeight + rowIndex * (itemHeight + paddingBottom);
+            if (currentY + itemHeight + paddingBottom > pageHeight) {
+              doc.addPage();
+              pageNumber++;
+              currentY = drawTableHeaders(30); // Reset Y position for new page and draw headers
+              addPageNumber(pageNumber);
+              
+            }
             Object.keys(columnWidths).forEach((key, i) => {
               const x = 30 + Object.values(columnWidths).slice(0, i).reduce((a, b) => a + b, 0);
               const paddingLeft = key === 'name' ? 5 : 0;
               const paddingTop = 5;
-              const paddingBottom = 5;
-              doc.text(payment[key], x + paddingLeft, y + paddingTop, { width: columnWidths[key], align: key === 'name' || key === 'aval' ? 'left' : 'center' });
+              doc.text(payment[key], x + paddingLeft, currentY + paddingTop, { width: columnWidths[key], align: key === 'name' || key === 'aval' ? 'left' : 'center' });
             });
             // Draw border for each row
-            doc.lineWidth(0.5).rect(30, y, Object.values(columnWidths).reduce((a, b) => a + b, 0), itemHeight + paddingBottom).stroke();
+            doc.lineWidth(0.5).rect(30, currentY, Object.values(columnWidths).reduce((a, b) => a + b, 0), itemHeight + paddingBottom).stroke();
+            currentY += itemHeight + paddingBottom;
+            
           });
 
-          // Draw table borders        
-          const drawTableBorders = () => {
-            doc.lineWidth(0.5);
-            doc.rect(30, tableTop, Object.values(columnWidths).reduce((a, b) => a + b, 0), headerHeight).stroke();
-            payments.forEach((payment, rowIndex) => {
-              const y = tableTop + headerHeight + rowIndex * itemHeight;
-              doc.rect(30, y, Object.values(columnWidths).reduce((a, b) => a + b, 0), itemHeight).stroke();
-            });
-          };
 
-          drawTableBorders();
+          addPageNumber(pageNumber);
 
           // Finalize the PDF and end the stream
           doc.end();
