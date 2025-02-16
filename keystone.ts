@@ -53,37 +53,37 @@ export default withAuth(
 
           // Add header elements
           const headerY = 25;
-          doc.fontSize(18).text('Ruta 1', 30, headerY, { align: 'left', baseline: 'middle' });
-          doc.fontSize(18).text('Listado de Cobranza', 0, headerY, { align: 'center', baseline: 'middle' });
+          doc.fontSize(14).text('Ruta 1', 30, headerY, { align: 'left', baseline: 'middle' });
+          doc.fontSize(14).text('Listado de Cobranza', 0, headerY, { align: 'center', baseline: 'middle' });
           doc.image('./solufacil.png', 450, 10, { width: 100 });
           // Add title and other details
           // Add title and other details
           const subtitleY = headerY + 20;
-          doc.fontSize(15).text('Semanal del 10 al 15 de abril', 0, subtitleY, { align: 'center', baseline: 'middle' });
+          doc.fontSize(10).text('Semanal del 10 al 15 de abril', 0, subtitleY, { align: 'center', baseline: 'middle' });
 
 
           const detailsY = subtitleY + 30;
 
-          doc.fontSize(12).fillColor('gray').text('Localidad:', 30, detailsY, { align: 'left', baseline: 'middle' });
-          doc.fontSize(12).fillColor('black').text('Los divorsiados', 100, detailsY, { align: 'left', baseline: 'middle' });
-          doc.fontSize(12).fillColor('gray').text('Lider:', 400, detailsY, { align: 'left', baseline: 'middle' });
-          doc.fontSize(12).fillColor('black').text('Stephanie de los angeles cocom cabrera', 450, detailsY, { align: 'left', baseline: 'middle' });
+          doc.fontSize(8).fillColor('gray').text('Localidad:', 30, detailsY, { align: 'left', baseline: 'middle' });
+          doc.fontSize(8).fillColor('black').text('Los divorsiados', 100, detailsY, { align: 'left', baseline: 'middle' });
+          doc.fontSize(8).fillColor('gray').text('Lider:', 400, detailsY, { align: 'left', baseline: 'middle' });
+          doc.fontSize(8).fillColor('black').text('Stephanie de los angeles cocom cabrera', 450, detailsY, { align: 'left', baseline: 'middle' });
 
           //doc.moveDown().fontSize(30);
           const additionalDetailsY = detailsY + 20;
-          doc.fontSize(12).fillColor('black').text(`Total de clientas: ${50}`, 30, additionalDetailsY, { align: 'left' });
+          doc.fontSize(8).fillColor('black').text(`Total de clientas: ${50}`, 30, additionalDetailsY, { align: 'left' });
           doc.text(`Comisión a pagar a la líder: ${1200}`, 30, additionalDetailsY + 15, { align: 'left' });
           doc.text(`Total de cobranza esperada: ${70000}`, 30, additionalDetailsY + 30, { align: 'left' });
           const columnWidths = {
-            name: 90,
-            phone: 60,
-            abono: 35,
-            adeudo: 45,
-            plazos: 40,
-            pagoVdo: 30,
-            cobroSemana: 40,
-            abonoParcial: 40,
-            fInicio: 55,
+            name: 100,
+            phone: 40,
+            abono: 70,
+            adeudo: 35,
+            plazos: 35,
+            pagoVdo: 25,
+            cobroSemana: 35,
+            abonoParcial: 35,
+            fInicio: 35,
             nSemana: 40,
             aval: 100,
           };
@@ -95,30 +95,64 @@ export default withAuth(
 
             // Draw table headers with background and border
             doc.rect(30, y, Object.values(columnWidths).reduce((a, b) => a + b, 0), headerHeight).fillAndStroke('#f0f0f0', '#000');
-            doc.fillColor('#000').fontSize(9);
+            doc.fillColor('#000').fontSize(7);
             headers.forEach((header, i) => {
               const x = 30 + Object.values(columnWidths).slice(0, i).reduce((a, b) => a + b, 0);
+              const columnWidth = Object.values(columnWidths)[i];
+
               if (header.includes(' ')) {
                 const [firstLine, secondLine] = header.split(' ');
-                doc.text(firstLine, x, y + 5, { width: columnWidths[header.toLowerCase()], align: 'left' });
-                doc.text(secondLine, x, y + 15, { width: columnWidths[header.toLowerCase()], align: 'left' });
+                doc.text(firstLine, x, y + 5, { width: columnWidth, align: 'center' });
+                doc.text(secondLine, x, y + 15, { width: columnWidth, align: 'center' });
               } else {
-                doc.text(header, x, y + 10, { width: columnWidths[header.toLowerCase()], align: 'left' });
+                doc.text(header, x, y + 10, { width: columnWidth, align: 'center' });
               }
             });
+
+            // Draw vertical lines for each column in headers
+            doc.lineWidth(0.5);
+            let x = 30;
+            Object.values(columnWidths).forEach((width) => {
+              doc.moveTo(x, y).lineTo(x, y + headerHeight).stroke();
+              x += width;
+            });
+            doc.moveTo(x, y).lineTo(x, y + headerHeight).stroke(); // Draw the last vertical line
+
             return y + headerHeight;
           };
 
-           // Function to add page numbers
+          // Function to add page numbers
           const addPageNumber = (pageNumber) => {
             doc.fontSize(10).text(`Page ${pageNumber}`, doc.page.width - 100, doc.page.height - 42, { align: 'right' });
+          };
+
+          // Function to split text into multiple lines if necessary
+          const splitText = (text, width) => {
+            const words = text.split(' ');
+            const lines = [];
+            let currentLine = '';
+
+            words.forEach((word) => {
+              const testLine = currentLine + word + ' ';
+              const testWidth = doc.widthOfString(testLine);
+
+              if (testWidth > width && currentLine.length > 0) {
+                lines.push(currentLine.trim());
+                currentLine = word + ' ';
+              } else {
+                currentLine = testLine;
+              }
+            });
+
+            lines.push(currentLine.trim());
+            return lines;
           };
 
           // Initial table headers
           let currentY = drawTableHeaders(additionalDetailsY + 50);
           let pageNumber = 1;
           addPageNumber(pageNumber);
-          
+
           const payments = [
             // Example data, replace with actual data
             { name: 'Juan Carlos Pérez Rodríguez', phone: '1234567890', abono: '100', adeudo: '500', plazos: '5', pagoVdo: '100', cobroSemana: '100', abonoParcial: '50', fInicio: '01/01/2022', nSemana: '1', aval: 'María López García' },
@@ -139,32 +173,70 @@ export default withAuth(
               abonoParcial: `${i * 5}`,
               fInicio: `01/01/202${i % 10}`,
               nSemana: `${i % 10}`,
-              aval: `Aval ${i + 1} Apellido Apellido`,
+              aval: `Aval ${i + 1} Apellido Apellido, 123456789${i}`,
+              
             });
           }
 
           const paddingBottom = 5;
           const itemHeight = 20;
+          const lineHeight = 12;
           const pageHeight = doc.page.height - doc.page.margins.bottom;
 
           payments.forEach((payment, rowIndex) => {
-            if (currentY + itemHeight + paddingBottom > pageHeight) {
+            const nameLines = splitText(payment.name, columnWidths.name);
+            const rowHeight = lineHeight * nameLines.length + paddingBottom;
+
+            if (currentY + rowHeight > pageHeight) {
               doc.addPage();
               pageNumber++;
               currentY = drawTableHeaders(30); // Reset Y position for new page and draw headers
               addPageNumber(pageNumber);
-              
             }
+
+            doc.fontSize(6);
+            nameLines.forEach((line, lineIndex) => {
+              const y = currentY + (lineIndex * lineHeight);
+              const textHeight = doc.heightOfString(line, { width: columnWidths.name });
+              const verticalOffset = (rowHeight - textHeight) / 2;
+              doc.text(line, 30 + 5, y + verticalOffset, { width: columnWidths.name, align: 'left' }); // Add a small margin at the top
+            });
+
             Object.keys(columnWidths).forEach((key, i) => {
               const x = 30 + Object.values(columnWidths).slice(0, i).reduce((a, b) => a + b, 0);
               const paddingLeft = key === 'name' ? 5 : 0;
               const paddingTop = 5;
-              doc.text(payment[key], x + paddingLeft, currentY + paddingTop, { width: columnWidths[key], align: key === 'name' || key === 'aval' ? 'left' : 'center' });
+
+              if (key === 'abono') {
+                // Draw subcolumns for 'abono'
+                const subColumnWidth = columnWidths.abono / 2;
+                const textHeight = doc.heightOfString(payment[key], { width: subColumnWidth });
+                const verticalOffset = (rowHeight - textHeight) / 2;
+
+                doc.text('', x + paddingLeft, currentY + verticalOffset, { width: subColumnWidth, align: 'center' }); // Left subcolumn (empty)
+        doc.text(payment[key], x + paddingLeft + subColumnWidth, currentY + verticalOffset, { width: subColumnWidth, align: 'center' }); // Right subcolumn (value)
+        // Draw vertical line between subcolumns
+        doc.moveTo(x + subColumnWidth, currentY).lineTo(x + subColumnWidth, currentY + rowHeight).stroke();
+        // Draw vertical line on the left subcolumn
+        doc.moveTo(x, currentY).lineTo(x, currentY + rowHeight).stroke();
+              } else {
+                const textHeight = doc.heightOfString(payment[key], { width: columnWidths[key] });
+                const verticalOffset = (rowHeight - textHeight) / 2;
+                doc.text(payment[key], x + paddingLeft, currentY + verticalOffset, { width: columnWidths[key], align: key === 'name' || key === 'aval' ? 'left' : 'center' });
+              }
             });
             // Draw border for each row
-            doc.lineWidth(0.5).rect(30, currentY, Object.values(columnWidths).reduce((a, b) => a + b, 0), itemHeight + paddingBottom).stroke();
-            currentY += itemHeight + paddingBottom;
-            
+            doc.lineWidth(0.5).rect(30, currentY, Object.values(columnWidths).reduce((a, b) => a + b, 0), rowHeight).stroke();
+
+            // Draw vertical lines for each column
+            let x = 30;
+            Object.values(columnWidths).forEach((width) => {
+              doc.moveTo(x, currentY).lineTo(x, currentY + rowHeight).stroke();
+              x += width;
+            });
+            doc.moveTo(x, currentY).lineTo(x, currentY + rowHeight).stroke(); // Draw the last vertical line
+
+            currentY += rowHeight;
           });
 
 
