@@ -2,7 +2,7 @@
 /** @jsx jsx */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { gql, useQuery, useMutation } from '@apollo/client';
+import { gql, useQuery, useMutation, useLazyQuery } from '@apollo/client';
 import { Box, jsx } from '@keystone-ui/core';
 import { LoadingDots } from '@keystone-ui/loading';
 import { Button } from '@keystone-ui/button';
@@ -11,11 +11,22 @@ import { PageContainer, GraphQLErrorNotice } from '@keystone-6/core/admin-ui/com
 import { DatePicker, Select, TextInput } from '@keystone-ui/fields';
 
 const GET_LEADS = gql`
-  query GetLeads {
-    employees {
+  query GetLeads($routeId: ID!) {
+    employees(where: { routes: { id: { equals: $routeId } } }) {
+      id
+      type
+      personalData {
+        fullName
+      }
+    }
+  }
+`;
+
+const GET_ROUTES = gql`
+  query Routes($where: RouteWhereInput!) {
+    routes(where: $where) {
       id
       name
-      type
     }
   }
 `;
@@ -52,7 +63,9 @@ const CREATE_LEAD_PAYMENT_RECEIVED = gql`
 
 type Lead = {
   id: string;
-  name: string;
+  personalData: {
+    fullName: string;
+  }
   type: string;
 };
 
@@ -79,6 +92,11 @@ type LoanPayment = {
   paymentMethod: string;
 };
 
+type Route = {
+  name: string;
+  id: string;
+};
+
 type Option = {
   value: string;
   label: string;
@@ -101,10 +119,16 @@ function CreatePageForm() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [comission, setComission] = useState<number>(8);
   const [payments, setPayments] = useState<LoanPayment[]>([]);
-  const { data: leadsData, loading: leadsLoading, error: leadsError } = useQuery<{ employees: Lead[] }>(GET_LEADS);
+  const [selectedRoute, setSelectedRoute] = useState<Option | null>(null);
+  const [getLeads, { data: leadsData, loading: leadsLoading, error: leadsError }] = useLazyQuery<{ employees: Lead[] }>(GET_LEADS);
   const { data: loansData, loading: loansLoading, error: loansError } = useQuery<{ loans: Loan[] }>(GET_LOANS_BY_LEAD, {
-    variables: { leadId: { equals: selectedLead?.value || '' } },
+    variables: { 
+      leadId: { equals: selectedLead?.value || '' },  
+    },
     skip: !selectedLead,
+  });
+  const { data: routesData, loading: routesLoading, error: routesError } = useQuery<{ routes: Route[] }>(GET_ROUTES, {
+    variables: { where: { } },
   });
   const [createLoanPayment, { error: loanPaymentError, loading: loanPaymentLoading }] = useMutation(CREATE_LOAN_PAYMENT);
   const [createLeadPaymentReceived, { error: leadPaymentError, loading: leadPaymentLoading }] = useMutation(CREATE_LEAD_PAYMENT_RECEIVED);
@@ -129,6 +153,20 @@ function CreatePageForm() {
       setPayments(newPayments);
     }
   }, [loansData]);
+
+  useEffect(() => {
+    console.log("selectedRoute", selectedRoute);
+    if (selectedRoute?.value) {
+      console.log("111111", selectedRoute);
+      getLeads(
+        {
+          variables: { 
+            routeId: selectedRoute.value,
+          }
+        }
+      );
+    }
+  }, [selectedRoute?.value]);
 
   const handleAddPayment = () => {
     setPayments([
@@ -257,9 +295,22 @@ function CreatePageForm() {
           />
         </Box>
         <Box style={{ flex: 1 }} marginRight="medium">
+          <label>Ruta</label>
+          <Select
+            options={routesData?.routes.map(r => ({ value: r.id, label: r.name })) || []}
+            isLoading={routesLoading}
+            value={selectedRoute}
+            onChange={option => {
+              if (option) {
+                setSelectedRoute(option);
+              }
+            }}
+          />
+        </Box>
+        <Box style={{ flex: 1 }} marginRight="medium">
           <label>Lider</label>
           <Select
-            options={leadsData?.employees?.filter(employee => employee.type === 'LEAD')?.map(lead => ({ value: lead.id, label: lead.name })) || []}
+            options={leadsData?.employees?.filter(employee => employee.type === 'LEAD')?.map(lead => ({ value: lead.id, label: lead.personalData.fullName })) || []}
             isLoading={leadsLoading}
             value={selectedLead}
             onChange={option => {
