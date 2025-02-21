@@ -6,8 +6,9 @@ import { gql, useQuery, useMutation, useLazyQuery } from '@apollo/client';
 import { Box, jsx } from '@keystone-ui/core';
 import { LoadingDots } from '@keystone-ui/loading';
 import { Button } from '@keystone-ui/button';
+import { AlertDialog } from '@keystone-ui/modals';
 import { useRouter } from 'next/router';
-import { PageContainer, GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
+import { PageContainer, GraphQLErrorNotice,   } from '@keystone-6/core/admin-ui/components';
 import { DatePicker, Select, TextInput } from '@keystone-ui/fields';
 
 const GET_LEADS = gql`
@@ -22,6 +23,29 @@ const GET_LEADS = gql`
   }
 `;
 
+const CREATE_LEAD_PAYMENT_RECEIVED = gql`
+  mutation CreateCustomLeadPaymentReceived($expectedAmount: Float!, $agentId: ID!, $leadId: ID!, $payments: [PaymentInput!]!, $cashPaidAmount: Float, $bankPaidAmount: Float, $paymentDate: String!) {
+  createCustomLeadPaymentReceived(expectedAmount: $expectedAmount, agentId: $agentId, leadId: $leadId, payments: $payments, cashPaidAmount: $cashPaidAmount, bankPaidAmount: $bankPaidAmount, paymentDate: $paymentDate) {
+    id
+    expectedAmount
+    paidAmount
+    cashPaidAmount
+    bankPaidAmount
+    falcoAmount
+    agentId
+    leadId
+    paymentDate
+    payments {
+      amount
+      comission
+      loanId
+      type
+      paymentMethod
+    }
+  }
+}
+`;
+
 const GET_ROUTES = gql`
   query Routes($where: RouteWhereInput!) {
     routes(where: $where) {
@@ -32,8 +56,8 @@ const GET_ROUTES = gql`
 `;
 
 const GET_LOANS_BY_LEAD = gql`
-  query GetLoansByLead($leadId: IDFilter!) {
-    loans(where: { lead: { id: $leadId } }) {
+  query Loans($where: LoanWhereInput!) {
+    loans(where: $where) {
       id
       weeklyPaymentAmount
       borrower {
@@ -53,13 +77,7 @@ const CREATE_LOAN_PAYMENT = gql`
   }
 `;
 
-const CREATE_LEAD_PAYMENT_RECEIVED = gql`
-  mutation CreateLeadPaymentReceived($data: LeadPaymentReceivedCreateInput!) {
-    createLeadPaymentReceived(data: $data) {
-      id
-    }
-  }
-`;
+
 
 type Lead = {
   id: string;
@@ -81,14 +99,9 @@ type Loan = {
 
 type LoanPayment = {
   amount: string;
-  profitAmount: string;
-  returnToCapital: string;
-  receivedAt: string;
-  loan: { connect: { id: string } };
-  /* collector: { connect: { id: string } }; */
-  leadPaymentReceived: { connect: { id: string } };
-  type: string;
   comission: number;
+  loanId: string;
+  type: string;
   paymentMethod: string;
 };
 
@@ -123,7 +136,16 @@ function CreatePageForm() {
   const [getLeads, { data: leadsData, loading: leadsLoading, error: leadsError }] = useLazyQuery<{ employees: Lead[] }>(GET_LEADS);
   const { data: loansData, loading: loansLoading, error: loansError } = useQuery<{ loans: Loan[] }>(GET_LOANS_BY_LEAD, {
     variables: { 
-      leadId: { equals: selectedLead?.value || '' },  
+      where: {
+        lead: {
+          id: {
+            equals: selectedLead?.value || ''
+          }
+        },
+        finishedDate: {
+          equals: null
+        }
+      }
     },
     skip: !selectedLead,
   });
@@ -131,7 +153,19 @@ function CreatePageForm() {
     variables: { where: { } },
   });
   const [createLoanPayment, { error: loanPaymentError, loading: loanPaymentLoading }] = useMutation(CREATE_LOAN_PAYMENT);
-  const [createLeadPaymentReceived, { error: leadPaymentError, loading: leadPaymentLoading }] = useMutation(CREATE_LEAD_PAYMENT_RECEIVED);
+  //const [createLeadPaymentReceived, { error: leadPaymentError, loading: leadPaymentLoading }] = useMutation(CREATE_LEAD_PAYMENT_RECEIVED);
+  const [createCustomLeadPaymentReceived, { error: customLeadPaymentError, loading: customLeadPaymentLoading }] = useMutation(CREATE_LEAD_PAYMENT_RECEIVED);
+
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [loadPaymentDistribution, setLoadPaymentDistribution] = useState<{
+    cashPaidAmount: number;
+    bankPaidAmount: number;
+    totalPaidAmount: number;
+  }>({
+    cashPaidAmount: 0,
+    bankPaidAmount: 0,
+    totalPaidAmount: 0,
+  });
 
   const router = useRouter();
 
@@ -139,16 +173,10 @@ function CreatePageForm() {
     if (loansData) {
       const newPayments = loansData.loans.map(loan => ({
         amount: loan.weeklyPaymentAmount,
-        profitAmount: '',
-        returnToCapital: '',
-        receivedAt: selectedDate?.toISOString() || '',
-        loan: { connect: { id: loan.id } },
-        /* collector: { connect: { id: '' } }, */
-        leadPaymentReceived: { connect: { id: '' } },
-        type: 'PAYMENT',
         comission: comission,
+        loanId: loan.id,
+        type: 'PAYMENT',
         paymentMethod: 'CASH',
-
       }));
       setPayments(newPayments);
     }
@@ -173,12 +201,7 @@ function CreatePageForm() {
       ...payments,
       {
         amount: '',
-        profitAmount: '',
-        returnToCapital: '',
-        receivedAt: selectedDate?.toISOString() || '',
-        loan: { connect: { id: '' } },
-        /* collector: { connect: { id: '' } }, */
-        leadPaymentReceived: { connect: { id: '' } },
+        loanId: '',
         type: 'PAYMENT',
         comission: comission,
         paymentMethod: 'CASH',
@@ -208,8 +231,8 @@ function CreatePageForm() {
 
   const handleChange = (index: number, field: keyof LoanPayment, value: any) => {
     const newPayments = [...payments];
-    if (field === 'loan' || /* field === 'collector' || */ field === 'leadPaymentReceived') {
-      newPayments[index][field] = { connect: { id: value } };
+    if (field === 'loanId' /* || field === 'collector' || field === 'leadPaymentReceived'*/ ) {
+      newPayments[index][field] = value;
     } else if (field === 'comission') {
       (newPayments[index][field] as unknown as string) = value;
     }else{
@@ -240,22 +263,46 @@ function CreatePageForm() {
 
   const handleSubmit = async () => {
     // Create LeadPaymentReceived
-    const { data: leadPaymentData } = await createLeadPaymentReceived({ variables: { data: {} } });
+    /* const { data: leadPaymentData } = await createLeadPaymentReceived({ variables: { data: {} } });
     const leadPaymentReceivedId = leadPaymentData.createLeadPaymentReceived.id;
-
+ */
     // Update payments with the created LeadPaymentReceived ID
     const updatedPayments = payments.map(payment => ({
       ...payment,
-      leadPaymentReceived: { connect: { id: leadPaymentReceivedId } },
-      profitAmount: "0",
-      returnToCapital: "0",
-      comission: payment.comission.toString()
+      amount: parseFloat(payment.amount),
+      comission: parseFloat(payment.comission.toString()),
     }));
 
-    // Create LoanPayments
+    // Create LoanPayments and collect their IDs
+    /* const paymentIds = [];
     for (const payment of updatedPayments) {
-      await createLoanPayment({ variables: { data: payment } });
-    }
+      const { data: loanPaymentData } = await createLoanPayment({ variables: { data: payment } });
+      paymentIds.push(loanPaymentData.createLoanPayment.id);
+    } */
+
+    // Create Custom LeadPaymentReceived with the payment IDs
+    await createCustomLeadPaymentReceived({
+      variables: {
+        expectedAmount: parseFloat(loadPaymentDistribution.totalPaidAmount.toFixed(2)),
+        cashPaidAmount: parseFloat(loadPaymentDistribution.cashPaidAmount.toFixed(2)),
+        bankPaidAmount: parseFloat(loadPaymentDistribution.bankPaidAmount .toFixed(2)),
+        falcoAmount: 0.00,
+        agentId: selectedLead?.value || '',
+        leadId: selectedLead?.value || '',
+        payments: updatedPayments,
+        paymentDate: selectedDate?.toISOString() || '',
+      },
+    });
+    /* await createCustomLeadPaymentReceived({
+      variables: {
+        expectedAmount: 2.0,
+        cashPaidAmount: 2.0,
+        bankPaidAmount: 2.0,
+        agentId: "2",
+        leadId: "2",
+        paymentIds: ["1", "2"],
+      },
+    }); */
 
     alert('Payments created successfully!');
     router.push('/loan-payments');
@@ -263,6 +310,16 @@ function CreatePageForm() {
   const totalAmount = useMemo(() => {
     return payments.reduce((sum, payment) => sum + parseFloat(payment.amount || '0'), 0);
   }, [payments]);
+
+  useEffect(() => {
+    setLoadPaymentDistribution((prev) => ({
+      ...prev,
+      totalPaidAmount: totalAmount,
+      bankPaidAmount: totalAmount - prev.cashPaidAmount,
+      cashPaidAmount: totalAmount,
+    }));
+  }, [totalAmount]);
+
   const paymentTypeCounts = useMemo(() => {
     return payments.reduce((counts, payment) => {
       counts[payment.type] = (counts[payment.type] || 0) + 1;
@@ -279,10 +336,10 @@ function CreatePageForm() {
 
   return (
     <Box paddingTop="xlarge">
-      {(loanPaymentError || leadPaymentError) && (
+      {(loanPaymentError || customLeadPaymentError) && (
         <GraphQLErrorNotice
-          networkError={loanPaymentError?.networkError || leadPaymentError?.networkError}
-          errors={loanPaymentError?.graphQLErrors || leadPaymentError?.graphQLErrors}
+          networkError={loanPaymentError?.networkError || customLeadPaymentError?.networkError}
+          errors={loanPaymentError?.graphQLErrors || customLeadPaymentError?.graphQLErrors}
         />
       )}
       <Box marginBottom="large" style={{ display: 'flex', alignItems: 'center' }}>
@@ -342,7 +399,7 @@ function CreatePageForm() {
         }}
       >
         <ul>
-          <p style={{ margin: '0 0 10px 0', fontSize: '16px' }}>Sumal Total: ${totalAmount.toFixed(2)}</p>
+          <p style={{ margin: '0 0 10px 0', fontSize: '16px' }}>Suma Total: ${totalAmount.toFixed(2)}</p>
           {Object.entries(paymentTypeCounts).map(([type, count]) => (
             <li key={type} style={{ marginBottom: '5px', fontSize: '14px' }}>
               <span style={{ marginRight: '10px', display: 'inline-block', width: '10px', height: '10px', borderRadius: '50%' }}></span>
@@ -375,15 +432,15 @@ function CreatePageForm() {
                     value: loan.id,
                     label: loan.borrower?.personalData?.fullName,
                   })) || []}
-                  value={loansData?.loans.find(loan => loan.id === payment.loan.connect.id) ? {
-                    value: payment.loan.connect.id,
-                    label: loansData.loans.find(loan => loan.id === payment.loan.connect.id)?.borrower?.personalData?.fullName || '',
+                  value={loansData?.loans.find(loan => loan.id === payment.loanId) ? {
+                    value: payment.loanId,
+                    label: loansData.loans.find(loan => loan.id === payment.loanId)?.borrower?.personalData?.fullName || '',
                   } : null}
-                  onChange={(option) => handleChange(index, 'loan', (option as Option).value)}
+                  onChange={(option) => handleChange(index, 'loanId', (option as Option).value)}
                 />
               </td>
               <td>
-                <TextInput value={payment.loan.connect.id ? loansData?.loans.find(loan => loan.id === payment.loan.connect.id)?.weeklyPaymentAmount : ''} readOnly style={{ backgroundColor: '#f0f0f0', color: '#888' }} // Fondo gris y texto gris
+                <TextInput value={payment.loanId ? loansData?.loans.find(loan => loan.id === payment.loanId)?.weeklyPaymentAmount : ''} readOnly style={{ backgroundColor: '#f0f0f0', color: '#888' }} // Fondo gris y texto gris
                 />
               </td>
               <td>
@@ -412,17 +469,14 @@ function CreatePageForm() {
                   onChange={(option) => handlePaymentMethodChange(index, (option as Option))}
                 />
               </td>
-              <TextInput value={payment.profitAmount} onChange={(e) => handleChange(index, 'profitAmount', e.target.value)} hidden />
-
-              <TextInput value={payment.returnToCapital} onChange={(e) => handleChange(index, 'returnToCapital', e.target.value)} hidden />
 
               <TextInput value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''} hidden />
 
-              <TextInput value={payment.loan.connect.id} onChange={(e) => handleChange(index, 'loan', e.target.value)} hidden />
+              <TextInput value={payment.loanId} onChange={(e) => handleChange(index, 'loanId', e.target.value)} hidden />
 
               {/* <TextInput value={payment.collector.connect.id} onChange={(e) => handleChange(index, 'collector', e.target.value)} hidden /> */}
 
-              <TextInput value={payment.leadPaymentReceived.connect.id} onChange={(e) => handleChange(index, 'leadPaymentReceived', e.target.value)} hidden />
+              {/* <TextInput value={payment.leadPaymentReceived.connect.id} onChange={(e) => handleChange(index, 'leadPaymentReceived', e.target.value)} hidden /> */}
               <td>
                 <Button onClick={() => handleRemovePayment(index)}>Remove</Button>
               </td>
@@ -432,10 +486,53 @@ function CreatePageForm() {
       </table>
       <Box marginTop="large">
         <Button onClick={handleAddPayment}>Agregar otro pago</Button>
-        <Button isLoading={loanPaymentLoading || leadPaymentLoading} weight="bold" tone="active" onClick={handleSubmit} style={{ marginLeft: '10px' }}>
+        <Button isLoading={loanPaymentLoading || customLeadPaymentLoading} weight="bold" tone="active" onClick={() => setIsModalOpen(true)} style={{ marginLeft: '10px' }}>
           Registrar pagos
         </Button>
       </Box>
+
+      
+      
+        <AlertDialog title="Set the money distribution" isOpen={isModalOpen} actions={{
+          confirm: { label: 'Confirm', action: () => handleSubmit(), loading: customLeadPaymentLoading  || loanPaymentLoading },
+          cancel: { label: 'Close', action: () => setIsModalOpen(false) }
+        }}>
+        <Box padding="large">
+          <Box marginBottom="large">
+            <h2>Set the money distribution</h2>
+          </Box>
+          <Box marginBottom="large">
+            <label>Cash Paid Amount</label>
+            <TextInput
+              type="number"
+              value={loadPaymentDistribution.cashPaidAmount}
+              onChange={(e) => setLoadPaymentDistribution({
+                 cashPaidAmount: parseFloat(e.target.value),
+                 bankPaidAmount: loadPaymentDistribution.totalPaidAmount - parseFloat(e.target.value),
+                 totalPaidAmount: loadPaymentDistribution.totalPaidAmount,
+                }
+                )}
+            />
+          </Box>
+          <Box marginBottom="large">
+            <label>Bank Paid Amount</label>
+            <TextInput
+              type="number"
+              value={loadPaymentDistribution.bankPaidAmount}
+              readOnly
+            />
+          </Box>
+          <Box marginBottom="large">
+            <label>Total Paid Amount</label>
+            <TextInput
+              type="number"
+              value={loadPaymentDistribution.totalPaidAmount}
+              readOnly
+            />
+          </Box>
+          <Button onClick={() => setIsModalOpen(false)}>Close</Button>
+        </Box>
+        </AlertDialog>
     </Box>
   );
 }

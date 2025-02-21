@@ -506,11 +506,12 @@ export const LoanPayment = list({
     profitAmount: decimal({
       precision: 10,
       scale: 2,
-    }
-    ),
+      defaultValue: "0",
+    }),
     returnToCapital: decimal({
       precision: 10,
       scale: 2,
+      defaultValue: "0",
     }),
     receivedAt: timestamp({ defaultValue: { kind: 'now' } }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
@@ -603,7 +604,7 @@ export const LoanPayment = list({
           });
           console.log("////////////payments///////////444444", payments, loan);
 
-          const totalAmountToPay = parseFloat(loan.amountToPay);
+          const totalAmountToPay = parseFloat(loan.requestedAmount) * parseFloat(loanType.rate);
           const amountGiven = parseFloat(loan.amountGived);
           const rate = parseFloat(loanType.rate);
           const totalProfit = amountGiven * rate;
@@ -613,6 +614,7 @@ export const LoanPayment = list({
           const earnedProfit = totalProfit - pendingProfit;
           console.log(item.amount);
           const paymentProfit = (parseFloat(item.amount) * totalProfit) / totalAmountToPay;
+          console.log(item.amount, totalProfit, totalAmountToPay, totalAmountToPay, );
           console.log("////////////paymentProfit///////////", paymentProfit);
           console.log("////////////pendingProfit///////////", pendingProfit);
           console.log("////////////earnedProfit///////////", earnedProfit);
@@ -646,7 +648,7 @@ export const LoanPayment = list({
                 amount: item.amount,
                 date: item.receivedAt,
                 type: 'INCOME',
-                incomeSource: 'LOAN_PAYMENT',
+                incomeSource: 'CASH_LOAN_PAYMENT',
                 destinationAccount: { connect: { id: employeeAccount[0].id } },
                 loanPayment: { connect: { id: item.id } },
               },
@@ -816,12 +818,19 @@ export const LeadPaymentReceived = list({
         { label: 'COMPENSATORY_PENDING_MONEY', value: 'COMPENSATORY_PENDING_MONEY' },
       ],
     }), */
+    
     expectedAmount: decimal(),
     paidAmount: decimal(),
-    falco: decimal(),
-    pendingFalcoAmount: decimal(), // Amount pending to pay to Falco
-    cashAmount: decimal(),
-    bankAmount: decimal(), // If bank amount > than 0. Then remove that amount from the cashAccount balance and inser it into the bankAccount balance
+    cashPaidAmount: decimal(),
+    bankPaidAmount: decimal(), // If bank amount > than 0. Then remove that amount from the cashAccount balance and inser it into the bankAccount balance
+    falcoAmount: decimal(),
+    paymentStatus: select({
+      options: [
+        { label: 'COMPLETO', value: 'COMPLETE' },
+        { label: 'PARCIAL', value: 'PARTIAL' },
+        { label: 'FALCO', value: 'FALCO' },
+      ],
+    }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),
     //leadId: text(),
@@ -831,8 +840,6 @@ export const LeadPaymentReceived = list({
     falcoCompensatoryPayments: relationship({ ref: 'FalcoCompensatoryPayment.leadPaymentReceived', many: true }),
     /* loanPayment: relationship({ ref: 'LoanPayment.leadPaymentReceived', many: true }), */
     payments: relationship({ ref: 'LoanPayment.leadPaymentReceived', many: true }),
-
-
   },
 });
 

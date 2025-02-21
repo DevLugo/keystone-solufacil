@@ -16,7 +16,7 @@ import { withAuth, session } from './auth'
 import dotenv from 'dotenv';
 import express from 'express';
 import PDFDocument from 'pdfkit';
-
+import { extendGraphqlSchema } from './graphql/extendGraphqlSchema';
 // Load environment variables from .env file
 dotenv.config();
 
@@ -37,6 +37,9 @@ export default withAuth(
       url: process.env.DATABASE_URL || '',
     },
     lists,
+    graphql: {
+      extendGraphqlSchema,
+    },
     session,
     server: {
       extendExpressApp: (app) => {

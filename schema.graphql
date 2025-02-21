@@ -1502,10 +1502,10 @@ type LeadPaymentReceived {
   id: ID!
   expectedAmount: Decimal
   paidAmount: Decimal
-  falco: Decimal
-  pendingFalcoAmount: Decimal
-  cashAmount: Decimal
-  bankAmount: Decimal
+  cashPaidAmount: Decimal
+  bankPaidAmount: Decimal
+  falcoAmount: Decimal
+  paymentStatus: String
   createdAt: DateTime
   updatedAt: DateTime
   agent: Employee
@@ -1527,10 +1527,10 @@ input LeadPaymentReceivedWhereInput {
   id: IDFilter
   expectedAmount: DecimalNullableFilter
   paidAmount: DecimalNullableFilter
-  falco: DecimalNullableFilter
-  pendingFalcoAmount: DecimalNullableFilter
-  cashAmount: DecimalNullableFilter
-  bankAmount: DecimalNullableFilter
+  cashPaidAmount: DecimalNullableFilter
+  bankPaidAmount: DecimalNullableFilter
+  falcoAmount: DecimalNullableFilter
+  paymentStatus: StringNullableFilter
   createdAt: DateTimeNullableFilter
   updatedAt: DateTimeNullableFilter
   agent: EmployeeWhereInput
@@ -1549,10 +1549,10 @@ input LeadPaymentReceivedOrderByInput {
   id: OrderDirection
   expectedAmount: OrderDirection
   paidAmount: OrderDirection
-  falco: OrderDirection
-  pendingFalcoAmount: OrderDirection
-  cashAmount: OrderDirection
-  bankAmount: OrderDirection
+  cashPaidAmount: OrderDirection
+  bankPaidAmount: OrderDirection
+  falcoAmount: OrderDirection
+  paymentStatus: OrderDirection
   createdAt: OrderDirection
   updatedAt: OrderDirection
 }
@@ -1560,10 +1560,10 @@ input LeadPaymentReceivedOrderByInput {
 input LeadPaymentReceivedUpdateInput {
   expectedAmount: Decimal
   paidAmount: Decimal
-  falco: Decimal
-  pendingFalcoAmount: Decimal
-  cashAmount: Decimal
-  bankAmount: Decimal
+  cashPaidAmount: Decimal
+  bankPaidAmount: Decimal
+  falcoAmount: Decimal
+  paymentStatus: String
   createdAt: DateTime
   updatedAt: DateTime
   agent: EmployeeRelateToOneForUpdateInput
@@ -1587,10 +1587,10 @@ input LeadPaymentReceivedUpdateArgs {
 input LeadPaymentReceivedCreateInput {
   expectedAmount: Decimal
   paidAmount: Decimal
-  falco: Decimal
-  pendingFalcoAmount: Decimal
-  cashAmount: Decimal
-  bankAmount: Decimal
+  cashPaidAmount: Decimal
+  bankPaidAmount: Decimal
+  falcoAmount: Decimal
+  paymentStatus: String
   createdAt: DateTime
   updatedAt: DateTime
   agent: EmployeeRelateToOneForCreateInput
@@ -1796,6 +1796,36 @@ type Mutation {
   endSession: Boolean!
   authenticateUserWithPassword(email: String!, password: String!): UserAuthenticationWithPasswordResult
   createInitialUser(data: CreateInitialUserInput!): UserAuthenticationWithPasswordSuccess!
+  createCustomLeadPaymentReceived(expectedAmount: Float!, cashPaidAmount: Float, bankPaidAmount: Float, agentId: ID!, leadId: ID!, paymentDate: String!, payments: [PaymentInput!]!): CustomLeadPaymentReceived!
+}
+
+type CustomLeadPaymentReceived {
+  id: ID!
+  expectedAmount: Float!
+  paidAmount: Float!
+  cashPaidAmount: Float!
+  bankPaidAmount: Float!
+  falcoAmount: Float!
+  agentId: ID!
+  leadId: ID!
+  paymentDate: String!
+  payments: [Payment!]!
+}
+
+type Payment {
+  amount: Float!
+  comission: Float!
+  loanId: String!
+  type: String!
+  paymentMethod: String!
+}
+
+input PaymentInput {
+  amount: Float!
+  comission: Float!
+  loanId: String!
+  type: String!
+  paymentMethod: String!
 }
 
 union UserAuthenticationWithPasswordResult = UserAuthenticationWithPasswordSuccess | UserAuthenticationWithPasswordFailure
