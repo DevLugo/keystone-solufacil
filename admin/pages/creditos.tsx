@@ -2,7 +2,7 @@
 /** @jsx jsx */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { gql, useQuery, useMutation } from '@apollo/client';
+import { gql, useQuery, useMutation, useLazyQuery } from '@apollo/client';
 import { Box, jsx } from '@keystone-ui/core';
 import { LoadingDots } from '@keystone-ui/loading';
 import { Button } from '@keystone-ui/button';
@@ -62,6 +62,15 @@ const GET_LOANS = gql`
   }
 `;
 
+const GET_ROUTES = gql`
+  query Routes($where: RouteWhereInput!) {
+    routes(where: $where) {
+      id
+      name
+    }
+  }
+`;
+
 const GET_LOAN_TYPES = gql`
   query GetLoanTypes {
     loantypes {
@@ -74,11 +83,13 @@ const GET_LOAN_TYPES = gql`
 `;
 
 const GET_LEADS = gql`
-  query GetLeads {
-    employees {
+  query GetLeads($routeId: ID!) {
+    employees(where: { routes: { id: { equals: $routeId } } }) {
       id
-      name
       type
+      personalData {
+        fullName
+      }
     }
   }
 `;
@@ -184,6 +195,17 @@ type Option = {
   value: string;
   label: string;
 };
+type Lead = {
+  id: string;
+  personalData: {
+    fullName: string;
+  }
+  type: string;
+};
+type Route = {
+  name: string;
+  id: string;
+};
 
 function CreateLoanForm() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -195,13 +217,19 @@ function CreateLoanForm() {
     skip: !selectedLead,
   });
   const { data: loanTypesData, loading: loanTypesLoading, error: loanTypesError } = useQuery<{ loantypes: LoanType[] }>(GET_LOAN_TYPES);
-  const { data: leadsData, loading: leadsLoading, error: leadsError } = useQuery<{ employees: Lead[] }>(GET_LEADS);
+  const [getLeads, { data: leadsData, loading: leadsLoading, error: leadsError }] = useLazyQuery<{ employees: Lead[] }>(GET_LEADS);
   const [comission, setComission] = useState<number>(8);
   const [updatePersonalData] = useMutation(UPDATE_PERSONAL_DATA);
 
   const [createLoan, { error: loanError, loading: loanLoading }] = useMutation<LoanCreateInput>(CREATE_LOAN);
   const router = useRouter();
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
+  const [selectedRoute, setSelectedRoute] = useState<Option | null>(null);
+
+
+  const { data: routesData, loading: routesLoading, error: routesError } = useQuery<{ routes: Route[] }>(GET_ROUTES, {
+      variables: { where: { } },
+    });
 
   useEffect(() => {
     if (loansData) {
@@ -225,6 +253,20 @@ function CreateLoanForm() {
     setLoans(uniqueLoans);
     }
   }, [loansData]);
+
+  useEffect(() => {
+      console.log("selectedRoute", selectedRoute);
+      if (selectedRoute?.value) {
+        console.log("111111", selectedRoute);
+        getLeads(
+          {
+            variables: { 
+              routeId: selectedRoute.value,
+            }
+          }
+        );
+      }
+    }, [selectedRoute?.value]);
 
   const handleAddLoan = () => {
     setNewLoans([
@@ -490,7 +532,7 @@ function CreateLoanForm() {
       )}
       <Box marginBottom="large" style={{ display: 'flex', alignItems: 'center' }}>
         <Box marginRight="medium" style={{ flex: 1 }}>
-          <label>Select Date</label>
+          <label>Fecha</label>
           <DatePicker
             value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''} // Convertir la fecha a cadena en formato YYYY-MM-DD
             onUpdate={(value: string) => handleDateChange(value)} // Usar onUpdate con un valor de tipo string
@@ -498,9 +540,22 @@ function CreateLoanForm() {
           />
         </Box>
         <Box style={{ flex: 1 }} marginRight="medium">
-          <label>Select Lead</label>
+          <label>Ruta</label>
           <Select
-            options={leadsData?.employees?.filter(employee => employee.type === 'LEAD')?.map(lead => ({ value: lead.id, label: lead.name })) || []}
+            options={routesData?.routes.map(r => ({ value: r.id, label: r.name })) || []}
+            isLoading={routesLoading}
+            value={selectedRoute}
+            onChange={option => {
+              if (option) {
+                setSelectedRoute(option);
+              }
+            }}
+          />
+        </Box>
+        <Box style={{ flex: 1 }} marginRight="medium">
+          <label>Lider</label>
+          <Select
+            options={leadsData?.employees?.filter(employee => employee.type === 'LEAD')?.map(lead => ({ value: lead.id, label: lead.personalData.fullName })) || []}
             isLoading={leadsLoading}
             value={selectedLead}
             onChange={option => {
@@ -517,8 +572,6 @@ function CreateLoanForm() {
             type='number'
             onChange={(e) => setComission(parseInt(e.target.value))}
           />
-          
-          
         </Box>
       </Box>
       <Box
