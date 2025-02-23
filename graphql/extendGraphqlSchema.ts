@@ -49,6 +49,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
           expectedAmount: graphql.arg({ type: graphql.nonNull(graphql.Float) }),
           cashPaidAmount: graphql.arg({ type: graphql.Float }),
           bankPaidAmount: graphql.arg({ type: graphql.Float }),
+          falcoAmount: graphql.arg({ type: graphql.Float }),
           agentId: graphql.arg({ type: graphql.nonNull(graphql.ID) }),
           leadId: graphql.arg({ type: graphql.nonNull(graphql.ID) }),
           paymentDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),

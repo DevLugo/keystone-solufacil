@@ -812,13 +812,6 @@ export const FalcoCompensatoryPayment = list({
 export const LeadPaymentReceived = list({
   access: allowAll,
   fields: {
-    /* type: select({
-      options: [
-        { label: 'PENDING_MONEY', value: 'PENDING_MONEY' },
-        { label: 'COMPENSATORY_PENDING_MONEY', value: 'COMPENSATORY_PENDING_MONEY' },
-      ],
-    }), */
-    
     expectedAmount: decimal(),
     paidAmount: decimal(),
     cashPaidAmount: decimal(),
@@ -833,12 +826,9 @@ export const LeadPaymentReceived = list({
     }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),
-    //leadId: text(),
-    //agentId: text(),
     agent: relationship({ ref: 'Employee.leadPaymentsReceivedAgent' }),
     lead: relationship({ ref: 'Employee.LeadPaymentReceivedLead' }),
     falcoCompensatoryPayments: relationship({ ref: 'FalcoCompensatoryPayment.leadPaymentReceived', many: true }),
-    /* loanPayment: relationship({ ref: 'LoanPayment.leadPaymentReceived', many: true }), */
     payments: relationship({ ref: 'LoanPayment.leadPaymentReceived', many: true }),
   },
 });
