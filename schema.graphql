@@ -977,6 +977,7 @@ type Loan {
   loantype: Loantype
   signDate: DateTime
   badDebtDate: DateTime
+  profitAmount: Decimal
   avalName: String
   avalPhone: String
   grantor: Employee
@@ -1017,6 +1018,7 @@ input LoanWhereInput {
   loantype: LoantypeWhereInput
   signDate: DateTimeFilter
   badDebtDate: DateTimeNullableFilter
+  profitAmount: DecimalNullableFilter
   avalName: StringFilter
   avalPhone: StringFilter
   grantor: EmployeeWhereInput
@@ -1067,6 +1069,7 @@ input LoanOrderByInput {
   amountGived: OrderDirection
   signDate: OrderDirection
   badDebtDate: OrderDirection
+  profitAmount: OrderDirection
   avalName: OrderDirection
   avalPhone: OrderDirection
   comissionAmount: OrderDirection
@@ -1084,6 +1087,7 @@ input LoanUpdateInput {
   loantype: LoantypeRelateToOneForUpdateInput
   signDate: DateTime
   badDebtDate: DateTime
+  profitAmount: Decimal
   avalName: String
   avalPhone: String
   grantor: EmployeeRelateToOneForUpdateInput
@@ -1131,6 +1135,7 @@ input LoanCreateInput {
   loantype: LoantypeRelateToOneForCreateInput
   signDate: DateTime
   badDebtDate: DateTime
+  profitAmount: Decimal
   avalName: String
   avalPhone: String
   grantor: EmployeeRelateToOneForCreateInput

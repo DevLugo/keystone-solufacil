@@ -143,6 +143,7 @@ model Loan {
   loantypeId             String?             @map("loantype")
   signDate               DateTime            @default(now())
   badDebtDate            DateTime?
+  profitAmount           Decimal?            @postgresql.Decimal(10, 2)
   avalName               String              @default("")
   avalPhone              String              @default("")
   grantor                Employee?           @relation("Loan_grantor", fields: [grantorId], references: [id])

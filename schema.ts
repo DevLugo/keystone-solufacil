@@ -252,14 +252,12 @@ export const Loan = list({
     loantype: relationship({ ref: 'Loantype.loan' }),
     signDate: timestamp({ defaultValue: { kind: 'now' }, validation: { isRequired: true } }),
     badDebtDate: timestamp({ validation: { isRequired: false } }),
-    /* profit: relationship({ ref: 'Profit.loan' }), */
-    /* profitAmount: decimal(
+    profitAmount: decimal(
       {
         precision: 10,
         scale: 2,
-        validation: { isRequired: false }
-    }), */
-    
+        validation: { isRequired: false },
+    }),
     avalName: text(),
     avalPhone: text(),
     grantor: relationship({ ref: 'Employee.loan' }),
@@ -422,7 +420,14 @@ export const Loan = list({
     afterOperation: async ({ operation, item, context, originalItem }) => {
       
       if ((operation === 'create' || operation === 'update') && item) {
-        
+        const loan = await prisma.loan.findFirst({
+          where: { id: item.id.toString() },
+          include: {
+            loantype: true,
+          }
+        });
+
+        console.log("////////////LOAN///////////", loan);
         const leadId: string = item.leadId as string;
         if(leadId === null){
           return;
@@ -467,6 +472,15 @@ export const Loan = list({
         ]
         });
         console.log("////////////originalItem///////////", originalItem, item);
+        
+        
+        
+        const totalProfitAmount = loan?.loantype && loan.loantype.rate !== null ? 
+          parseFloat(loan.requestedAmount.toString()) * parseFloat(loan.loantype.rate.toString()) : 0;
+        await prisma.loan.update({
+          where: { id: item.id.toString() },
+          data: { profitAmount: totalProfitAmount },
+        });
         // Trigger afterOperation hook for LoanPayment
         if (originalItem && originalItem.loantypeId !== item.loantypeId) {
           // Trigger afterOperation hook for LoanPayment
@@ -636,7 +650,7 @@ export const LoanPayment = list({
 
           
           const parsedProfit = isNaN(paymentProfit) ? "0" : paymentProfit.toString();
-
+          console.log("////////////parsedProfit///////////", parsedProfit);
           if(operation === 'create'){
             console.log("////////////22222///////////", item.id, paymentProfit.toString(), (parseFloat(item.amount as string) - paymentProfit).toString());
           }else{
