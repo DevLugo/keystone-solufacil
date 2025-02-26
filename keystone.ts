@@ -6,6 +6,7 @@
 //   you can find out more at https://keystonejs.com/docs/apis/config
 
 import { config } from '@keystone-6/core'
+import { PrismaClient } from '@prisma/client';
 
 // to keep this file tidy, we define our schema in a different file
 import { lists } from './schema'
@@ -25,6 +26,7 @@ dotenv.config();
 dotenv.config();
 
 const app = express();
+export const prisma = new PrismaClient();
 
 
 export default withAuth(
@@ -247,6 +249,208 @@ export default withAuth(
 
           // Finalize the PDF and end the stream
           doc.end();
+        });
+        app.use('/resumen', async (req, res) => {
+          const { startDate, endDate, routeId } = req.query;
+
+          if (!startDate || !endDate || !routeId) {
+            return res.status(400).json({ error: 'Missing required parameters' });
+          }
+          
+          try {
+            const routeIdInt = parseInt(routeId as string);
+            const start = new Date(startDate as string);
+            const end = new Date(endDate as string);
+            end.setHours(23, 59, 59, 999);
+            console.log(start, end);
+            // Consultar el dinero inicial
+            const transactions = await prisma.transaction.findMany({
+              where: {
+                OR: [
+                  {
+                    sourceAccountId: "cm6yiw9uw0002ibxcxd01of88",
+                  },
+                  {
+                    destinationAccountId: "cm6yiw9uw0002ibxcxd01of88"
+                  }
+              ],
+                date: {
+                  lt: start,
+                },
+              }
+            });
+
+            //suma, resta los valores dependiento de si es un income o un expense
+            const initialBalance = transactions.reduce((acc, transaction) => {
+              if (transaction.type === 'INCOME') {
+                return acc + (transaction.amount ? Number(transaction.amount) : 0);
+              }
+              return acc - (transaction.amount ? Number(transaction.amount) : 0);
+            }, 0);
+        
+            // Consultar el dinero final
+            const finalTransactions = await prisma.transaction.findMany({
+              where: {
+                OR: [
+                  {
+                    sourceAccountId: "cm6yiw9uw0002ibxcxd01of88",
+                  },
+                  {
+                    destinationAccountId: "cm6yiw9uw0002ibxcxd01of88"
+                  }
+                ],
+                date: {
+                  lt: end,
+                },
+              },
+            });
+
+            //suma, resta los valores dependiento de si es un income o un expense
+            const finalBalance = finalTransactions.reduce((acc, transaction) => {
+              if (transaction.type === 'INCOME') {
+                return acc + (transaction.amount ? Number(transaction.amount) : 0);
+              }
+              return acc - (transaction.amount ? Number(transaction.amount) : 0);
+            }, initialBalance);
+        
+            //Week transactions by locality
+            const rangeTransactions = await prisma.transaction.findMany({
+              where: {
+                /* OR: [
+                  {
+                    sourceAccountId: "cm6yiw9uw0002ibxcxd01of88",
+                  },
+                  {
+                    destinationAccountId: "cm6yiw9uw0002ibxcxd01of88"
+                  }
+              ], */
+                date: {
+                  gte: start,
+                  lte: end,
+                },
+              },
+              include:{
+                loan:{
+                  include:{
+                    lead: {
+                      include: {
+                        personalData: {
+                          include: {
+                            addresses:{
+                              include: {
+                                location:true
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                lead: {
+                  include: {
+                    personalData: {
+                      include: {
+                        addresses:{
+                          include: {
+                            location:true
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            });
+
+            console.log("rangeTransactions", rangeTransactions.length, start, end);
+
+            // agrupa los transaction por dia y localidad y tipo.
+
+            const localidades: Record<string, Record<string, { [key: string]: number }>> = rangeTransactions.reduce((acc: Record<string, Record<string, { [key: string]: number }>>, transaction) => {
+              const date = transaction.date ? transaction.date.toISOString().split('T')[0] : 'Invalid Date';
+
+              const locality = transaction.lead?.personalData?.addresses[0]?.location?.name || transaction.lead?.personalData?.fullName || 'Sin localidad';
+
+              const type: 'ABONO' | 'CREDITO' | 'VIATIC' | 'GASOLINE' | 'ACCOMMODATION' | 'NOMINA_SALARY' | 'EXTERNAL_SALARY' | 'VEHICULE_MAINTENANCE' | 'LOAN_GRANTED' | 'LOAN_PAYMENT_COMISSION' | 'LOAN_GRANTED_COMISSION' | 'LEAD_COMISSION' | 'MONEY_INVESMENT' | 'OTRO' = 
+              transaction.type === 'INCOME' && (transaction.incomeSource === 'CASH_LOAN_PAYMENT' || transaction.incomeSource === 'BANK_LOAN_PAYMENT') ? 'ABONO' :
+              transaction.type === 'INCOME' && transaction.incomeSource === 'MONEY_INVESMENT' ? 'MONEY_INVESMENT' :
+              transaction.type === 'EXPENSE' && transaction.expenseSource === 'VIATIC' ? 'VIATIC' :
+              transaction.type === 'EXPENSE' && transaction.expenseSource === 'GASOLINE' ? 'GASOLINE' :
+              transaction.type === 'EXPENSE' && transaction.expenseSource === 'ACCOMMODATION' ? 'ACCOMMODATION' :
+              transaction.type === 'EXPENSE' && transaction.expenseSource === 'NOMINA_SALARY' ? 'NOMINA_SALARY' :
+              transaction.type === 'EXPENSE' && transaction.expenseSource === 'EXTERNAL_SALARY' ? 'EXTERNAL_SALARY' :
+              transaction.type === 'EXPENSE' && transaction.expenseSource === 'VEHICULE_MAINTENANCE' ? 'VEHICULE_MAINTENANCE' :
+              transaction.type === 'EXPENSE' && transaction.expenseSource === 'LOAN_GRANTED' ? 'LOAN_GRANTED' :
+              transaction.type === 'EXPENSE' && transaction.expenseSource === 'LOAN_PAYMENT_COMISSION' ? 'LOAN_PAYMENT_COMISSION' :
+              transaction.type === 'EXPENSE' && transaction.expenseSource === 'LOAN_GRANTED_COMISSION' ? 'LOAN_GRANTED_COMISSION' :
+              transaction.type === 'EXPENSE' && transaction.expenseSource === 'LEAD_COMISSION' ? 'LEAD_COMISSION' :
+              transaction.type === 'EXPENSE' && transaction.expenseSource === 'LOAN_GRANTED' ? 'LOAN_GRANTED' :
+              'OTRO';
+              
+              if (!acc[date]) {
+              acc[date] = {};
+              }
+              if (!acc[date][locality]) {
+              acc[date][locality] = {
+                ABONO: 0,
+                CREDITO: 0,
+                VIATIC: 0,
+                GASOLINE: 0,
+                ACCOMMODATION: 0,
+                NOMINA_SALARY: 0,
+                EXTERNAL_SALARY: 0,
+                VEHICULE_MAINTENANCE: 0,
+                LOAN_GRANTED: 0,
+                LOAN_PAYMENT_COMISSION: 0,
+                LOAN_GRANTED_COMISSION: 0,
+                LEAD_COMISSION: 0,
+                MONEY_INVESMENT: 0,
+                OTRO: 0,
+                BALANCE: 0,
+                PROFIT: 0,
+              };
+              }
+              if (!acc[date][locality][type]) {
+              acc[date][locality][type] = 0;
+              }
+              const amount = transaction.amount ? Number(transaction.amount) : 0;
+              const profit = transaction.profitAmount ? Number(transaction.profitAmount) : 0;
+              acc[date][locality][type] += amount;
+              acc[date][locality].BALANCE += transaction.type === 'INCOME' ? amount : -amount;
+              acc[date][locality].PROFIT += profit;
+              return acc;
+            }, {});
+
+            const totalProfit = Object.values(localidades).reduce((total, dateData) => {
+              return total + Object.values(dateData).reduce((dateTotal, localityData) => {
+              return dateTotal + localityData.PROFIT;
+              }, 0);
+            }, 0);
+
+            const totalExpenses = Object.values(localidades).reduce((total, dateData) => {
+              return total + Object.values(dateData).reduce((dateTotal, localityData) => {
+              return dateTotal + Object.keys(localityData).reduce((keyTotal, key) => {
+                if (key !== 'BALANCE' && key !== 'PROFIT' && key !== 'ABONO' && key !== 'MONEY_INVESMENT') {
+                return keyTotal + localityData[key];
+                }
+                return keyTotal;
+              }, 0);
+              }, 0);
+            }, 0);
+
+            const netProfit = totalProfit - totalExpenses;
+            
+        return res.json({
+              initialBalance,
+              finalBalance,
+              localidades,
+              netProfit,
+            });
+          } catch (error) {
+            console.error(error);
+            res.status(500).json({ error: 'Internal server error' });
+          }
         });
       },
     }

@@ -977,7 +977,6 @@ type Loan {
   loantype: Loantype
   signDate: DateTime
   badDebtDate: DateTime
-  profitAmount: Decimal
   avalName: String
   avalPhone: String
   grantor: Employee
@@ -1018,7 +1017,6 @@ input LoanWhereInput {
   loantype: LoantypeWhereInput
   signDate: DateTimeFilter
   badDebtDate: DateTimeNullableFilter
-  profitAmount: DecimalNullableFilter
   avalName: StringFilter
   avalPhone: StringFilter
   grantor: EmployeeWhereInput
@@ -1069,7 +1067,6 @@ input LoanOrderByInput {
   amountGived: OrderDirection
   signDate: OrderDirection
   badDebtDate: OrderDirection
-  profitAmount: OrderDirection
   avalName: OrderDirection
   avalPhone: OrderDirection
   comissionAmount: OrderDirection
@@ -1087,7 +1084,6 @@ input LoanUpdateInput {
   loantype: LoantypeRelateToOneForUpdateInput
   signDate: DateTime
   badDebtDate: DateTime
-  profitAmount: Decimal
   avalName: String
   avalPhone: String
   grantor: EmployeeRelateToOneForUpdateInput
@@ -1135,7 +1131,6 @@ input LoanCreateInput {
   loantype: LoantypeRelateToOneForCreateInput
   signDate: DateTime
   badDebtDate: DateTime
-  profitAmount: Decimal
   avalName: String
   avalPhone: String
   grantor: EmployeeRelateToOneForCreateInput
@@ -1170,8 +1165,6 @@ type LoanPayment {
   id: ID!
   amount: Decimal
   comission: Decimal
-  profitAmount: Decimal
-  returnToCapital: Decimal
   receivedAt: DateTime
   createdAt: DateTime
   updatedAt: DateTime
@@ -1194,8 +1187,6 @@ input LoanPaymentWhereInput {
   id: IDFilter
   amount: DecimalNullableFilter
   comission: DecimalNullableFilter
-  profitAmount: DecimalNullableFilter
-  returnToCapital: DecimalNullableFilter
   receivedAt: DateTimeNullableFilter
   createdAt: DateTimeNullableFilter
   updatedAt: DateTimeNullableFilter
@@ -1211,8 +1202,6 @@ input LoanPaymentOrderByInput {
   id: OrderDirection
   amount: OrderDirection
   comission: OrderDirection
-  profitAmount: OrderDirection
-  returnToCapital: OrderDirection
   receivedAt: OrderDirection
   createdAt: OrderDirection
   updatedAt: OrderDirection
@@ -1224,8 +1213,6 @@ input LoanPaymentOrderByInput {
 input LoanPaymentUpdateInput {
   amount: Decimal
   comission: Decimal
-  profitAmount: Decimal
-  returnToCapital: Decimal
   receivedAt: DateTime
   createdAt: DateTime
   updatedAt: DateTime
@@ -1257,8 +1244,6 @@ input LoanPaymentUpdateArgs {
 input LoanPaymentCreateInput {
   amount: Decimal
   comission: Decimal
-  profitAmount: Decimal
-  returnToCapital: Decimal
   receivedAt: DateTime
   createdAt: DateTime
   updatedAt: DateTime
@@ -1293,6 +1278,10 @@ type Transaction {
   destinationAccount: Account
   loan: Loan
   loanPayment: LoanPayment
+  profitAmount: Decimal
+  returnToCapital: Decimal
+  createdAt: DateTime
+  updatedAt: DateTime
 }
 
 input TransactionWhereUniqueInput {
@@ -1315,6 +1304,10 @@ input TransactionWhereInput {
   destinationAccount: AccountWhereInput
   loan: LoanWhereInput
   loanPayment: LoanPaymentWhereInput
+  profitAmount: DecimalNullableFilter
+  returnToCapital: DecimalNullableFilter
+  createdAt: DateTimeNullableFilter
+  updatedAt: DateTimeNullableFilter
 }
 
 input TransactionOrderByInput {
@@ -1325,6 +1318,10 @@ input TransactionOrderByInput {
   incomeSource: OrderDirection
   expenseSource: OrderDirection
   description: OrderDirection
+  profitAmount: OrderDirection
+  returnToCapital: OrderDirection
+  createdAt: OrderDirection
+  updatedAt: OrderDirection
 }
 
 input TransactionUpdateInput {
@@ -1339,6 +1336,10 @@ input TransactionUpdateInput {
   destinationAccount: AccountRelateToOneForUpdateInput
   loan: LoanRelateToOneForUpdateInput
   loanPayment: LoanPaymentRelateToOneForUpdateInput
+  profitAmount: Decimal
+  returnToCapital: Decimal
+  createdAt: DateTime
+  updatedAt: DateTime
 }
 
 input LoanPaymentRelateToOneForUpdateInput {
@@ -1364,6 +1365,10 @@ input TransactionCreateInput {
   destinationAccount: AccountRelateToOneForCreateInput
   loan: LoanRelateToOneForCreateInput
   loanPayment: LoanPaymentRelateToOneForCreateInput
+  profitAmount: Decimal
+  returnToCapital: Decimal
+  createdAt: DateTime
+  updatedAt: DateTime
 }
 
 input LoanPaymentRelateToOneForCreateInput {

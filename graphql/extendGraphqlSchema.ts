@@ -56,7 +56,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
           payments: graphql.arg({ type: graphql.nonNull(graphql.list(graphql.nonNull(PaymentInputType))) }),
         },
         resolve: async (root, { expectedAmount, cashPaidAmount = 0, bankPaidAmount = 0, agentId, leadId, payments, paymentDate }, context) => {
-          console.log("AKA", paymentDate)
+          console.log("AKA", paymentDate);
           cashPaidAmount = cashPaidAmount ?? 0;
           bankPaidAmount = bankPaidAmount ?? 0;
           const totalPaidAmount = cashPaidAmount + bankPaidAmount;
@@ -68,7 +68,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
           } else if (totalPaidAmount > 0 && totalPaidAmount < expectedAmount) {
             paymentStatus = 'PARTIAL';
           }
-
+          console.log(".......",payments);
           const leadPaymentReceived = await context.db.LeadPaymentReceived.createOne({
             
             data: {
