@@ -3,6 +3,7 @@ import { allowAll } from '@keystone-6/core/access';
 import { text, password, timestamp, relationship, decimal, integer, select, virtual } from '@keystone-6/core/fields';
 import { equal } from 'node:assert';
 import { prisma } from './keystone';
+import { calculatePendingProfitAmount, calculateProfitAmount } from './utils/loan';
 
 export const User = list({
   access: allowAll,
@@ -55,7 +56,7 @@ export const Municipality = list({
 export const Employee = list({
   access: allowAll,
   fields: {
-    oldId: text({db: { isNullable: true }, isIndexed: 'unique'}),
+    oldId: text({ db: { isNullable: true }, isIndexed: 'unique' }),
     routes: relationship({
       ref: 'Route.employees',
       many: false,
@@ -118,9 +119,11 @@ export const Loantype = list({
     rate: decimal(),  // Decimal type used for percentage, adjust precision as necessary
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),
-    loan: relationship({ ref: 'Loan.loantype', many: true, ui:{
-      hideCreate: true,
-    } }),
+    loan: relationship({
+      ref: 'Loan.loantype', many: true, ui: {
+        hideCreate: true,
+      }
+    }),
     //comissionPaymentConfiguration: relationship({ ref: 'ComissionPaymentConfiguration.loanType', many: true }),
   }
 });
@@ -180,12 +183,14 @@ export const Borrower = list({
             return "";
           } */
           const personalData = await context.db.PersonalData.findMany({
-            where: { id: {
-              equals: (item as { personalDataId: string }).personalDataId,
-            } },
+            where: {
+              id: {
+                equals: (item as { personalDataId: string }).personalDataId,
+              }
+            },
           });
 
-          if(personalData.length === 0){
+          if (personalData.length === 0) {
             return "";
           }
           return personalData[0]?.fullName;
@@ -223,7 +228,7 @@ export const Loan = list({
     idField: { kind: 'cuid' }, // Usa db.idField para definir el campo id
   },
   fields: {
-    oldId: text({db: { isNullable: true }, isIndexed: 'unique', isFilterable: true}),
+    oldId: text({ db: { isNullable: true }, isIndexed: 'unique', isFilterable: true }),
     payments: relationship({
       ref: 'LoanPayment.loan',
       many: true,
@@ -257,21 +262,21 @@ export const Loan = list({
         precision: 10,
         scale: 2,
         validation: { isRequired: false },
-    }),
+      }),
     avalName: text(),
     avalPhone: text(),
     grantor: relationship({ ref: 'Employee.loan' }),
-    
+
     transaction: relationship({ ref: 'Transaction.loan', many: true }),
-    lead: relationship({ ref: 'Employee.LeadManagedLoans'}),
-    borrower: relationship({ 
+    lead: relationship({ ref: 'Employee.LeadManagedLoans' }),
+    borrower: relationship({
       ref: 'Borrower.loans',
     }),
     previousLoan: relationship({ ref: 'Loan' }), // Agrego esta línea
     commissionPayment: relationship({ ref: 'CommissionPayment.loan', many: true }),
-    
+
     comissionAmount: decimal(),
-    finishedDate: timestamp({validation: { isRequired: false }}),
+    finishedDate: timestamp({ validation: { isRequired: false } }),
     updatedAt: timestamp(),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     // ((deuda pendoiente * % del prestamo ) / 10 )+ 
@@ -279,37 +284,8 @@ export const Loan = list({
       field: graphql.field({
         type: graphql.Float,
         resolve: async (item, args, context) => {
-          const loan = await prisma.loan.findUnique({
-            where: { id: (item as { id: string }).id.toString() },
-            include: { loantype: true },
-          });
-          console.log("////////////LOAN///////////", loan);
-          const loanType = loan?.loantype;
-          if(loan && loanType){
-            /* console.log("////////////LOANTYPE///////////", loanType); */
-            const payments = await prisma.loanPayment.findMany({
-              where: { loan: { id: { equals: (item as { id: string }).id.toString() } } },
-              include: {
-                transaction: true,
-              }
-
-            });
-            console.log("////////////PAYMENTS///////////", payments);
-
-            //const totalAmountToPay = parseFloat(loan.amountToPay);
-            const amountGiven = parseFloat(loan.amountGived.toString());
-            console.log("////////////AMOUNT GIVEN///////////", amountGiven);
-            const rate = loanType.rate ? parseFloat(loanType.rate.toString()) : 0;
-            console.log("////////////RATE///////////", rate);
-            const totalProfit = amountGiven * rate;
-            const earnedProfitAmount = payments.reduce((sum, payment) => {
-              const profitAmount = payment.transaction?.profitAmount;
-              return sum + parseFloat(profitAmount ? profitAmount.toString() : "0");
-            }, 0);
-            console.log("////////////TOTAL PROFIT///////////", totalProfit, earnedProfitAmount);
-            return totalProfit - earnedProfitAmount;
-          }
-        },
+          return await calculatePendingProfitAmount((item as { id: string }).id.toString());
+        }
       }),
     }),
     earnedProfit: virtual({
@@ -320,16 +296,18 @@ export const Loan = list({
             where: { id: (item as { id: string }).id.toString() },
           });
           console.log("////////////LOAN///////////", loan);
-          if(loan){
+          if (loan) {
             const payments = await prisma.loanPayment.findMany({
               where: { loan: { id: { equals: (item as { id: string }).id.toString() } } },
               include: {
-                transaction: true,
+                transactions: true,
               }
             });
 
             return payments.reduce((sum, payment) => {
-              const profitAmount = payment.transaction?.profitAmount;
+              const profitAmount = payment.transactions.reduce((sum, transaction) => {
+                return sum + parseFloat(transaction.profitAmount ? transaction.profitAmount.toString() : "0");
+              }, 0);
               return sum + parseFloat(profitAmount ? profitAmount.toString() : "0");
             }, 0);
           }
@@ -356,7 +334,7 @@ export const Loan = list({
             where: { loan: { id: { equals: (item as { id: string }).id } } },
           });
           const loan = await context.db.Loan.findOne({
-            where: { id: (item as { id: string }).id.toString() },          
+            where: { id: (item as { id: string }).id.toString() },
           });
           const loanType = await context.db.Loantype.findOne({
             where: { id: loan?.loantypeId as string },
@@ -377,14 +355,14 @@ export const Loan = list({
             include: { loantype: true },
           });
           const loanType = loan?.loantype;
-          if(loan && loanType){
+          if (loan && loanType) {
             const rate = loanType ? parseFloat(loanType.rate!.toString()) : 0;
             const totalAmountToPay = parseFloat(loan.requestedAmount.toString()) * (1 + rate);
             const amountGiven = parseFloat(loan.amountGived);
             const totalProfit = amountGiven * rate;
             /* console.log("////////////LOANTYPE///////////", loan, totalAmountToPay, totalProfit, loanType.weekDuration); */
             return (totalAmountToPay / loanType.weekDuration);
-          }else{
+          } else {
 
           }
 
@@ -396,7 +374,7 @@ export const Loan = list({
         type: graphql.Float,
         resolve: async (item, args, context) => {
           const loan = await context.db.Loan.findOne({
-            where: { id: (item as { id: string }).id.toString() },          
+            where: { id: (item as { id: string }).id.toString() },
           });
           const loanType = await context.db.Loantype.findOne({
             where: { id: loan?.loantypeId as string },
@@ -418,68 +396,70 @@ export const Loan = list({
   },
   hooks: {
     afterOperation: async ({ operation, item, context, originalItem }) => {
-      
+
       if ((operation === 'create' || operation === 'update') && item) {
         const loan = await prisma.loan.findFirst({
           where: { id: item.id.toString() },
           include: {
             loantype: true,
+            previousLoan: true,
           }
         });
 
         console.log("////////////LOAN///////////", loan);
         const leadId: string = item.leadId as string;
-        if(leadId === null){
+        if (leadId === null) {
           return;
         }
         const lead = await context.db.Employee.findOne({
-          where: { id: leadId },            
+          where: { id: leadId },
         });
         console.log("////////////LEAD///////////", item, lead);
         // si status es igual a finalizado/renavado/cancelado, entonces se setea la fecha de termino
-        if(item.status === 'FINISHED' || item.status === 'RENOVATED' || item.status === 'CANCELED'){
+        if (item.status === 'FINISHED' || item.status === 'RENOVATED' || item.status === 'CANCELED') {
           context.db.Loan.updateOne({
             where: { id: item.id.toString() },
             data: { finishedDate: new Date() },
           })
         }
-        console.log("////////////LEAD1///////////", );
+        console.log("////////////LEAD1///////////",);
 
 
         const account = await context.db.Account.findMany({
-          where: { route: {id:lead?.routeId}},            
+          where: { route: { id: lead?.routeId } },
         });
 
         console.log("////////////LEAD2///////////", account);
-        const transactions = await context.db.Transaction.createMany({
-          data: [
-            {
-            amount: item.amountGived,
-            date: item.signDate,
-            type: 'EXPENSE',
-            expenseSource: 'LOAN_GRANTED',
-            sourceAccount: { connect: { id: account[0].id } },
-            loan: { connect: { id: item.id } },
-          },
-          {
-            amount: item.comissionAmount,
-            date: item.signDate,
-            type: 'EXPENSE',
-            expenseSource: 'LOAN_GRANTED_COMISSION',
-            sourceAccount: { connect: { id: account[0].id } },
-            loan: { connect: { id: item.id } },
-          }
-        ]
-        });
+        if (operation === 'create') {
+          // TODO:update the existing transaction on the update/delete action
+          const transactions = await context.db.Transaction.createMany({
+            data: [
+              {
+                amount: item.amountGived,
+                date: item.signDate,
+                type: 'EXPENSE',
+                expenseSource: 'LOAN_GRANTED',
+                sourceAccount: { connect: { id: account[0].id } },
+                loan: { connect: { id: item.id } },
+              },
+              {
+                amount: item.comissionAmount,
+                date: item.signDate,
+                type: 'EXPENSE',
+                expenseSource: 'LOAN_GRANTED_COMISSION',
+                sourceAccount: { connect: { id: account[0].id } },
+                loan: { connect: { id: item.id } },
+              }
+            ]
+          });
+        };
         console.log("////////////originalItem///////////", originalItem, item);
         
-        
-        
-        const totalProfitAmount = loan?.loantype && loan.loantype.rate !== null ? 
-          parseFloat(loan.requestedAmount.toString()) * parseFloat(loan.loantype.rate.toString()) : 0;
+        const totalProfitAmount = await calculateProfitAmount(loan?.id as string);
+        const previosLoanProfitAmount = await calculatePendingProfitAmount(loan?.previousLoanId as string);
         await prisma.loan.update({
           where: { id: item.id.toString() },
-          data: { profitAmount: totalProfitAmount },
+          data: { profitAmount: totalProfitAmount + previosLoanProfitAmount },
         });
         // Trigger afterOperation hook for LoanPayment
         if (originalItem && originalItem.loantypeId !== item.loantypeId) {
@@ -490,12 +470,12 @@ export const Loan = list({
 
           for (const payment of payments) {
             await context.db.LoanPayment.updateOne({
-              where: { id: payment.id as string},
+              where: { id: payment.id as string },
               data: { updatedAt: new Date() }, // Trigger the afterOperation hook
             });
           }
         }
-        
+
       }
     },
   },
@@ -503,7 +483,7 @@ export const Loan = list({
     listView: {
       initialColumns: ['totalPayments', 'signDate', 'payments', 'oldId'],
     },
-  }, 
+  },
 
 });
 
@@ -546,10 +526,10 @@ export const LoanPayment = list({
     receivedAt: timestamp({ defaultValue: { kind: 'now' } }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),
-    oldLoanId: text({db: { isNullable: true }}),
+    oldLoanId: text({ db: { isNullable: true } }),
     loan: relationship({ ref: 'Loan.payments' }),
     //collector: relationship({ ref: 'Employee.loanPayment' }),
-    transaction: relationship({ ref: 'Transaction.loanPayment' }),
+    transactions: relationship({ ref: 'Transaction.loanPayment', many: true }),
     //transactionId: text({ isIndexed: 'unique' }),
     type: select({
       options: [
@@ -611,49 +591,50 @@ export const LoanPayment = list({
 
       console.log("////////////AFTER OPERATION1///////////", operation);
       if ((operation === 'create' || operation === 'update') && item) {
-        
+
         if (item.type !== 'WITHOUT_PAYMENT') {
           //calculate the profit amount of the payment
-          
+
           //calculate pending profit and earned profit
           const payment = await context.db.LoanPayment.findOne({
             where: { id: item.id as string },
           });
-          if(payment?.loanId === null)
+          if (payment?.loanId === null)
             throw new Error("No hay Credito asociado a este pago");
-          const loan = await context.db.Loan.findOne({
+          const loan = await prisma.loan.findUnique({
             where: { id: payment?.loanId as string },
+            include: { loantype: true },
           });
 
-          const loanType = await context.db.Loantype.findOne({
-            where: { id: loan?.loantypeId?.toString() },
-          });
+          const loanType = loan?.loantype;
 
           const payments = await context.db.LoanPayment.findMany({
             where: { loan: { id: { equals: payment?.loanId } } },
           });
-
-          const totalAmountToPay = parseFloat(loan.requestedAmount) * parseFloat(loanType.rate);
-          const amountGiven = parseFloat(loan.amountGived);
-          const rate = parseFloat(loanType.rate);
+          if(!loan || !loanType){
+            throw new Error("No hay Credito asociado a este pago");
+          }
+          const rate = loanType?.rate ? parseFloat(loanType.rate.toString()) : 0;
+          const totalAmountToPay = (loan?.amountGived.toNumber() || 0) + (loan?.profitAmount?.toNumber() || 0);
+          const amountGiven = loan.amountGived.toNumber();
           const totalProfit = amountGiven * rate;
-          const totalPayed = payments.reduce((sum, payment) => sum + parseFloat(payment.amount), 0);
+          const totalPayed = payments.reduce((sum, payment) => sum + parseFloat(payment.amount as string), 0);
           const pendingDebt = totalAmountToPay - totalPayed;
           const pendingProfit = (pendingDebt * totalProfit) / totalAmountToPay;
           const earnedProfit = totalProfit - pendingProfit;
           console.log(item.amount);
-          const paymentProfit = (parseFloat(item.amount) * totalProfit) / totalAmountToPay;
-          console.log(item.amount, totalProfit, totalAmountToPay, totalAmountToPay, );
-          
+          const paymentProfit = (parseFloat(item.amount as string) * totalProfit) / totalAmountToPay;
+          console.log(item.amount, totalProfit, totalAmountToPay, totalAmountToPay,);
+
           resolvedData.profitAmount = paymentProfit.toString();
           resolvedData.returnToCapital = (parseFloat(item.amount as string) - paymentProfit).toString();
 
-          
+
           const parsedProfit = isNaN(paymentProfit) ? "0" : paymentProfit.toString();
           console.log("////////////parsedProfit///////////", parsedProfit);
-          if(operation === 'create'){
+          if (operation === 'create') {
             console.log("////////////22222///////////", item.id, paymentProfit.toString(), (parseFloat(item.amount as string) - paymentProfit).toString());
-          }else{
+          } else {
             /* const profits = await context.db.Profit.findMany({
               where: { loanPayment: { id: { equals: item.id as string } } },
             });
@@ -676,7 +657,7 @@ export const LoanPayment = list({
           });
           /* console.log("////////////22222///////////", lead); */
           const employeeCashAccounts = await context.db.Account.findMany({
-            where: { 
+            where: {
               route: {
                 id: {
                   equals: lead?.routesId,
@@ -690,38 +671,42 @@ export const LoanPayment = list({
           const employeeCashAccount = employeeCashAccounts[0];
           /* console.log("////////////222221111///////////", employeeCashAccount); */
 
-          if(employeeCashAccount === null){
+          if (employeeCashAccount === null) {
             throw new Error("No hay cuenta de efectivo asociada a este empleado");
           }
-          
-          console.log("////////////33333///////////");
-          if(item.paymentMethod === 'CASH'){
-            /* console.log("////////////444444///////////"); */
-            await context.db.Transaction.createOne({
-              data: {
-                amount: item.amount,
-                date: item.receivedAt,
-                type: 'INCOME',
-                incomeSource: 'CASH_LOAN_PAYMENT',
-                destinationAccount: { connect: { id: employeeCashAccount.id } },
-                loanPayment: { connect: { id: item.id } },
-                loan: { connect: { id: loan?.id }},
-                lead: { connect: { id: lead?.id }},
-                profitAmount: parsedProfit,
-                returnToCapital: (parseFloat(item.amount as string) - parseFloat(parsedProfit)).toString(),
-              },
-            });
-          }else{
-            /* console.log("////////////55555///////////"); */
+
+          console.log("////////////33333///////////", item.paymentMethod);
+          if (item.paymentMethod === 'CASH') {
+            console.log("////////////444444///////////");
+            try {
+              await prisma.transaction.create({
+                data: {
+                  amount: item.amount as number,
+                  date: item.receivedAt as string | Date | null | undefined,
+                  type: 'INCOME',
+                  incomeSource: 'CASH_LOAN_PAYMENT',
+                  destinationAccount: { connect: { id: employeeCashAccount.id.toString() } },
+                  loanPayment: { connect: { id: item.id.toString() } },
+                  loan: { connect: { id: loan?.id.toString() } },
+                  lead: { connect: { id: lead?.id.toString() } },
+                  profitAmount: parsedProfit,
+                  returnToCapital: (parseFloat(item.amount as string) - parseFloat(parsedProfit)).toString(),
+                },
+              });
+            } catch (error) {
+              console.log("////////////ERROR///////////", error);
+            }
+          } else {
+            console.log("////////////55555///////////");
             const account = await context.db.Account.findMany({
               where: {
-                type: { 
+                type: {
                   equals: 'BANK',
-                  id:lead?.routesId,
-                } 
-              },            
+                  id: lead?.routesId,
+                }
+              },
             });
-            /* console.log("////////////account///////////", account) */
+            console.log("////////////account///////////", account)
             await context.db.Transaction.createOne({
               data: {
                 amount: item.amount,
@@ -730,8 +715,8 @@ export const LoanPayment = list({
                 incomeSource: 'LOAN_PAYMENT',
                 destinationAccount: { connect: { id: account[0].id } },
                 loanPayment: { connect: { id: item.id } },
-                loan: { connect: { id: loan?.id }},
-                lead: { connect: { id: lead?.id }},
+                loan: { connect: { id: loan?.id } },
+                lead: { connect: { id: lead?.id } },
                 profitAmount: parsedProfit,
                 returnToCapital: (parseFloat(item.amount as string) - parseFloat(parsedProfit)).toString(),
               },
@@ -746,8 +731,8 @@ export const LoanPayment = list({
               expenseSource: 'LOAN_PAYMENT_COMISSION',
               sourceAccount: { connect: { id: employeeCashAccount.id } },
               loanPayment: { connect: { id: item.id } },
-              loan: { connect: { id: loan?.id }},
-              lead: { connect: { id: lead?.id }},
+              loan: { connect: { id: loan?.id } },
+              lead: { connect: { id: lead?.id } },
               createdAt: new Date(),
             },
           });
@@ -756,7 +741,7 @@ export const LoanPayment = list({
       context.skipAfterOperation = false;
 
     },
-    
+
   }
 });
 
@@ -799,7 +784,7 @@ export const Transaction = list({
     sourceAccount: relationship({ ref: 'Account.transactions' }),
     destinationAccount: relationship({ ref: 'Account.receivedTransactions' }),
     loan: relationship({ ref: 'Loan.transaction' }),
-    loanPayment: relationship({ ref: 'LoanPayment.transaction' }),
+    loanPayment: relationship({ ref: 'LoanPayment.transactions' }),
     profitAmount: decimal({
       precision: 10,
       scale: 2,
@@ -815,19 +800,19 @@ export const Transaction = list({
   },
   hooks: {
     afterOperation: async ({ operation, item, context }) => {
-      if ((operation === 'create' || operation === 'update')  && item) {
+      if ((operation === 'create' || operation === 'update') && item) {
         if (item.type === 'EXPENSE') {
           const sourceAccount = await context.db.Account.findOne({
             where: { id: item.sourceAccountId as string },
           });
 
           let destinationAccount = null;
-           if(destinationAccount){
+          if (destinationAccount) {
             destinationAccount = await context.db.Account.findOne({
               where: { id: item.destinationAccountId as string },
             });
-           }
-            
+          }
+
           if (sourceAccount) {
             const newAmount = (sourceAccount.amount as number) - (item.amount as number);
             await context.db.Account.updateOne({
@@ -835,7 +820,7 @@ export const Transaction = list({
               data: { amount: newAmount.toString() },
             });
           }
-          
+
           if (destinationAccount) {
             destinationAccount.amount = (destinationAccount.amount as number) + (item.amount as number);
             await context.db.Account.updateOne({
@@ -843,7 +828,7 @@ export const Transaction = list({
               data: { amount: destinationAccount.toString() },
             });
           }
-        }else if(item.type === 'INCOME'){
+        } else if (item.type === 'INCOME') {
           const destinationAccount = await context.db.Account.findOne({
             where: { id: item.destinationAccountId as string },
           });

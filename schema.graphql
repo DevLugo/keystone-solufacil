@@ -1175,7 +1175,8 @@ type LoanPayment {
   updatedAt: DateTime
   oldLoanId: String
   loan: Loan
-  transaction: Transaction
+  transactions(where: TransactionWhereInput! = {}, orderBy: [TransactionOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TransactionWhereUniqueInput): [Transaction!]
+  transactionsCount(where: TransactionWhereInput! = {}): Int
   type: String
   leadPaymentReceived: LeadPaymentReceived
   paymentMethod: String
@@ -1197,7 +1198,7 @@ input LoanPaymentWhereInput {
   updatedAt: DateTimeNullableFilter
   oldLoanId: StringNullableFilter
   loan: LoanWhereInput
-  transaction: TransactionWhereInput
+  transactions: TransactionManyRelationFilter
   type: StringNullableFilter
   leadPaymentReceived: LeadPaymentReceivedWhereInput
   paymentMethod: StringNullableFilter
@@ -1223,16 +1224,10 @@ input LoanPaymentUpdateInput {
   updatedAt: DateTime
   oldLoanId: String
   loan: LoanRelateToOneForUpdateInput
-  transaction: TransactionRelateToOneForUpdateInput
+  transactions: TransactionRelateToManyForUpdateInput
   type: String
   leadPaymentReceived: LeadPaymentReceivedRelateToOneForUpdateInput
   paymentMethod: String
-}
-
-input TransactionRelateToOneForUpdateInput {
-  create: TransactionCreateInput
-  connect: TransactionWhereUniqueInput
-  disconnect: Boolean
 }
 
 input LeadPaymentReceivedRelateToOneForUpdateInput {
@@ -1254,15 +1249,10 @@ input LoanPaymentCreateInput {
   updatedAt: DateTime
   oldLoanId: String
   loan: LoanRelateToOneForCreateInput
-  transaction: TransactionRelateToOneForCreateInput
+  transactions: TransactionRelateToManyForCreateInput
   type: String
   leadPaymentReceived: LeadPaymentReceivedRelateToOneForCreateInput
   paymentMethod: String
-}
-
-input TransactionRelateToOneForCreateInput {
-  create: TransactionCreateInput
-  connect: TransactionWhereUniqueInput
 }
 
 input LeadPaymentReceivedRelateToOneForCreateInput {
