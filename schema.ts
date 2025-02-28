@@ -630,12 +630,27 @@ export const LoanPayment = list({
           const pendingProfit = (pendingDebt * totalProfit) / totalAmountToPay;
           console.log(pendingProfit)
           console.log(item.amount);
-          
-          const paymentProfit = (parseFloat(item.amount as string) * totalProfit) / totalAmountToPay;
-          console.log(item.amount, totalProfit, totalAmountToPay, totalAmountToPay,);
+
+          let paymentProfit = 0;
+          let returnToCapital = 0;
+
+          if (pendingProfit === 0) {
+            paymentProfit = parseFloat(item.amount as string);
+            returnToCapital = 0;
+          } else {
+            paymentProfit = (parseFloat(item.amount as string) * totalProfit) / totalAmountToPay;
+            returnToCapital = parseFloat(item.amount as string) - paymentProfit;
+
+            // Ajustar returnToCapital si es mayor que el esperado
+            const expectedReturnToCapital = (pendingDebt * amountGiven) / totalAmountToPay;
+            if (returnToCapital > expectedReturnToCapital) {
+              paymentProfit += returnToCapital - expectedReturnToCapital;
+              returnToCapital = expectedReturnToCapital;
+            }
+          }
 
           resolvedData.profitAmount = paymentProfit.toString();
-          resolvedData.returnToCapital = (parseFloat(item.amount as string) - paymentProfit).toString();
+          resolvedData.returnToCapital = returnToCapital;
 
 
           const parsedProfit = isNaN(paymentProfit) ? "0" : paymentProfit.toString();
@@ -698,7 +713,7 @@ export const LoanPayment = list({
                   loan: { connect: { id: loan?.id.toString() } },
                   lead: { connect: { id: lead?.id.toString() } },
                   profitAmount: parsedProfit,
-                  returnToCapital: (parseFloat(item.amount as string) - parseFloat(parsedProfit)).toString(),
+                  returnToCapital: returnToCapital,
                 },
               });
             } catch (error) {
@@ -726,7 +741,7 @@ export const LoanPayment = list({
                 loan: { connect: { id: loan?.id } },
                 lead: { connect: { id: lead?.id } },
                 profitAmount: parsedProfit,
-                returnToCapital: (parseFloat(item.amount as string) - parseFloat(parsedProfit)).toString(),
+                returnToCapital: returnToCapital,
               },
             });
           }
