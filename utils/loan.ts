@@ -15,7 +15,7 @@ export const calculatePendingProfitAmount = async (loanId: string) => {
             }
         });
 
-        console.log("////////////PAYMENTS///////////", payments);
+        console.log("////////////PAYMENTS///////////", payments.length);
 
         //const totalAmountToPay = parseFloat(loan.amountToPay);
         const amountRequested = parseFloat(loan.requestedAmount.toString());
@@ -37,7 +37,7 @@ export const calculatePendingProfitAmount = async (loanId: string) => {
     return 0;
 }
 
-export const calculateProfitAmount = async (loanId: string) => {
+export const calculateLoanProfitAmount = async (loanId: string) => {
     const loan = await prisma.loan.findUnique({
         where: { id: loanId },
         include: { loantype: true, previousLoan: true },

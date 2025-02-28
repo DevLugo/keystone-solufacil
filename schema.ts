@@ -3,7 +3,7 @@ import { allowAll } from '@keystone-6/core/access';
 import { text, password, timestamp, relationship, decimal, integer, select, virtual } from '@keystone-6/core/fields';
 import { equal } from 'node:assert';
 import { prisma } from './keystone';
-import { calculatePendingProfitAmount, calculateProfitAmount } from './utils/loan';
+import { calculateLoanProfitAmount, calculatePendingProfitAmount } from './utils/loan';
 
 export const User = list({
   access: allowAll,
@@ -267,7 +267,7 @@ export const Loan = list({
     avalPhone: text(),
     grantor: relationship({ ref: 'Employee.loan' }),
 
-    transaction: relationship({ ref: 'Transaction.loan', many: true }),
+    transactions: relationship({ ref: 'Transaction.loan', many: true }),
     lead: relationship({ ref: 'Employee.LeadManagedLoans' }),
     borrower: relationship({
       ref: 'Borrower.loans',
@@ -303,13 +303,15 @@ export const Loan = list({
                 transactions: true,
               }
             });
-
-            return payments.reduce((sum, payment) => {
-              const profitAmount = payment.transactions.reduce((sum, transaction) => {
-                return sum + parseFloat(transaction.profitAmount ? transaction.profitAmount.toString() : "0");
+            let profitAmount = 0;
+            profitAmount =  payments.reduce((sum, payment) => {
+              const transactionProfit = payment.transactions.reduce((transactionSum, transaction) => {
+                return transactionSum + parseFloat(transaction.profitAmount ? transaction.profitAmount.toString() : "0");
               }, 0);
-              return sum + parseFloat(profitAmount ? profitAmount.toString() : "0");
+              return sum + transactionProfit;
             }, 0);
+            console.log("payments", payments.length, profitAmount);
+            return profitAmount;
           }
         },
       }),
@@ -455,11 +457,11 @@ export const Loan = list({
         };
         console.log("////////////originalItem///////////", originalItem, item);
         
-        const totalProfitAmount = await calculateProfitAmount(loan?.id as string);
+        const totalProfitAmount = await calculateLoanProfitAmount(loan?.id as string);
         const previosLoanProfitAmount = await calculatePendingProfitAmount(loan?.previousLoanId as string);
         await prisma.loan.update({
           where: { id: item.id.toString() },
-          data: { profitAmount: totalProfitAmount + previosLoanProfitAmount },
+          data: { profitAmount: totalProfitAmount },
         });
         // Trigger afterOperation hook for LoanPayment
         if (originalItem && originalItem.loantypeId !== item.loantypeId) {
@@ -615,14 +617,20 @@ export const LoanPayment = list({
             throw new Error("No hay Credito asociado a este pago");
           }
           const rate = loanType?.rate ? parseFloat(loanType.rate.toString()) : 0;
-          const totalAmountToPay = (loan?.amountGived.toNumber() || 0) + (loan?.profitAmount?.toNumber() || 0);
+          const originalProfit = (loan?.requestedAmount.toNumber() || 0) * rate;
+          const totalAmountToPay = (loan?.requestedAmount.toNumber() || 0) + (originalProfit);
           const amountGiven = loan.amountGived.toNumber();
-          const totalProfit = amountGiven * rate;
+          const totalProfit = loan?.profitAmount?.toNumber() || 0;
+          console.log("////////LOAN PROFIT111", rate, originalProfit, loan?.requestedAmount);  
+          console.log("////////LOAN PROFIT", totalProfit, totalAmountToPay, originalProfit);
           const totalPayed = payments.reduce((sum, payment) => sum + parseFloat(payment.amount as string), 0);
-          const pendingDebt = totalAmountToPay - totalPayed;
+          console.log("////////TOTAL PAYED", totalPayed);
+            const pendingDebt = Math.max(0, totalAmountToPay - totalPayed);
+          console.log("////////PENDING DEBT", pendingDebt);
           const pendingProfit = (pendingDebt * totalProfit) / totalAmountToPay;
-          const earnedProfit = totalProfit - pendingProfit;
+          console.log(pendingProfit)
           console.log(item.amount);
+          
           const paymentProfit = (parseFloat(item.amount as string) * totalProfit) / totalAmountToPay;
           console.log(item.amount, totalProfit, totalAmountToPay, totalAmountToPay,);
 
@@ -783,7 +791,7 @@ export const Transaction = list({
     lead: relationship({ ref: 'Employee.transactions' }),
     sourceAccount: relationship({ ref: 'Account.transactions' }),
     destinationAccount: relationship({ ref: 'Account.receivedTransactions' }),
-    loan: relationship({ ref: 'Loan.transaction' }),
+    loan: relationship({ ref: 'Loan.transactions' }),
     loanPayment: relationship({ ref: 'LoanPayment.transactions' }),
     profitAmount: decimal({
       precision: 10,

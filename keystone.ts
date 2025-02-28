@@ -21,13 +21,15 @@ import { extendGraphqlSchema } from './graphql/extendGraphqlSchema';
 // Load environment variables from .env file
 dotenv.config();
 
-
-// Load environment variables from .env file
-dotenv.config();
-
 const app = express();
-export const prisma = new PrismaClient();
+let prisma: PrismaClient;
 
+if(!global.prisma){
+  global.prisma = new PrismaClient();
+}
+
+prisma = global.prisma;
+export { prisma };
 
 export default withAuth(
   config({

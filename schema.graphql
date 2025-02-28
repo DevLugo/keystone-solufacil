@@ -981,8 +981,8 @@ type Loan {
   avalName: String
   avalPhone: String
   grantor: Employee
-  transaction(where: TransactionWhereInput! = {}, orderBy: [TransactionOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TransactionWhereUniqueInput): [Transaction!]
-  transactionCount(where: TransactionWhereInput! = {}): Int
+  transactions(where: TransactionWhereInput! = {}, orderBy: [TransactionOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TransactionWhereUniqueInput): [Transaction!]
+  transactionsCount(where: TransactionWhereInput! = {}): Int
   lead: Employee
   borrower: Borrower
   previousLoan: Loan
@@ -1022,7 +1022,7 @@ input LoanWhereInput {
   avalName: StringFilter
   avalPhone: StringFilter
   grantor: EmployeeWhereInput
-  transaction: TransactionManyRelationFilter
+  transactions: TransactionManyRelationFilter
   lead: EmployeeWhereInput
   borrower: BorrowerWhereInput
   previousLoan: LoanWhereInput
@@ -1091,7 +1091,7 @@ input LoanUpdateInput {
   avalName: String
   avalPhone: String
   grantor: EmployeeRelateToOneForUpdateInput
-  transaction: TransactionRelateToManyForUpdateInput
+  transactions: TransactionRelateToManyForUpdateInput
   lead: EmployeeRelateToOneForUpdateInput
   borrower: BorrowerRelateToOneForUpdateInput
   previousLoan: LoanRelateToOneForUpdateInput
@@ -1139,7 +1139,7 @@ input LoanCreateInput {
   avalName: String
   avalPhone: String
   grantor: EmployeeRelateToOneForCreateInput
-  transaction: TransactionRelateToManyForCreateInput
+  transactions: TransactionRelateToManyForCreateInput
   lead: EmployeeRelateToOneForCreateInput
   borrower: BorrowerRelateToOneForCreateInput
   previousLoan: LoanRelateToOneForCreateInput

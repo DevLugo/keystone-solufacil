@@ -148,7 +148,7 @@ model Loan {
   avalPhone              String              @default("")
   grantor                Employee?           @relation("Loan_grantor", fields: [grantorId], references: [id])
   grantorId              String?             @map("grantor")
-  transaction            Transaction[]       @relation("Transaction_loan")
+  transactions           Transaction[]       @relation("Transaction_loan")
   lead                   Employee?           @relation("Loan_lead", fields: [leadId], references: [id])
   leadId                 String?             @map("lead")
   borrower               Borrower?           @relation("Loan_borrower", fields: [borrowerId], references: [id])
