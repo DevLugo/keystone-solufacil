@@ -1,9 +1,9 @@
 import { graphql, list } from '@keystone-6/core';
 import { allowAll } from '@keystone-6/core/access';
 import { text, password, timestamp, relationship, decimal, integer, select, virtual } from '@keystone-6/core/fields';
-import { equal } from 'node:assert';
 import { prisma } from './keystone';
 import { calculateLoanProfitAmount, calculatePendingProfitAmount } from './utils/loan';
+import { calculatePaymentProfitAmount } from './utils/loanPayment';
 
 export const User = list({
   access: allowAll,
@@ -458,7 +458,7 @@ export const Loan = list({
         console.log("////////////originalItem///////////", originalItem, item);
         
         const totalProfitAmount = await calculateLoanProfitAmount(loan?.id as string);
-        const previosLoanProfitAmount = await calculatePendingProfitAmount(loan?.previousLoanId as string);
+        ///const previosLoanProfitAmount = await calculatePendingProfitAmount(loan?.previousLoanId as string);
         await prisma.loan.update({
           where: { id: item.id.toString() },
           data: { profitAmount: totalProfitAmount },
@@ -551,40 +551,6 @@ export const LoanPayment = list({
     /* profit: relationship({ ref: 'Profit.loanPayment' }), */
   },
   hooks: {
-    /* resolveInput: async ({ resolvedData, context, item, inputData, listKey }) => {
-      if (resolvedData.amount || resolvedData.loanId) {
-        console.log("1111111", item);
-        const loanId = item?.loanId || resolvedData.loanId;
-        console.log("11111112")
-        if(loanId === null){
-          throw new Error("No hay Credito asociado a este pago");
-        }
-        console.log("11111113")
-        const loan = await context.db.Loan.findOne({
-          where: { id: loanId.toString() },
-        });
-        console.log("11111114")
-
-        const loanType = await context.db.Loantype.findOne({
-          where: { id: loan?.loantypeId },
-        });
-        console.log("////////////LOANTYPE///////////", loan);
-
-        const totalAmountToPay = parseFloat(loan.amountToPay);
-        const amountGiven = parseFloat(loan.amountGived);
-        const rate = parseFloat(loanType.rate);
-        const totalProfit = amountGiven * rate;
-
-        // Calculate profit for the current payment
-        const paymentAmount = parseFloat(resolvedData.amount || existingItem.amount);
-        const paymentProfit = (paymentAmount * totalProfit) / totalAmountToPay;
-
-        resolvedData.profitAmount = paymentProfit.toString();
-        resolvedData.returnToCapital = (paymentAmount - paymentProfit).toString();
-      }
-      console.log("////////////RESOLVED DATA///////////", resolvedData);
-      return resolvedData;
-    }, */
     afterOperation: async ({ operation, item, context, resolvedData, originalItem }) => {
       if (context.skipAfterOperation) {
         return;
@@ -609,9 +575,17 @@ export const LoanPayment = list({
           });
 
           const loanType = loan?.loantype;
-
-          const payments = await context.db.LoanPayment.findMany({
-            where: { loan: { id: { equals: payment?.loanId } } },
+          
+          const payments = await prisma.loanPayment.findMany({
+            where: 
+              {
+                id: { not: { equals: item.id as string } },
+                loan: {
+                  id: {
+                    equals: payment?.loanId as string, 
+                    } 
+                  } 
+              },
           });
           if(!loan || !loanType){
             throw new Error("No hay Credito asociado a este pago");
@@ -625,38 +599,34 @@ export const LoanPayment = list({
           console.log("////////LOAN PROFIT", totalProfit, totalAmountToPay, originalProfit);
           const totalPayed = payments.reduce((sum, payment) => sum + parseFloat(payment.amount as string), 0);
           console.log("////////TOTAL PAYED", totalPayed);
-            const pendingDebt = Math.max(0, totalAmountToPay - totalPayed);
+          const pendingDebt = Math.max(0, totalAmountToPay - totalPayed);
           console.log("////////PENDING DEBT", pendingDebt);
           const pendingProfit = (pendingDebt * totalProfit) / totalAmountToPay;
           console.log(pendingProfit)
           console.log(item.amount);
 
-          let paymentProfit = 0;
-          let returnToCapital = 0;
+          const {profitAmount, returnToCapital} = await calculatePaymentProfitAmount(
+            item.amount as number,
+            totalProfit,
+            totalAmountToPay,
+            loan.requestedAmount.toNumber(),
+            totalPayed,
+          )
+          console.log("////////==============////////");
+          console.log("////////==============////////");
+          console.log("////////==============////////");
+          console.log(item.amount as number,
+            totalProfit,
+            loan.requestedAmount.toNumber(),
+            totalPayed)
+          
 
-          if (pendingProfit === 0) {
-            paymentProfit = parseFloat(item.amount as string);
-            returnToCapital = 0;
-          } else {
-            paymentProfit = (parseFloat(item.amount as string) * totalProfit) / totalAmountToPay;
-            returnToCapital = parseFloat(item.amount as string) - paymentProfit;
-
-            // Ajustar returnToCapital si es mayor que el esperado
-            const expectedReturnToCapital = (pendingDebt * amountGiven) / totalAmountToPay;
-            if (returnToCapital > expectedReturnToCapital) {
-              paymentProfit += returnToCapital - expectedReturnToCapital;
-              returnToCapital = expectedReturnToCapital;
-            }
-          }
-
-          resolvedData.profitAmount = paymentProfit.toString();
+          resolvedData.profitAmount = profitAmount;
           resolvedData.returnToCapital = returnToCapital;
 
 
-          const parsedProfit = isNaN(paymentProfit) ? "0" : paymentProfit.toString();
-          console.log("////////////parsedProfit///////////", parsedProfit);
           if (operation === 'create') {
-            console.log("////////////22222///////////", item.id, paymentProfit.toString(), (parseFloat(item.amount as string) - paymentProfit).toString());
+            
           } else {
             /* const profits = await context.db.Profit.findMany({
               where: { loanPayment: { id: { equals: item.id as string } } },
@@ -712,7 +682,7 @@ export const LoanPayment = list({
                   loanPayment: { connect: { id: item.id.toString() } },
                   loan: { connect: { id: loan?.id.toString() } },
                   lead: { connect: { id: lead?.id.toString() } },
-                  profitAmount: parsedProfit,
+                  profitAmount,
                   returnToCapital: returnToCapital,
                 },
               });
@@ -740,7 +710,7 @@ export const LoanPayment = list({
                 loanPayment: { connect: { id: item.id } },
                 loan: { connect: { id: loan?.id } },
                 lead: { connect: { id: lead?.id } },
-                profitAmount: parsedProfit,
+                profitAmount,
                 returnToCapital: returnToCapital,
               },
             });
@@ -762,9 +732,7 @@ export const LoanPayment = list({
         }
       }
       context.skipAfterOperation = false;
-
     },
-
   }
 });
 
