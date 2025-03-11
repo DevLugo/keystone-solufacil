@@ -284,7 +284,15 @@ export const Loan = list({
       field: graphql.field({
         type: graphql.Float,
         resolve: async (item, args, context) => {
-          return await calculatePendingProfitAmount((item as { id: string }).id.toString());
+          const pendingProfit = await calculatePendingProfitAmount((item as { id: string }).id.toString());
+          // Redondear a 2 decimales
+          let roundedPendingProfit = Math.round((pendingProfit + Number.EPSILON) * 100) / 100;
+          console.log("////////////PENDING PROFIT///////////", roundedPendingProfit);
+          // Si el valor es muy cercano a cero, establecerlo explícitamente a cero
+          if (roundedPendingProfit < 0.01) {
+            roundedPendingProfit = 0;
+          }
+          return roundedPendingProfit;
         }
       }),
     }),
@@ -311,8 +319,9 @@ export const Loan = list({
               return sum + transactionProfit;
             }, 0);
             console.log("payments", payments.length, profitAmount);
-            return profitAmount;
+            return parseFloat(profitAmount.toFixed(2));
           }
+          return 0;
         },
       }),
     }),

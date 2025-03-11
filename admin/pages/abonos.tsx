@@ -118,6 +118,33 @@ const paymentMethods: Option[] = [
   { label: 'Transferencia', value: 'MONEY_TRANSFER' },
 ];
 
+// Route selector component to isolate route-related logic
+const RouteSelector = React.memo(({ onRouteSelect, value }: { onRouteSelect: (route: Option | null) => void, value: Option | null }) => {
+  const { data: routesData, loading: routesLoading, error: routesError } = useQuery<{ routes: Route[] }>(GET_ROUTES, {
+    variables: { where: { } },
+  });
+
+  const routeOptions = useMemo(() => 
+    routesData?.routes?.map(route => ({
+      value: route.id,
+      label: route.name,
+    })) || [], 
+    [routesData]
+  );
+
+  if (routesLoading) return <LoadingDots label="Loading routes" />;
+  if (routesError) return <GraphQLErrorNotice errors={routesError?.graphQLErrors || []} networkError={routesError?.networkError} />;
+
+  return (
+    <Select
+      value={value}
+      options={routeOptions}
+      onChange={onRouteSelect}
+      placeholder="Select a route"
+    />
+  );
+});
+
 function CreatePageForm() {
   const [selectedLead, setSelectedLead] = useState<Option | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
@@ -125,6 +152,7 @@ function CreatePageForm() {
   const [payments, setPayments] = useState<LoanPayment[]>([]);
   const [selectedRoute, setSelectedRoute] = useState<Option | null>(null);
   const [getLeads, { data: leadsData, loading: leadsLoading, error: leadsError }] = useLazyQuery<{ employees: Lead[] }>(GET_LEADS);
+  
   const { data: loansData, loading: loansLoading, error: loansError } = useQuery<{ loans: Loan[] }>(GET_LOANS_BY_LEAD, {
     variables: { 
       where: {
@@ -139,9 +167,6 @@ function CreatePageForm() {
       }
     },
     skip: !selectedLead,
-  });
-  const { data: routesData, loading: routesLoading, error: routesError } = useQuery<{ routes: Route[] }>(GET_ROUTES, {
-    variables: { where: { } },
   });
   
   const [createCustomLeadPaymentReceived, { error: customLeadPaymentError, loading: customLeadPaymentLoading }] = useMutation(CREATE_LEAD_PAYMENT_RECEIVED);
@@ -174,19 +199,28 @@ function CreatePageForm() {
     }
   }, [loansData]);
 
-  useEffect(() => {
-    console.log("selectedRoute", selectedRoute);
-    if (selectedRoute?.value) {
-      console.log("111111", selectedRoute);
-      getLeads(
-        {
-          variables: { 
-            routeId: selectedRoute.value,
-          }
+  const handleRouteSelect = (route: Option | null) => {
+    setSelectedRoute(route);
+    setSelectedLead(null); // Reset lead when route changes
+    setPayments([]); // Reset payments when route changes
+    
+    if (route?.value) {
+      getLeads({
+        variables: { 
+          routeId: route.value,
         }
-      );
+      });
     }
-  }, [selectedRoute?.value]);
+  };
+
+  // Memoize lead options to prevent unnecessary re-renders
+  const leadOptions = useMemo(() => 
+    leadsData?.employees.map(lead => ({
+      value: lead.id,
+      label: lead.personalData.fullName,
+    })) || [],
+    [leadsData]
+  );
 
   const handleAddPayment = () => {
     setPayments([
@@ -334,13 +368,11 @@ function CreatePageForm() {
         </Box>
         <Box style={{ flex: 1 }} marginRight="medium">
           <label>Ruta</label>
-          <Select
-            options={routesData?.routes.map(r => ({ value: r.id, label: r.name })) || []}
-            isLoading={routesLoading}
+          <RouteSelector 
             value={selectedRoute}
-            onChange={option => {
+            onRouteSelect={(option) => {
               if (option) {
-                setSelectedRoute(option);
+                handleRouteSelect(option);
               }
             }}
           />
@@ -392,79 +424,89 @@ function CreatePageForm() {
         </ul>
       </Box>
 
-      <table>
-        <thead>
-          <tr>
-            <th>Nombre</th>
-            <th>Pago Esperado</th>
-            <th>Cantidad</th>
-            <th>Typo</th>
-            <th>Comission</th>
-            <th>Forma de pago</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {payments.map((payment, index) => (
-            <tr key={index}>
-              <td>
-                <Select
-                  options={loansData?.loans.map(loan => ({
-                    value: loan.id,
-                    label: loan.borrower?.personalData?.fullName,
-                  })) || []}
-                  value={loansData?.loans.find(loan => loan.id === payment.loanId) ? {
-                    value: payment.loanId,
-                    label: loansData.loans.find(loan => loan.id === payment.loanId)?.borrower?.personalData?.fullName || '',
-                  } : null}
-                  onChange={(option) => handleChange(index, 'loanId', (option as Option).value)}
-                />
-              </td>
-              <td>
-                <TextInput value={payment.loanId ? loansData?.loans.find(loan => loan.id === payment.loanId)?.weeklyPaymentAmount : ''} readOnly style={{ backgroundColor: '#f0f0f0', color: '#888' }} // Fondo gris y texto gris
-                />
-              </td>
-              <td>
-                <TextInput 
-                  type="number" 
-                  value={payment.amount} onChange={(e) => handleChange(index, 'amount', e.target.value)}
-                />
-              </td>
-              <td>
-                <Select
-                  options={paymentTypeOptions}
-                  value={paymentTypeOptions.find(option => option.value === payment.type) || null}
-                  onChange={(option) => handlePaymentTypeChange(index, (option as Option))}
-                />
-              </td>
-              <td>
-                <TextInput 
-                  type="number" 
-                  value={payment.comission} onChange={(e) => handleChange(index, 'comission', e.target.value)}
-                />
-              </td>
-              <td>
-                <Select
-                  options={paymentMethods}
-                  value={paymentMethods.find(option => option.value === payment.paymentMethod) || null}
-                  onChange={(option) => handlePaymentMethodChange(index, (option as Option))}
-                />
-              </td>
-
-              <TextInput value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''} hidden />
-
-              <TextInput value={payment.loanId} onChange={(e) => handleChange(index, 'loanId', e.target.value)} hidden />
-
-              {/* <TextInput value={payment.collector.connect.id} onChange={(e) => handleChange(index, 'collector', e.target.value)} hidden /> */}
-
-              {/* <TextInput value={payment.leadPaymentReceived.connect.id} onChange={(e) => handleChange(index, 'leadPaymentReceived', e.target.value)} hidden /> */}
-              <td>
-                <Button onClick={() => handleRemovePayment(index)}>Remove</Button>
-              </td>
+      <Box
+        style={{
+          backgroundColor: 'white',
+          borderRadius: '8px',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+          padding: '16px',
+          marginBottom: '24px'
+        }}
+      >
+        <table>
+          <thead>
+            <tr>
+              <th>Nombre</th>
+              <th>Pago Esperado</th>
+              <th>Cantidad</th>
+              <th>Typo</th>
+              <th>Comission</th>
+              <th>Forma de pago</th>
+              <th>Actions</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {payments.map((payment, index) => (
+              <tr key={index}>
+                <td>
+                  <Select
+                    options={loansData?.loans.map(loan => ({
+                      value: loan.id,
+                      label: loan.borrower?.personalData?.fullName,
+                    })) || []}
+                    value={loansData?.loans.find(loan => loan.id === payment.loanId) ? {
+                      value: payment.loanId,
+                      label: loansData.loans.find(loan => loan.id === payment.loanId)?.borrower?.personalData?.fullName || '',
+                    } : null}
+                    onChange={(option) => handleChange(index, 'loanId', (option as Option).value)}
+                  />
+                </td>
+                <td>
+                  <TextInput value={payment.loanId ? loansData?.loans.find(loan => loan.id === payment.loanId)?.weeklyPaymentAmount : ''} readOnly style={{ backgroundColor: '#f0f0f0', color: '#888' }} // Fondo gris y texto gris
+                  />
+                </td>
+                <td>
+                  <TextInput 
+                    type="number" 
+                    value={payment.amount} onChange={(e) => handleChange(index, 'amount', e.target.value)}
+                  />
+                </td>
+                <td>
+                  <Select
+                    options={paymentTypeOptions}
+                    value={paymentTypeOptions.find(option => option.value === payment.type) || null}
+                    onChange={(option) => handlePaymentTypeChange(index, (option as Option))}
+                  />
+                </td>
+                <td>
+                  <TextInput 
+                    type="number" 
+                    value={payment.comission} onChange={(e) => handleChange(index, 'comission', e.target.value)}
+                  />
+                </td>
+                <td>
+                  <Select
+                    options={paymentMethods}
+                    value={paymentMethods.find(option => option.value === payment.paymentMethod) || null}
+                    onChange={(option) => handlePaymentMethodChange(index, (option as Option))}
+                  />
+                </td>
+
+                <TextInput value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''} hidden />
+
+                <TextInput value={payment.loanId} onChange={(e) => handleChange(index, 'loanId', e.target.value)} hidden />
+
+                {/* <TextInput value={payment.collector.connect.id} onChange={(e) => handleChange(index, 'collector', e.target.value)} hidden /> */}
+
+                {/* <TextInput value={payment.leadPaymentReceived.connect.id} onChange={(e) => handleChange(index, 'leadPaymentReceived', e.target.value)} hidden /> */}
+                <td>
+                  <Button onClick={() => handleRemovePayment(index)}>Remove</Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Box>
       <Box marginTop="large">
         <Button onClick={handleAddPayment}>Agregar otro pago</Button>
         <Button 

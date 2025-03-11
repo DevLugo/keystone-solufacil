@@ -14,7 +14,12 @@ export const calculatePendingProfitAmount = async (loanId: string) => {
                 transactions: true,
             }
         });
-
+        payments.forEach(payment => {
+            payment.transactions.forEach(transaction => {
+                if(transaction?.amount && parseFloat(transaction.amount.toString()) > 0)
+                    console.log("////////////TRANSACTION///////////", payment.amount, transaction.profitAmount);
+            });
+        });
         console.log("////////////PAYMENTS///////////", payments.length);
 
         //const totalAmountToPay = parseFloat(loan.amountToPay);
@@ -29,10 +34,14 @@ export const calculatePendingProfitAmount = async (loanId: string) => {
             const profitAmount = payment.transactions.reduce((sum, transaction) => {
                 return sum + parseFloat(transaction.profitAmount ? transaction.profitAmount.toString() : "0");
             }, 0);
-            return sum + parseFloat(profitAmount ? profitAmount.toString() : "0");
+            //return sum + parseFloat(profitAmount ? profitAmount.toString() : "0");
+            return sum + parseFloat(profitAmount.toFixed(2)); // Redondear a 2 decimales
+
         }, 0);
         console.log("////////////TOTAL PROFIT///////////", profitFromCurrentLoan, earnedProfitAmount, profitFromCurrentLoan);
-        return profitFromCurrentLoan - earnedProfitAmount;
+        //return profitFromCurrentLoan - earnedProfitAmount;
+        const pendingProfit = profitFromCurrentLoan - earnedProfitAmount;
+        return parseFloat(pendingProfit.toFixed(2)); // Redondear a 2 decimales
     }
     return 0;
 }
