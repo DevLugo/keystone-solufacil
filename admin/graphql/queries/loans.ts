@@ -1,8 +1,8 @@
 import { gql } from '@apollo/client';
 
 export const GET_LOANS = gql`
-  query GetLoans($leadId: ID!) {
-    loans(where: { lead: { id: { equals: $leadId } } }) {
+  query GetLoans($leadId: ID! $finishedDate: DateTimeNullableFilter) {
+    loans(where: { lead: { id: { equals: $leadId } }, finishedDate: $finishedDate }) {
       id
       weeklyPaymentAmount
       requestedAmount

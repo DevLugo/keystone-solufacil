@@ -416,6 +416,26 @@ export const Loan = list({
         { label: 'CANCELADO', value: 'CANCELED' },
       ],
     }),
+    isLastLoan: virtual({
+      ui: {
+        query: '{ isLastLoan: true }'
+      },
+      isFilterable: true,
+      field: graphql.field({
+        type: graphql.Boolean,
+        args: {
+          where: graphql.arg({ type: graphql.Boolean })
+        },
+        resolve: async (item) => {
+          
+          const loan = await prisma.loan.findUnique({
+            where: { id: (item as { id: string }).id.toString() },
+          });
+          return !loan?.previousLoanId;
+        }
+      }),
+      
+    }),
   },
   hooks: {
     afterOperation: async ({ operation, item, context, originalItem }) => {
@@ -513,6 +533,7 @@ export const Loan = list({
       initialColumns: ['totalPayments', 'signDate', 'payments', 'oldId'],
     },
   },
+  
 
 });
 

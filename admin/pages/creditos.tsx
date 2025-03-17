@@ -127,7 +127,9 @@ function CreateLoanForm() {
   }, [selectedRoute, getLeads]);
 
   const { data: loansData, loading: loansLoading, error: loansError, refetch: refetchLoans } = useQuery(LOANS_QUERY, {
-    variables: { leadId: selectedLead?.value || '' },
+    variables: { leadId: selectedLead?.value || '', finishedDate: {
+      equals: null
+    }},
     skip: !selectedLead,
     onCompleted: (data) => {
       if (data?.loans) {

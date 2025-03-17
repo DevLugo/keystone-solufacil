@@ -999,6 +999,7 @@ type Loan {
   weeklyPaymentAmount: Float
   amountToPay: Float
   status: String
+  isLastLoan(where: Boolean): Boolean
 }
 
 input LoanWhereUniqueInput {
