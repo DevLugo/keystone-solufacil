@@ -409,7 +409,11 @@ export default withAuth(
             const localidades: Record<string, Record<string, { [key: string]: number }>> = rangeTransactions.reduce((acc: Record<string, Record<string, { [key: string]: number }>>, transaction) => {
               const date = transaction.date ? transaction.date.toISOString().split('T')[0] : 'Invalid Date';
 
-              const locality = transaction.lead?.personalData?.addresses[0]?.location?.name || transaction.lead?.personalData?.fullName || 'Sin localidad';
+              // Primero intentamos obtener del lead directo de la transacción
+              const locality = (transaction.lead?.personalData?.addresses[0]?.location?.name || transaction.lead?.personalData?.fullName) ||
+                           // Si no existe, intentamos obtener del lead a través del préstamo
+                           (transaction.loan?.lead?.personalData?.addresses[0]?.location?.name || transaction.loan?.lead?.personalData?.fullName) ||
+                           'Sin localidad';
 
               const type: 'ABONO' | 'CREDITO' | 'VIATIC' | 'GASOLINE' | 'ACCOMMODATION' | 'NOMINA_SALARY' | 'EXTERNAL_SALARY' | 'VEHICULE_MAINTENANCE' | 'LOAN_GRANTED' | 'LOAN_PAYMENT_COMISSION' | 'LOAN_GRANTED_COMISSION' | 'LEAD_COMISSION' | 'MONEY_INVESMENT' | 'OTRO' = 
               transaction.type === 'INCOME' && (transaction.incomeSource === 'CASH_LOAN_PAYMENT' || transaction.incomeSource === 'BANK_LOAN_PAYMENT') ? 'ABONO' :

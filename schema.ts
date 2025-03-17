@@ -448,8 +448,12 @@ export const Loan = list({
         console.log("////////////LEAD1///////////",);
 
 
-        const account = await context.db.Account.findMany({
-          where: { route: { id: lead?.routeId } },
+        
+        const account = await context.prisma.account.findFirst({
+          where: { 
+            routeId: lead?.routesId,
+            type: 'EMPLOYEE_CASH_FUND'
+          },
         });
 
         console.log("////////////LEAD2///////////", account);
@@ -462,16 +466,18 @@ export const Loan = list({
                 date: item.signDate,
                 type: 'EXPENSE',
                 expenseSource: 'LOAN_GRANTED',
-                sourceAccount: { connect: { id: account[0].id } },
+                sourceAccount: { connect: { id: account?.id } },
                 loan: { connect: { id: item.id } },
+                lead: { connect: { id: lead?.id } },
               },
               {
                 amount: item.comissionAmount,
                 date: item.signDate,
                 type: 'EXPENSE',
                 expenseSource: 'LOAN_GRANTED_COMISSION',
-                sourceAccount: { connect: { id: account[0].id } },
+                sourceAccount: { connect: { id: account?.id } },
                 loan: { connect: { id: item.id } },
+                lead: { connect: { id: lead?.id } },
               }
             ]
           });
