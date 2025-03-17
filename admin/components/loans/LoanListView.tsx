@@ -106,8 +106,8 @@ export const LoanListView = memo(({
             <input
               type="text"
               value={loan.amountGived || ''}
-              onChange={(e) => onEditLoan(index, 'amountGived', e.target.value)}
-              placeholder="Cantidad entregada"
+              disabled
+              placeholder="Cantidad entregada (calculado)"
             />
             </div>
           </div>
@@ -115,7 +115,7 @@ export const LoanListView = memo(({
             <div className="loan-input">
             <input
               type="text"
-              value={loan.requestedAmount ? (parseFloat(loan.requestedAmount) * (1 + parseFloat(loan.loantype.rate) / 100)).toFixed(2) : ''}
+              value={loan.requestedAmount ? (parseFloat(loan.requestedAmount) * (1 + parseFloat(loan.loantype.rate))).toFixed(2) : ''}
               disabled
               placeholder="Cantidad a pagar (calculado)"
             />

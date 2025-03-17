@@ -1,9 +1,26 @@
 import { graphql, list } from '@keystone-6/core';
 import { allowAll } from '@keystone-6/core/access';
 import { text, password, timestamp, relationship, decimal, integer, select, virtual } from '@keystone-6/core/fields';
+import { KeystoneContext } from '@keystone-6/core/types';
 import { prisma } from './keystone';
 import { calculateLoanProfitAmount, calculatePendingProfitAmount } from './utils/loan';
 import { calculatePaymentProfitAmount } from './utils/loanPayment';
+import { Decimal } from '@prisma/client/runtime/library';
+
+// Extender el tipo de contexto para incluir skipAfterOperation
+
+interface LoanType {
+  rate: Decimal | null;
+  weekDuration: number;
+}
+
+interface Loan {
+  id: string;
+  requestedAmount: Decimal;
+  amountGived: Decimal;
+  profitAmount: Decimal | null;
+  loantype: LoanType | null;
+}
 
 export const User = list({
   access: allowAll,
@@ -91,11 +108,6 @@ export const Employee = list({
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),
     userId: text(),
-  },
-  hooks: {
-    afterOperation: async ({ operation, item, context }) => {
-
-    }
   }
 }); */
 
@@ -364,15 +376,15 @@ export const Loan = list({
           const loan = await prisma.loan.findFirst({
             where: { id: (item as { id: string }).id.toString() },
             include: { loantype: true },
-          });
+          }) as Loan | null;
+          
           const loanType = loan?.loantype;
-          if (loan && loanType) {
-            const rate = loanType ? parseFloat(loanType.rate!.toString()) : 0;
-            const totalAmountToPay = parseFloat(loan.requestedAmount.toString()) * (1 + rate);
-            const amountGiven = parseFloat(loan.amountGived);
+          if (loan && loanType && loanType.weekDuration > 0) {
+            const rate = loanType.rate ? parseFloat(loanType.rate.toString()) : 0;
+            const totalAmountToPay = loan.requestedAmount.toNumber() * (1 + rate);
+            const amountGiven = loan.amountGived.toNumber();
             const totalProfit = amountGiven * rate;
-            /* console.log("////////////LOANTYPE///////////", loan, totalAmountToPay, totalProfit, loanType.weekDuration); */
-            return (totalAmountToPay / loanType.weekDuration);
+            return totalAmountToPay / loanType.weekDuration;
           } else {
 
           }
@@ -560,189 +572,184 @@ export const LoanPayment = list({
     /* profit: relationship({ ref: 'Profit.loanPayment' }), */
   },
   hooks: {
-    afterOperation: async ({ operation, item, context, resolvedData, originalItem }) => {
-      if (context.skipAfterOperation) {
-        return;
-      }
-      //context.skipAfterOperation = true;
-
-      console.log("////////////AFTER OPERATION1///////////", operation);
+    afterOperation: async (args) => {
+      const { operation, item, context, resolvedData } = args;
+      //const extendedContext = context as unknown as ExtendedContext;
+      //if (extendedContext.skipAfterOperation) {
+      //  return;
+      //}
+      //extendedContext.skipAfterOperation = true;
       if ((operation === 'create' || operation === 'update') && item) {
-
         if (item.type !== 'WITHOUT_PAYMENT') {
-          //calculate the profit amount of the payment
-
-          //calculate pending profit and earned profit
-          const payment = await context.db.LoanPayment.findOne({
-            where: { id: item.id as string },
-          });
-          if (payment?.loanId === null)
-            throw new Error("No hay Credito asociado a este pago");
-          const loan = await prisma.loan.findUnique({
-            where: { id: payment?.loanId as string },
-            include: { loantype: true },
-          });
-
-          const loanType = loan?.loantype;
-          
-          const payments = await prisma.loanPayment.findMany({
-            where: 
-              {
-                id: { not: { equals: item.id as string } },
-                loan: {
-                  id: {
-                    equals: payment?.loanId as string, 
-                    } 
-                  } 
-              },
-          });
-          if(!loan || !loanType){
-            throw new Error("No hay Credito asociado a este pago");
-          }
-          const rate = loanType?.rate ? parseFloat(loanType.rate.toString()) : 0;
-          const originalProfit = (loan?.requestedAmount.toNumber() || 0) * rate;
-          const totalAmountToPay = (loan?.requestedAmount.toNumber() || 0) + (originalProfit);
-          const amountGiven = loan.amountGived.toNumber();
-          const totalProfit = loan?.profitAmount?.toNumber() || 0;
-          console.log("////////LOAN PROFIT111", rate, originalProfit, loan?.requestedAmount);  
-          console.log("////////LOAN PROFIT", totalProfit, totalAmountToPay, originalProfit);
-          const totalPayed = payments.reduce((sum, payment) => sum + parseFloat(payment.amount as string), 0);
-          console.log("////////TOTAL PAYED", totalPayed);
-          const pendingDebt = Math.max(0, totalAmountToPay - totalPayed);
-          console.log("////////PENDING DEBT", pendingDebt);
-          const pendingProfit = (pendingDebt * totalProfit) / totalAmountToPay;
-          console.log(pendingProfit)
-          console.log(item.amount);
-
-          const {profitAmount, returnToCapital} = await calculatePaymentProfitAmount(
-            item.amount as number,
-            totalProfit,
-            totalAmountToPay,
-            loan.requestedAmount.toNumber(),
-            totalPayed,
-          )
-          console.log("////////==============////////");
-          console.log("////////==============////////");
-          console.log("////////==============////////");
-          console.log(item.amount as number,
-            totalProfit,
-            loan.requestedAmount.toNumber(),
-            totalPayed)
-          
-
-          resolvedData.profitAmount = profitAmount;
-          resolvedData.returnToCapital = returnToCapital;
-
-
-          if (operation === 'create') {
-            
-          } else {
-            /* const profits = await context.db.Profit.findMany({
-              where: { loanPayment: { id: { equals: item.id as string } } },
+          try {
+            // Obtener el pago actual
+            const payment = await context.prisma.loanPayment.findUnique({
+              where: { id: item.id.toString() },
             });
-            const profit = profits[0];
+            
+            if (!payment || payment.loanId === null) {
+              throw new Error("No hay Credito asociado a este pago");
+            }
+            
+            // Obtener el préstamo asociado con su tipo
+            const loan = await context.prisma.loan.findUnique({
+              where: { id: payment.loanId },
+              include: { loantype: true }
+            });
 
-            await context.db.Profit.updateOne({
+            if (!loan || !loan.loantype) {
+              throw new Error("No se encontró el préstamo o tipo de préstamo asociado");
+            }
+
+            const loanType = loan.loantype as { rate: { toString: () => string } };
+            
+            // Obtener todos los pagos excepto el actual
+            const payments = await context.prisma.loanPayment.findMany({
               where: {
-                id: profit.id as string,
-              }, 
-              data: 
-                {
-                  amount: paymentProfit.toString(),
-                  returnToCapital: (parseFloat(item.amount as string) - paymentProfit).toString(),
-                },
-            }); */
-          }
-
-          const lead = await context.db.Employee.findOne({
-            where: { id: loan?.leadId as string },
-          });
-          /* console.log("////////////22222///////////", lead); */
-          const employeeCashAccounts = await context.db.Account.findMany({
-            where: {
-              route: {
-                id: {
-                  equals: lead?.routesId,
-                },
+                id: { not: { equals: item.id.toString() } },
+                loanId: payment.loanId
               },
-              type: {
-                equals: 'EMPLOYEE_CASH_FUND',
+            });
+
+            // Calcular montos y tasas
+            const rate = loanType.rate ? parseFloat(loanType.rate.toString()) : 0;
+            const requestedAmount = parseFloat(loan.requestedAmount.toString());
+            const originalProfit = requestedAmount * rate;
+            const totalAmountToPay = requestedAmount + originalProfit;
+            const amountGiven = parseFloat(loan.amountGived.toString());
+            const totalProfit = loan.profitAmount ? parseFloat(loan.profitAmount.toString()) : 0;
+
+            // Calcular total pagado y deuda pendiente
+            const totalPayed = payments.reduce((sum: number, payment: any) => {
+              if (!payment.amount) return sum;
+              return sum + Number(payment.amount);
+            }, 0);
+
+            const pendingDebt = Math.max(0, totalAmountToPay - totalPayed);
+            const pendingProfit = (pendingDebt * totalProfit) / totalAmountToPay;
+
+            // Calcular montos de ganancia y retorno de capital
+            const {profitAmount, returnToCapital} = await calculatePaymentProfitAmount(
+              Number(item.amount),
+              totalProfit,
+              totalAmountToPay,
+              requestedAmount,
+              totalPayed
+            );
+
+            // Actualizar datos resueltos
+            if (resolvedData) {
+              resolvedData.profitAmount = profitAmount;
+              resolvedData.returnToCapital = returnToCapital;
+            }
+
+            // Buscar el líder y sus cuentas asociadas
+            const lead = await context.prisma.employee.findUnique({
+              where: { id: loan.leadId || '' },
+            });
+
+            if (!lead) {
+              throw new Error("No se encontró el líder asociado al préstamo");
+            }
+
+            // Buscar cuenta de efectivo del empleado
+            const employeeCashAccounts = await context.prisma.account.findMany({
+              where: {
+                routeId: lead.routesId || '',
+                type: 'EMPLOYEE_CASH_FUND'
               },
-            },
-          });
-          const employeeCashAccount = employeeCashAccounts[0];
-          /* console.log("////////////222221111///////////", employeeCashAccount); */
+            });
 
-          if (employeeCashAccount === null) {
-            throw new Error("No hay cuenta de efectivo asociada a este empleado");
-          }
+            const employeeCashAccount = employeeCashAccounts[0];
+            if (!employeeCashAccount) {
+              throw new Error("No hay cuenta de efectivo asociada a este empleado");
+            }
 
-          console.log("////////////33333///////////", item.paymentMethod);
-          if (item.paymentMethod === 'CASH') {
-            console.log("////////////444444///////////");
-            try {
-              await prisma.transaction.create({
+            // Crear transacción según el método de pago
+            // Asegurarnos de que los montos sean strings con 2 decimales
+            const getDecimalString = (value: unknown): string => {
+              if (typeof value === 'object' && value !== null && 'toString' in value) {
+                return (value as { toString(): string }).toString();
+              }
+              if (typeof value === 'number') {
+                return value.toFixed(2);
+              }
+              return '0.00';
+            };
+
+            const baseTransactionData = {
+              amount: getDecimalString(item.amount),
+              date: new Date(item.receivedAt as string),
+              loanPayment: { connect: { id: item.id.toString() } },
+              loan: { connect: { id: loan.id } },
+              lead: { connect: { id: lead.id } },
+              profitAmount: getDecimalString(profitAmount),
+              returnToCapital: getDecimalString(returnToCapital),
+            };
+
+            if (item.paymentMethod === 'CASH') {
+              await context.db.Transaction.createOne({
                 data: {
-                  amount: item.amount as number,
-                  date: item.receivedAt as string | Date | null | undefined,
+                  ...baseTransactionData,
                   type: 'INCOME',
                   incomeSource: 'CASH_LOAN_PAYMENT',
-                  destinationAccount: { connect: { id: employeeCashAccount.id.toString() } },
-                  loanPayment: { connect: { id: item.id.toString() } },
-                  loan: { connect: { id: loan?.id.toString() } },
-                  lead: { connect: { id: lead?.id.toString() } },
-                  profitAmount,
-                  returnToCapital: returnToCapital,
+                  destinationAccount: { connect: { id: employeeCashAccount.id } },
                 },
               });
-            } catch (error) {
-              console.log("////////////ERROR///////////", error);
+            } else {
+              // Buscar cuenta bancaria
+              const bankAccounts = await context.prisma.account.findMany({
+                where: {
+                  type: 'BANK',
+                  routeId: lead.routesId || ''
+                },
+              });
+
+              if (!bankAccounts.length) {
+                throw new Error("No se encontró cuenta bancaria asociada");
+              }
+
+              await context.db.Transaction.createOne({
+                data: {
+                  ...baseTransactionData,
+                  type: 'INCOME',
+                  incomeSource: 'LOAN_PAYMENT',
+                  destinationAccount: { connect: { id: bankAccounts[0].id } },
+                },
+              });
             }
-          } else {
-            console.log("////////////55555///////////");
-            const account = await context.db.Account.findMany({
-              where: {
-                type: {
-                  equals: 'BANK',
-                  id: lead?.routesId,
-                }
-              },
-            });
-            console.log("////////////account///////////", account)
-            await context.db.Transaction.createOne({
-              data: {
-                amount: item.amount,
-                date: item.receivedAt,
-                type: 'INCOME',
-                incomeSource: 'LOAN_PAYMENT',
-                destinationAccount: { connect: { id: account[0].id } },
-                loanPayment: { connect: { id: item.id } },
-                loan: { connect: { id: loan?.id } },
-                lead: { connect: { id: lead?.id } },
-                profitAmount,
-                returnToCapital: returnToCapital,
-              },
-            });
+
+            // Crear transacción de comisión si existe
+            if (item.comission) {
+              await context.db.Transaction.createOne({
+                data: {
+                  amount: getDecimalString(item.comission),
+                  date: new Date(item.receivedAt as string),
+                  type: 'EXPENSE',
+                  expenseSource: 'LOAN_PAYMENT_COMISSION',
+                  sourceAccount: { connect: { id: employeeCashAccount.id } },
+                  loanPayment: { connect: { id: item.id.toString() } },
+                  loan: { connect: { id: loan.id } },
+                  lead: { connect: { id: lead.id } },
+                  createdAt: new Date(),
+                },
+              });
+            }
+
+          } catch (error) {
+            console.error('Error en afterOperation de LoanPayment:', error);
+            throw error;
           }
-          console.log("////////////77777///////////", lead);
-          await context.db.Transaction.createOne({
-            data: {
-              amount: item.comission,
-              date: item.receivedAt,
-              type: 'EXPENSE',
-              expenseSource: 'LOAN_PAYMENT_COMISSION',
-              sourceAccount: { connect: { id: employeeCashAccount.id } },
-              loanPayment: { connect: { id: item.id } },
-              loan: { connect: { id: loan?.id } },
-              lead: { connect: { id: lead?.id } },
-              createdAt: new Date(),
-            },
-          });
         }
       }
-      context.skipAfterOperation = false;
-    },
-  }
+      
+      /* // Marcar que el afterOperation ha terminado
+      extendedContext.skipAfterOperation = false;
+        }
+      } */
+    }
+  },
+  
 });
 
 export const Transaction = list({
@@ -800,47 +807,132 @@ export const Transaction = list({
   },
   hooks: {
     afterOperation: async ({ operation, item, context }) => {
-      if ((operation === 'create' || operation === 'update') && item) {
-        if (item.type === 'EXPENSE') {
-          const sourceAccount = await context.db.Account.findOne({
-            where: { id: item.sourceAccountId as string },
+      try {
+        if ((operation === 'create' || operation === 'update') && item) {
+          console.log('\n=== TRANSACTION HOOK START ===');
+          console.log('Operation:', operation);
+          console.log('Transaction:', {
+            id: item.id,
+            type: item.type,
+            amount: item.amount,
+            sourceAccountId: item.sourceAccountId,
+            destinationAccountId: item.destinationAccountId
           });
 
+          // Obtener las cuentas involucradas
+          let sourceAccount = null;
           let destinationAccount = null;
-          if (destinationAccount) {
-            destinationAccount = await context.db.Account.findOne({
-              where: { id: item.destinationAccountId as string },
+
+          if (item.sourceAccountId) {
+            sourceAccount = await context.prisma.account.findUnique({
+              where: { id: item.sourceAccountId.toString() }
+            });
+            console.log('Source Account Before:', {
+              id: sourceAccount?.id,
+              amount: sourceAccount?.amount
             });
           }
 
+          if (item.destinationAccountId) {
+            destinationAccount = await context.prisma.account.findUnique({
+              where: { id: item.destinationAccountId.toString() }
+            });
+            console.log('Destination Account Before:', {
+              id: destinationAccount?.id,
+              amount: destinationAccount?.amount
+            });
+          }
+
+          // Función para manejar decimales con precisión
+          const parseAmount = (value: unknown): number => {
+            if (typeof value === 'string') {
+              return parseFloat(parseFloat(value).toFixed(2));
+            }
+            if (typeof value === 'number') {
+              return parseFloat(value.toFixed(2));
+            }
+            if (typeof value === 'object' && value !== null && 'toString' in value) {
+              return parseFloat(parseFloat(value.toString()).toFixed(2));
+            }
+            return 0;
+          };
+
+          const transactionAmount = parseAmount(item.amount);
+          console.log('Transaction Amount:', transactionAmount);
+
+          // Actualizar cuenta origen si es EXPENSE o TRANSFER
+          if (sourceAccount && (item.type === 'EXPENSE' || item.type === 'TRANSFER')) {
+            const currentAmount = parseAmount(sourceAccount.amount);
+            
+            // Validar que haya suficiente balance
+            if (currentAmount < transactionAmount) {
+              throw new Error(`Balance insuficiente en la cuenta. Balance actual: ${currentAmount}, Monto requerido: ${transactionAmount}`);
+            }
+
+            const newAmount = parseFloat((currentAmount - transactionAmount).toFixed(2));
+            // Asegurar que no sea negativo
+            if (newAmount < 0) {
+              throw new Error(`La operación resultaría en un balance negativo: ${newAmount}`);
+            }
+
+            console.log('Source Account Calculation:', {
+              currentAmount,
+              operation: 'subtract',
+              transactionAmount,
+              newAmount
+            });
+            
+            await context.db.Account.updateOne({
+              where: { id: sourceAccount.id },
+              data: { amount: newAmount.toFixed(2) }
+            });
+          }
+
+          // Actualizar cuenta destino si es INCOME o TRANSFER
+          if (destinationAccount && (item.type === 'INCOME' || item.type === 'TRANSFER')) {
+            const currentAmount = parseAmount(destinationAccount.amount);
+            const newAmount = parseFloat((currentAmount + transactionAmount).toFixed(2));
+
+            console.log('Destination Account Calculation:', {
+              currentAmount,
+              operation: 'add',
+              transactionAmount,
+              newAmount
+            });
+
+            await context.db.Account.updateOne({
+              where: { id: destinationAccount.id },
+              data: { amount: newAmount.toFixed(2) }
+            });
+          }
+
+          // Verificar estados finales
           if (sourceAccount) {
-            const newAmount = (sourceAccount.amount as number) - (item.amount as number);
-            await context.db.Account.updateOne({
-              where: { id: sourceAccount.id as string },
-              data: { amount: newAmount.toString() },
+            const finalSourceAccount = await context.prisma.account.findUnique({
+              where: { id: sourceAccount.id }
+            });
+            console.log('Source Account After:', {
+              id: finalSourceAccount?.id,
+              amount: finalSourceAccount?.amount
             });
           }
 
           if (destinationAccount) {
-            destinationAccount.amount = (destinationAccount.amount as number) + (item.amount as number);
-            await context.db.Account.updateOne({
-              where: { id: destinationAccount.id as string },
-              data: { amount: destinationAccount.toString() },
+            const finalDestinationAccount = await context.prisma.account.findUnique({
+              where: { id: destinationAccount.id }
+            });
+            console.log('Destination Account After:', {
+              id: finalDestinationAccount?.id,
+              amount: finalDestinationAccount?.amount
             });
           }
-        } else if (item.type === 'INCOME') {
-          const destinationAccount = await context.db.Account.findOne({
-            where: { id: item.destinationAccountId as string },
-          });
-          if (destinationAccount) {
-            const newAmount = parseFloat(destinationAccount.amount as string) + parseFloat(item.amount as string);
 
-            await context.db.Account.updateOne({
-              where: { id: destinationAccount.id as string },
-              data: { amount: newAmount.toString() },
-            });
-          }
+          console.log('=== TRANSACTION HOOK END ===\n');
+          
         }
+      } catch (error) {
+        console.error('Error en afterOperation de Transaction:', error);
+        throw error;
       }
     }
   }
@@ -923,12 +1015,72 @@ export const Account = list({
       ],
     }),
     amount: decimal(),
-    transactions: relationship({ ref: 'Transaction.sourceAccount', many: true }),
-    receivedTransactions: relationship({ ref: 'Transaction.destinationAccount', many: true }),
+    accountBalance: virtual({
+      field: graphql.field({
+        type: graphql.Float,
+        async resolve(item: { id: string | { toString(): string } }, _args: any, context: KeystoneContext) {
+          const id = item.id.toString();
+          // Obtener todas las transacciones donde esta cuenta es origen o destino
+          const sourceTransactions = await context.prisma.transaction.findMany({
+            where: { sourceAccountId: id },
+            select: { type: true, amount: true }
+          });
+          
+          const destinationTransactions = await context.prisma.transaction.findMany({
+            where: { destinationAccountId: id },
+            select: { type: true, amount: true }
+          });
+
+          // Calcular el balance
+          let balance = 0;
+          
+          // Procesar transacciones donde la cuenta es origen
+          sourceTransactions.forEach((transaction: { type: string; amount: number | Decimal }) => {
+            if (transaction.type === 'EXPENSE' || transaction.type === 'TRANSFER') {
+              balance -= Number(transaction.amount);
+            }
+          });
+
+          // Procesar transacciones donde la cuenta es destino
+          destinationTransactions.forEach((transaction: { type: string; amount: number | Decimal }) => {
+            if (transaction.type === 'INCOME' || transaction.type === 'TRANSFER') {
+              balance += Number(transaction.amount);
+            }
+          });
+
+          // Redondear el balance a 0, 0.5 o 1
+          const decimal = balance % 1;
+          if (decimal < 0.25) {
+            balance = Math.floor(balance);
+          } else if (decimal >= 0.25 && decimal < 0.75) {
+            balance = Math.floor(balance) + 0.5;
+          } else {
+            balance = Math.ceil(balance);
+          }
+
+          return balance;
+        }
+      })
+    }),
+    transactions: relationship({ 
+      ref: 'Transaction.sourceAccount', 
+      many: true,
+      ui: {
+        createView: { fieldMode: 'hidden' },
+        itemView: { fieldMode: 'hidden' }
+      }
+    }),
+    receivedTransactions: relationship({ 
+      ref: 'Transaction.destinationAccount', 
+      many: true,
+      ui: {
+        createView: { fieldMode: 'hidden' },
+        itemView: { fieldMode: 'hidden' }
+      }
+    }),
     route: relationship({ ref: 'Route.account', isFilterable: true }),
     updatedAt: timestamp(),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
-
   },
 });
 

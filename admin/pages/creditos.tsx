@@ -268,7 +268,9 @@ function CreateLoanForm() {
     switch (field) {
       case 'previousLoan': {
         if (!value) {
-          // If empty value selected, keep current values
+          // If empty value selected, keep current values but recalculate amountGived
+          loan.previousLoan = undefined;
+          loan.amountGived = loan.requestedAmount || '0';
           break;
         }
         const previousLoan = loans.find(l => l.id === value);
@@ -280,9 +282,9 @@ function CreateLoanForm() {
           loan.pendingAmount = previousLoan.pendingAmount;
           
           // Update amountGived based on requestedAmount and pendingAmount
-          if (loan.requestedAmount) {
-            loan.amountGived = (parseFloat(loan.requestedAmount) - parseFloat(previousLoan.pendingAmount)).toString();
-          }
+          const requestedAmount = parseFloat(loan.requestedAmount) || 0;
+          const previousLoanAmount = parseFloat(previousLoan.pendingAmount) || 0;
+          loan.amountGived = (requestedAmount - previousLoanAmount).toString();
         }
         break;
       }
@@ -292,17 +294,15 @@ function CreateLoanForm() {
           break;
         }
         const selectedType = loanTypesData?.loantypes?.find(type => type.id === value);
-        console.log('Selected loan type:', selectedType);
         if (selectedType) {
           loan.loantype = selectedType;
           // Automatically calculate amountToPay based on rate
           if (loan.requestedAmount) {
             const amount = parseFloat(loan.requestedAmount);
-            // These values will be computed by the backend
-            // const rate = parseFloat(selectedType.rate);
-            // if (!isNaN(amount) && !isNaN(rate)) {
-            //   loan.amountToPay = (amount * (1 + rate / 100)).toFixed(2);
-            // }
+            const rate = parseFloat(selectedType.rate);
+            if (!isNaN(amount) && !isNaN(rate)) {
+              loan.amountToPay = (amount * (1 + rate)).toFixed(2);
+            }
           }
         }
         break;
@@ -319,10 +319,17 @@ function CreateLoanForm() {
       }
       case 'requestedAmount': {
         loan.requestedAmount = value;
-        loan.amountGived = value;
+        // Calculate amountGived based on requestedAmount and any previous loan
+        const requestedAmount = parseFloat(value) || 0;
+        const previousLoanAmount = loan.previousLoan ? parseFloat(loan.previousLoan.pendingAmount) || 0 : 0;
+        loan.amountGived = (requestedAmount - previousLoanAmount).toString();
 
-        if (loan.previousLoan) {
-          loan.amountGived = (parseFloat(value) - parseFloat(loan.previousLoan.pendingAmount)).toString();
+        // Calculate amountToPay based on rate
+        if (loan.loantype) {
+          const rate = parseFloat(loan.loantype.rate);
+          if (!isNaN(requestedAmount) && !isNaN(rate)) {
+            loan.amountToPay = (requestedAmount * (1 + rate)).toFixed(2);
+          }
         }
         break;
       }

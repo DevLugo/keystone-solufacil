@@ -18,13 +18,21 @@ import dotenv from 'dotenv';
 import express from 'express';
 import PDFDocument from 'pdfkit';
 import { extendGraphqlSchema } from './graphql/extendGraphqlSchema';
+
+// Declare global types
+declare global {
+  var prisma: PrismaClient | undefined;
+}
+
 // Load environment variables from .env file
 dotenv.config();
 
 const app = express();
+
+// Initialize Prisma client with proper typing
 let prisma: PrismaClient;
 
-if(!global.prisma){
+if (typeof global.prisma === 'undefined') {
   global.prisma = new PrismaClient();
 }
 
@@ -81,7 +89,37 @@ export default withAuth(
           doc.fontSize(8).fillColor('black').text(`Total de clientas: ${50}`, 30, additionalDetailsY, { align: 'left' });
           doc.text(`Comisión a pagar a la líder: ${1200}`, 30, additionalDetailsY + 15, { align: 'left' });
           doc.text(`Total de cobranza esperada: ${70000}`, 30, additionalDetailsY + 30, { align: 'left' });
-          const columnWidths = {
+          interface PaymentRecord {
+            name: string;
+            phone: string;
+            abono: string;
+            adeudo: string;
+            plazos: string;
+            pagoVdo: string;
+            cobroSemana: string;
+            abonoParcial: string;
+            fInicio: string;
+            nSemana: string;
+            aval: string;
+            [key: string]: string;  // Índice de firma para permitir indexación por string
+          }
+
+          interface ColumnWidths {
+            name: number;
+            phone: number;
+            abono: number;
+            adeudo: number;
+            plazos: number;
+            pagoVdo: number;
+            cobroSemana: number;
+            abonoParcial: number;
+            fInicio: number;
+            nSemana: number;
+            aval: number;
+            [key: string]: number;  // Índice de firma para permitir indexación por string
+          }
+          
+          const columnWidths: ColumnWidths = {
             name: 100,
             phone: 40,
             abono: 70,
@@ -95,7 +133,7 @@ export default withAuth(
             aval: 100,
           };
           // Function to draw table headers
-          const drawTableHeaders = (y) => {
+          const drawTableHeaders = (y: number): number => {
             const headers = ['NOMBRE', 'TELEFONO', 'ABONO', 'ADEUDO', 'PLAZOS', 'PAGO VDO', 'COBRO SEMANA', 'ABONO PARCIAL', 'FECHA INICIO', 'NUMERO SEMANA', 'AVAL'];
 
             const headerHeight = 30;
@@ -129,12 +167,12 @@ export default withAuth(
           };
 
           // Function to add page numbers
-          const addPageNumber = (pageNumber) => {
+          const addPageNumber = (pageNumber: number): void => {
             doc.fontSize(10).text(`Page ${pageNumber}`, doc.page.width - 100, doc.page.height - 42, { align: 'right' });
           };
 
           // Function to split text into multiple lines if necessary
-          const splitText = (text, width) => {
+          const splitText = (text: string, width: number): string[] => {
             const words = text.split(' ');
             const lines = [];
             let currentLine = '';
@@ -160,11 +198,10 @@ export default withAuth(
           let pageNumber = 1;
           addPageNumber(pageNumber);
 
-          const payments = [
+          const payments: PaymentRecord[] = [
             // Example data, replace with actual data
             { name: 'Juan Carlos Pérez Rodríguez', phone: '1234567890', abono: '100', adeudo: '500', plazos: '5', pagoVdo: '100', cobroSemana: '100', abonoParcial: '50', fInicio: '01/01/2022', nSemana: '1', aval: 'María López García' },
             { name: 'Ana María González Fernández', phone: '0987654321', abono: '200', adeudo: '1000', plazos: '5', pagoVdo: '200', cobroSemana: '200', abonoParcial: '100', fInicio: '01/01/2022', nSemana: '2', aval: 'José Martínez Sánchez' },
-            // Add more rows as needed
           ];
 
           // Add more payments to fill the page
@@ -209,27 +246,27 @@ export default withAuth(
               doc.text(line, 30 + 5, y + verticalOffset, { width: columnWidths.name, align: 'left' }); // Add a small margin at the top
             });
 
-            Object.keys(columnWidths).forEach((key, i) => {
-              const x = 30 + Object.values(columnWidths).slice(0, i).reduce((a, b) => a + b, 0);
+            Object.entries(columnWidths).forEach(([key, width], index) => {
+              const x = 30 + Object.values(columnWidths).slice(0, index).reduce((a, b) => a + b, 0);
               const paddingLeft = key === 'name' ? 5 : 0;
               const paddingTop = 5;
 
               if (key === 'abono') {
                 // Draw subcolumns for 'abono'
-                const subColumnWidth = columnWidths.abono / 2;
-                const textHeight = doc.heightOfString(payment[key], { width: subColumnWidth });
+                const subColumnWidth = width / 2;
+                const textHeight = doc.heightOfString(payment[key as keyof PaymentRecord], { width: subColumnWidth });
                 const verticalOffset = (rowHeight - textHeight) / 2;
 
                 doc.text('', x + paddingLeft, currentY + verticalOffset, { width: subColumnWidth, align: 'center' }); // Left subcolumn (empty)
-        doc.text(payment[key], x + paddingLeft + subColumnWidth, currentY + verticalOffset, { width: subColumnWidth, align: 'center' }); // Right subcolumn (value)
-        // Draw vertical line between subcolumns
-        doc.moveTo(x + subColumnWidth, currentY).lineTo(x + subColumnWidth, currentY + rowHeight).stroke();
-        // Draw vertical line on the left subcolumn
-        doc.moveTo(x, currentY).lineTo(x, currentY + rowHeight).stroke();
+                doc.text(payment[key as keyof PaymentRecord], x + paddingLeft + subColumnWidth, currentY + verticalOffset, { width: subColumnWidth, align: 'center' }); // Right subcolumn (value)
+                // Draw vertical line between subcolumns
+                doc.moveTo(x + subColumnWidth, currentY).lineTo(x + subColumnWidth, currentY + rowHeight).stroke();
+                // Draw vertical line on the left subcolumn
+                doc.moveTo(x, currentY).lineTo(x, currentY + rowHeight).stroke();
               } else {
-                const textHeight = doc.heightOfString(payment[key], { width: columnWidths[key] });
+                const textHeight = doc.heightOfString(payment[key as keyof PaymentRecord], { width });
                 const verticalOffset = (rowHeight - textHeight) / 2;
-                doc.text(payment[key], x + paddingLeft, currentY + verticalOffset, { width: columnWidths[key], align: key === 'name' || key === 'aval' ? 'left' : 'center' });
+                doc.text(payment[key as keyof PaymentRecord], x + paddingLeft, currentY + verticalOffset, { width, align: key === 'name' || key === 'aval' ? 'left' : 'center' });
               }
             });
             // Draw border for each row

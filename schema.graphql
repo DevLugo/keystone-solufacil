@@ -1609,6 +1609,7 @@ type Account {
   name: String
   type: String
   amount: Decimal
+  accountBalance: Float
   transactions(where: TransactionWhereInput! = {}, orderBy: [TransactionOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TransactionWhereUniqueInput): [Transaction!]
   transactionsCount(where: TransactionWhereInput! = {}): Int
   receivedTransactions(where: TransactionWhereInput! = {}, orderBy: [TransactionOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TransactionWhereUniqueInput): [Transaction!]
@@ -1806,6 +1807,7 @@ type CustomLeadPaymentReceived {
   cashPaidAmount: Float!
   bankPaidAmount: Float!
   falcoAmount: Float!
+  paymentStatus: String!
   agentId: ID!
   leadId: ID!
   paymentDate: String!
