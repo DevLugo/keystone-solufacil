@@ -20,6 +20,10 @@ type Lead = {
 type Route = {
   name: string;
   id: string;
+  account: {
+    id: string;
+    type: string;
+  };
 };
 
 type Option = {
@@ -63,10 +67,12 @@ export const RouteLeadSelector: React.FC<RouteLeadSelectorProps> = ({
   if (routesLoading) return <LoadingDots label="Loading routes" />;
   if (routesError) return <GraphQLErrorNotice errors={routesError?.graphQLErrors || []} networkError={routesError?.networkError} />;
 
-  const routeOptions = routesData?.routes?.map(route => ({
-    value: route.id,
-    label: route.name,
-  })) || [];
+  const routeOptions = routesData?.routes
+    ?.filter(route => route.account?.type === 'EMPLOYEE_CASH_FUND')
+    ?.map(route => ({
+      value: route.id,
+      label: `${route.name} (Cuenta: ${route.account.id})`,
+    })) || [];
 
   const leadOptions = leadsData?.employees
     ?.filter(employee => employee.type === 'LEAD')
@@ -87,12 +93,14 @@ export const RouteLeadSelector: React.FC<RouteLeadSelectorProps> = ({
         />
       </Box>
       <Box style={{ flex: 1 }}>
-        <label style={{ display: 'block', marginBottom: '4px' }}>Lider</label>
+        <label style={{ display: 'block', marginBottom: '4px' }}>Lider (Opcional)</label>
         <Select
           options={leadOptions}
           isLoading={leadsLoading}
           value={selectedLead}
           onChange={onLeadSelect}
+          isClearable
+          placeholder="Seleccionar líder (opcional)"
         />
       </Box>
       {onComissionChange && (

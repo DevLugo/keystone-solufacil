@@ -5,6 +5,10 @@ export const GET_ROUTES = gql`
     routes(where: $where) {
       id
       name
+      account {
+        id
+        type
+      }
     }
   }
 `;
@@ -16,6 +20,12 @@ export const GET_LEADS = gql`
       type
       personalData {
         fullName
+      }
+      routes {
+        account {
+          id
+          type
+        }
       }
     }
   }
