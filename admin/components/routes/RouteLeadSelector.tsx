@@ -8,6 +8,7 @@ import { LoadingDots } from '@keystone-ui/loading';
 import { Select } from '@keystone-ui/fields';
 import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
 import { GET_ROUTES, GET_LEADS } from '../../graphql/queries/routes';
+import { Employee } from '../../pages/gastos';
 
 type Lead = {
   id: string;
@@ -20,22 +21,13 @@ type Lead = {
 type Route = {
   name: string;
   id: string;
-  account: {
-    id: string;
-    type: string;
-  };
-};
-
-type Option = {
-  value: string;
-  label: string;
 };
 
 interface RouteLeadSelectorProps {
-  onRouteSelect: (route: Option | null) => void;
-  onLeadSelect: (lead: Option | null) => void;
-  selectedRoute: Option | null;
-  selectedLead: Option | null;
+  onRouteSelect: (route: Route | null) => void;
+  onLeadSelect: (lead: Employee | null) => void;
+  selectedRoute: Route | null;
+  selectedLead: Employee | null;
   comission?: number;
   onComissionChange?: (comission: number) => void;
 }
@@ -54,25 +46,40 @@ export const RouteLeadSelector: React.FC<RouteLeadSelectorProps> = ({
 
   const [getLeads, { data: leadsData, loading: leadsLoading, error: leadsError }] = useLazyQuery<{ employees: Lead[] }>(GET_LEADS);
 
-  const handleRouteSelect = (route: Option | null) => {
-    onRouteSelect(route);
+  const handleRouteSelect = (option: { value: string; label: string } | null) => {
+    if (!option) {
+      onRouteSelect(null);
+      return;
+    }
+    
+    const selectedRoute = routesData?.routes.find(route => route.id === option.value) || null;
+    onRouteSelect(selectedRoute);
     onLeadSelect(null);
-    if (route) {
+    
+    if (selectedRoute) {
       getLeads({
-        variables: { routeId: route.value }
+        variables: { routeId: selectedRoute.id }
       });
     }
+  };
+
+  const handleLeadSelect = (option: { value: string; label: string } | null) => {
+    if (!option) {
+      onLeadSelect(null);
+      return;
+    }
+    
+    const selectedLead = leadsData?.employees.find(lead => lead.id === option.value) || null;
+    onLeadSelect(selectedLead as Employee | null);
   };
 
   if (routesLoading) return <LoadingDots label="Loading routes" />;
   if (routesError) return <GraphQLErrorNotice errors={routesError?.graphQLErrors || []} networkError={routesError?.networkError} />;
 
-  const routeOptions = routesData?.routes
-    ?.filter(route => route.account?.type === 'EMPLOYEE_CASH_FUND')
-    ?.map(route => ({
-      value: route.id,
-      label: `${route.name} (Cuenta: ${route.account.id})`,
-    })) || [];
+  const routeOptions = routesData?.routes?.map(route => ({
+    value: route.id,
+    label: route.name,
+  })) || [];
 
   const leadOptions = leadsData?.employees
     ?.filter(employee => employee.type === 'LEAD')
@@ -88,19 +95,17 @@ export const RouteLeadSelector: React.FC<RouteLeadSelectorProps> = ({
         <Select
           options={routeOptions}
           isLoading={routesLoading}
-          value={selectedRoute}
+          value={selectedRoute ? { value: selectedRoute.id, label: selectedRoute.name } : null}
           onChange={handleRouteSelect}
         />
       </Box>
       <Box style={{ flex: 1 }}>
-        <label style={{ display: 'block', marginBottom: '4px' }}>Lider (Opcional)</label>
+        <label style={{ display: 'block', marginBottom: '4px' }}>Lider</label>
         <Select
           options={leadOptions}
           isLoading={leadsLoading}
-          value={selectedLead}
-          onChange={onLeadSelect}
-          isClearable
-          placeholder="Seleccionar líder (opcional)"
+          value={selectedLead ? { value: selectedLead.id, label: selectedLead.personalData.fullName } : null}
+          onChange={handleLeadSelect}
         />
       </Box>
       {onComissionChange && (

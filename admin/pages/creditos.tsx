@@ -2,69 +2,37 @@
 /** @jsx jsx */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useQuery, useMutation, useLazyQuery } from '@apollo/client';
+import { useQuery, useMutation } from '@apollo/client';
 import { Box, jsx } from '@keystone-ui/core';
 import { Button } from '@keystone-ui/button';
 import { useRouter } from 'next/router';
-import { PageContainer, GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
-import { DatePicker, Select, TextInput } from '@keystone-ui/fields';
+import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
+import { TextInput } from '@keystone-ui/fields';
 import { LoadingDots } from '@keystone-ui/loading';
 
 // Import types
 import type { 
   Loan, 
   LoanType, 
-  Option, 
-  Lead,
-  Route,
-  LoanCreateInput,
-  PhoneCreateInput,
-  PersonalDataCreateInput,
-  BorrowerCreateOrConnectInput 
+  LoanCreateInput
 } from '../types/loan';
+import type { Option, Route, Employee } from '../types/transaction';
 
 // Import components
-import { RouteLeadSelector } from '../components/routes/RouteLeadSelector';
 import { LoanListView } from '../components/loans/LoanListView';
 
 // Import GraphQL queries and mutations
-import { GET_ROUTES, GET_LEADS } from '../graphql/queries/routes';
 import { GET_LOANS as LOANS_QUERY } from '../graphql/queries/loans';
 import { GET_LOAN_TYPES } from '../graphql/queries/loantypes';
 import { CREATE_LOAN as CREATE_LOAN_MUTATION, UPDATE_PERSONAL_DATA as UPDATE_PERSONAL_DATA_MUTATION } from '../graphql/mutations/loans';
 
 import './creditos.css';
 
-const formStyles = {
-  wrapper: {
-    position: 'relative' as const,
-    marginBottom: '8px',
-  },
-  label: {
-    display: 'block',
-    marginBottom: '4px',
-    color: '#4B5563',
-    fontWeight: 500,
-    fontSize: '14px'
-  },
-  inputContainer: {
-    position: 'relative' as const,
-    transition: 'all 0.3s ease',
-    '&:focus-within': {
-      zIndex: 1,
-      transform: 'scale(1.02)',
-    }
-  },
-  input: {
-    width: '100%',
-    transition: 'all 0.3s ease',
-    '&:focus': {
-      outline: 'none',
-      borderColor: '#2563eb',
-    }
-  }
-};
-
+interface CreditosProps {
+  selectedDate: Date | null;
+  selectedRoute: Route | null;
+  selectedLead: Employee | null;
+}
 
 interface ExtendedLoan extends Loan {
   lead?: { connect: { id: string } };
@@ -85,20 +53,14 @@ interface ExtendedLoan extends Loan {
 }
 
 interface FormState {
-  selectedDate: Date | null;
-  selectedRoute: Option | null;
-  selectedLead: Option | null;
   newLoans: ExtendedLoan[];
   loans: Loan[];
   comission: number;
   focusedInput: string | null;
 }
 
-function CreateLoanForm() {
+const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosProps) => {
   const [state, setState] = useState<FormState>({
-    selectedDate: new Date(),
-    selectedRoute: null,
-    selectedLead: null,
     newLoans: [],
     loans: [],
     comission: 8,
@@ -106,7 +68,6 @@ function CreateLoanForm() {
   });
 
   const { 
-    selectedDate, selectedRoute, selectedLead, 
     newLoans, loans, comission, focusedInput 
   } = state;
 
@@ -114,20 +75,8 @@ function CreateLoanForm() {
     setState(prev => ({ ...prev, ...updates }));
   };
 
-  const { data: routesData, loading: routesLoading, error: routesError } = useQuery<{ routes: Route[] }>(GET_ROUTES, {
-    variables: { where: {} },
-  });
-
-  const [getLeads, { data: leadsData, loading: leadsLoading, error: leadsError }] = useLazyQuery<{ employees: Lead[] }>(GET_LEADS);
-
-  useEffect(() => {
-    if (selectedRoute?.value) {
-      getLeads({ variables: { routeId: selectedRoute.value } });
-    }
-  }, [selectedRoute, getLeads]);
-
-  const { data: loansData, loading: loansLoading, error: loansError, refetch: refetchLoans } = useQuery(LOANS_QUERY, {
-    variables: { leadId: selectedLead?.value || '', finishedDate: {
+  const { data: loansData, loading: loansLoading, error: loansError } = useQuery(LOANS_QUERY, {
+    variables: { leadId: selectedLead?.id || '', finishedDate: {
       equals: null
     }},
     skip: !selectedLead,
@@ -144,37 +93,6 @@ function CreateLoanForm() {
       console.error('Error loading loan types:', error);
     }
   });
-  const [updatePersonalData] = useMutation(UPDATE_PERSONAL_DATA_MUTATION);
-  const [createLoan, { error: loanError, loading: loanLoading }] = useMutation(CREATE_LOAN_MUTATION);
-  const router = useRouter();
-
-  const routeOptions = useMemo(() => 
-    routesData?.routes?.map(route => ({
-      value: route.id,
-      label: route.name,
-    })) || [],
-    [routesData]
-  );
-
-  const leadOptions = useMemo(() => 
-    leadsData?.employees?.filter(employee => employee.type === 'LEAD')?.map(lead => ({
-      value: lead.id,
-      label: lead.personalData.fullName,
-    })) || [],
-    [leadsData]
-  );
-
-
-
-
-  const handleRouteSelect = (route: Option | null) => {
-    updateState({
-      selectedRoute: route,
-      selectedLead: null,
-      focusedInput: null,
-      comission: 8
-    });
-  };
 
   const loanTypeOptions = useMemo(() => {
     return [
@@ -185,17 +103,6 @@ function CreateLoanForm() {
       })) || [])
     ];
   }, [loanTypesData]);
-
-  useEffect(() => {
-    if (loanTypesData?.loantypes && loanTypesData.loantypes.length > 0) {
-      const defaultLoanType = loanTypesData.loantypes[0];
-      const updatedLoans = newLoans.map(loan => ({
-        ...loan,
-        loantype: defaultLoanType
-      }));
-      updateState({ newLoans: updatedLoans });
-    }
-  }, [loanTypesData?.loantypes]);
 
   const previousLoanOptions = useMemo(() => {
     const options = [
@@ -221,6 +128,10 @@ function CreateLoanForm() {
     return options;
   }, [loansData?.loans]);
 
+  const [updatePersonalData] = useMutation(UPDATE_PERSONAL_DATA_MUTATION);
+  const [createLoan, { error: loanError, loading: loanLoading }] = useMutation(CREATE_LOAN_MUTATION);
+  const router = useRouter();
+
   const handleAddLoan = () => {
     const defaultLoanType = loanTypesData?.loantypes?.[0];
     if (!defaultLoanType) {
@@ -241,7 +152,7 @@ function CreateLoanForm() {
       createdAt: '',
       updatedAt: '',
       loantype: defaultLoanType,
-      lead: selectedLead ? { connect: { id: selectedLead.value }} : undefined,
+      lead: selectedLead ? { connect: { id: selectedLead.id }} : undefined,
       borrower: {
         id: '',
         personalData: {
@@ -359,20 +270,13 @@ function CreateLoanForm() {
     updateState({ newLoans: updatedLoans });
   };
 
-  const handleDateChange = (value: string) => {
-    const date = new Date(value);
-    updateState({ 
-      selectedDate: !isNaN(date.getTime()) ? date : null 
-    });
-  };
-
   const handleSubmit = async () => {
     if (!selectedDate) {
       alert('Please select a date');
       return;
     }
 
-    if (!selectedLead?.value) {
+    if (!selectedLead?.id) {
       alert('Please select a lead');
       return;
     }
@@ -391,7 +295,7 @@ function CreateLoanForm() {
           signDate: selectedDate,
           avalName: loan.avalName,
           avalPhone: loan.avalPhone,
-          lead: { connect: { id: selectedLead.value }},
+          lead: { connect: { id: selectedLead.id }},
           borrower: loan.previousLoan?.id
             ? { connect: { id: loan.borrower.id } }
             : {
@@ -452,12 +356,10 @@ function CreateLoanForm() {
     return newLoans.reduce((sum, loan) => sum + parseFloat(loan.amountToPay || '0'), 0);
   }, [newLoans]);
 
-  if (routesLoading || loanTypesLoading) {
-    return <LoadingDots label="Loading data" size="large" />;
+  if (loansLoading) {
+    return <LoadingDots label="Loading loans" size="large" />;
   }
 
-  if (routesError) return <GraphQLErrorNotice errors={routesError?.graphQLErrors || []} networkError={routesError?.networkError} />;
-  if (leadsError) return <GraphQLErrorNotice errors={leadsError?.graphQLErrors || []} networkError={leadsError?.networkError} />;
   if (loansError) return <GraphQLErrorNotice errors={loansError?.graphQLErrors || []} networkError={loansError?.networkError} />;
   if (loanTypesError) return <GraphQLErrorNotice errors={loanTypesError?.graphQLErrors || []} networkError={loanTypesError?.networkError} />;
 
@@ -471,57 +373,6 @@ function CreateLoanForm() {
       )}
       <Box marginBottom="large" paddingX="none">
         <Box style={{ display: 'flex', gap: '2px', alignItems: 'flex-start' }}>
-          <Box style={{ flex: 0.7 }}>
-            <div className="form-group">
-              <label>Fecha</label>
-              <div>
-                <DatePicker
-                  value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''}
-                  onUpdate={(value: string) => handleDateChange(value)}
-                  onClear={() => handleDateChange('')}
-                />
-              </div>
-            </div>
-          </Box>
-          <Box style={{ flex: 1.4 }}>
-            <div className="form-group">
-              <label>Ruta</label>
-              <div>
-                <Select
-                  value={selectedRoute}
-                  onChange={(option) => {
-                    if (option) {
-                      updateState({
-                        selectedRoute: option,
-                        selectedLead: null,
-                        comission: 8
-                      });
-                    }
-                  }}
-                  options={routeOptions}
-                />
-              </div>
-            </div>
-          </Box>
-          <Box style={{ flex: 1.4 }}>
-            <div className="form-group">
-              <label>Lider</label>
-              <div>
-                <Select
-                  value={selectedLead}
-                  onChange={(option) => {
-                    if (option) {
-                      updateState({
-                        selectedLead: option
-                      });
-                    }
-                  }}
-                  options={leadOptions}
-                  isDisabled={!selectedRoute}
-                />
-              </div>
-            </div>
-          </Box>
           <Box style={{ flex: 0.5 }}>
             <div className="form-group">
               <label>Comisión</label>
@@ -530,7 +381,6 @@ function CreateLoanForm() {
                   type="number"
                   value={comission}
                   onChange={(e) => updateState({ comission: parseInt(e.target.value) })}
-                  disabled={!selectedLead}
                 />
               </div>
             </div>
@@ -555,7 +405,6 @@ function CreateLoanForm() {
             weight="bold"
             onClick={handleAddLoan}
             style={{ padding: '8px 16px' }}
-            isDisabled={!selectedRoute || !selectedLead}
           >
             Agregar Prestamo
           </Button>
@@ -574,7 +423,7 @@ function CreateLoanForm() {
           overflow: 'hidden',
         }}
       >
-        {(loansLoading || leadsLoading) ? (
+        {loansLoading ? (
           <Box padding="xlarge" style={{ display: 'flex', justifyContent: 'center' }}>
             <LoadingDots label="Loading loans" size="large" />
           </Box>
@@ -618,14 +467,6 @@ function CreateLoanForm() {
       </Box>
     </Box>
   );
-}
+};
 
-export default function LoanPage() {
-  return (
-    <PageContainer
-      header={<h1>Create Loans</h1>}
-    >
-      <CreateLoanForm />
-    </PageContainer>
-  );
-}
+export default CreateLoanForm;

@@ -20,8 +20,8 @@ import type { Transaction, Account, Option, TransactionCreateInput } from '../ty
 
 const styles = {
   form: {
-    maxWidth: '800px',
-    margin: '0 auto',
+    width: '100%',
+    height: '100%',
     padding: '24px'
   },
   section: {
@@ -91,7 +91,7 @@ const formStyles = {
   }
 };
 
-interface Route {
+export interface Route {
   id: string;
   name: string;
   account: {
@@ -100,7 +100,7 @@ interface Route {
   };
 }
 
-interface Employee {
+export interface Employee {
   id: string;
   type: string;
   personalData: {
@@ -114,10 +114,13 @@ interface Employee {
   };
 }
 
+export interface GastosProps {
+  selectedDate: Date;
+  selectedRoute: Route | null;
+  selectedLead: Employee | null;
+}
+
 interface FormState {
-  selectedDate: string;
-  selectedRoute: Option | null;
-  selectedLead: Option | null;
   newTransactions: TransactionCreateInput[];
   transactions: Transaction[];
   focusedInput: string | null;
@@ -128,18 +131,14 @@ type DatePickerProps = {
   onChange: (value: string) => void;
 };
 
-function CreateExpensesForm() {
+export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead }: GastosProps) => {
   const [state, setState] = useState<FormState>({
-    selectedDate: new Date(new Date().setHours(0, 0, 0, 0)).toISOString(),
-    selectedRoute: null,
-    selectedLead: null,
     newTransactions: [],
     transactions: [],
     focusedInput: null
   });
 
   const { 
-    selectedDate, selectedRoute, selectedLead, 
     newTransactions, transactions, focusedInput 
   } = state;
 
@@ -163,49 +162,15 @@ function CreateExpensesForm() {
 
   const router = useRouter();
 
-  const routeOptions = useMemo(() => 
-    routesData?.routes?.map((route: { id: string; name: string }) => ({
-      value: route.id,
-      label: route.name,
-    })) || [],
-    [routesData]
-  );
-
-  const leadOptions = useMemo(() => 
-    leadsData?.employees?.filter((employee: { type: string }) => employee.type === 'LEAD')?.map((lead: { id: string; personalData: { fullName: string } }) => ({
-      value: lead.id,
-      label: lead.personalData.fullName,
-    })) || [],
-    [leadsData]
-  );
-
-  const handleRouteSelect = (route: Option | null): void => {
-    updateState({
-      selectedRoute: route,
-      selectedLead: null,
-      newTransactions: [],
-      expenseType: expenseTypes[0],
-      amount: '',
-      focusedInput: null
-    });
-  };
-
-  const handleLeadSelect = (lead: Option | null): void => {
-    updateState({
-      selectedLead: lead,
-      focusedInput: null
-    });
-  };
-
   const handleAddTransaction = () => {
     if (!selectedRoute || !selectedDate) {
       alert('Por favor seleccione una ruta y una fecha');
       return;
     }
 
-    const routeData = routesData?.routes?.find((route: Route) => route.id === selectedRoute.value);
+    const routeData = selectedRoute as unknown as Route;
     const routeAccount = routeData?.account;
-    
+    console.log("routeAccount:", routeData);
     if (!routeAccount || routeAccount.type !== 'EMPLOYEE_CASH_FUND') {
       alert('La ruta seleccionada no tiene una cuenta de fondo asociada');
       return;
@@ -215,7 +180,7 @@ function CreateExpensesForm() {
       amount: '',
       type: 'EXPENSE',
       expenseSource: '',
-      date: selectedDate,
+      date: selectedDate.toISOString(),
       sourceAccount: { connect: { id: routeAccount.id } },
       ...(selectedLead && { lead: { connect: { id: selectedLead.value } } })
     };
@@ -287,56 +252,50 @@ function CreateExpensesForm() {
   if (routesLoading) return <LoadingDots label="Loading routes" />;
   if (routesError) return <GraphQLErrorNotice errors={routesError?.graphQLErrors || []} networkError={routesError?.networkError} />;
 
+  const totalAmount = newTransactions.reduce((sum, transaction) => sum + parseFloat(transaction.amount || '0'), 0);
+
   return (
-    <PageContainer header={<h1>Registrar Gastos</h1>}>
-      <div css={styles.form}>
-        <div css={styles.section}>
-          <RouteLeadSelector
-            selectedRoute={selectedRoute}
-            selectedLead={selectedLead}
-            onRouteSelect={handleRouteSelect}
-            onLeadSelect={handleLeadSelect}
-          />
-        </div>
-
-        <div css={styles.section}>
-          <Box marginY="large">
-            <label css={formStyles.label}>Fecha</label>
-            <input
-              type="date"
-              value={selectedDate.split('T')[0]}
-              onChange={e => {
-                const date = new Date(e.target.value);
-                date.setHours(0, 0, 0, 0);
-                updateState({ selectedDate: date.toISOString() });
-              }}
-              css={{
-                padding: '8px',
-                border: '1px solid #e2e8f0',
-                borderRadius: '4px',
-                width: '100%',
-                '&:focus': {
-                  outline: 'none',
-                  borderColor: '#4299e1',
-                  boxShadow: '0 0 0 1px #4299e1',
-                }
-              }}
-            />
-          </Box>
-
+    <Box paddingTop="xlarge">
+      <Box
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '24px',
+          padding: '16px',
+          backgroundColor: '#f9fafb',
+          borderRadius: '8px',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+        }}
+      >
+        <Box style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
           <Button
             tone="active"
             weight="bold"
             onClick={handleAddTransaction}
             isDisabled={!selectedRoute || !selectedDate}
+            style={{ padding: '8px 16px' }}
           >
-            Agregar Nuevo Gasto
+            Agregar Gasto
           </Button>
-        </div>
+        </Box>
+        <Box style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold' }}>Total: ${totalAmount.toFixed(2)}</h3>
+        </Box>
+      </Box>
 
-        {newTransactions.length > 0 && (
-          <div css={styles.section}>
-            <h3>Gastos Registrados</h3>
+      {newTransactions.length > 0 && (
+        <Box
+          style={{
+            marginBottom: '24px',
+            backgroundColor: 'white',
+            borderRadius: '8px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+            overflow: 'visible',
+          }}
+        >
+          <Box padding="large">
+            <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 'bold' }}>Gastos Registrados</h3>
             <table css={styles.table}>
               <thead>
                 <tr>
@@ -351,11 +310,14 @@ function CreateExpensesForm() {
                 {newTransactions.map((transaction, index) => (
                   <tr key={index}>
                     <td>
-                      <Select
-                        value={expenseTypes.find(t => t.value === transaction.expenseSource) || expenseTypes[0]}
-                        options={expenseTypes}
-                        onChange={option => handleEditTransaction(index, 'expenseType', option.value)}
-                      />
+                      <Box style={{ position: 'relative', zIndex: 1000 - index }}>
+                        <Select
+                          value={expenseTypes.find(t => t.value === transaction.expenseSource) || expenseTypes[0]}
+                          options={expenseTypes}
+                          onChange={option => handleEditTransaction(index, 'expenseType', option?.value || '')}
+                          menuPortalTarget={document.body}
+                        />
+                      </Box>
                     </td>
                     <td>
                       <TextInput
@@ -380,33 +342,56 @@ function CreateExpensesForm() {
                 ))}
               </tbody>
             </table>
+          </Box>
+        </Box>
+      )}
 
-            <Box marginY="large" css={styles.buttonGroup}>
-              <Button
-                tone="active"
-                weight="bold"
-                onClick={() => updateState({ newTransactions: [] })}
-              >
-                Limpiar Lista
-              </Button>
-              <Button
-                tone="positive"
-                weight="bold"
-                onClick={handleSubmit}
-                isLoading={createLoading}
-              >
-                Guardar Gastos
-              </Button>
-            </Box>
-          </div>
-        )}
-      </div>
-    </PageContainer>
+      {newTransactions.length > 0 && (
+        <Box
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: '16px',
+            marginTop: '24px',
+            padding: '16px',
+            backgroundColor: '#f9fafb',
+            borderRadius: '8px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+          }}
+        >
+          <Button
+            tone="active"
+            weight="bold"
+            onClick={() => updateState({ newTransactions: [] })}
+            style={{ padding: '8px 24px', minWidth: '150px' }}
+          >
+            Limpiar Lista
+          </Button>
+          <Button
+            tone="positive"
+            weight="bold"
+            onClick={handleSubmit}
+            isLoading={createLoading}
+            style={{ padding: '8px 24px', minWidth: '150px' }}
+          >
+            Guardar Gastos
+          </Button>
+        </Box>
+      )}
+    </Box>
+  );
+};
+
+export default function ExpensesPage() {
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedRoute, setSelectedRoute] = useState<Option | null>(null);
+  const [selectedLead, setSelectedLead] = useState<Option | null>(null);
+
+  return (
+    <CreateExpensesForm 
+      selectedDate={selectedDate}
+      selectedRoute={selectedRoute}
+      selectedLead={selectedLead}
+    />
   );
 }
-
-function ExpensesPage() {
-  return <CreateExpensesForm />;
-}
-
-export default ExpensesPage;
