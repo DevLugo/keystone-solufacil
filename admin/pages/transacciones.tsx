@@ -5,11 +5,11 @@ import React, { useState } from 'react';
 import { jsx, Box, Stack } from '@keystone-ui/core';
 import { PageContainer } from '@keystone-6/core/admin-ui/components';
 import { RouteLeadSelector } from '../components/routes/RouteLeadSelector';
-import CreateLoanForm from './creditos';
+import { CreateLoanForm } from './creditos';
 import { CreateExpensesForm } from './gastos';
 import { CreatePaymentForm } from './abonos';
-import type { Option, RouteOption } from '../types/transaction';
-import type { Route, Employee } from './gastos';
+import type { Option, RouteOption, Route, Employee } from '../types/transaction';
+
 const styles = {
   container: {
     maxWidth: '1200px',
