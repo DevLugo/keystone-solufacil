@@ -1,14 +1,14 @@
 /** @jsxRuntime classic */
 /** @jsx jsx */
 
-import React, { useState } from 'react';
+import React from 'react';
 import { useQuery, useLazyQuery } from '@apollo/client';
 import { Box, jsx } from '@keystone-ui/core';
 import { LoadingDots } from '@keystone-ui/loading';
 import { Select } from '@keystone-ui/fields';
 import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
 import { GET_ROUTES, GET_LEADS } from '../../graphql/queries/routes';
-import { Employee } from '../../pages/gastos';
+import type { Employee } from '../../types/transaction';
 
 type Lead = {
   id: string;
@@ -24,21 +24,44 @@ type Route = {
 };
 
 interface RouteLeadSelectorProps {
-  onRouteSelect: (route: Route | null) => void;
-  onLeadSelect: (lead: Employee | null) => void;
   selectedRoute: Route | null;
   selectedLead: Employee | null;
-  comission?: number;
-  onComissionChange?: (comission: number) => void;
+  selectedDate: Date;
+  onRouteSelect: (route: Route | null) => void;
+  onLeadSelect: (lead: Employee | null) => void;
+  onDateSelect: (date: Date) => void;
 }
 
+const styles = {
+  container: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, 1fr)',
+    gap: '16px',
+    width: '100%'
+  },
+  selector: {
+    width: '100%'
+  },
+  dateInput: {
+    width: '100%',
+    padding: '8px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '4px',
+    '&:focus': {
+      outline: 'none',
+      borderColor: '#4299e1',
+      boxShadow: '0 0 0 1px #4299e1',
+    }
+  }
+};
+
 export const RouteLeadSelector: React.FC<RouteLeadSelectorProps> = ({
-  onRouteSelect,
-  onLeadSelect,
   selectedRoute,
   selectedLead,
-  comission,
-  onComissionChange
+  selectedDate,
+  onRouteSelect,
+  onLeadSelect,
+  onDateSelect
 }) => {
   const { data: routesData, loading: routesLoading, error: routesError } = useQuery<{ routes: Route[] }>(GET_ROUTES, {
     variables: { where: {} },
@@ -46,79 +69,79 @@ export const RouteLeadSelector: React.FC<RouteLeadSelectorProps> = ({
 
   const [getLeads, { data: leadsData, loading: leadsLoading, error: leadsError }] = useLazyQuery<{ employees: Lead[] }>(GET_LEADS);
 
-  const handleRouteSelect = (option: { value: string; label: string } | null) => {
-    if (!option) {
-      onRouteSelect(null);
-      return;
+  React.useEffect(() => {
+    if (selectedRoute?.id) {
+      getLeads({ variables: { routeId: selectedRoute.id } });
     }
-    
-    const selectedRoute = routesData?.routes.find(route => route.id === option.value) || null;
-    onRouteSelect(selectedRoute);
+  }, [selectedRoute, getLeads]);
+
+  const routes = routesData?.routes || [];
+  const leads = leadsData?.employees || [];
+
+  const routeOptions = routes.map((route: Route) => ({
+    label: route.name,
+    value: route.id,
+    data: route
+  }));
+
+  const leadOptions = leads.map((lead: Lead) => ({
+    label: lead.personalData?.fullName || 'Sin nombre',
+    value: lead.id,
+    data: lead
+  }));
+
+  const handleRouteChange = (option: any) => {
+    onRouteSelect(option?.data || null);
     onLeadSelect(null);
-    
-    if (selectedRoute) {
-      getLeads({
-        variables: { routeId: selectedRoute.id }
-      });
-    }
   };
 
-  const handleLeadSelect = (option: { value: string; label: string } | null) => {
-    if (!option) {
-      onLeadSelect(null);
-      return;
+  const handleLeadChange = (option: any) => {
+    onLeadSelect(option?.data || null);
+  };
+
+  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    try {
+      const [year, month, day] = e.target.value.split('-');
+      const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+      date.setMinutes(date.getMinutes() + date.getTimezoneOffset());
+      onDateSelect(date);
+    } catch (error) {
+      console.error('Error al procesar la fecha:', error);
     }
-    
-    const selectedLead = leadsData?.employees.find(lead => lead.id === option.value) || null;
-    onLeadSelect(selectedLead as Employee | null);
   };
 
   if (routesLoading) return <LoadingDots label="Loading routes" />;
   if (routesError) return <GraphQLErrorNotice errors={routesError?.graphQLErrors || []} networkError={routesError?.networkError} />;
 
-  const routeOptions = routesData?.routes?.map(route => ({
-    value: route.id,
-    label: route.name,
-  })) || [];
-
-  const leadOptions = leadsData?.employees
-    ?.filter(employee => employee.type === 'LEAD')
-    ?.map(lead => ({
-      value: lead.id,
-      label: lead.personalData.fullName,
-    })) || [];
-
   return (
-    <Box style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-end', gap: '16px' }}>
-      <Box style={{ flex: 1 }}>
-        <label style={{ display: 'block', marginBottom: '4px' }}>Ruta</label>
+    <Box css={styles.container}>
+      <Box css={styles.selector}>
         <Select
+          value={routeOptions.find(option => option.value === selectedRoute?.id) || null}
           options={routeOptions}
+          onChange={handleRouteChange}
+          placeholder="Seleccionar ruta"
           isLoading={routesLoading}
-          value={selectedRoute ? { value: selectedRoute.id, label: selectedRoute.name } : null}
-          onChange={handleRouteSelect}
         />
       </Box>
-      <Box style={{ flex: 1 }}>
-        <label style={{ display: 'block', marginBottom: '4px' }}>Lider</label>
+      <Box css={styles.selector}>
         <Select
+          value={leadOptions.find(option => option.value === selectedLead?.id) || null}
           options={leadOptions}
+          onChange={handleLeadChange}
+          placeholder="Seleccionar líder"
           isLoading={leadsLoading}
-          value={selectedLead ? { value: selectedLead.id, label: selectedLead.personalData.fullName } : null}
-          onChange={handleLeadSelect}
+          isDisabled={!selectedRoute}
         />
       </Box>
-      {onComissionChange && (
-        <Box style={{ flex: 1 }}>
-          <label style={{ display: 'block', marginBottom: '4px' }}>Comision</label>
-          <input
-            type="number"
-            value={comission}
-            style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
-            onChange={(e) => onComissionChange(parseInt(e.target.value))}
-          />
-        </Box>
-      )}
+      <Box css={styles.selector}>
+        <input
+          type="date"
+          value={selectedDate.toISOString().split('T')[0]}
+          onChange={handleDateChange}
+          css={styles.dateInput}
+        />
+      </Box>
     </Box>
   );
 };

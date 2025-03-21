@@ -45,6 +45,9 @@ export interface Transaction {
   sourceAccount: Account;
   lead?: {
     id: string;
+    personalData?: {
+      fullName: string;
+    };
   };
 }
 

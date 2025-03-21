@@ -21,3 +21,25 @@ export const CREATE_TRANSACTION = gql`
     }
   }
 `;
+
+export const UPDATE_TRANSACTION = gql`
+  mutation UpdateTransaction($id: ID!, $data: TransactionUpdateInput!) {
+    updateTransaction(where: { id: $id }, data: $data) {
+      id
+      amount
+      type
+      expenseSource
+      date
+      sourceAccount {
+        id
+        amount
+      }
+      lead {
+        id
+        personalData {
+          fullName
+        }
+      }
+    }
+  }
+`;

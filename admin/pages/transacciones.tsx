@@ -57,9 +57,7 @@ const TransactionsPage = () => {
     }
   };
 
-  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const date = new Date(e.target.value);
-    date.setHours(0, 0, 0, 0);
+  const handleDateChange = (date: Date) => {
     setSelectedDate(date);
   };
 
@@ -79,18 +77,10 @@ const TransactionsPage = () => {
             <RouteLeadSelector
               selectedRoute={selectedRoute}
               selectedLead={selectedLead}
+              selectedDate={selectedDate}
               onRouteSelect={handleRouteSelect}
               onLeadSelect={handleLeadSelect}
-            />
-          </Box>
-
-          <Box marginY="large">
-            <label style={{ display: 'block', marginBottom: '4px' }}>Fecha</label>
-            <input
-              type="date"
-              value={selectedDate.toISOString().split('T')[0]}
-              onChange={handleDateChange}
-              css={styles.dateInput}
+              onDateSelect={handleDateChange}
             />
           </Box>
         </div>
