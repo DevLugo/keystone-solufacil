@@ -22,7 +22,6 @@ interface LoanListViewProps {
   onEditLoan: (index: number, field: string, value: string) => void;
   onEditExistingLoan: (loanId: string, field: string, value: string) => void;
   focusedInput: string | null;
-  editedLoans: { [key: string]: Loan };
 }
 
 export const LoanListView = memo(({ 
@@ -36,8 +35,7 @@ export const LoanListView = memo(({
   onRemoveLoan, 
   onEditLoan,
   onEditExistingLoan,
-  focusedInput,
-  editedLoans
+  focusedInput 
 }: LoanListViewProps) => {
   const [localExistingLoans, setLocalExistingLoans] = useState<Loan[]>(existingLoans);
 

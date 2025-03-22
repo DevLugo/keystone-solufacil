@@ -92,6 +92,8 @@ const GET_LOANS = gql`
       createdAt
       updatedAt
       comissionAmount
+      avalName
+      avalPhone
       loantype {
         id
         name
@@ -113,6 +115,7 @@ const GET_LOANS = gql`
           id
           fullName
           phones {
+            id
             number
             __typename
           }
