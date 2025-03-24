@@ -72,6 +72,116 @@ const GET_LOANS_BY_LEAD = gql`
   }
 `;
 
+const GET_LEAD_PAYMENTS = gql`
+  query GetLeadPayments($date: DateTime!, $nextDate: DateTime!) {
+    loanPayments(where: { 
+      createdAt: { 
+        gte: $date,
+        lt: $nextDate
+      } 
+    }) {
+      id
+      amount
+      comission
+      type
+      paymentMethod
+      createdAt
+      loan {
+        id
+        borrower {
+          personalData {
+            fullName
+          }
+        }
+      }
+      leadPaymentReceived {
+        id
+        expectedAmount
+        paidAmount
+        cashPaidAmount
+        bankPaidAmount
+        falcoAmount
+        paymentStatus
+        agent {
+          personalData {
+            fullName
+          }
+        }
+        lead {
+          id
+          personalData {
+            fullName
+          }
+        }
+      }
+    }
+  }
+`;
+
+const UPDATE_LEAD_PAYMENT = gql`
+  mutation UpdateLeadPayment(
+    $id: ID!
+    $expectedAmount: Float!
+    $cashPaidAmount: Float
+    $bankPaidAmount: Float
+    $falcoAmount: Float
+    $paymentDate: String!
+    $payments: [PaymentInput!]!
+  ) {
+    updateCustomLeadPaymentReceived(
+      id: $id
+      expectedAmount: $expectedAmount
+      cashPaidAmount: $cashPaidAmount
+      bankPaidAmount: $bankPaidAmount
+      falcoAmount: $falcoAmount
+      paymentDate: $paymentDate
+      payments: $payments
+    ) {
+      id
+      expectedAmount
+      paidAmount
+      cashPaidAmount
+      bankPaidAmount
+      falcoAmount
+      paymentStatus
+      payments {
+        id
+        amount
+        comission
+        loanId
+        type
+        paymentMethod
+      }
+    }
+  }
+`;
+
+const UPDATE_LOAN_PAYMENT = gql`
+  mutation UpdateLoanPayment(
+    $id: ID!
+    $amount: Float!
+    $comission: Float!
+    $type: String!
+    $paymentMethod: String!
+  ) {
+    updateLoanPayment(
+      where: { id: $id }
+      data: {
+        amount: $amount
+        comission: $comission
+        type: $type
+        paymentMethod: $paymentMethod
+      }
+    ) {
+      id
+      amount
+      comission
+      type
+      paymentMethod
+    }
+  }
+`;
+
 type Lead = {
   id: string;
   personalData: {
@@ -142,6 +252,34 @@ const RouteSelector = React.memo(({ onRouteSelect, value }: { onRouteSelect: (ro
   );
 });
 
+// Agregar el componente LeadSelector
+const LeadSelector = React.memo(({ routeId, onLeadSelect, value }: { routeId: string | undefined, onLeadSelect: (lead: Option | null) => void, value: Option | null }) => {
+  const { data: leadsData, loading: leadsLoading, error: leadsError } = useQuery<{ employees: Lead[] }>(GET_LEADS, {
+    variables: { routeId: routeId || '' },
+    skip: !routeId,
+  });
+
+  const leadOptions = useMemo(() => 
+    leadsData?.employees?.map(lead => ({
+      value: lead.id,
+      label: lead.personalData.fullName,
+    })) || [], 
+    [leadsData]
+  );
+
+  if (leadsLoading) return <LoadingDots label="Loading leads" />;
+  if (leadsError) return <GraphQLErrorNotice errors={leadsError?.graphQLErrors || []} networkError={leadsError?.networkError} />;
+
+  return (
+    <Select
+      value={value}
+      options={leadOptions}
+      onChange={onLeadSelect}
+      placeholder="Select a lead"
+    />
+  );
+});
+
 export interface AbonosProps {
   selectedDate: Date | null;
   selectedRoute: Route | null;
@@ -159,6 +297,9 @@ export const CreatePaymentForm = ({ selectedDate, selectedRoute, selectedLead }:
       totalPaidAmount: number;
       falcoAmount: number;
     };
+    existingPayments: any[];
+    editedPayments: { [key: string]: any };
+    expandedSection: 'existing' | 'new' | null;
   }>({
     payments: [],
     comission: 8,
@@ -168,24 +309,18 @@ export const CreatePaymentForm = ({ selectedDate, selectedRoute, selectedLead }:
       bankPaidAmount: 0,
       totalPaidAmount: 0,
       falcoAmount: 0,
-    }
+    },
+    existingPayments: [],
+    editedPayments: {},
+    expandedSection: 'existing'
   });
 
   const { 
-    payments, comission, isModalOpen, loadPaymentDistribution 
+    payments, comission, isModalOpen, loadPaymentDistribution,
+    existingPayments, editedPayments, expandedSection
   } = state;
 
-  const updateState = (updates: Partial<{
-    payments: LoanPayment[];
-    comission: number;
-    isModalOpen: boolean;
-    loadPaymentDistribution: {
-      cashPaidAmount: number;
-      bankPaidAmount: number;
-      totalPaidAmount: number;
-      falcoAmount: number;
-    };
-  }>) => {
+  const updateState = (updates: Partial<typeof state>) => {
     setState(prev => ({ ...prev, ...updates }));
   };
 
@@ -204,10 +339,94 @@ export const CreatePaymentForm = ({ selectedDate, selectedRoute, selectedLead }:
     },
     skip: !selectedLead,
   });
-  
+
+  const { data: paymentsData, loading: paymentsLoading, refetch: refetchPayments } = useQuery(GET_LEAD_PAYMENTS, {
+    variables: {
+      date: selectedDate ? new Date(selectedDate.setHours(0, 0, 0, 0)).toISOString() : new Date().toISOString(),
+      nextDate: selectedDate ? new Date(selectedDate.setHours(23, 59, 59, 999)).toISOString() : new Date().toISOString(),
+    },
+    skip: !selectedDate,
+    onCompleted: (data) => {
+      console.log('Payments Data:', data);
+      if (data?.loanPayments) {
+        console.log('Filtered by Lead:', selectedLead?.id);
+        const filteredPayments = selectedLead
+          ? data.loanPayments.filter((p: any) => {
+              console.log('Payment Lead ID:', p.leadPaymentReceived?.lead?.id);
+              return p.leadPaymentReceived?.lead?.id === selectedLead.id;
+            })
+          : data.loanPayments;
+        console.log('Final Filtered Payments:', filteredPayments);
+        setState(prev => ({ ...prev, existingPayments: filteredPayments }));
+      }
+    }
+  });
+
   const [createCustomLeadPaymentReceived, { error: customLeadPaymentError, loading: customLeadPaymentLoading }] = useMutation(CREATE_LEAD_PAYMENT_RECEIVED);
+  const [updateLeadPayment, { loading: updateLoading }] = useMutation(UPDATE_LEAD_PAYMENT);
+  const [updateLoanPayment, { loading: updateLoanPaymentLoading }] = useMutation(UPDATE_LOAN_PAYMENT);
 
   const router = useRouter();
+
+  const toggleSection = (section: 'existing' | 'new') => {
+    updateState({
+      expandedSection: expandedSection === section ? null : section
+    });
+  };
+
+  const handleEditExistingPayment = (paymentId: string, field: string, value: any) => {
+    const payment = existingPayments.find(p => p.id === paymentId);
+    if (!payment) return;
+
+    const updatedPayment = {
+      ...payment,
+      [field]: value
+    };
+
+    updateState({
+      editedPayments: {
+        ...editedPayments,
+        [paymentId]: updatedPayment
+      }
+    });
+  };
+
+  const handleSaveAllChanges = async () => {
+    try {
+      // Actualizar los abonos existentes
+      for (const [id, payment] of Object.entries(editedPayments)) {
+        await updateLoanPayment({
+          variables: {
+            id,
+            amount: parseFloat(payment.amount),
+            comission: parseFloat(payment.comission),
+            type: payment.type,
+            paymentMethod: payment.paymentMethod
+          }
+        });
+      }
+
+      // Refrescar el listado de pagos
+      await refetchPayments();
+
+      // Limpiar el estado
+      updateState({ 
+        editedPayments: {},
+        payments: [],
+        loadPaymentDistribution: {
+          cashPaidAmount: 0,
+          bankPaidAmount: 0,
+          totalPaidAmount: 0,
+          falcoAmount: 0,
+        }
+      });
+
+      alert('Cambios guardados exitosamente');
+    } catch (error) {
+      console.error('Error saving changes:', error);
+      alert('Error al guardar los cambios');
+    }
+  };
 
   useEffect(() => {
     if (loansData) {
@@ -336,6 +555,18 @@ export const CreatePaymentForm = ({ selectedDate, selectedRoute, selectedLead }:
     return payments.reduce((sum, payment) => sum + parseFloat(payment.comission.toString() || '0'), 0);
   }, [payments]);
 
+  // Agregar un useEffect para monitorear los cambios en existingPayments
+  useEffect(() => {
+    console.log('Current existingPayments:', existingPayments);
+  }, [existingPayments]);
+
+  // Agregar un useEffect para monitorear los cambios en selectedDate y selectedLead
+  useEffect(() => {
+    if (selectedDate && selectedLead) {
+      refetchPayments();
+    }
+  }, [selectedDate, selectedLead]);
+
   if (loansLoading) return <LoadingDots label="Loading loans" size="large" />;
   if (loansError) return <GraphQLErrorNotice errors={loansError?.graphQLErrors || []} networkError={loansError?.networkError} />;
 
@@ -347,6 +578,226 @@ export const CreatePaymentForm = ({ selectedDate, selectedRoute, selectedLead }:
           errors={customLeadPaymentError?.graphQLErrors}
         />
       )}
+
+      <Box
+        style={{
+          marginBottom: '24px',
+          backgroundColor: 'white',
+          borderRadius: '8px',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+          overflow: 'visible',
+        }}
+      >
+        <Box
+          padding="large"
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            borderBottom: expandedSection === 'existing' ? '1px solid #e5e7eb' : 'none'
+          }}
+        >
+          <Box
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '16px',
+              cursor: 'pointer'
+            }}
+            onClick={() => toggleSection('existing')}
+          >
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold' }}>
+              Pagos Existentes ({existingPayments.length})
+            </h3>
+          </Box>
+          <span style={{ fontSize: '20px', cursor: 'pointer' }} onClick={() => toggleSection('existing')}>
+            {expandedSection === 'existing' ? '▼' : '▶'}
+          </span>
+        </Box>
+        {expandedSection === 'existing' && (
+          <Box padding="large" paddingTop="medium">
+            {existingPayments.length === 0 ? (
+              <Box>No hay pagos existentes para esta fecha</Box>
+            ) : (
+              <table css={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Cliente</th>
+                    <th>Monto</th>
+                    <th>Comisión</th>
+                    <th>Tipo</th>
+                    <th>Forma de Pago</th>
+                    <th>Líder</th>
+                    <th>Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {existingPayments.map((payment) => {
+                    console.log('Rendering existing payment:', payment);
+                    const editedPayment = editedPayments[payment.id] || payment;
+                    return (
+                      <tr key={payment.id}>
+                        <td>{new Date(payment.createdAt).toLocaleDateString()}</td>
+                        <td>{payment.loan?.borrower?.personalData?.fullName}</td>
+                        <td>
+                          <TextInput
+                            type="number"
+                            value={editedPayment.amount}
+                            onChange={e => handleEditExistingPayment(payment.id, 'amount', e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <TextInput
+                            type="number"
+                            value={editedPayment.comission}
+                            onChange={e => handleEditExistingPayment(payment.id, 'comission', e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <Select
+                            options={paymentTypeOptions}
+                            value={paymentTypeOptions.find(option => option.value === editedPayment.type) || null}
+                            onChange={(option) => handleEditExistingPayment(payment.id, 'type', (option as Option).value)}
+                          />
+                        </td>
+                        <td>
+                          <Select
+                            options={paymentMethods}
+                            value={paymentMethods.find(option => option.value === editedPayment.paymentMethod) || null}
+                            onChange={(option) => handleEditExistingPayment(payment.id, 'paymentMethod', (option as Option).value)}
+                          />
+                        </td>
+                        <td>{payment.leadPaymentReceived?.lead?.personalData?.fullName}</td>
+                        <td>{payment.leadPaymentReceived?.paymentStatus}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </Box>
+        )}
+      </Box>
+
+      <Box
+        style={{
+          backgroundColor: 'white',
+          borderRadius: '8px',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+          padding: '16px',
+          marginBottom: '24px'
+        }}
+      >
+        <Box
+          padding="large"
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            borderBottom: expandedSection === 'new' ? '1px solid #e5e7eb' : 'none'
+          }}
+        >
+          <Box
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '16px',
+              cursor: 'pointer'
+            }}
+            onClick={() => toggleSection('new')}
+          >
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold' }}>
+              Pagos Nuevos ({payments.length})
+            </h3>
+          </Box>
+          <span style={{ fontSize: '20px', cursor: 'pointer' }} onClick={() => toggleSection('new')}>
+            {expandedSection === 'new' ? '▼' : '▶'}
+          </span>
+        </Box>
+        {expandedSection === 'new' && (
+          <Box padding="large" paddingTop="medium">
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: '400px' }}>Nombre</th>
+                  <th>Pago Esperado</th>
+                  <th>Cantidad</th>
+                  <th style={{ width: '150px' }}>Tipo</th>
+                  <th>Comision</th>
+                  <th style={{ width: '150px' }}>Forma de pago</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {payments.map((payment, index) => (
+                  <tr key={index}>
+                    <td>
+                      <Select
+                        options={loansData?.loans.map((loan: Loan) => ({
+                          value: loan.id,
+                          label: loan.borrower?.personalData?.fullName,
+                        })) || []}
+                        value={loansData?.loans.find((loan: Loan) => loan.id === payment.loanId) ? {
+                          value: payment.loanId,
+                          label: loansData.loans.find((loan: Loan) => loan.id === payment.loanId)?.borrower?.personalData?.fullName || '',
+                        } : null}
+                        onChange={(option) => handleChange(index, 'loanId', (option as Option).value)}
+                      />
+                    </td>
+                    <td>
+                      <TextInput 
+                        value={payment.loanId ? loansData?.loans.find((loan: Loan) => loan.id === payment.loanId)?.weeklyPaymentAmount : ''} 
+                        readOnly 
+                        style={{ backgroundColor: '#f0f0f0', color: '#888' }}
+                      />
+                    </td>
+                    <td>
+                      <TextInput 
+                        type="number" 
+                        value={payment.amount} 
+                        onChange={(e) => handleChange(index, 'amount', e.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <Select
+                        options={paymentTypeOptions}
+                        value={paymentTypeOptions.find(option => option.value === payment.type) || null}
+                        onChange={(option) => handlePaymentTypeChange(index, (option as Option))}
+                      />
+                    </td>
+                    <td>
+                      <TextInput 
+                        type="number" 
+                        value={payment.comission} 
+                        onChange={(e) => handleChange(index, 'comission', e.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <Select
+                        options={paymentMethods}
+                        value={paymentMethods.find(option => option.value === payment.paymentMethod) || null}
+                        onChange={(option) => handlePaymentMethodChange(index, (option as Option))}
+                      />
+                    </td>
+                    <td>
+                      <Button
+                        tone="negative"
+                        size="small"
+                        onClick={() => handleRemovePayment(index)}
+                        style={{ padding: '4px 8px', minWidth: 'auto' }}
+                      >
+                        <TrashIcon size="small" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Box>
+        )}
+      </Box>
+
       <Box marginBottom="large" style={{ display: 'flex', alignItems: 'center' }}>
         <Box style={{ flex: 1 }} marginRight="medium">
           <label>Comision</label>
@@ -357,6 +808,7 @@ export const CreatePaymentForm = ({ selectedDate, selectedRoute, selectedLead }:
           />
         </Box>
       </Box>
+
       <Box
         style={{
           position: 'sticky',
@@ -425,93 +877,6 @@ export const CreatePaymentForm = ({ selectedDate, selectedRoute, selectedLead }:
         </div>
       </Box>
 
-      <Box
-        style={{
-          backgroundColor: 'white',
-          borderRadius: '8px',
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-          padding: '16px',
-          marginBottom: '24px'
-        }}
-      >
-        <table>
-          <thead>
-            <tr>
-              <th style={{ width: '400px' }}>Nombre</th>
-              <th>Pago Esperado</th>
-              <th>Cantidad</th>
-              <th style={{ width: '150px' }}>Tipo</th>
-              <th>Comision</th>
-              <th style={{ width: '150px' }}>Forma de pago</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {payments.map((payment, index) => (
-              <tr key={index}>
-                <td>
-                  <Select
-                    options={loansData?.loans.map((loan: Loan) => ({
-                      value: loan.id,
-                      label: loan.borrower?.personalData?.fullName,
-                    })) || []}
-                    value={loansData?.loans.find((loan: Loan) => loan.id === payment.loanId) ? {
-                      value: payment.loanId,
-                      label: loansData.loans.find((loan: Loan) => loan.id === payment.loanId)?.borrower?.personalData?.fullName || '',
-                    } : null}
-                    onChange={(option) => handleChange(index, 'loanId', (option as Option).value)}
-                  />
-                </td>
-                <td>
-                  <TextInput 
-                    value={payment.loanId ? loansData?.loans.find((loan: Loan) => loan.id === payment.loanId)?.weeklyPaymentAmount : ''} 
-                    readOnly 
-                    style={{ backgroundColor: '#f0f0f0', color: '#888' }}
-                  />
-                </td>
-                <td>
-                  <TextInput 
-                    type="number" 
-                    value={payment.amount} 
-                    onChange={(e) => handleChange(index, 'amount', e.target.value)}
-                  />
-                </td>
-                <td>
-                  <Select
-                    options={paymentTypeOptions}
-                    value={paymentTypeOptions.find(option => option.value === payment.type) || null}
-                    onChange={(option) => handlePaymentTypeChange(index, (option as Option))}
-                  />
-                </td>
-                <td>
-                  <TextInput 
-                    type="number" 
-                    value={payment.comission} 
-                    onChange={(e) => handleChange(index, 'comission', e.target.value)}
-                  />
-                </td>
-                <td>
-                  <Select
-                    options={paymentMethods}
-                    value={paymentMethods.find(option => option.value === payment.paymentMethod) || null}
-                    onChange={(option) => handlePaymentMethodChange(index, (option as Option))}
-                  />
-                </td>
-                <td>
-                  <Button
-                    tone="negative"
-                    size="small"
-                    onClick={() => handleRemovePayment(index)}
-                    style={{ padding: '4px 8px', minWidth: 'auto' }}
-                  >
-                    <TrashIcon size="small" />
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Box>
       <Box marginTop="large">
         <Button onClick={handleAddPayment}>Agregar otro pago</Button>
         <Button 
@@ -596,6 +961,44 @@ export const CreatePaymentForm = ({ selectedDate, selectedRoute, selectedLead }:
           </Box>
         </Box>
       </AlertDialog>
+
+      {(Object.keys(editedPayments).length > 0) && (
+        <Box
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: '16px',
+            marginTop: '24px',
+            padding: '16px',
+            backgroundColor: '#f9fafb',
+            borderRadius: '8px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+          }}
+        >
+          <Button
+            tone="active"
+            weight="bold"
+            onClick={() => updateState({ editedPayments: {} })}
+            isDisabled={updateLoading}
+            style={{ padding: '8px 24px', minWidth: '150px' }}
+          >
+            Limpiar Cambios
+          </Button>
+          <Button
+            tone="positive"
+            weight="bold"
+            onClick={handleSaveAllChanges}
+            isLoading={updateLoanPaymentLoading}
+            style={{ padding: '8px 24px', minWidth: '150px' }}
+          >
+            {updateLoanPaymentLoading ? (
+              <LoadingDots label="Guardando..." />
+            ) : (
+              'Guardar Cambios'
+            )}
+          </Button>
+        </Box>
+      )}
     </Box>
   );
 };
@@ -606,10 +1009,66 @@ export default function CustomPage() {
   const [selectedLead, setSelectedLead] = useState<Employee | null>(null);
 
   return (
-    <CreatePaymentForm 
-      selectedDate={selectedDate}
-      selectedRoute={selectedRoute}
-      selectedLead={selectedLead}
-    />
+    <PageContainer header="Abonos">
+      <Box padding="large">
+        <Box marginBottom="large">
+          <label>Fecha</label>
+          <DatePicker
+            value={selectedDate.toISOString()}
+            onUpdate={(date: string) => setSelectedDate(new Date(date))}
+            onClear={() => setSelectedDate(new Date())}
+          />
+        </Box>
+        <Box marginBottom="large">
+          <label>Ruta</label>
+          <RouteSelector
+            value={selectedRoute ? { value: selectedRoute.id, label: selectedRoute.name } : null}
+            onRouteSelect={(route) => setSelectedRoute(route ? { id: route.value, name: route.label } : null)}
+          />
+        </Box>
+        <Box marginBottom="large">
+          <label>Líder</label>
+          <LeadSelector
+            routeId={selectedRoute?.id}
+            value={selectedLead ? { value: selectedLead.id, label: selectedLead.personalData.fullName } : null}
+            onLeadSelect={(lead) => setSelectedLead(lead ? { 
+              id: lead.value, 
+              personalData: { fullName: lead.label },
+              type: 'LEAD',
+              routes: { 
+                accounts: [{
+                  id: '',
+                  name: 'Lead Account',
+                  type: 'EMPLOYEE_CASH_FUND',
+                  amount: 0
+                }]
+              }
+            } : null)}
+          />
+        </Box>
+        <CreatePaymentForm 
+          selectedDate={selectedDate}
+          selectedRoute={selectedRoute}
+          selectedLead={selectedLead}
+        />
+      </Box>
+    </PageContainer>
   );
 }
+
+const styles = {
+  table: {
+    width: '100%',
+    borderCollapse: 'collapse' as const,
+    marginTop: '16px',
+    '& th, & td': {
+      padding: '12px',
+      textAlign: 'left' as const,
+      borderBottom: '1px solid #e5e7eb'
+    },
+    '& th': {
+      backgroundColor: '#f9fafb',
+      fontWeight: 600
+    }
+  }
+};

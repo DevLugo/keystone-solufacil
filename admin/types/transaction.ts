@@ -1,35 +1,32 @@
+export interface PersonalData {
+  fullName: string;
+}
+
+export interface Account {
+  id: string;
+  name?: string;
+  type: 'BANK' | 'OFFICE_CASH_FUND' | 'EMPLOYEE_CASH_FUND' | 'LEAD';
+  amount?: number;
+}
+
 export interface Route {
   id: string;
   name: string;
-  account: {
-    id: string;
-    type: string;
-  };
+  accounts: Account[];
 }
 
 export interface Employee {
   id: string;
   type: string;
-  personalData: {
-    fullName: string;
-  };
+  personalData: PersonalData;
   routes: {
-    account: {
-      id: string;
-      type: string;
-    };
+    accounts: Account[];
   };
 }
 
 export interface Option {
   value: string;
   label: string;
-}
-
-export interface Account {
-  id: string;
-  name: string;
-  balance: number;
 }
 
 export interface RouteOption extends Option {

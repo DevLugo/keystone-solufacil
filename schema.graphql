@@ -317,7 +317,8 @@ type Route {
   employeesCount(where: EmployeeWhereInput! = {}): Int
   localities(where: LocationWhereInput! = {}, orderBy: [LocationOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: LocationWhereUniqueInput): [Location!]
   localitiesCount(where: LocationWhereInput! = {}): Int
-  account: Account
+  accounts(where: AccountWhereInput! = {}, orderBy: [AccountOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: AccountWhereUniqueInput): [Account!]
+  accountsCount(where: AccountWhereInput! = {}): Int
 }
 
 input RouteWhereUniqueInput {
@@ -332,7 +333,7 @@ input RouteWhereInput {
   name: StringFilter
   employees: EmployeeManyRelationFilter
   localities: LocationManyRelationFilter
-  account: AccountWhereInput
+  accounts: AccountManyRelationFilter
 }
 
 input EmployeeManyRelationFilter {
@@ -347,6 +348,12 @@ input LocationManyRelationFilter {
   none: LocationWhereInput
 }
 
+input AccountManyRelationFilter {
+  every: AccountWhereInput
+  some: AccountWhereInput
+  none: AccountWhereInput
+}
+
 input RouteOrderByInput {
   id: OrderDirection
   name: OrderDirection
@@ -356,7 +363,7 @@ input RouteUpdateInput {
   name: String
   employees: EmployeeRelateToManyForUpdateInput
   localities: LocationRelateToManyForUpdateInput
-  account: AccountRelateToOneForUpdateInput
+  accounts: AccountRelateToManyForUpdateInput
 }
 
 input EmployeeRelateToManyForUpdateInput {
@@ -373,10 +380,11 @@ input LocationRelateToManyForUpdateInput {
   connect: [LocationWhereUniqueInput!]
 }
 
-input AccountRelateToOneForUpdateInput {
-  create: AccountCreateInput
-  connect: AccountWhereUniqueInput
-  disconnect: Boolean
+input AccountRelateToManyForUpdateInput {
+  disconnect: [AccountWhereUniqueInput!]
+  set: [AccountWhereUniqueInput!]
+  create: [AccountCreateInput!]
+  connect: [AccountWhereUniqueInput!]
 }
 
 input RouteUpdateArgs {
@@ -388,7 +396,7 @@ input RouteCreateInput {
   name: String
   employees: EmployeeRelateToManyForCreateInput
   localities: LocationRelateToManyForCreateInput
-  account: AccountRelateToOneForCreateInput
+  accounts: AccountRelateToManyForCreateInput
 }
 
 input EmployeeRelateToManyForCreateInput {
@@ -401,9 +409,9 @@ input LocationRelateToManyForCreateInput {
   connect: [LocationWhereUniqueInput!]
 }
 
-input AccountRelateToOneForCreateInput {
-  create: AccountCreateInput
-  connect: AccountWhereUniqueInput
+input AccountRelateToManyForCreateInput {
+  create: [AccountCreateInput!]
+  connect: [AccountWhereUniqueInput!]
 }
 
 type Location {
@@ -1338,6 +1346,12 @@ input TransactionUpdateInput {
   updatedAt: DateTime
 }
 
+input AccountRelateToOneForUpdateInput {
+  create: AccountCreateInput
+  connect: AccountWhereUniqueInput
+  disconnect: Boolean
+}
+
 input LoanPaymentRelateToOneForUpdateInput {
   create: LoanPaymentCreateInput
   connect: LoanPaymentWhereUniqueInput
@@ -1365,6 +1379,11 @@ input TransactionCreateInput {
   returnToCapital: Decimal
   createdAt: DateTime
   updatedAt: DateTime
+}
+
+input AccountRelateToOneForCreateInput {
+  create: AccountCreateInput
+  connect: AccountWhereUniqueInput
 }
 
 input LoanPaymentRelateToOneForCreateInput {
@@ -1799,6 +1818,7 @@ type Mutation {
   authenticateUserWithPassword(email: String!, password: String!): UserAuthenticationWithPasswordResult
   createInitialUser(data: CreateInitialUserInput!): UserAuthenticationWithPasswordSuccess!
   createCustomLeadPaymentReceived(expectedAmount: Float!, cashPaidAmount: Float, bankPaidAmount: Float, falcoAmount: Float, agentId: ID!, leadId: ID!, paymentDate: String!, payments: [PaymentInput!]!): CustomLeadPaymentReceived!
+  updateCustomLeadPaymentReceived(id: ID!, expectedAmount: Float!, cashPaidAmount: Float, bankPaidAmount: Float, falcoAmount: Float, paymentDate: String!, payments: [PaymentInput!]!): CustomLeadPaymentReceived!
 }
 
 type CustomLeadPaymentReceived {

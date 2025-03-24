@@ -36,9 +36,9 @@ export const Route = list({
   access: allowAll,
   fields: {
     name: text(),
-    employees: relationship({ ref: 'Employee.routes', many: true }), // si
+    employees: relationship({ ref: 'Employee.routes', many: true }),
     localities: relationship({ ref: 'Location.route', many: true }),
-    account: relationship({ ref: 'Account.route' }),
+    accounts: relationship({ ref: 'Account.route', many: true })
   }
 });
 
@@ -1105,7 +1105,7 @@ export const Account = list({
         itemView: { fieldMode: 'hidden' }
       }
     }),
-    route: relationship({ ref: 'Route.account', isFilterable: true }),
+    route: relationship({ ref: 'Route.accounts' }),
     updatedAt: timestamp(),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
   },

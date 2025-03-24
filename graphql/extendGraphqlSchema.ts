@@ -169,6 +169,99 @@ export const extendGraphqlSchema = graphql.extend(base => {
           };
         },
       }),
+      updateCustomLeadPaymentReceived: graphql.field({
+        type: graphql.nonNull(CustomLeadPaymentReceivedType),
+        args: {
+          id: graphql.arg({ type: graphql.nonNull(graphql.ID) }),
+          expectedAmount: graphql.arg({ type: graphql.nonNull(graphql.Float) }),
+          cashPaidAmount: graphql.arg({ type: graphql.Float }),
+          bankPaidAmount: graphql.arg({ type: graphql.Float }),
+          falcoAmount: graphql.arg({ type: graphql.Float }),
+          paymentDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          payments: graphql.arg({ type: graphql.nonNull(graphql.list(graphql.nonNull(PaymentInputType))) }),
+        },
+        resolve: async (root, { id, expectedAmount, cashPaidAmount = 0, bankPaidAmount = 0, paymentDate, payments }, context: Context): Promise<LeadPaymentReceivedResponse> => {
+          cashPaidAmount = cashPaidAmount ?? 0;
+          bankPaidAmount = bankPaidAmount ?? 0;
+          const totalPaidAmount = cashPaidAmount + bankPaidAmount;
+          const falcoAmount = expectedAmount - totalPaidAmount;
+          let paymentStatus = 'FALCO';
+          let agentId = '';
+          let leadId = '';
+          let loanPaymentIds: string[] = [];
+
+          if (totalPaidAmount >= expectedAmount) {
+            paymentStatus = 'COMPLETE';
+          } else if (totalPaidAmount > 0 && totalPaidAmount < expectedAmount) {
+            paymentStatus = 'PARTIAL';
+          }
+          // Primero actualizar el LeadPaymentReceived
+          const leadPaymentReceived = await context.db.LeadPaymentReceived.updateOne({
+            where: { id },
+            data: {
+              expectedAmount: expectedAmount.toFixed(2),
+              paidAmount: totalPaidAmount.toFixed(2),
+              cashPaidAmount: cashPaidAmount.toFixed(2),
+              bankPaidAmount: bankPaidAmount.toFixed(2),
+              falcoAmount: falcoAmount > 0 ? falcoAmount.toFixed(2) : '0.00',
+              createdAt: new Date(paymentDate),
+              paymentStatus,
+            },
+          });
+          // Obtener el LeadPaymentReceived actualizado
+          const updatedLeadPaymentReceived = await context.db.LeadPaymentReceived.findOne({
+            where: { id },
+          });
+          if (!updatedLeadPaymentReceived) {
+            throw new Error('LeadPaymentReceived not found after update');
+          }
+          agentId = updatedLeadPaymentReceived.agentId || '';
+          leadId = updatedLeadPaymentReceived.leadId || '';
+          // Obtener los IDs de los pagos existentes
+          const existingPayments = await context.db.LoanPayment.findMany({
+            where: { leadPaymentReceived: { id: { equals: id } } },
+          });
+          loanPaymentIds = existingPayments.map(p => p.id);
+          // Eliminar los pagos existentes
+          for (const paymentId of loanPaymentIds) {
+            await context.db.LoanPayment.deleteOne({
+              where: { id: paymentId },
+            });
+          }
+          // Crear los nuevos pagos
+          for (const payment of payments) {
+            await context.db.LoanPayment.createOne({
+              data: {
+                amount: payment.amount.toFixed(2),
+                comission: payment.comission.toFixed(2),
+                loan: { connect: { id: payment.loanId } },
+                type: payment.type,
+                paymentMethod: payment.paymentMethod,
+                leadPaymentReceived: { connect: { id: updatedLeadPaymentReceived.id } },
+              },
+            });
+          }
+          return {
+            id: updatedLeadPaymentReceived.id,
+            expectedAmount: parseFloat(updatedLeadPaymentReceived.expectedAmount?.toString() || '0'),
+            paidAmount: parseFloat(updatedLeadPaymentReceived.paidAmount?.toString() || '0'),
+            cashPaidAmount: parseFloat(updatedLeadPaymentReceived.cashPaidAmount?.toString() || '0'),
+            bankPaidAmount: parseFloat(updatedLeadPaymentReceived.bankPaidAmount?.toString() || '0'),
+            falcoAmount: parseFloat(updatedLeadPaymentReceived.falcoAmount?.toString() || '0'),
+            paymentStatus: updatedLeadPaymentReceived.paymentStatus || 'FALCO',
+            payments: payments.map(p => ({
+              amount: p.amount,
+              comission: p.comission,
+              loanId: p.loanId,
+              type: p.type,
+              paymentMethod: p.paymentMethod
+            })),
+            paymentDate,
+            agentId,
+            leadId,
+          };
+        },
+      }),
     },
   };
 });

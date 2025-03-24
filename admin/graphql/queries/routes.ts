@@ -5,10 +5,23 @@ export const GET_ROUTES = gql`
     routes(where: $where) {
       id
       name
-      account {
+    }
+  }
+`;
+
+export const GET_ROUTE = gql`
+  query Route($where: RouteWhereInput!) {
+    routes(where: $where) {
+      id
+      name
+      accounts {
         id
+        name
         type
+        amount
+        __typename
       }
+      __typename
     }
   }
 `;
@@ -22,7 +35,7 @@ export const GET_LEADS = gql`
         fullName
       }
       routes {
-        account {
+        accounts {
           id
           type
         }
@@ -30,3 +43,4 @@ export const GET_LEADS = gql`
     }
   }
 `;
+
