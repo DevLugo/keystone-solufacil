@@ -59,12 +59,17 @@ const styles = {
     height: '100%',
     padding: '24px'
   },
+  mainContainer: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '24px',
+    width: '100%',
+  },
   section: {
-    marginBottom: '24px',
-    padding: '16px',
-    backgroundColor: 'white',
-    borderRadius: '8px',
-    boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)'
+    backgroundColor: '#ffffff',
+    borderRadius: '12px',
+    padding: '24px',
+    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
   },
   selectorsContainer: {
     display: 'grid',
@@ -80,25 +85,105 @@ const styles = {
     borderCollapse: 'collapse' as const,
     marginTop: '16px',
     '& th, & td': {
-      padding: '12px',
+      padding: '16px',
       textAlign: 'left' as const,
-      borderBottom: '1px solid #e5e7eb'
+      borderBottom: '1px solid #e5e7eb',
+      fontSize: '14px',
     },
     '& th': {
-      backgroundColor: '#f9fafb',
-      fontWeight: 600
+      backgroundColor: '#f8fafc',
+      fontWeight: 600,
+      color: '#4a5568',
+    },
+    '& td': {
+      backgroundColor: '#ffffff',
+    },
+    '& tr:hover td': {
+      backgroundColor: '#f8fafc',
     }
   },
-  buttonGroup: {
+  sectionHeader: {
     display: 'flex',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '16px',
+    padding: '16px 20px',
+    borderBottom: '1px solid #e5e7eb',
+    backgroundColor: '#fff',
+  },
+  sectionTitle: {
+    fontSize: '16px',
+    fontWeight: '600',
+    color: '#1a202c',
+    display: 'flex',
+    alignItems: 'center',
     gap: '8px',
-    marginTop: '16px'
+  },
+  badge: {
+    padding: '2px 8px',
+    borderRadius: '12px',
+    fontSize: '12px',
+    fontWeight: '500',
+    backgroundColor: '#e2e8f0',
+    color: '#4a5568',
+  },
+  totalAmount: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '8px 16px',
+    backgroundColor: '#f8fafc',
+    borderRadius: '8px',
+    '& span': {
+      fontSize: '14px',
+      fontWeight: '600',
+      color: '#2d3748',
+    }
+  },
+  actionButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '8px 16px',
+    borderRadius: '8px',
+    fontSize: '14px',
+    fontWeight: '500',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    '&:hover': {
+      transform: 'translateY(-1px)',
+    }
   },
   selectContainer: {
     position: 'relative' as const,
     '& .select__menu': {
-      zIndex: 9999
+      zIndex: 9999,
+      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+      borderRadius: '8px',
+      overflow: 'hidden',
+    },
+    '& .select__control': {
+      borderRadius: '8px',
+      border: '1px solid #e2e8f0',
+      boxShadow: 'none',
+      '&:hover': {
+        borderColor: '#4299e1',
+      },
+      '&--is-focused': {
+        borderColor: '#4299e1',
+        boxShadow: '0 0 0 2px rgba(66, 153, 225, 0.2)',
+      }
+    },
+    '& .select__option': {
+      fontSize: '14px',
+      padding: '8px 12px',
+      '&--is-focused': {
+        backgroundColor: '#ebf8ff',
+      },
+      '&--is-selected': {
+        backgroundColor: '#4299e1',
+        color: 'white',
+      }
     }
   }
 };
@@ -151,6 +236,7 @@ export interface GastosProps {
   selectedDate: Date;
   selectedRoute: Route | null;
   selectedLead: Employee | null;
+  onSaveComplete?: () => void;
 }
 
 interface FormState {
@@ -167,7 +253,7 @@ type DatePickerProps = {
   onChange: (value: string) => void;
 };
 
-export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead }: GastosProps) => {
+export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, onSaveComplete }: GastosProps) => {
   const [state, setState] = useState<FormState>({
     newTransactions: [],
     transactions: [],
@@ -192,8 +278,28 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead }
     setState(prev => ({ ...prev, ...updates }));
   };
 
-  const { data: routesData, loading: routesLoading, error: routesError } = useQuery(GET_ROUTES, {
+  const { data: routesData, loading: routesLoading, error: routesError, refetch: refetchRoutes } = useQuery<{ routes: Route[] }>(GET_ROUTES, {
     variables: { where: {} },
+  });
+
+  const GET_ROUTE = gql`
+    query GetRoute($id: ID!) {
+      route(where: { id: $id }) {
+        id
+        name
+        accounts {
+          id
+          name
+          type
+          amount
+        }
+      }
+    }
+  `;
+
+  const { refetch: refetchRoute } = useQuery(GET_ROUTE, {
+    skip: !selectedRoute?.id,
+    variables: { id: selectedRoute?.id || '' }
   });
 
   const [getLeads, { data: leadsData, loading: leadsLoading, error: leadsError }] = useLazyQuery(GET_LEADS);
@@ -227,9 +333,9 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead }
     }
 
     const routeData = selectedRoute as unknown as Route;
-    const routeAccount = routeData?.account;
+    const routeAccount = routeData?.accounts?.find(account => account.type === 'EMPLOYEE_CASH_FUND');
     console.log("routeAccount:", routeData);
-    if (!routeAccount || routeAccount.type !== 'EMPLOYEE_CASH_FUND') {
+    if (!routeAccount) {
       alert('La ruta seleccionada no tiene una cuenta de fondo asociada');
       return;
     }
@@ -245,7 +351,7 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead }
 
     updateState({
       newTransactions: [...newTransactions, newTransaction],
-      expandedSection: 'new' // Expandimos la sección de nuevos gastos
+      expandedSection: 'new'
     });
   };
 
@@ -312,19 +418,31 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead }
         });
       }
 
-      // Refrescar el listado de transacciones
-      await refetchExpenses();
+      // Refrescar todos los datos necesarios
+      await Promise.all([
+        refetchExpenses(),
+        refetchRoutes(),
+        selectedRoute?.id ? refetchRoute() : Promise.resolve()
+      ]);
 
-      // Mostrar mensaje de éxito
-      updateState({ showSuccessMessage: true });
+      // Asegurarnos de que los datos se actualicen en el componente padre
+      if (onSaveComplete) {
+        await onSaveComplete();
+      }
+
+      // Mostrar mensaje de éxito y limpiar el estado
+      updateState({ 
+        showSuccessMessage: true,
+        newTransactions: [],
+        editedTransactions: {}
+      });
       
-      // Limpiar el estado después de 2 segundos
+      // Ocultar el mensaje después de 2 segundos
       setTimeout(() => {
-        updateState({ 
-          showSuccessMessage: false,
-          newTransactions: [],
-          editedTransactions: {}
-        });
+        updateState(prev => ({
+          ...prev,
+          showSuccessMessage: false
+        }));
       }, 2000);
 
     } catch (error) {
@@ -364,272 +482,214 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead }
             right: '20px',
             padding: '16px 24px',
             backgroundColor: '#10B981',
-            borderRadius: '8px',
+            borderRadius: '12px',
             color: 'white',
-            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
             zIndex: 1000,
-            animation: 'slideIn 0.3s ease-out'
+            animation: 'slideIn 0.3s ease-out',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
           }}
         >
-          <span style={{ fontWeight: 'bold' }}>¡Cambios guardados exitosamente!</span>
+          <span style={{ fontWeight: '500' }}>¡Cambios guardados exitosamente!</span>
         </Box>
       )}
 
-      <Box
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: '24px',
-          padding: '16px',
-          backgroundColor: '#f9fafb',
-          borderRadius: '8px',
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-        }}
-      >
-        <Box style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-          <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold' }}>Total: ${totalAmount.toFixed(2)}</h3>
+      <Box css={styles.mainContainer}>
+        <Box css={styles.section}>
+          <div css={styles.sectionHeader}>
+            <div css={styles.sectionTitle}>
+              Resumen de Gastos
+              <div css={styles.totalAmount}>
+                Total: <span>${totalAmount.toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+
+          {expensesLoading ? (
+            <Box
+              style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                padding: '48px',
+              }}
+            >
+              <LoadingDots label="Cargando transacciones..." />
+            </Box>
+          ) : (
+            <>
+              <Box css={styles.section}>
+                <div css={styles.sectionHeader}>
+                  <div css={styles.sectionTitle}>
+                    Gastos Existentes
+                    <div css={styles.badge}>{transactions.length}</div>
+                  </div>
+                  <span style={{ cursor: 'pointer' }} onClick={() => toggleSection('existing')}>
+                    {expandedSection === 'existing' ? '▼' : '▶'}
+                  </span>
+                </div>
+
+                {expandedSection === 'existing' && transactions.length > 0 && (
+                  <Box padding="medium">
+                    <table css={styles.table}>
+                      <thead>
+                        <tr>
+                          <th>Tipo</th>
+                          <th>Monto</th>
+                          <th>Fecha</th>
+                          <th>Líder</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {transactions.map((transaction, index) => {
+                          const editedTransaction = editedTransactions[transaction.id] || transaction;
+                          return (
+                            <tr key={transaction.id}>
+                              <td>
+                                <Box css={styles.selectContainer}>
+                                  <Select
+                                    value={expenseTypes.find(t => t.value === editedTransaction.expenseSource) || expenseTypes[0]}
+                                    options={expenseTypes}
+                                    onChange={option => handleEditExistingTransaction(transaction.id, 'expenseSource', option?.value || '')}
+                                    menuPortalTarget={document.body}
+                                    menuPosition="fixed"
+                                    menuPlacement="auto"
+                                  />
+                                </Box>
+                              </td>
+                              <td>
+                                <TextInput
+                                  type="number"
+                                  value={editedTransaction.amount}
+                                  onChange={e => handleEditExistingTransaction(transaction.id, 'amount', e.target.value)}
+                                  placeholder="0.00"
+                                />
+                              </td>
+                              <td>{new Date(transaction.date).toLocaleDateString()}</td>
+                              <td>{transaction.lead?.personalData?.fullName || 'Sin líder'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </Box>
+                )}
+              </Box>
+
+              <Box css={styles.section}>
+                <div css={styles.sectionHeader}>
+                  <div css={styles.sectionTitle}>
+                    Nuevos Gastos
+                    <div css={styles.badge}>{newTransactions.length}</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                    <Button
+                      tone="active"
+                      weight="bold"
+                      onClick={handleAddTransaction}
+                      isDisabled={!selectedRoute || !selectedDate || createLoading}
+                      css={styles.actionButton}
+                    >
+                      {createLoading ? <LoadingDots label="Agregando..." /> : '+ Agregar Gasto'}
+                    </Button>
+                    <span style={{ cursor: 'pointer' }} onClick={() => toggleSection('new')}>
+                      {expandedSection === 'new' ? '▼' : '▶'}
+                    </span>
+                  </div>
+                </div>
+
+                {expandedSection === 'new' && newTransactions.length > 0 && (
+                  <Box padding="medium">
+                    <table css={styles.table}>
+                      <thead>
+                        <tr>
+                          <th>Tipo</th>
+                          <th>Monto</th>
+                          <th>Fecha</th>
+                          <th>Líder</th>
+                          <th>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {newTransactions.map((transaction, index) => (
+                          <tr key={index}>
+                            <td>
+                              <Box css={styles.selectContainer}>
+                                <Select
+                                  value={expenseTypes.find(t => t.value === transaction.expenseSource) || expenseTypes[0]}
+                                  options={expenseTypes}
+                                  onChange={option => handleEditTransaction(index, 'expenseType', option?.value || '')}
+                                  menuPortalTarget={document.body}
+                                  menuPosition="fixed"
+                                  menuPlacement="auto"
+                                />
+                              </Box>
+                            </td>
+                            <td>
+                              <TextInput
+                                type="number"
+                                value={transaction.amount}
+                                onChange={e => handleEditTransaction(index, 'amount', e.target.value)}
+                                placeholder="0.00"
+                              />
+                            </td>
+                            <td>{new Date(transaction.date).toLocaleDateString()}</td>
+                            <td>{selectedLead?.personalData?.fullName}</td>
+                            <td>
+                              <Button
+                                tone="negative"
+                                size="small"
+                                onClick={() => updateState({ newTransactions: newTransactions.filter((_, i) => i !== index) })}
+                              >
+                                Eliminar
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </Box>
+                )}
+              </Box>
+
+              {(newTransactions.length > 0 || Object.keys(editedTransactions).length > 0) && (
+                <Box css={styles.section}>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'flex-end',
+                    gap: '16px'
+                  }}>
+                    <Button
+                      tone="active"
+                      weight="bold"
+                      onClick={() => updateState({ newTransactions: [], editedTransactions: {} })}
+                      isDisabled={createLoading || updateLoading}
+                      css={styles.actionButton}
+                    >
+                      Limpiar Cambios
+                    </Button>
+                    <Button
+                      tone="positive"
+                      weight="bold"
+                      onClick={handleSaveAllChanges}
+                      isLoading={createLoading || updateLoading}
+                      css={styles.actionButton}
+                    >
+                      {createLoading || updateLoading ? (
+                        <LoadingDots label="Guardando..." />
+                      ) : (
+                        'Guardar Cambios'
+                      )}
+                    </Button>
+                  </div>
+                </Box>
+              )}
+            </>
+          )}
         </Box>
       </Box>
-
-      {expensesLoading ? (
-        <Box
-          style={{
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            padding: '48px',
-            backgroundColor: 'white',
-            borderRadius: '8px',
-            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-          }}
-        >
-          <LoadingDots label="Cargando transacciones..." />
-        </Box>
-      ) : (
-        <>
-          <Box
-            style={{
-              marginBottom: '24px',
-              backgroundColor: 'white',
-              borderRadius: '8px',
-              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-              overflow: 'visible',
-            }}
-          >
-            <Box
-              padding="large"
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                borderBottom: expandedSection === 'existing' ? '1px solid #e5e7eb' : 'none'
-              }}
-            >
-              <Box
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '16px',
-                  cursor: 'pointer'
-                }}
-                onClick={() => toggleSection('existing')}
-              >
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold' }}>
-                  Gastos Existentes ({transactions.length})
-                </h3>
-              </Box>
-              <span style={{ fontSize: '20px', cursor: 'pointer' }} onClick={() => toggleSection('existing')}>
-                {expandedSection === 'existing' ? '▼' : '▶'}
-              </span>
-            </Box>
-            {expandedSection === 'existing' && transactions.length > 0 && (
-              <Box padding="large" paddingTop="medium">
-                <table css={styles.table}>
-                  <thead>
-                    <tr>
-                      <th>Tipo</th>
-                      <th>Monto</th>
-                      <th>Fecha</th>
-                      <th>Líder</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {transactions.map((transaction, index) => {
-                      const editedTransaction = editedTransactions[transaction.id] || transaction;
-                      return (
-                        <tr key={transaction.id}>
-                          <td>
-                            <Box css={styles.selectContainer}>
-                              <Select
-                                value={expenseTypes.find(t => t.value === editedTransaction.expenseSource) || expenseTypes[0]}
-                                options={expenseTypes}
-                                onChange={option => handleEditExistingTransaction(transaction.id, 'expenseSource', option?.value || '')}
-                                menuPortalTarget={document.body}
-                                menuPosition="fixed"
-                                menuPlacement="auto"
-                              />
-                            </Box>
-                          </td>
-                          <td>
-                            <TextInput
-                              type="number"
-                              value={editedTransaction.amount}
-                              onChange={e => handleEditExistingTransaction(transaction.id, 'amount', e.target.value)}
-                              placeholder="0.00"
-                            />
-                          </td>
-                          <td>{new Date(transaction.date).toLocaleDateString()}</td>
-                          <td>{transaction.lead?.personalData?.fullName || 'Sin líder'}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </Box>
-            )}
-          </Box>
-
-          <Box
-            style={{
-              marginBottom: '24px',
-              backgroundColor: 'white',
-              borderRadius: '8px',
-              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-              overflow: 'visible',
-            }}
-          >
-            <Box
-              padding="large"
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                borderBottom: expandedSection === 'new' ? '1px solid #e5e7eb' : 'none'
-              }}
-            >
-              <Box
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '16px',
-                  cursor: 'pointer'
-                }}
-                onClick={() => toggleSection('new')}
-              >
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold' }}>
-                  Nuevos Gastos ({newTransactions.length})
-                </h3>
-                <Button
-                  tone="active"
-                  weight="bold"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleAddTransaction();
-                  }}
-                  isDisabled={!selectedRoute || !selectedDate || createLoading}
-                  style={{ padding: '8px 16px' }}
-                >
-                  {createLoading ? <LoadingDots label="Agregando..." /> : 'Agregar Gasto'}
-                </Button>
-              </Box>
-              <span style={{ fontSize: '20px', cursor: 'pointer' }} onClick={() => toggleSection('new')}>
-                {expandedSection === 'new' ? '▼' : '▶'}
-              </span>
-            </Box>
-            {expandedSection === 'new' && newTransactions.length > 0 && (
-              <Box padding="large" paddingTop="medium">
-                <table css={styles.table}>
-                  <thead>
-                    <tr>
-                      <th>Tipo</th>
-                      <th>Monto</th>
-                      <th>Fecha</th>
-                      <th>Líder</th>
-                      <th>Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {newTransactions.map((transaction, index) => (
-                      <tr key={index}>
-                        <td>
-                          <Box css={styles.selectContainer}>
-                            <Select
-                              value={expenseTypes.find(t => t.value === transaction.expenseSource) || expenseTypes[0]}
-                              options={expenseTypes}
-                              onChange={option => handleEditTransaction(index, 'expenseType', option?.value || '')}
-                              menuPortalTarget={document.body}
-                              menuPosition="fixed"
-                              menuPlacement="auto"
-                            />
-                          </Box>
-                        </td>
-                        <td>
-                          <TextInput
-                            type="number"
-                            value={transaction.amount}
-                            onChange={e => handleEditTransaction(index, 'amount', e.target.value)}
-                            placeholder="0.00"
-                          />
-                        </td>
-                        <td>{new Date(transaction.date).toLocaleDateString()}</td>
-                        <td>{selectedLead?.personalData?.fullName}</td>
-                        <td>
-                          <Button
-                            tone="negative"
-                            size="small"
-                            onClick={() => updateState({ newTransactions: newTransactions.filter((_, i) => i !== index) })}
-                          >
-                            Eliminar
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </Box>
-            )}
-          </Box>
-
-          {(newTransactions.length > 0 || Object.keys(editedTransactions).length > 0) && (
-            <Box
-              style={{
-                display: 'flex',
-                justifyContent: 'flex-end',
-                gap: '16px',
-                marginTop: '24px',
-                padding: '16px',
-                backgroundColor: '#f9fafb',
-                borderRadius: '8px',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-              }}
-            >
-              <Button
-                tone="active"
-                weight="bold"
-                onClick={() => updateState({ newTransactions: [], editedTransactions: {} })}
-                isDisabled={createLoading || updateLoading}
-                style={{ padding: '8px 24px', minWidth: '150px' }}
-              >
-                Limpiar Cambios
-              </Button>
-              <Button
-                tone="positive"
-                weight="bold"
-                onClick={handleSaveAllChanges}
-                isLoading={createLoading || updateLoading}
-                style={{ padding: '8px 24px', minWidth: '150px' }}
-              >
-                {createLoading || updateLoading ? (
-                  <LoadingDots label="Guardando..." />
-                ) : (
-                  'Guardar Cambios'
-                )}
-              </Button>
-            </Box>
-          )}
-        </>
-      )}
     </Box>
   );
 };
@@ -638,6 +698,12 @@ export default function ExpensesPage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [selectedLead, setSelectedLead] = useState<Employee | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const { refetch: refetchRouteData } = useQuery(GET_ROUTES, {
+    variables: { where: {} },
+    fetchPolicy: 'network-only',
+  });
 
   const handleRouteSelect = (route: Route | null) => {
     setSelectedRoute(route);
@@ -650,9 +716,20 @@ export default function ExpensesPage() {
 
   const handleDateChange = (date: string) => {
     const selectedDate = new Date(date);
-    // Ajustamos la fecha para que sea al inicio del día en la zona horaria local
     selectedDate.setHours(0, 0, 0, 0);
     setSelectedDate(selectedDate);
+  };
+
+  const handleRefresh = async () => {
+    try {
+      if (selectedRoute?.id) {
+        await refetchRouteData();
+        // Forzar la actualización del RouteLeadSelector
+        setRefreshKey(prev => prev + 1);
+      }
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+    }
   };
 
   return (
@@ -661,10 +738,14 @@ export default function ExpensesPage() {
         <Box css={styles.selectorsContainer}>
           <Box css={styles.selectorWrapper}>
             <RouteLeadSelector
+              key={refreshKey}
               selectedRoute={selectedRoute}
               selectedLead={selectedLead}
+              selectedDate={selectedDate}
               onRouteSelect={handleRouteSelect}
               onLeadSelect={handleLeadSelect}
+              onDateSelect={setSelectedDate}
+              onRefresh={handleRefresh}
             />
           </Box>
           <Box css={styles.selectorWrapper}>
@@ -679,6 +760,7 @@ export default function ExpensesPage() {
           selectedDate={selectedDate}
           selectedRoute={selectedRoute}
           selectedLead={selectedLead}
+          onSaveComplete={handleRefresh}
         />
       </Box>
     </PageContainer>

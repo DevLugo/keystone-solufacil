@@ -70,6 +70,7 @@ interface RouteLeadSelectorProps {
   onRouteSelect: (route: Route | null) => void;
   onLeadSelect: (lead: Employee | null) => void;
   onDateSelect: (date: Date) => void;
+  onRefresh?: () => void;
 }
 
 const styles = {
@@ -196,6 +197,7 @@ const GET_ROUTES = gql`
         name
         type
         amount
+        __typename
       }
       employees {
         id
@@ -258,17 +260,28 @@ export const RouteLeadSelector: React.FC<RouteLeadSelectorProps> = ({
   selectedDate,
   onRouteSelect,
   onLeadSelect,
-  onDateSelect
+  onDateSelect,
+  onRefresh
 }) => {
-  const { data: routesData, loading: routesLoading, error: routesError } = useQuery<{ routes: Route[] }>(GET_ROUTES, {
+  const { data: routesData, loading: routesLoading, error: routesError, refetch: refetchRoutes } = useQuery<{ routes: Route[] }>(GET_ROUTES, {
     variables: { where: {} },
+    fetchPolicy: 'network-only',
   });
 
   const [getLeads, { data: leadsData, loading: leadsLoading, error: leadsError }] = useLazyQuery<{ employees: Lead[] }>(GET_LEADS);
 
-  // Actualizar la lógica para obtener el resumen de la ruta
-  const routeSummary = selectedRoute ? {
-    accounts: processRouteStats(selectedRoute)
+  React.useEffect(() => {
+    if (selectedRoute?.id) {
+      refetchRoutes();
+    }
+  }, [selectedRoute?.id, refetchRoutes]);
+
+  const currentRoute = selectedRoute?.id 
+    ? routesData?.routes.find(route => route.id === selectedRoute.id) 
+    : null;
+
+  const routeSummary = currentRoute ? {
+    accounts: processRouteStats(currentRoute)
   } : null;
 
   React.useEffect(() => {
@@ -276,6 +289,12 @@ export const RouteLeadSelector: React.FC<RouteLeadSelectorProps> = ({
       getLeads({ variables: { routeId: selectedRoute.id } });
     }
   }, [selectedRoute, getLeads]);
+
+  React.useEffect(() => {
+    if (onRefresh) {
+      onRefresh();
+    }
+  }, [onRefresh]);
 
   const routes = routesData?.routes || [];
   const leads = leadsData?.employees || [];
@@ -292,9 +311,10 @@ export const RouteLeadSelector: React.FC<RouteLeadSelectorProps> = ({
     data: lead
   }));
 
-  const handleRouteChange = (option: any) => {
+  const handleRouteChange = async (option: any) => {
     onRouteSelect(option?.data || null);
     onLeadSelect(null);
+    await refetchRoutes();
   };
 
   const handleLeadChange = (option: any) => {
