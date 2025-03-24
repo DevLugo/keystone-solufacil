@@ -1,7 +1,7 @@
 /** @jsxRuntime classic */
 /** @jsx jsx */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Fragment } from 'react';
 import { useQuery, useMutation, useLazyQuery } from '@apollo/client';
 import { Box, jsx } from '@keystone-ui/core';
 import { Button } from '@keystone-ui/button';
@@ -253,6 +253,14 @@ type DatePickerProps = {
   onChange: (value: string) => void;
 };
 
+const DELETE_TRANSACTION = gql`
+  mutation DeleteTransaction($id: ID!) {
+    deleteTransaction(where: { id: $id }) {
+      id
+    }
+  }
+`;
+
 export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, onSaveComplete }: GastosProps) => {
   const [state, setState] = useState<FormState>({
     newTransactions: [],
@@ -323,6 +331,7 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
 
   const [createTransaction, { loading: createLoading }] = useMutation(CREATE_TRANSACTION);
   const [updateTransaction, { loading: updateLoading }] = useMutation(UPDATE_TRANSACTION);
+  const [deleteTransaction] = useMutation(DELETE_TRANSACTION);
 
   const router = useRouter();
 
@@ -450,6 +459,41 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
     }
   };
 
+  const handleDeleteExistingTransaction = async (transactionId: string) => {
+    if (!window.confirm('¿Está seguro de eliminar este gasto?')) {
+      return;
+    }
+
+    try {
+      await deleteTransaction({
+        variables: { id: transactionId }
+      });
+
+      // Refrescar los datos
+      await Promise.all([
+        refetchExpenses(),
+        refetchRoutes(),
+        selectedRoute?.id ? refetchRoute() : Promise.resolve()
+      ]);
+
+      // Actualizar el componente padre
+      if (onSaveComplete) {
+        await onSaveComplete();
+      }
+
+      updateState({ showSuccessMessage: true });
+      setTimeout(() => {
+        updateState(prev => ({
+          ...prev,
+          showSuccessMessage: false
+        }));
+      }, 2000);
+
+    } catch (error) {
+      console.error('Error deleting transaction:', error);
+    }
+  };
+
   useEffect(() => {
     if (selectedRoute?.id) {
       getLeads({ variables: { routeId: selectedRoute.id } });
@@ -519,7 +563,7 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
               <LoadingDots label="Cargando transacciones..." />
             </Box>
           ) : (
-            <>
+            <Fragment>
               <Box css={styles.section}>
                 <div css={styles.sectionHeader}>
                   <div css={styles.sectionTitle}>
@@ -540,6 +584,7 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
                           <th>Monto</th>
                           <th>Fecha</th>
                           <th>Líder</th>
+                          <th>Acciones</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -569,6 +614,15 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
                               </td>
                               <td>{new Date(transaction.date).toLocaleDateString()}</td>
                               <td>{transaction.lead?.personalData?.fullName || 'Sin líder'}</td>
+                              <td>
+                                <Button
+                                  tone="negative"
+                                  size="small"
+                                  onClick={() => handleDeleteExistingTransaction(transaction.id)}
+                                >
+                                  Eliminar
+                                </Button>
+                              </td>
                             </tr>
                           );
                         })}
@@ -686,7 +740,7 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
                   </div>
                 </Box>
               )}
-            </>
+            </Fragment>
           )}
         </Box>
       </Box>

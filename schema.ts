@@ -833,20 +833,87 @@ export const Transaction = list({
     updatedAt: timestamp(),
   },
   hooks: {
-    afterOperation: async ({ operation, item, context }) => {
+    afterOperation: async ({ operation, item, context, originalItem }) => {
       try {
-        if ((operation === 'create' || operation === 'update') && item) {
-          console.log('\n=== TRANSACTION HOOK START ===');
-          console.log('Operation:', operation);
-          console.log('Transaction:', {
-            id: item.id,
-            type: item.type,
-            amount: item.amount,
-            sourceAccountId: item.sourceAccountId,
-            destinationAccountId: item.destinationAccountId
-          });
+        console.log('\n=== TRANSACTION HOOK START ===');
+        console.log('Operation:', operation);
+        console.log('Transaction:', item);
+        console.log('Original Item:', originalItem);
 
-          // Obtener las cuentas involucradas
+        // Función para manejar decimales con precisión
+        const parseAmount = (value: unknown): number => {
+          if (typeof value === 'string') {
+            return parseFloat(parseFloat(value).toFixed(2));
+          }
+          if (typeof value === 'number') {
+            return parseFloat(value.toFixed(2));
+          }
+          if (typeof value === 'object' && value !== null && 'toString' in value) {
+            return parseFloat(parseFloat(value.toString()).toFixed(2));
+          }
+          return 0;
+        };
+
+        // Para actualizaciones, primero revertimos la transacción original
+        if (operation === 'update' && originalItem) {
+          console.log('Revirtiendo transacción original...');
+          
+          // Obtener cuentas involucradas en la transacción original
+          let originalSourceAccount = null;
+          let originalDestAccount = null;
+
+          if (originalItem.sourceAccountId) {
+            originalSourceAccount = await context.prisma.account.findUnique({
+              where: { id: originalItem.sourceAccountId.toString() }
+            });
+          }
+
+          if (originalItem.destinationAccountId) {
+            originalDestAccount = await context.prisma.account.findUnique({
+              where: { id: originalItem.destinationAccountId.toString() }
+            });
+          }
+
+          const originalAmount = parseAmount(originalItem.amount);
+
+          // Revertir el efecto en la cuenta origen
+          if (originalSourceAccount && (originalItem.type === 'EXPENSE' || originalItem.type === 'TRANSFER')) {
+            const currentAmount = parseAmount(originalSourceAccount.amount);
+            const revertedAmount = parseFloat((currentAmount + originalAmount).toFixed(2));
+            await context.prisma.account.update({
+              where: { id: originalSourceAccount.id },
+              data: { amount: revertedAmount.toString() }
+            });
+            console.log('Revertido en cuenta origen:', {
+              original: currentAmount,
+              reverted: revertedAmount,
+              amount: originalAmount
+            });
+          }
+
+          // Revertir el efecto en la cuenta destino
+          if (originalDestAccount && (originalItem.type === 'INCOME' || originalItem.type === 'TRANSFER')) {
+            const currentAmount = parseAmount(originalDestAccount.amount);
+            const revertedAmount = parseFloat((currentAmount - originalAmount).toFixed(2));
+            await context.prisma.account.update({
+              where: { id: originalDestAccount.id },
+              data: { amount: revertedAmount.toString() }
+            });
+            console.log('Revertido en cuenta destino:', {
+              original: currentAmount,
+              reverted: revertedAmount,
+              amount: originalAmount
+            });
+          }
+        }
+
+        // Proceder con la nueva transacción (para create y update)
+        if (operation === 'create' || operation === 'update') {
+          if (!item) {
+            console.log('No hay datos de transacción para procesar');
+            return;
+          }
+
           let sourceAccount = null;
           let destinationAccount = null;
 
@@ -854,109 +921,97 @@ export const Transaction = list({
             sourceAccount = await context.prisma.account.findUnique({
               where: { id: item.sourceAccountId.toString() }
             });
-            console.log('Source Account Before:', {
-              id: sourceAccount?.id,
-              amount: sourceAccount?.amount
-            });
           }
 
           if (item.destinationAccountId) {
             destinationAccount = await context.prisma.account.findUnique({
               where: { id: item.destinationAccountId.toString() }
             });
-            console.log('Destination Account Before:', {
-              id: destinationAccount?.id,
-              amount: destinationAccount?.amount
-            });
           }
 
-          // Función para manejar decimales con precisión
-          const parseAmount = (value: unknown): number => {
-            if (typeof value === 'string') {
-              return parseFloat(parseFloat(value).toFixed(2));
-            }
-            if (typeof value === 'number') {
-              return parseFloat(value.toFixed(2));
-            }
-            if (typeof value === 'object' && value !== null && 'toString' in value) {
-              return parseFloat(parseFloat(value.toString()).toFixed(2));
-            }
-            return 0;
-          };
-
           const transactionAmount = parseAmount(item.amount);
-          console.log('Transaction Amount:', transactionAmount);
 
-          // Actualizar cuenta origen si es EXPENSE o TRANSFER
+          // Aplicar el nuevo efecto en la cuenta origen
           if (sourceAccount && (item.type === 'EXPENSE' || item.type === 'TRANSFER')) {
             const currentAmount = parseAmount(sourceAccount.amount);
-            
-            // Validar que haya suficiente balance
-            if (currentAmount < transactionAmount) {
-              throw new Error(`Balance insuficiente en la cuenta. Balance actual: ${currentAmount}, Monto requerido: ${transactionAmount}`);
-            }
-
             const newAmount = parseFloat((currentAmount - transactionAmount).toFixed(2));
-            // Asegurar que no sea negativo
+            
             if (newAmount < 0) {
               throw new Error(`La operación resultaría en un balance negativo: ${newAmount}`);
             }
 
-            console.log('Source Account Calculation:', {
-              currentAmount,
-              operation: 'subtract',
-              transactionAmount,
-              newAmount
-            });
-            
-            await context.db.Account.updateOne({
+            await context.prisma.account.update({
               where: { id: sourceAccount.id },
-              data: { amount: newAmount.toFixed(2) }
+              data: { amount: newAmount.toString() }
+            });
+            console.log('Actualizado balance cuenta origen:', {
+              original: currentAmount,
+              nuevo: newAmount,
+              monto: transactionAmount
             });
           }
 
-          // Actualizar cuenta destino si es INCOME o TRANSFER
+          // Aplicar el nuevo efecto en la cuenta destino
           if (destinationAccount && (item.type === 'INCOME' || item.type === 'TRANSFER')) {
             const currentAmount = parseAmount(destinationAccount.amount);
             const newAmount = parseFloat((currentAmount + transactionAmount).toFixed(2));
 
-            console.log('Destination Account Calculation:', {
-              currentAmount,
-              operation: 'add',
-              transactionAmount,
-              newAmount
-            });
-
-            await context.db.Account.updateOne({
+            await context.prisma.account.update({
               where: { id: destinationAccount.id },
-              data: { amount: newAmount.toFixed(2) }
+              data: { amount: newAmount.toString() }
+            });
+            console.log('Actualizado balance cuenta destino:', {
+              original: currentAmount,
+              nuevo: newAmount,
+              monto: transactionAmount
             });
           }
-
-          // Verificar estados finales
-          if (sourceAccount) {
-            const finalSourceAccount = await context.prisma.account.findUnique({
-              where: { id: sourceAccount.id }
-            });
-            console.log('Source Account After:', {
-              id: finalSourceAccount?.id,
-              amount: finalSourceAccount?.amount
-            });
-          }
-
-          if (destinationAccount) {
-            const finalDestinationAccount = await context.prisma.account.findUnique({
-              where: { id: destinationAccount.id }
-            });
-            console.log('Destination Account After:', {
-              id: finalDestinationAccount?.id,
-              amount: finalDestinationAccount?.amount
-            });
-          }
-
-          console.log('=== TRANSACTION HOOK END ===\n');
-          
         }
+
+        // Manejar eliminación
+        if (operation === 'delete' && originalItem) {
+          let sourceAccount = null;
+          let destinationAccount = null;
+
+          if (originalItem.sourceAccountId) {
+            sourceAccount = await context.prisma.account.findUnique({
+              where: { id: originalItem.sourceAccountId.toString() }
+            });
+          }
+
+          if (originalItem.destinationAccountId) {
+            destinationAccount = await context.prisma.account.findUnique({
+              where: { id: originalItem.destinationAccountId.toString() }
+            });
+          }
+
+          const transactionAmount = parseAmount(originalItem.amount);
+
+          if (sourceAccount && (originalItem.type === 'EXPENSE' || originalItem.type === 'TRANSFER')) {
+            const currentAmount = parseAmount(sourceAccount.amount);
+            const newAmount = parseFloat((currentAmount + transactionAmount).toFixed(2));
+            await context.prisma.account.update({
+              where: { id: sourceAccount.id },
+              data: { amount: newAmount.toString() }
+            });
+            console.log('Balance actualizado después de eliminar en cuenta origen:', newAmount);
+          }
+
+          if (destinationAccount && (originalItem.type === 'INCOME' || originalItem.type === 'TRANSFER')) {
+            const currentAmount = parseAmount(destinationAccount.amount);
+            const newAmount = parseFloat((currentAmount - transactionAmount).toFixed(2));
+            if (newAmount < 0) {
+              throw new Error(`La eliminación resultaría en un balance negativo: ${newAmount}`);
+            }
+            await context.prisma.account.update({
+              where: { id: destinationAccount.id },
+              data: { amount: newAmount.toString() }
+            });
+            console.log('Balance actualizado después de eliminar en cuenta destino:', newAmount);
+          }
+        }
+
+        console.log('=== TRANSACTION HOOK END ===\n');
       } catch (error) {
         console.error('Error en afterOperation de Transaction:', error);
         throw error;
