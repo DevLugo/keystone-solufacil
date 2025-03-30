@@ -9,6 +9,7 @@ import { CreateLoanForm } from './creditos';
 import { CreateExpensesForm } from './gastos';
 import { CreatePaymentForm } from './abonos';
 import type { Option, RouteOption, Route, Employee } from '../types/transaction';
+import { CreditosTab } from '../components/transactions/CreditosTab';
 
 const styles = {
   container: {
@@ -144,7 +145,7 @@ const TransactionsPage = () => {
                 />
               )}
               {selectedTab === 'credits' && (
-                <CreateLoanForm
+                <CreditosTab
                   selectedDate={selectedDate}
                   selectedRoute={selectedRoute}
                   selectedLead={selectedLead}

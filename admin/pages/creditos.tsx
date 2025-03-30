@@ -11,6 +11,7 @@ import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
 import { TextInput } from '@keystone-ui/fields';
 import { LoadingDots } from '@keystone-ui/loading';
 import { gql } from '@apollo/client';
+import { FaTrash, FaEdit } from 'react-icons/fa';
 
 // Import types
 import type { 

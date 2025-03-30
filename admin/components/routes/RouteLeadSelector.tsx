@@ -74,116 +74,82 @@ interface RouteLeadSelectorProps {
 }
 
 const styles = {
-  mainContainer: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '24px',
-    width: '100%',
-    backgroundColor: '#ffffff',
-    borderRadius: '12px',
-    padding: '24px',
-    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-  },
   selectorsContainer: {
     display: 'grid',
     gridTemplateColumns: 'repeat(3, 1fr)',
     gap: '16px',
     width: '100%',
-    marginBottom: '8px'
+    marginBottom: '24px'
   },
   selector: {
     width: '100%'
   },
+  selectorLabel: {
+    fontSize: '13px',
+    fontWeight: '500',
+    color: '#6B7280',
+    marginBottom: '8px',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.025em',
+  },
   dateInput: {
     width: '100%',
-    padding: '12px',
-    border: '1px solid #e2e8f0',
+    padding: '8px 12px',
+    border: '1px solid #E5E7EB',
     borderRadius: '8px',
     fontSize: '14px',
+    color: '#111827',
     transition: 'all 0.2s ease',
+    outline: 'none',
     '&:focus': {
-      outline: 'none',
-      borderColor: '#4299e1',
-      boxShadow: '0 0 0 2px rgba(66, 153, 225, 0.2)',
+      borderColor: '#0052CC',
+      boxShadow: '0 0 0 2px rgba(0, 82, 204, 0.1)',
     },
     '&:hover': {
-      borderColor: '#4299e1',
+      borderColor: '#0052CC',
     }
   },
   accountsContainer: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '24px',
-  },
-  accountSection: {
-    backgroundColor: '#f8fafc',
-    borderRadius: '8px',
-    border: '1px solid #e2e8f0',
-    overflow: 'hidden',
-  },
-  accountHeader: {
-    padding: '16px 20px',
-    borderBottom: '1px solid #e2e8f0',
-    backgroundColor: '#fff',
-  },
-  accountTitle: {
-    fontSize: '16px',
-    fontWeight: '600',
-    color: '#1a202c',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-  },
-  accountBadge: {
-    padding: '2px 8px',
-    borderRadius: '12px',
-    fontSize: '12px',
-    fontWeight: '500',
-    backgroundColor: '#e2e8f0',
-    color: '#4a5568',
-  },
-  summaryContainer: {
-    padding: '20px',
-  },
-  summaryHeader: {
-    fontSize: '16px',
-    fontWeight: '600',
-    color: '#1a202c',
-    marginBottom: '12px',
-  },
-  summaryGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
     gap: '16px',
+    width: '100%',
   },
   summaryCard: {
-    backgroundColor: '#ffffff',
-    padding: '16px',
-    borderRadius: '8px',
+    backgroundColor: 'white',
+    padding: '20px',
+    borderRadius: '12px',
     boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '8px',
+    overflow: 'hidden',
+  },
+  cardTopBorder: {
+    height: '2px',
+    background: '#0052CC',
+    opacity: 0.1,
+    marginBottom: '16px'
   },
   cardLabel: {
     fontSize: '13px',
-    color: '#64748b',
     fontWeight: '500',
+    color: '#6B7280',
+    marginBottom: '8px',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.025em',
   },
   cardValue: {
     fontSize: '24px',
     fontWeight: '600',
-    color: '#0f172a',
+    color: '#111827',
+    letterSpacing: '-0.02em',
+    lineHeight: '1',
+    marginBottom: '4px',
   },
   cardSubValue: {
-    fontSize: '14px',
-    color: '#64748b',
-  },
-  selectorLabel: {
-    fontSize: '14px',
-    fontWeight: '500',
-    color: '#4a5568',
-    marginBottom: '6px',
+    fontSize: '13px',
+    color: '#6B7280',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
   }
 };
 
@@ -345,7 +311,7 @@ export const RouteLeadSelector: React.FC<RouteLeadSelectorProps> = ({
   };
 
   return (
-    <Box css={styles.mainContainer}>
+    <>
       <Box css={styles.selectorsContainer}>
         <Box css={styles.selector}>
           <div css={styles.selectorLabel}>Ruta</div>
@@ -381,23 +347,18 @@ export const RouteLeadSelector: React.FC<RouteLeadSelectorProps> = ({
 
       {selectedRoute && routeSummary && (
         <Box css={styles.accountsContainer}>
-          <div css={styles.accountSection}>
-            <div css={styles.summaryContainer}>
-              <div css={styles.summaryGrid}>
-                {routeSummary.accounts.map((account) => (
-                  <div key={account.id} css={styles.summaryCard}>
-                    <div css={styles.cardLabel}>{account.name}</div>
-                    <div css={styles.cardValue}>{formatCurrency(account.amount)}</div>
-                    <div css={styles.cardSubValue}>
-                      {account.totalAccounts} cuentas
-                    </div>
-                  </div>
-                ))}
+          {routeSummary.accounts.map((account) => (
+            <div key={account.id} css={styles.summaryCard}>
+              <div css={styles.cardTopBorder} />
+              <div css={styles.cardLabel}>{account.name}</div>
+              <div css={styles.cardValue}>{formatCurrency(account.amount)}</div>
+              <div css={styles.cardSubValue}>
+                {account.totalAccounts} cuentas
               </div>
             </div>
-          </div>
+          ))}
         </Box>
       )}
-    </Box>
+    </>
   );
 };
