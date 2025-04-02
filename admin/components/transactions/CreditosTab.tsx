@@ -10,14 +10,285 @@ import { TextInput, Select } from '@keystone-ui/fields';
 import { LoadingDots } from '@keystone-ui/loading';
 import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
 import { FaPlus, FaTrash, FaEdit, FaSearch, FaEllipsisV, FaCheck, FaTimes } from 'react-icons/fa';
+import { useQuery, useMutation } from '@apollo/client';
+import { gql } from '@apollo/client';
 
 // Import types
 import type { Loan } from '../../types/loan';
 
+const GET_LOANS = gql`
+  query GetLoans($date: DateTime!, $nextDate: DateTime!, $leadId: ID!) {
+    loans(
+      where: {
+        AND: [
+          { signDate: { gte: $date } }
+          { signDate: { lt: $nextDate } }
+          { lead: { id: { equals: $leadId } } }
+          { finishedDate: { equals: null } }
+        ]
+      }
+    ) {
+      id
+      requestedAmount
+      amountGived
+      amountToPay
+      pendingAmount
+      signDate
+      finishedDate
+      createdAt
+      updatedAt
+      comissionAmount
+      avalName
+      avalPhone
+      loantype {
+        id
+        name
+        rate
+        weekDuration
+        __typename
+      }
+      lead {
+        id
+        personalData {
+          fullName
+          __typename
+        }
+        __typename
+      }
+      borrower {
+        id
+        personalData {
+          id
+          fullName
+          phones {
+            id
+            number
+            __typename
+          }
+          __typename
+        }
+        __typename
+      }
+      previousLoan {
+        id
+        pendingAmount
+        avalName
+        avalPhone
+        borrower {
+          id
+          personalData {
+            fullName
+            phones {
+              number
+              __typename
+            }
+            __typename
+          }
+          __typename
+        }
+        __typename
+      }
+      __typename
+    }
+  }
+`;
+
+const CREATE_LOAN = gql`
+  mutation CreateLoan($data: LoanCreateInput!) {
+    createLoan(data: $data) {
+      id
+      requestedAmount
+      amountGived
+      amountToPay
+      pendingAmount
+      signDate
+      finishedDate
+      createdAt
+      updatedAt
+      comissionAmount
+      avalName
+      avalPhone
+      loantype {
+        id
+        name
+        rate
+        weekDuration
+        __typename
+      }
+      lead {
+        id
+        personalData {
+          fullName
+          __typename
+        }
+        __typename
+      }
+      borrower {
+        id
+        personalData {
+          id
+          fullName
+          phones {
+            id
+            number
+            __typename
+          }
+          __typename
+        }
+        __typename
+      }
+      previousLoan {
+        id
+        pendingAmount
+        avalName
+        avalPhone
+        borrower {
+          id
+          personalData {
+            fullName
+            phones {
+              number
+              __typename
+            }
+            __typename
+          }
+          __typename
+        }
+        __typename
+      }
+      __typename
+    }
+  }
+`;
+
+const UPDATE_LOAN = gql`
+  mutation UpdateLoan($id: ID!, $data: LoanUpdateInput!) {
+    updateLoan(where: { id: $id }, data: $data) {
+      id
+      requestedAmount
+      amountGived
+      amountToPay
+      pendingAmount
+      signDate
+      finishedDate
+      createdAt
+      updatedAt
+      comissionAmount
+      avalName
+      avalPhone
+      loantype {
+        id
+        name
+        rate
+        weekDuration
+        __typename
+      }
+      lead {
+        id
+        personalData {
+          fullName
+          __typename
+        }
+        __typename
+      }
+      borrower {
+        id
+        personalData {
+          id
+          fullName
+          phones {
+            id
+            number
+            __typename
+          }
+          __typename
+        }
+        __typename
+      }
+      previousLoan {
+        id
+        pendingAmount
+        avalName
+        avalPhone
+        borrower {
+          id
+          personalData {
+            fullName
+            phones {
+              number
+              __typename
+            }
+            __typename
+          }
+          __typename
+        }
+        __typename
+      }
+      __typename
+    }
+  }
+`;
+
+const GET_LOAN_TYPES = gql`
+  query GetLoanTypes {
+    loantypes {
+      id
+      name
+      rate
+      weekDuration
+      __typename
+    }
+  }
+`;
+
+const GET_PREVIOUS_LOANS = gql`
+  query GetPreviousLoans($leadId: ID!) {
+    loans(
+      where: {
+        AND: [
+          { lead: { id: { equals: $leadId } } }
+          { finishedDate: { equals: null } }
+        ]
+      }
+      orderBy: { signDate: desc }
+    ) {
+      id
+      requestedAmount
+      amountGived
+      amountToPay
+      pendingAmount
+      signDate
+      borrower {
+        id
+        personalData {
+          fullName
+          phones {
+            number
+            __typename
+          }
+          __typename
+        }
+        __typename
+      }
+      avalName
+      avalPhone
+      __typename
+    }
+  }
+`;
+
 interface CreditosTabProps {
   selectedDate: Date | null;
   selectedRoute: string | null;
-  selectedLead: string | null;
+  selectedLead: {
+    id: string;
+    type: string;
+    personalData: {
+      fullName: string;
+      __typename: string;
+    };
+    __typename: string;
+  } | null;
 }
 
 interface DropdownPortalProps {
@@ -27,47 +298,27 @@ interface DropdownPortalProps {
 
 const DropdownPortal = ({ children, isOpen }: DropdownPortalProps) => {
   if (!isOpen) return null;
+
   return createPortal(
-    children,
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      width: '100vw',
+      height: '100vh',
+      pointerEvents: 'none',
+      zIndex: 9999,
+    }}>
+      {children}
+    </div>,
     document.body
   );
 };
 
 export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: CreditosTabProps) => {
-  const [loans, setLoans] = useState<Loan[]>([
-    {
-      id: '1',
-      requestedAmount: '1000',
-      amountGived: '1000',
-      amountToPay: '1100',
-      pendingAmount: '0',
-      signDate: selectedDate?.toISOString() || '',
-      finishedDate: '',
-      createdAt: '',
-      updatedAt: '',
-      comissionAmount: '50',
-      avalName: 'John Doe',
-      avalPhone: '1234567890',
-      loantype: { id: '1', name: 'Personal', rate: 10, weekDuration: 4, __typename: 'LoanType' },
-      lead: { id: '1', personalData: { fullName: 'Jane Doe', __typename: 'PersonalData' }, __typename: 'Lead' },
-      borrower: {
-        id: '1',
-        personalData: {
-          id: '1',
-          fullName: 'Jane Doe',
-          phones: [{ id: '1', number: '0987654321', __typename: 'Phone' }],
-          __typename: 'PersonalData'
-        },
-        __typename: 'Borrower'
-      },
-      previousLoan: null,
-      __typename: 'Loan'
-    },
-    // Agrega más préstamos simulados aquí
-  ]);
-
+  const [loans, setLoans] = useState<Loan[]>([]);
   const [newLoan, setNewLoan] = useState<Partial<Loan>>({
-    requestedAmount: '',
+    requestedAmount: '0',
     amountGived: '',
     amountToPay: '',
     pendingAmount: '0',
@@ -75,43 +326,195 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
     finishedDate: '',
     createdAt: '',
     updatedAt: '',
-    comissionAmount: '',
+    comissionAmount: '0',
     avalName: '',
     avalPhone: '',
-    loantype: { id: '1', name: 'Personal', rate: 10, weekDuration: 4, __typename: 'LoanType' },
-    lead: { id: '1', personalData: { fullName: 'Jane Doe', __typename: 'PersonalData' }, __typename: 'Lead' },
+    loantype: { id: '', name: '', rate: '0', weekDuration: '0', __typename: 'LoanType' },
+    lead: { id: selectedLead?.id || '', personalData: { fullName: '', __typename: 'PersonalData' }, __typename: 'Lead' },
     borrower: {
-      id: '1',
+      id: '',
       personalData: {
-        id: '1',
-        fullName: 'Jane Doe',
-        phones: [{ number: '0987654321', __typename: 'Phone' }],
+        id: '',
+        fullName: '',
+        phones: [{ number: '', __typename: 'Phone' }],
         __typename: 'PersonalData'
       },
       __typename: 'Borrower'
     },
-    previousLoan: null,
+    previousLoan: undefined,
     __typename: 'Loan'
   });
-
   const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
   const [newLoanId, setNewLoanId] = useState<string | null>(null);
-  const [showNewLoanModal, setShowNewLoanModal] = useState(false);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
   const buttonRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
+  const [focusedInput, setFocusedInput] = useState<string | null>(null);
 
-  const getDropdownPosition = (buttonId: string) => {
-    const button = buttonRefs.current[buttonId];
-    if (!button) return { top: 0, left: 0 };
+  const { data: loansData, loading: loansLoading, error: loansError, refetch: refetchLoans } = useQuery(GET_LOANS, {
+    variables: { 
+      leadId: selectedLead?.id || '',
+      date: selectedDate?.toISOString().split('T')[0] + 'T00:00:00.000Z',
+      nextDate: selectedDate ? new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000 - 60000).toISOString() : ''
+    },
+    skip: !selectedLead || !selectedDate,
+    onCompleted: (data) => {
+      if (data?.loans) {
+        setLoans(data.loans);
+      }
+    }
+  });
 
-    const rect = button.getBoundingClientRect();
-    return {
-      top: rect.bottom + 4,
-      left: rect.right - 160, // 160px es el ancho del dropdown
-    };
+  const [createLoan, { loading: createLoading }] = useMutation(CREATE_LOAN);
+  const [updateLoan, { loading: updateLoading }] = useMutation(UPDATE_LOAN);
+
+  const { data: loanTypesData, loading: loanTypesLoading } = useQuery(GET_LOAN_TYPES);
+
+  const { data: previousLoansData, loading: previousLoansLoading } = useQuery(GET_PREVIOUS_LOANS, {
+    variables: { 
+      leadId: selectedLead?.id || ''
+    },
+    skip: !selectedLead,
+  });
+
+  const loanTypeOptions = React.useMemo(() => {
+    return loanTypesData?.loantypes?.map(type => ({
+      label: `${type.name} (${type.weekDuration} semanas - ${type.rate}%)`,
+      value: type.id
+    })) || [];
+  }, [loanTypesData]);
+
+  const previousLoanOptions = React.useMemo(() => {
+    const options = [
+      { value: '', label: 'Seleccionar préstamo previo' }
+    ];
+    
+    if (previousLoansData?.loans) {
+      // Agrupar préstamos por borrower para obtener solo el más reciente de cada cliente
+      const borrowerLoans = previousLoansData.loans.reduce((acc: { [key: string]: any }, loan: any) => {
+        const borrowerId = loan.borrower?.id;
+        if (!borrowerId) return acc;
+        
+        if (!acc[borrowerId] || new Date(loan.signDate) > new Date(acc[borrowerId].signDate)) {
+          acc[borrowerId] = loan;
+        }
+        return acc;
+      }, {});
+
+      // Convertir a array y ordenar por nombre
+      const sortedLoans = Object.values(borrowerLoans).sort((a: any, b: any) => {
+        const nameA = a.borrower?.personalData?.fullName || '';
+        const nameB = b.borrower?.personalData?.fullName || '';
+        return nameA.localeCompare(nameB);
+      });
+
+      options.push(
+        ...sortedLoans.map((loan: any) => ({
+          value: loan.id,
+          label: `${loan.borrower?.personalData?.fullName || 'Sin nombre'} ($${loan.amountToPay || 0})`
+        }))
+      );
+    }
+
+    return options;
+  }, [previousLoansData?.loans]);
+
+  const handlePreviousLoanChange = (option: { value: string; label: string } | null) => {
+    if (!option?.value) {
+      setNewLoan(prev => ({
+        ...prev,
+        previousLoan: undefined,
+        borrower: {
+          id: '',
+          personalData: {
+            id: '',
+            fullName: '',
+            phones: [{ number: '', __typename: 'Phone' }],
+            __typename: 'PersonalData'
+          },
+          __typename: 'Borrower'
+        },
+        avalName: '',
+        avalPhone: '',
+        pendingAmount: '0',
+        amountGived: '',
+        amountToPay: '',
+        requestedAmount: '0'
+      }));
+      return;
+    }
+
+    const selectedLoan = previousLoansData?.loans?.find(loan => loan.id === option.value);
+    if (selectedLoan) {
+      console.log('Préstamo seleccionado completo:', selectedLoan);
+      console.log('pendingAmount del préstamo seleccionado:', selectedLoan.pendingAmount);
+      
+      // Asegurarse de que pendingAmount sea un string
+      const pendingAmount = selectedLoan.pendingAmount ? selectedLoan.pendingAmount.toString() : '0';
+      
+      console.log('Deuda pendiente convertida a string:', pendingAmount);
+
+      // Crear una copia del préstamo seleccionado con los campos necesarios
+      const previousLoan = {
+        ...selectedLoan,
+        pendingAmount,
+        amountToPay: selectedLoan.amountToPay || '0'
+      };
+
+      console.log('Objeto previousLoan creado:', previousLoan);
+      console.log('pendingAmount en previousLoan:', previousLoan.pendingAmount);
+
+      // Calcular el monto a pagar basado en el tipo de préstamo
+      let amountToPay = '0';
+      if (newLoan.loantype?.rate && newLoan.loantype.rate !== '0') {
+        const rate = parseFloat(newLoan.loantype.rate);
+        if (!isNaN(rate)) {
+          amountToPay = (parseFloat(newLoan.requestedAmount || '0') * (1 + rate / 100)).toFixed(2);
+          console.log('Cálculo de monto a pagar:', {
+            requestedAmount: newLoan.requestedAmount,
+            rate,
+            amountToPay
+          });
+        }
+      }
+
+      setNewLoan(prev => {
+        const updatedLoan = {
+          ...prev,
+          previousLoan,
+          borrower: selectedLoan.borrower,
+          avalName: selectedLoan.avalName,
+          avalPhone: selectedLoan.avalPhone,
+          pendingAmount,
+          amountToPay
+        };
+        console.log('Nuevo estado de newLoan:', updatedLoan);
+        console.log('pendingAmount en newLoan:', updatedLoan.pendingAmount);
+        console.log('amountToPay en newLoan:', updatedLoan.amountToPay);
+        return updatedLoan;
+      });
+    }
   };
+
+  // Efecto para actualizar el estado cuando cambie la fecha o el líder
+  React.useEffect(() => {
+    if (selectedDate && selectedLead) {
+      refetchLoans();
+    }
+  }, [selectedDate, selectedLead, refetchLoans]);
+
+  // Efecto para actualizar el newLoan cuando cambie el líder
+  React.useEffect(() => {
+    setNewLoan(prev => ({
+      ...prev,
+      lead: { 
+        id: selectedLead?.id || '', 
+        personalData: { fullName: '', __typename: 'PersonalData' }, 
+        __typename: 'Lead' 
+      }
+    }));
+  }, [selectedLead]);
 
   // Efecto para resaltar el nuevo préstamo por 3 segundos
   useEffect(() => {
@@ -138,7 +541,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
   const handleAddLoan = () => {
     setIsAddingNew(true);
     setNewLoan({
-      requestedAmount: '',
+      requestedAmount: '0',
       amountGived: '',
       amountToPay: '',
       pendingAmount: '0',
@@ -146,17 +549,17 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
       finishedDate: '',
       createdAt: '',
       updatedAt: '',
-      comissionAmount: '',
+      comissionAmount: '0',
       avalName: '',
       avalPhone: '',
-      loantype: { id: '1', name: 'Personal', rate: '10', weekDuration: '4', __typename: 'LoanType' },
-      lead: { id: '1', personalData: { fullName: 'Jane Doe', __typename: 'PersonalData' }, __typename: 'Lead' },
+      loantype: { id: '', name: '', rate: '0', weekDuration: '0', __typename: 'LoanType' },
+      lead: { id: selectedLead?.id || '', personalData: { fullName: '', __typename: 'PersonalData' }, __typename: 'Lead' },
       borrower: {
-        id: '1',
+        id: '',
         personalData: {
-          id: '1',
-          fullName: 'Jane Doe',
-          phones: [{ number: '0987654321', __typename: 'Phone' }],
+          id: '',
+          fullName: '',
+          phones: [{ number: '', __typename: 'Phone' }],
           __typename: 'PersonalData'
         },
         __typename: 'Borrower'
@@ -166,11 +569,44 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
     });
   };
 
-  const handleSaveNewLoan = () => {
-    const newId = String(loans.length + 1);
-    setLoans([...loans, { ...newLoan, id: newId } as Loan]);
-    setNewLoanId(newId);
-    setIsAddingNew(false);
+  const handleSaveNewLoan = async () => {
+    try {
+      const loanData = {
+        requestedAmount: newLoan.requestedAmount,
+        amountGived: newLoan.amountGived,
+        signDate: selectedDate,
+        avalName: newLoan.avalName,
+        avalPhone: newLoan.avalPhone,
+        comissionAmount: newLoan.comissionAmount,
+        lead: { connect: { id: selectedLead?.id } },
+        loantype: { connect: { id: newLoan.loantype?.id || '' } },
+        borrower: {
+          create: {
+            personalData: {
+              create: {
+                fullName: newLoan.borrower?.personalData?.fullName || '',
+                phones: {
+                  create: newLoan.borrower?.personalData?.phones?.map(phone => ({
+                    number: phone.number
+                  })) || []
+                }
+              }
+            }
+          }
+        }
+      };
+
+      const { data } = await createLoan({ variables: { data: loanData } });
+      
+      if (data?.createLoan) {
+        setLoans([...loans, data.createLoan]);
+        setNewLoanId(data.createLoan.id);
+        setIsAddingNew(false);
+        await refetchLoans();
+      }
+    } catch (error) {
+      console.error('Error al crear el préstamo:', error);
+    }
   };
 
   const handleCancelNew = () => {
@@ -181,15 +617,55 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
     setEditingLoan(loan);
   };
 
-  const handleUpdateLoan = () => {
-    if (editingLoan) {
-      setLoans(loans.map(loan => loan.id === editingLoan.id ? editingLoan : loan));
-      setEditingLoan(null);
+  const handleUpdateLoan = async () => {
+    if (!editingLoan) return;
+
+    try {
+      const loanData = {
+        requestedAmount: editingLoan.requestedAmount,
+        amountGived: editingLoan.amountGived,
+        amountToPay: editingLoan.amountToPay,
+        pendingAmount: editingLoan.pendingAmount,
+        avalName: editingLoan.avalName,
+        avalPhone: editingLoan.avalPhone,
+        comissionAmount: editingLoan.comissionAmount
+      };
+
+      const { data } = await updateLoan({
+        variables: {
+          id: editingLoan.id,
+          data: loanData
+        }
+      });
+
+      if (data?.updateLoan) {
+        setLoans(loans.map(loan => loan.id === editingLoan.id ? data.updateLoan : loan));
+        setEditingLoan(null);
+        await refetchLoans();
+      }
+    } catch (error) {
+      console.error('Error al actualizar el préstamo:', error);
     }
   };
 
-  const handleDeleteLoan = (id: string) => {
-    setLoans(loans.filter(loan => loan.id !== id));
+  const handleDeleteLoan = async (id: string) => {
+    try {
+      const { data } = await updateLoan({
+        variables: {
+          id,
+          data: {
+            finishedDate: new Date().toISOString()
+          }
+        }
+      });
+
+      if (data?.updateLoan) {
+        setLoans(loans.filter(loan => loan.id !== id));
+        await refetchLoans();
+      }
+    } catch (error) {
+      console.error('Error al eliminar el préstamo:', error);
+    }
   };
 
   // Calcular totales
@@ -200,6 +676,33 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
     newLoans: acc.newLoans + (loan.previousLoan ? 0 : 1),
     renewals: acc.renewals + (loan.previousLoan ? 1 : 0),
   }), { count: 0, amountGived: 0, amountToPay: 0, newLoans: 0, renewals: 0 });
+
+  if (loansLoading || loanTypesLoading || previousLoansLoading) {
+    return (
+      <Box paddingTop="xlarge" style={{ display: 'flex', justifyContent: 'center' }}>
+        <LoadingDots label="Cargando préstamos" size="large" />
+      </Box>
+    );
+  }
+
+  if (loansError) {
+    return (
+      <Box paddingTop="xlarge">
+        <GraphQLErrorNotice
+          errors={loansError?.graphQLErrors || []}
+          networkError={loansError?.networkError}
+        />
+      </Box>
+    );
+  }
+
+  if (!selectedDate || !selectedLead) {
+    return (
+      <Box paddingTop="xlarge" style={{ textAlign: 'center', color: '#6B7280' }}>
+        Selecciona una fecha y un líder para ver los préstamos
+      </Box>
+    );
+  }
 
   return (
     <>
@@ -504,13 +1007,14 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
                   backgroundColor: '#F9FAFB',
                   borderBottom: '1px solid #E5E7EB' 
                 }}>
-                  <th style={tableHeaderStyle}>ID</th>
+                  <th style={tableHeaderStyle}>Préstamo Previo</th>
                   <th style={tableHeaderStyle}>Tipo</th>
+                  <th style={tableHeaderStyle}>Nombre</th>
+                  <th style={tableHeaderStyle}>Teléfono</th>
                   <th style={tableHeaderStyle}>Monto Solicitado</th>
+                  <th style={tableHeaderStyle}>Deuda Pendiente</th>
                   <th style={tableHeaderStyle}>Monto Entregado</th>
                   <th style={tableHeaderStyle}>Monto a Pagar</th>
-                  <th style={tableHeaderStyle}>Monto Pendiente</th>
-                  <th style={tableHeaderStyle}>Fecha de Firma</th>
                   <th style={tableHeaderStyle}>Comisión</th>
                   <th style={tableHeaderStyle}>Nombre del Aval</th>
                   <th style={tableHeaderStyle}>Teléfono del Aval</th>
@@ -534,7 +1038,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
                   >
                     {loan.id === newLoanId && (
                       <td
-                        colSpan={10}
+                        colSpan={12}
                         style={{
                           position: 'absolute',
                           left: 0,
@@ -545,15 +1049,154 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
                         }}
                       />
                     )}
-                    <td style={tableCellStyle}>{loan.id}</td>
+                    <td style={tableCellStyle}>
+                      {loan.previousLoan ? (
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '4px 8px',
+                          backgroundColor: '#F0F9FF',
+                          color: '#0052CC',
+                          borderRadius: '4px',
+                          fontSize: '12px',
+                          fontWeight: '500',
+                        }}>
+                          Renovado
+                        </span>
+                      ) : (
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '4px 8px',
+                          backgroundColor: '#F0FDF4',
+                          color: '#059669',
+                          borderRadius: '4px',
+                          fontSize: '12px',
+                          fontWeight: '500',
+                        }}>
+                          Nuevo
+                        </span>
+                      )}
+                    </td>
                     <td style={tableCellStyle}>{loan.loantype.name}</td>
+                    <td style={tableCellStyle}>
+                      <div 
+                        style={{ 
+                          position: 'relative',
+                          display: 'inline-block',
+                          maxWidth: '100%',
+                          cursor: 'help',
+                        }}
+                        onMouseEnter={(e) => {
+                          const tooltip = e.currentTarget.querySelector('.tooltip') as HTMLElement;
+                          if (tooltip) {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const tooltipRect = tooltip.getBoundingClientRect();
+                            
+                            let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
+                            let top = rect.top - tooltipRect.height - 8;
+                            
+                            if (left < 0) left = 0;
+                            if (left + tooltipRect.width > window.innerWidth) {
+                              left = window.innerWidth - tooltipRect.width;
+                            }
+                            if (top < 0) {
+                              top = rect.bottom + 8;
+                            }
+                            
+                            tooltip.style.left = `${left}px`;
+                            tooltip.style.top = `${top}px`;
+                            tooltip.style.display = 'block';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          const tooltip = e.currentTarget.querySelector('.tooltip') as HTMLElement;
+                          if (tooltip) {
+                            tooltip.style.display = 'none';
+                          }
+                        }}
+                      >
+                        <span style={{
+                          display: 'block',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}>
+                          {loan.borrower?.personalData?.fullName || 'Sin nombre'}
+                        </span>
+                        <div 
+                          className="tooltip"
+                          style={{
+                            ...tooltipStyle,
+                            display: 'none',
+                          }}
+                        >
+                          {loan.borrower?.personalData?.fullName || 'Sin nombre'}
+                        </div>
+                      </div>
+                    </td>
+                    <td style={tableCellStyle}>{loan.borrower?.personalData?.phones?.[0]?.number || '-'}</td>
                     <td style={tableCellStyle}>${loan.requestedAmount}</td>
+                    <td style={tableCellStyle}>${loan.previousLoan?.pendingAmount || '0'}</td>
                     <td style={tableCellStyle}>${loan.amountGived}</td>
                     <td style={tableCellStyle}>${loan.amountToPay}</td>
-                    <td style={tableCellStyle}>${loan.pendingAmount}</td>
-                    <td style={tableCellStyle}>{new Date(loan.signDate).toLocaleDateString()}</td>
                     <td style={tableCellStyle}>${loan.comissionAmount}</td>
-                    <td style={tableCellStyle}>{loan.avalName}</td>
+                    <td style={tableCellStyle}>
+                      <div 
+                        style={{ 
+                          position: 'relative',
+                          display: 'inline-block',
+                          maxWidth: '100%',
+                          cursor: 'help',
+                        }}
+                        onMouseEnter={(e) => {
+                          const tooltip = e.currentTarget.querySelector('.tooltip') as HTMLElement;
+                          if (tooltip) {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const tooltipRect = tooltip.getBoundingClientRect();
+                            
+                            let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
+                            let top = rect.top - tooltipRect.height - 8;
+                            
+                            if (left < 0) left = 0;
+                            if (left + tooltipRect.width > window.innerWidth) {
+                              left = window.innerWidth - tooltipRect.width;
+                            }
+                            if (top < 0) {
+                              top = rect.bottom + 8;
+                            }
+                            
+                            tooltip.style.left = `${left}px`;
+                            tooltip.style.top = `${top}px`;
+                            tooltip.style.display = 'block';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          const tooltip = e.currentTarget.querySelector('.tooltip') as HTMLElement;
+                          if (tooltip) {
+                            tooltip.style.display = 'none';
+                          }
+                        }}
+                      >
+                        <span style={{
+                          display: 'block',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}>
+                          {loan.avalName}
+                        </span>
+                        <div 
+                          className="tooltip"
+                          style={{
+                            ...tooltipStyle,
+                            display: 'none',
+                          }}
+                        >
+                          {loan.avalName}
+                        </div>
+                      </div>
+                    </td>
                     <td style={tableCellStyle}>{loan.avalPhone}</td>
                     <td style={{
                       ...tableCellStyle,
@@ -584,94 +1227,209 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
                     backgroundColor: '#F0F9FF',
                     position: 'relative',
                   }}>
-                    <td style={tableCellStyle}>Nuevo</td>
                     <td style={tableCellStyle}>
-                      <Select
-                        options={[
-                          { label: 'Personal', value: '1' },
-                          { label: 'Negocio', value: '2' },
-                        ]}
-                        onChange={value => setNewLoan({
-                          ...newLoan,
-                          loantype: { 
-                            id: value || '1', 
-                            name: value === '2' ? 'Negocio' : 'Personal',
-                            rate: '10',
-                            weekDuration: '4',
-                            __typename: 'LoanType'
-                          }
-                        })}
-                        value={newLoan.loantype?.id}
-                      />
+                      <div style={{ position: 'relative', width: '100%' }}>
+                        <Select
+                          options={previousLoanOptions}
+                          onChange={handlePreviousLoanChange}
+                          value={newLoan.previousLoan?.id ? {
+                            value: newLoan.previousLoan.id,
+                            label: `${newLoan.previousLoan.borrower?.personalData?.fullName || 'Sin nombre'} ($${newLoan.previousLoan.amountToPay || 0})`
+                          } : { value: '', label: 'Seleccionar préstamo previo' }}
+                          menuPlacement="auto"
+                          menuPosition="fixed"
+                          styles={{
+                            container: (base) => ({
+                              ...base,
+                              width: '100%'
+                            }),
+                            menu: (base) => ({
+                              ...base,
+                              minWidth: '250px'
+                            })
+                          }}
+                        />
+                      </div>
                     </td>
                     <td style={tableCellStyle}>
+                      <div style={{ position: 'relative', width: '100%' }}>
+                        <Select
+                          options={loanTypeOptions}
+                          onChange={value => {
+                            if (value) {
+                              const selectedType = loanTypesData?.loantypes?.find(type => type.id === value.value);
+                              if (selectedType) {
+                                const rate = parseFloat(selectedType.rate);
+                                const requestedAmount = parseFloat(newLoan.requestedAmount || '0');
+                                const amountToPay = (requestedAmount * (1 + rate)).toFixed(2);
+
+                                console.log('Cálculo de monto a pagar:', {
+                                  requestedAmount,
+                                  rate,
+                                  amountToPay,
+                                  formula: `${requestedAmount} * (1 + (${rate} * 100))`
+                                });
+
+                                setNewLoan({
+                                  ...newLoan,
+                                  loantype: { 
+                                    id: value.value, 
+                                    name: value.label.split('(')[0].trim(),
+                                    rate: selectedType.rate,
+                                    weekDuration: selectedType.weekDuration,
+                                    __typename: 'LoanType'
+                                  },
+                                  amountToPay
+                                });
+                              }
+                            }
+                          }}
+                          value={loanTypeOptions.find(option => option.value === newLoan.loantype?.id) || null}
+                          menuPlacement="auto"
+                          menuPosition="fixed"
+                          styles={{
+                            container: (base) => ({
+                              ...base,
+                              width: '100%'
+                            }),
+                            menu: (base) => ({
+                              ...base,
+                              minWidth: '250px'
+                            })
+                          }}
+                        />
+                      </div>
+                    </td>
+                    <td style={tableCellWithInputStyle}>
+                      <input
+                        type="text"
+                        value={newLoan.borrower?.personalData?.fullName || ''}
+                        onChange={e => setNewLoan({
+                          ...newLoan,
+                          borrower: {
+                            ...newLoan.borrower,
+                            personalData: {
+                              ...newLoan.borrower?.personalData,
+                              fullName: e.target.value
+                            }
+                          }
+                        })}
+                        onFocus={() => setFocusedInput('borrowerName')}
+                        onBlur={() => setFocusedInput(null)}
+                        style={focusedInput === 'borrowerName' ? focusedInputStyle : tableInputStyle}
+                        placeholder="Nombre del cliente"
+                      />
+                    </td>
+                    <td style={tableCellWithInputStyle}>
+                      <input
+                        type="tel"
+                        value={newLoan.borrower?.personalData?.phones?.[0]?.number || ''}
+                        onChange={e => setNewLoan({
+                          ...newLoan,
+                          borrower: {
+                            ...newLoan.borrower,
+                            personalData: {
+                              ...newLoan.borrower?.personalData,
+                              phones: [{ number: e.target.value, __typename: 'Phone' }]
+                            }
+                          }
+                        })}
+                        onFocus={() => setFocusedInput('borrowerPhone')}
+                        onBlur={() => setFocusedInput(null)}
+                        style={focusedInput === 'borrowerPhone' ? focusedInputStyle : tableInputStyle}
+                        placeholder="Teléfono del cliente"
+                      />
+                    </td>
+                    <td style={tableCellWithInputStyle}>
                       <input
                         type="number"
                         value={newLoan.requestedAmount}
-                        onChange={e => setNewLoan({ ...newLoan, requestedAmount: e.target.value })}
-                        style={tableInputStyle}
+                        onChange={e => {
+                          const requestedAmount = e.target.value;
+                          const pendingAmount = parseFloat(newLoan.pendingAmount || '0');
+                          const amountGived = (parseFloat(requestedAmount) - pendingAmount).toString();
+                          
+                          let amountToPay = '0';
+                          if (newLoan.loantype) {
+                            const rate = parseFloat(newLoan.loantype.rate);
+                            if (!isNaN(rate)) {
+                              amountToPay = (parseFloat(requestedAmount) * (1 + rate)).toFixed(2);
+                            }
+                          }
+
+                          setNewLoan({ 
+                            ...newLoan, 
+                            requestedAmount,
+                            amountGived,
+                            amountToPay
+                          });
+                        }}
+                        onFocus={() => setFocusedInput('requestedAmount')}
+                        onBlur={() => setFocusedInput(null)}
+                        style={focusedInput === 'requestedAmount' ? focusedInputStyle : tableInputStyle}
                         placeholder="0.00"
                       />
                     </td>
-                    <td style={tableCellStyle}>
+                    <td style={tableCellWithInputStyle}>
+                      <input
+                        type="number"
+                        value={newLoan.pendingAmount || '0'}
+                        readOnly
+                        onFocus={() => setFocusedInput('pendingAmount')}
+                        onBlur={() => setFocusedInput(null)}
+                        style={focusedInput === 'pendingAmount' ? focusedInputStyle : tableInputReadOnlyStyle}
+                      />
+                    </td>
+                    <td style={tableCellWithInputStyle}>
                       <input
                         type="number"
                         value={newLoan.amountGived}
-                        onChange={e => setNewLoan({ ...newLoan, amountGived: e.target.value })}
-                        style={tableInputStyle}
-                        placeholder="0.00"
+                        readOnly
+                        onFocus={() => setFocusedInput('amountGived')}
+                        onBlur={() => setFocusedInput(null)}
+                        style={focusedInput === 'amountGived' ? focusedInputStyle : tableInputReadOnlyStyle}
                       />
                     </td>
-                    <td style={tableCellStyle}>
+                    <td style={tableCellWithInputStyle}>
                       <input
                         type="number"
                         value={newLoan.amountToPay}
-                        onChange={e => setNewLoan({ ...newLoan, amountToPay: e.target.value })}
-                        style={tableInputStyle}
-                        placeholder="0.00"
+                        readOnly
+                        onFocus={() => setFocusedInput('amountToPay')}
+                        onBlur={() => setFocusedInput(null)}
+                        style={focusedInput === 'amountToPay' ? focusedInputStyle : tableInputReadOnlyStyle}
                       />
                     </td>
-                    <td style={tableCellStyle}>
-                      <input
-                        type="number"
-                        value={newLoan.pendingAmount}
-                        onChange={e => setNewLoan({ ...newLoan, pendingAmount: e.target.value })}
-                        style={tableInputStyle}
-                        placeholder="0.00"
-                      />
-                    </td>
-                    <td style={tableCellStyle}>
-                      <input
-                        type="date"
-                        value={newLoan.signDate?.split('T')[0]}
-                        onChange={e => setNewLoan({ ...newLoan, signDate: e.target.value })}
-                        style={tableInputStyle}
-                      />
-                    </td>
-                    <td style={tableCellStyle}>
+                    <td style={tableCellWithInputStyle}>
                       <input
                         type="number"
                         value={newLoan.comissionAmount}
                         onChange={e => setNewLoan({ ...newLoan, comissionAmount: e.target.value })}
-                        style={tableInputStyle}
+                        onFocus={() => setFocusedInput('comissionAmount')}
+                        onBlur={() => setFocusedInput(null)}
+                        style={focusedInput === 'comissionAmount' ? focusedInputStyle : tableInputStyle}
                         placeholder="0.00"
                       />
                     </td>
-                    <td style={tableCellStyle}>
+                    <td style={tableCellWithInputStyle}>
                       <input
                         type="text"
                         value={newLoan.avalName}
                         onChange={e => setNewLoan({ ...newLoan, avalName: e.target.value })}
-                        style={tableInputStyle}
+                        onFocus={() => setFocusedInput('avalName')}
+                        onBlur={() => setFocusedInput(null)}
+                        style={focusedInput === 'avalName' ? focusedInputStyle : tableInputStyle}
                         placeholder="Nombre del aval"
                       />
                     </td>
-                    <td style={tableCellStyle}>
+                    <td style={tableCellWithInputStyle}>
                       <input
                         type="tel"
                         value={newLoan.avalPhone}
                         onChange={e => setNewLoan({ ...newLoan, avalPhone: e.target.value })}
-                        style={tableInputStyle}
+                        onFocus={() => setFocusedInput('avalPhone')}
+                        onBlur={() => setFocusedInput(null)}
+                        style={focusedInput === 'avalPhone' ? focusedInputStyle : tableInputStyle}
                         placeholder="Teléfono"
                       />
                     </td>
@@ -712,27 +1470,10 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
                         >
                           <FaTimes size={14} />
                         </Button>
-                        <div style={{ position: 'relative' }}>
-                          <Button
-                            ref={el => buttonRefs.current['new'] = el}
-                            tone="passive"
-                            size="small"
-                            onClick={() => setActiveMenu('new')}
-                            style={{
-                              padding: '6px',
-                              minWidth: '32px',
-                              height: '32px',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                            }}
-                            title="Más opciones"
-                          >
-                            <FaEllipsisV size={14} />
-                          </Button>
-                        </div>
+                        
                       </Box>
                     </td>
+                    {JSON.stringify(newLoan)}
                   </tr>
                 )}
               </tbody>
@@ -742,28 +1483,21 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
       </Box>
 
       {/* Global Dropdown Container */}
-      <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100vw',
-        height: '100vh',
-        pointerEvents: 'none',
-        zIndex: 9999,
-      }}>
+      <DropdownPortal isOpen={activeMenu !== null}>
         {loans.map((loan) => (
           activeMenu === loan.id && (
             <div
               key={`dropdown-${loan.id}`}
               ref={menuRef}
               style={{
-                position: 'absolute',
+                position: 'fixed',
                 ...getDropdownPosition(loan.id),
                 backgroundColor: 'white',
                 borderRadius: '8px',
                 boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
                 pointerEvents: 'auto',
                 minWidth: '160px',
+                zIndex: 10000,
               }}
             >
               <button
@@ -798,18 +1532,18 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
           <div
             ref={menuRef}
             style={{
-              position: 'absolute',
+              position: 'fixed',
               ...getDropdownPosition('new'),
               backgroundColor: 'white',
               borderRadius: '8px',
               boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
               pointerEvents: 'auto',
               minWidth: '160px',
+              zIndex: 10000,
             }}
           >
             <button
               onClick={() => {
-                // Acción para Opción 1
                 setActiveMenu(null);
               }}
               style={menuItemStyle}
@@ -819,7 +1553,6 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
             </button>
             <button
               onClick={() => {
-                // Acción para Opción 2
                 setActiveMenu(null);
               }}
               style={{
@@ -832,7 +1565,6 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
             </button>
             <button
               onClick={() => {
-                // Acción para Opción 3
                 setActiveMenu(null);
               }}
               style={{
@@ -845,7 +1577,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
             </button>
           </div>
         )}
-      </div>
+      </DropdownPortal>
 
       {/* Edit Modal */}
       {editingLoan && (
@@ -898,7 +1630,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
                   type="text"
                   placeholder="Monto Solicitado"
                   value={editingLoan.requestedAmount}
-                  onChange={(e) => setEditingLoan({ ...editingLoan, requestedAmount: e.target.value })}
+                  onChange={(e) => setEditingLoan({ ...editingLoan, requestedAmount: e.target.value, amountToPay: (parseFloat(e.target.value) * (1 + parseFloat(editingLoan.loantype.rate))).toFixed(2) })}
                   style={inputStyle}
                 />
                 <TextInput
@@ -988,7 +1720,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
 
 // Styles
 const tableHeaderStyle = {
-  padding: '12px 8px',
+  padding: '8px 6px',
   textAlign: 'left' as const,
   fontWeight: '500',
   color: '#374151',
@@ -1000,13 +1732,34 @@ const tableHeaderStyle = {
 };
 
 const tableCellStyle = {
-  padding: '12px 8px',
+  padding: '8px 6px',
   color: '#1a1f36',
   fontSize: '13px',
   whiteSpace: 'nowrap' as const,
-  maxWidth: '120px',
+  /* maxWidth: '120px', */
   overflow: 'hidden',
   textOverflow: 'ellipsis',
+  position: 'relative' as const,
+};
+
+const tableCellWithInputStyle = {
+  ...tableCellStyle,
+  overflow: 'visible' as const,
+};
+
+const tooltipStyle = {
+  position: 'fixed' as const,
+  backgroundColor: '#1a1f36',
+  color: 'white',
+  padding: '8px 12px',
+  borderRadius: '6px',
+  fontSize: '13px',
+  zIndex: 1000,
+  maxWidth: '300px',
+  whiteSpace: 'normal' as const,
+  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+  display: 'none',
+  pointerEvents: 'none' as const,
 };
 
 const inputStyle = {
@@ -1017,6 +1770,7 @@ const inputStyle = {
   borderRadius: '8px',
   outline: 'none',
   transition: 'all 0.2s ease',
+  height: '50px !important',
 };
 
 const menuItemStyle = {
@@ -1038,14 +1792,52 @@ const menuItemStyle = {
 
 const tableInputStyle = {
   width: '100%',
-  padding: '6px 8px',
-  fontSize: '14px',
+  padding: '2px 6px',
+  height: '38px',
+  fontSize: '13px',
   border: '1px solid #E5E7EB',
-  borderRadius: '6px',
+  borderRadius: '4px',
   outline: 'none',
   transition: 'all 0.2s ease',
   '&:focus': {
     borderColor: '#0052CC',
     boxShadow: '0 0 0 2px rgba(0, 82, 204, 0.1)',
+    padding: '4px 8px',
+    width: 'calc(100% + 8px)',
+    marginLeft: '-4px',
   },
-}; 
+};
+
+const tableInputReadOnlyStyle = {
+  ...tableInputStyle,
+  backgroundColor: '#f3f4f6',
+  '&:focus': {
+    ...tableInputStyle['&:focus'],
+    backgroundColor: '#f3f4f6',
+  }
+};
+
+const focusedInputStyle = {
+  ...tableInputStyle,
+  borderColor: '#0052CC',
+  boxShadow: '0 0 0 2px rgba(0, 82, 204, 0.1)',
+  padding: '4px 8px',
+  overflow: 'visible' as const,
+  width: 'calc(100% + 100px)',
+  marginLeft: '-4px',
+  position: 'relative' as const,
+  zIndex: 1000,
+};
+
+const getDropdownPosition = (buttonId: string) => {
+  const button = buttonRefs.current[buttonId];
+  if (!button) return { top: 0, left: 0 };
+
+  const rect = button.getBoundingClientRect();
+  return {
+    top: rect.bottom + 4,
+    left: rect.right - 160, // 160px es el ancho del dropdown
+  };
+};
+
+// Eliminar el script y tooltipScript que estaban al final del archivo 
