@@ -12,6 +12,7 @@ import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
 import { FaPlus, FaTrash, FaEdit, FaSearch, FaEllipsisV, FaCheck, FaTimes } from 'react-icons/fa';
 import { useQuery, useMutation } from '@apollo/client';
 import { gql } from '@apollo/client';
+import { calculateLoanAmounts } from '../../utils/loanCalculations';
 
 // Import types
 import type { Loan } from '../../types/loan';
@@ -614,7 +615,14 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
   };
 
   const handleEditLoan = (loan: Loan) => {
-    setEditingLoan(loan);
+    setEditingLoan({
+      ...loan,
+      requestedAmount: loan.requestedAmount.toString(),
+      amountGived: loan.amountGived.toString(),
+      amountToPay: loan.amountToPay.toString(),
+      pendingAmount: loan.pendingAmount.toString(),
+      comissionAmount: loan.comissionAmount?.toString() || '0'
+    });
   };
 
   const handleUpdateLoan = async () => {
@@ -624,12 +632,15 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
       const loanData = {
         requestedAmount: editingLoan.requestedAmount,
         amountGived: editingLoan.amountGived,
-        amountToPay: editingLoan.amountToPay,
-        pendingAmount: editingLoan.pendingAmount,
         avalName: editingLoan.avalName,
         avalPhone: editingLoan.avalPhone,
         comissionAmount: editingLoan.comissionAmount
       };
+
+      console.log('Actualizando préstamo:', {
+        id: editingLoan.id,
+        data: loanData
+      });
 
       const { data } = await updateLoan({
         variables: {
@@ -677,6 +688,18 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
     renewals: acc.renewals + (loan.previousLoan ? 1 : 0),
   }), { count: 0, amountGived: 0, amountToPay: 0, newLoans: 0, renewals: 0 });
 
+  // Mover la función getDropdownPosition dentro del componente
+  const getDropdownPosition = (buttonId: string) => {
+    const button = buttonRefs.current[buttonId];
+    if (!button) return { top: 0, left: 0 };
+
+    const rect = button.getBoundingClientRect();
+    return {
+      top: rect.bottom + 4,
+      left: rect.right - 160, // 160px es el ancho del dropdown
+    };
+  };
+
   if (loansLoading || loanTypesLoading || previousLoansLoading) {
     return (
       <Box paddingTop="xlarge" style={{ display: 'flex', justifyContent: 'center' }}>
@@ -706,15 +729,15 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
 
   return (
     <>
-      <Box paddingTop="xlarge">
+      <Box paddingTop="medium">
         <div style={{
           display: 'flex',
-          gap: '24px',
+          gap: '16px',
           alignItems: 'flex-start',
-          marginBottom: '24px',
+          marginBottom: '16px',
           background: 'white',
-          padding: '24px',
-          borderRadius: '12px',
+          padding: '16px',
+          borderRadius: '8px',
           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
         }}>
           {/* Stats Grid */}
@@ -723,7 +746,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
             gridTemplateColumns: 'repeat(5, 1fr)',
             gap: '1px',
             background: '#E2E8F0',
-            borderRadius: '12px',
+            borderRadius: '8px',
             overflow: 'hidden',
             flex: 1,
             boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
@@ -732,7 +755,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
               display: 'flex',
               flexDirection: 'column' as const,
               background: 'white',
-              padding: '20px',
+              padding: '12px',
               position: 'relative',
               overflow: 'hidden',
             }}>
@@ -746,25 +769,25 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
                 opacity: 0.1,
               }} />
               <div style={{
-                fontSize: '13px',
+                fontSize: '12px',
                 fontWeight: '500',
                 color: '#6B7280',
-                marginBottom: '8px',
+                marginBottom: '4px',
               }}>
                 TOTAL DE CRÉDITOS
               </div>
               <div style={{
-                fontSize: '24px',
+                fontSize: '20px',
                 fontWeight: '600',
                 color: '#111827',
                 letterSpacing: '-0.02em',
                 lineHeight: '1',
-                marginBottom: '4px',
+                marginBottom: '2px',
               }}>
                 {totals.count}
               </div>
               <div style={{
-                fontSize: '13px',
+                fontSize: '12px',
                 color: '#059669',
                 display: 'flex',
                 alignItems: 'center',
@@ -778,7 +801,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
               display: 'flex',
               flexDirection: 'column' as const,
               background: 'white',
-              padding: '20px',
+              padding: '12px',
               position: 'relative',
               overflow: 'hidden',
             }}>
@@ -792,25 +815,25 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
                 opacity: 0.1,
               }} />
               <div style={{
-                fontSize: '13px',
+                fontSize: '12px',
                 fontWeight: '500',
                 color: '#6B7280',
-                marginBottom: '8px',
+                marginBottom: '4px',
               }}>
                 CRÉDITOS NUEVOS
               </div>
               <div style={{
-                fontSize: '24px',
+                fontSize: '20px',
                 fontWeight: '600',
                 color: '#111827',
                 letterSpacing: '-0.02em',
                 lineHeight: '1',
-                marginBottom: '4px',
+                marginBottom: '2px',
               }}>
                 {totals.newLoans}
               </div>
               <div style={{
-                fontSize: '13px',
+                fontSize: '12px',
                 color: '#6B7280',
                 display: 'flex',
                 alignItems: 'center',
@@ -824,7 +847,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
               display: 'flex',
               flexDirection: 'column' as const,
               background: 'white',
-              padding: '20px',
+              padding: '12px',
               position: 'relative',
               overflow: 'hidden',
             }}>
@@ -838,25 +861,25 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
                 opacity: 0.1,
               }} />
               <div style={{
-                fontSize: '13px',
+                fontSize: '12px',
                 fontWeight: '500',
                 color: '#6B7280',
-                marginBottom: '8px',
+                marginBottom: '4px',
               }}>
                 RENOVACIONES
               </div>
               <div style={{
-                fontSize: '24px',
+                fontSize: '20px',
                 fontWeight: '600',
                 color: '#111827',
                 letterSpacing: '-0.02em',
                 lineHeight: '1',
-                marginBottom: '4px',
+                marginBottom: '2px',
               }}>
                 {totals.renewals}
               </div>
               <div style={{
-                fontSize: '13px',
+                fontSize: '12px',
                 color: '#6B7280',
                 display: 'flex',
                 alignItems: 'center',
@@ -870,7 +893,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
               display: 'flex',
               flexDirection: 'column' as const,
               background: 'white',
-              padding: '20px',
+              padding: '12px',
               position: 'relative',
               overflow: 'hidden',
             }}>
@@ -884,25 +907,25 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
                 opacity: 0.1,
               }} />
               <div style={{
-                fontSize: '13px',
+                fontSize: '12px',
                 fontWeight: '500',
                 color: '#6B7280',
-                marginBottom: '8px',
+                marginBottom: '4px',
               }}>
                 TOTAL OTORGADO
               </div>
               <div style={{
-                fontSize: '24px',
+                fontSize: '20px',
                 fontWeight: '600',
                 color: '#111827',
                 letterSpacing: '-0.02em',
                 lineHeight: '1',
-                marginBottom: '4px',
+                marginBottom: '2px',
               }}>
                 ${totals.amountGived.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <div style={{
-                fontSize: '13px',
+                fontSize: '12px',
                 color: '#6B7280',
                 display: 'flex',
                 alignItems: 'center',
@@ -916,7 +939,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
               display: 'flex',
               flexDirection: 'column' as const,
               background: 'white',
-              padding: '20px',
+              padding: '12px',
               position: 'relative',
               overflow: 'hidden',
             }}>
@@ -930,25 +953,25 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
                 opacity: 0.1,
               }} />
               <div style={{
-                fontSize: '13px',
+                fontSize: '12px',
                 fontWeight: '500',
                 color: '#6B7280',
-                marginBottom: '8px',
+                marginBottom: '4px',
               }}>
                 TOTAL A PAGAR
               </div>
               <div style={{
-                fontSize: '24px',
+                fontSize: '20px',
                 fontWeight: '600',
                 color: '#111827',
                 letterSpacing: '-0.02em',
                 lineHeight: '1',
-                marginBottom: '4px',
+                marginBottom: '2px',
               }}>
                 ${totals.amountToPay.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <div style={{
-                fontSize: '13px',
+                fontSize: '12px',
                 color: '#6B7280',
                 display: 'flex',
                 alignItems: 'center',
@@ -966,21 +989,21 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
             weight="bold"
             onClick={handleAddLoan}
             style={{
-              padding: '10px 16px',
-              fontSize: '14px',
-              borderRadius: '8px',
+              padding: '8px 12px',
+              fontSize: '13px',
+              borderRadius: '6px',
               backgroundColor: '#0052CC',
               transition: 'all 0.2s ease',
               display: 'inline-flex',
               alignItems: 'center',
               gap: '6px',
-              height: '40px',
+              height: '36px',
               whiteSpace: 'nowrap',
               alignSelf: 'center',
               boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
             }}
           >
-            <FaPlus size={14} style={{ marginTop: '-1px' }} />
+            <FaPlus size={12} style={{ marginTop: '-1px' }} />
             <span>Nuevo Préstamo</span>
           </Button>
         </div>
@@ -989,18 +1012,18 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
         <Box
           style={{
             backgroundColor: 'white',
-            borderRadius: '12px',
+            borderRadius: '8px',
             boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
             position: 'relative',
           }}
         >
           <div style={{
-            padding: '16px',
+            padding: '12px',
           }}>
             <table style={{ 
               width: '100%', 
               borderCollapse: 'collapse',
-              fontSize: '14px',
+              fontSize: '13px',
             }}>
               <thead>
                 <tr style={{ 
@@ -1259,15 +1282,17 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
                             if (value) {
                               const selectedType = loanTypesData?.loantypes?.find(type => type.id === value.value);
                               if (selectedType) {
-                                const rate = parseFloat(selectedType.rate);
-                                const requestedAmount = parseFloat(newLoan.requestedAmount || '0');
-                                const amountToPay = (requestedAmount * (1 + rate)).toFixed(2);
+                                const { amountGived, amountToPay } = calculateLoanAmounts({
+                                  requestedAmount: newLoan.requestedAmount,
+                                  pendingAmount: newLoan.pendingAmount,
+                                  rate: selectedType.rate
+                                });
 
                                 console.log('Cálculo de monto a pagar:', {
-                                  requestedAmount,
-                                  rate,
+                                  requestedAmount: newLoan.requestedAmount,
+                                  rate: selectedType.rate,
                                   amountToPay,
-                                  formula: `${requestedAmount} * (1 + (${rate} * 100))`
+                                  formula: `${newLoan.requestedAmount} * (1 + (${selectedType.rate} * 100))`
                                 });
 
                                 setNewLoan({
@@ -1279,6 +1304,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
                                     weekDuration: selectedType.weekDuration,
                                     __typename: 'LoanType'
                                   },
+                                  amountGived,
                                   amountToPay
                                 });
                               }
@@ -1346,17 +1372,12 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
                         value={newLoan.requestedAmount}
                         onChange={e => {
                           const requestedAmount = e.target.value;
-                          const pendingAmount = parseFloat(newLoan.pendingAmount || '0');
-                          const amountGived = (parseFloat(requestedAmount) - pendingAmount).toString();
+                          const { amountGived, amountToPay } = calculateLoanAmounts({
+                            requestedAmount,
+                            pendingAmount: newLoan.pendingAmount,
+                            rate: newLoan.loantype.rate
+                          });
                           
-                          let amountToPay = '0';
-                          if (newLoan.loantype) {
-                            const rate = parseFloat(newLoan.loantype.rate);
-                            if (!isNaN(rate)) {
-                              amountToPay = (parseFloat(requestedAmount) * (1 + rate)).toFixed(2);
-                            }
-                          }
-
                           setNewLoan({ 
                             ...newLoan, 
                             requestedAmount,
@@ -1473,7 +1494,6 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
                         
                       </Box>
                     </td>
-                    {JSON.stringify(newLoan)}
                   </tr>
                 )}
               </tbody>
@@ -1626,55 +1646,215 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
               </Stack>
 
               <Stack gap="medium">
-                <TextInput
-                  type="text"
-                  placeholder="Monto Solicitado"
-                  value={editingLoan.requestedAmount}
-                  onChange={(e) => setEditingLoan({ ...editingLoan, requestedAmount: e.target.value, amountToPay: (parseFloat(e.target.value) * (1 + parseFloat(editingLoan.loantype.rate))).toFixed(2) })}
-                  style={inputStyle}
-                />
-                <TextInput
-                  type="text"
-                  placeholder="Monto Entregado"
-                  value={editingLoan.amountGived}
-                  onChange={(e) => setEditingLoan({ ...editingLoan, amountGived: e.target.value })}
-                  style={inputStyle}
-                />
-                <TextInput
-                  type="text"
-                  placeholder="Monto a Pagar"
-                  value={editingLoan.amountToPay}
-                  onChange={(e) => setEditingLoan({ ...editingLoan, amountToPay: e.target.value })}
-                  style={inputStyle}
-                />
-                <TextInput
-                  type="text"
-                  placeholder="Monto Pendiente"
-                  value={editingLoan.pendingAmount}
-                  onChange={(e) => setEditingLoan({ ...editingLoan, pendingAmount: e.target.value })}
-                  style={inputStyle}
-                />
-                <TextInput
-                  type="text"
-                  placeholder="Comisión"
-                  value={editingLoan.comissionAmount}
-                  onChange={(e) => setEditingLoan({ ...editingLoan, comissionAmount: e.target.value })}
-                  style={inputStyle}
-                />
-                <TextInput
-                  type="text"
-                  placeholder="Nombre del Aval"
-                  value={editingLoan.avalName}
-                  onChange={(e) => setEditingLoan({ ...editingLoan, avalName: e.target.value })}
-                  style={inputStyle}
-                />
-                <TextInput
-                  type="text"
-                  placeholder="Teléfono del Aval"
-                  value={editingLoan.avalPhone}
-                  onChange={(e) => setEditingLoan({ ...editingLoan, avalPhone: e.target.value })}
-                  style={inputStyle}
-                />
+                <div>
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '8px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    color: '#374151'
+                  }}>
+                    Deuda Pendiente del Préstamo Anterior
+                  </label>
+                  <TextInput
+                    type="number"
+                    placeholder="0.00"
+                    value={editingLoan.previousLoan?.pendingAmount || '0'}
+                    readOnly
+                    style={{
+                      ...inputStyle,
+                      backgroundColor: '#f3f4f6',
+                      cursor: 'not-allowed'
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '8px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    color: '#374151'
+                  }}>
+                    Tipo de Préstamo
+                  </label>
+                  <Select
+                    options={loanTypeOptions}
+                    onChange={value => {
+                      if (value) {
+                        const selectedType = loanTypesData?.loantypes?.find(type => type.id === value.value);
+                        if (selectedType) {
+                          const { amountGived, amountToPay } = calculateLoanAmounts({
+                            requestedAmount: editingLoan.requestedAmount,
+                            pendingAmount: editingLoan.previousLoan?.pendingAmount || '0',
+                            rate: selectedType.rate
+                          });
+
+                          setEditingLoan({
+                            ...editingLoan,
+                            loantype: {
+                              id: value.value,
+                              name: value.label.split('(')[0].trim(),
+                              rate: selectedType.rate,
+                              weekDuration: selectedType.weekDuration,
+                              __typename: 'LoanType'
+                            },
+                            amountGived,
+                            amountToPay
+                          });
+                        }
+                      }
+                    }}
+                    value={loanTypeOptions.find(option => option.value === editingLoan.loantype?.id) || null}
+                    styles={{
+                      container: (base) => ({
+                        ...base,
+                        width: '100%'
+                      }),
+                      menu: (base) => ({
+                        ...base,
+                        minWidth: '250px'
+                      })
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '8px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    color: '#374151'
+                  }}>
+                    Monto Solicitado
+                  </label>
+                  <TextInput
+                    type="number"
+                    placeholder="0.00"
+                    value={editingLoan.requestedAmount}
+                    onChange={(e) => {
+                      const requestedAmount = e.target.value;
+                      const { amountGived, amountToPay } = calculateLoanAmounts({
+                        requestedAmount,
+                        pendingAmount: editingLoan.previousLoan?.pendingAmount || '0',
+                        rate: editingLoan.loantype.rate
+                      });
+                      
+                      setEditingLoan({ 
+                        ...editingLoan, 
+                        requestedAmount,
+                        amountGived,
+                        amountToPay
+                      });
+                    }}
+                    style={inputStyle}
+                  />
+                </div>
+
+                <div>
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '8px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    color: '#374151'
+                  }}>
+                    Monto Entregado
+                  </label>
+                  <TextInput
+                    type="number"
+                    placeholder="0.00"
+                    value={editingLoan.amountGived}
+                    readOnly
+                    style={{
+                      ...inputStyle,
+                      backgroundColor: '#f3f4f6',
+                      cursor: 'not-allowed'
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '8px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    color: '#374151'
+                  }}>
+                    Monto a Pagar
+                  </label>
+                  <TextInput
+                    type="number"
+                    placeholder="0.00"
+                    value={editingLoan.amountToPay}
+                    readOnly
+                    style={{
+                      ...inputStyle,
+                      backgroundColor: '#f3f4f6',
+                      cursor: 'not-allowed'
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '8px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    color: '#374151'
+                  }}>
+                    Comisión
+                  </label>
+                  <TextInput
+                    type="number"
+                    placeholder="0.00"
+                    value={editingLoan.comissionAmount}
+                    onChange={(e) => setEditingLoan({ ...editingLoan, comissionAmount: e.target.value })}
+                    style={inputStyle}
+                  />
+                </div>
+
+                <div>
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '8px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    color: '#374151'
+                  }}>
+                    Nombre del Aval
+                  </label>
+                  <TextInput
+                    type="text"
+                    placeholder="Nombre completo"
+                    value={editingLoan.avalName}
+                    onChange={(e) => setEditingLoan({ ...editingLoan, avalName: e.target.value })}
+                    style={inputStyle}
+                  />
+                </div>
+
+                <div>
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '8px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    color: '#374151'
+                  }}>
+                    Teléfono del Aval
+                  </label>
+                  <TextInput
+                    type="tel"
+                    placeholder="Número de teléfono"
+                    value={editingLoan.avalPhone}
+                    onChange={(e) => setEditingLoan({ ...editingLoan, avalPhone: e.target.value })}
+                    style={inputStyle}
+                  />
+                </div>
               </Stack>
 
               <Box style={{ 
@@ -1827,17 +2007,4 @@ const focusedInputStyle = {
   marginLeft: '-4px',
   position: 'relative' as const,
   zIndex: 1000,
-};
-
-const getDropdownPosition = (buttonId: string) => {
-  const button = buttonRefs.current[buttonId];
-  if (!button) return { top: 0, left: 0 };
-
-  const rect = button.getBoundingClientRect();
-  return {
-    top: rect.bottom + 4,
-    left: rect.right - 160, // 160px es el ancho del dropdown
-  };
-};
-
-// Eliminar el script y tooltipScript que estaban al final del archivo 
+}; 

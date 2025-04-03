@@ -73,33 +73,30 @@ const TransactionsPage = () => {
   return (
     <PageContainer header={<h1>{getTabTitle()}</h1>}>
       <div css={styles.container}>
-        <div css={styles.section}>
-          <Box marginBottom="large">
-            <RouteLeadSelector
-              selectedRoute={selectedRoute}
-              selectedLead={selectedLead}
-              selectedDate={selectedDate}
-              onRouteSelect={handleRouteSelect}
-              onLeadSelect={handleLeadSelect}
-              onDateSelect={handleDateChange}
-            />
-          </Box>
-        </div>
-
-        <div css={styles.section}>
-          <Stack gap="xlarge">
-            <Box css={{ display: 'flex', gap: '16px', borderBottom: '2px solid #e2e8f0' }}>
+        <div css={{
+          ...styles.section,
+          padding: '16px',
+          marginBottom: '0'
+        }}>
+          <Stack gap="medium">
+            <Box css={{ 
+              display: 'flex', 
+              gap: '16px', 
+              borderBottom: '2px solid #e2e8f0',
+              marginBottom: '8px'
+            }}>
               <button
                 onClick={() => setSelectedTab('expenses')}
                 css={{
-                  padding: '12px 24px',
+                  padding: '8px 16px',
                   border: 'none',
                   background: 'none',
                   borderBottom: selectedTab === 'expenses' ? '2px solid #4299e1' : 'none',
                   marginBottom: '-2px',
                   cursor: 'pointer',
                   color: selectedTab === 'expenses' ? '#2c5282' : '#4a5568',
-                  fontWeight: selectedTab === 'expenses' ? 600 : 400
+                  fontWeight: selectedTab === 'expenses' ? 600 : 400,
+                  fontSize: '14px'
                 }}
               >
                 Gastos
@@ -107,14 +104,15 @@ const TransactionsPage = () => {
               <button
                 onClick={() => setSelectedTab('credits')}
                 css={{
-                  padding: '12px 24px',
+                  padding: '8px 16px',
                   border: 'none',
                   background: 'none',
                   borderBottom: selectedTab === 'credits' ? '2px solid #4299e1' : 'none',
                   marginBottom: '-2px',
                   cursor: 'pointer',
                   color: selectedTab === 'credits' ? '#2c5282' : '#4a5568',
-                  fontWeight: selectedTab === 'credits' ? 600 : 400
+                  fontWeight: selectedTab === 'credits' ? 600 : 400,
+                  fontSize: '14px'
                 }}
               >
                 Créditos
@@ -122,18 +120,30 @@ const TransactionsPage = () => {
               <button
                 onClick={() => setSelectedTab('payments')}
                 css={{
-                  padding: '12px 24px',
+                  padding: '8px 16px',
                   border: 'none',
                   background: 'none',
                   borderBottom: selectedTab === 'payments' ? '2px solid #4299e1' : 'none',
                   marginBottom: '-2px',
                   cursor: 'pointer',
                   color: selectedTab === 'payments' ? '#2c5282' : '#4a5568',
-                  fontWeight: selectedTab === 'payments' ? 600 : 400
+                  fontWeight: selectedTab === 'payments' ? 600 : 400,
+                  fontSize: '14px'
                 }}
               >
                 Abonos
               </button>
+            </Box>
+
+            <Box css={{ marginBottom: '8px' }}>
+              <RouteLeadSelector
+                selectedRoute={selectedRoute}
+                selectedLead={selectedLead}
+                selectedDate={selectedDate}
+                onRouteSelect={handleRouteSelect}
+                onLeadSelect={handleLeadSelect}
+                onDateSelect={handleDateChange}
+              />
             </Box>
 
             <Box>
