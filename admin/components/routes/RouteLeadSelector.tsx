@@ -1,15 +1,17 @@
 /** @jsxRuntime classic */
 /** @jsx jsx */
+/** @jsxFrag jsx.Fragment */
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useLazyQuery } from '@apollo/client';
 import { Box, jsx } from '@keystone-ui/core';
 import { LoadingDots } from '@keystone-ui/loading';
 import { Select } from '@keystone-ui/fields';
 import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
 import { GET_LEADS } from '../../graphql/queries/routes';
-import type { Employee } from '../../types/transaction';
+import type { Employee, Option } from '../../types/transaction';
 import { gql } from '@apollo/client';
+import { FaTimes } from 'react-icons/fa';
 
 type Lead = {
   id: string;
@@ -70,10 +72,31 @@ interface RouteLeadSelectorProps {
   onRouteSelect: (route: Route | null) => void;
   onLeadSelect: (lead: Employee | null) => void;
   onDateSelect: (date: Date) => void;
-  onRefresh?: () => void;
 }
 
 const styles = {
+  container: {
+    width: '100%',
+    padding: '24px',
+    backgroundColor: 'white',
+    borderRadius: '8px',
+    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '24px',
+  },
+  title: {
+    fontSize: '20px',
+    fontWeight: '600',
+    color: '#1a202c',
+    margin: '0',
+  },
+  content: {
+    width: '100%',
+  },
   selectorsContainer: {
     display: 'grid',
     gridTemplateColumns: 'repeat(3, 1fr)',
@@ -150,6 +173,29 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '4px',
+  },
+  clearButton: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '32px',
+    height: '32px',
+    padding: '0',
+    border: '1px solid #e2e8f0',
+    borderRadius: '4px',
+    backgroundColor: 'white',
+    color: '#64748b',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    '&:hover': {
+      backgroundColor: '#f1f5f9',
+      color: '#475569',
+    }
+  },
+  selectContainer: {
+    display: 'flex',
+    gap: '8px',
+    alignItems: 'center',
   }
 };
 
@@ -220,14 +266,13 @@ const processRouteStats = (route: Route) => {
   return accounts;
 };
 
-export const RouteLeadSelector: React.FC<RouteLeadSelectorProps> = ({
+const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
   selectedRoute,
   selectedLead,
   selectedDate,
   onRouteSelect,
   onLeadSelect,
   onDateSelect,
-  onRefresh
 }) => {
   const { data: routesData, loading: routesLoading, error: routesError, refetch: refetchRoutes } = useQuery<{ routes: Route[] }>(GET_ROUTES, {
     variables: { where: {} },
@@ -235,6 +280,15 @@ export const RouteLeadSelector: React.FC<RouteLeadSelectorProps> = ({
   });
 
   const [getLeads, { data: leadsData, loading: leadsLoading, error: leadsError }] = useLazyQuery<{ employees: Lead[] }>(GET_LEADS);
+
+  const [routesErrorState, setRoutesErrorState] = useState<Error | null>(null);
+  const [leadsErrorState, setLeadsErrorState] = useState<Error | null>(null);
+
+  const dateOptions: Option[] = [
+    { label: 'Hoy', value: new Date().toISOString() },
+    { label: 'Ayer', value: new Date(Date.now() - 86400000).toISOString() },
+    { label: 'Esta semana', value: new Date(Date.now() - 604800000).toISOString() },
+  ];
 
   React.useEffect(() => {
     if (selectedRoute?.id) {
@@ -255,12 +309,6 @@ export const RouteLeadSelector: React.FC<RouteLeadSelectorProps> = ({
       getLeads({ variables: { routeId: selectedRoute.id } });
     }
   }, [selectedRoute, getLeads]);
-
-  React.useEffect(() => {
-    if (onRefresh) {
-      onRefresh();
-    }
-  }, [onRefresh]);
 
   const routes = routesData?.routes || [];
   const leads = leadsData?.employees || [];
@@ -284,17 +332,25 @@ export const RouteLeadSelector: React.FC<RouteLeadSelectorProps> = ({
   };
 
   const handleLeadChange = (option: any) => {
-    onLeadSelect(option?.data || null);
+    if (option?.data) {
+      onLeadSelect({
+        id: option.data.id,
+        type: option.data.type,
+        personalData: {
+          fullName: option.data.personalData.fullName,
+          __typename: 'PersonalData'
+        },
+        __typename: 'Employee'
+      });
+    } else {
+      onLeadSelect(null);
+    }
   };
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    try {
-      const [year, month, day] = e.target.value.split('-');
-      const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-      date.setMinutes(date.getMinutes() + date.getTimezoneOffset());
+    const date = new Date(e.target.value);
+    if (!isNaN(date.getTime())) {
       onDateSelect(date);
-    } catch (error) {
-      console.error('Error al procesar la fecha:', error);
     }
   };
 
@@ -311,54 +367,79 @@ export const RouteLeadSelector: React.FC<RouteLeadSelectorProps> = ({
   };
 
   return (
-    <>
-      <Box css={styles.selectorsContainer}>
-        <Box css={styles.selector}>
-          <div css={styles.selectorLabel}>Ruta</div>
-          <Select
-            value={routeOptions.find(option => option.value === selectedRoute?.id) || null}
-            options={routeOptions}
-            onChange={handleRouteChange}
-            placeholder="Seleccionar ruta"
-            isLoading={routesLoading}
-          />
-        </Box>
-        <Box css={styles.selector}>
-          <div css={styles.selectorLabel}>Líder</div>
-          <Select
-            value={leadOptions.find(option => option.value === selectedLead?.id) || null}
-            options={leadOptions}
-            onChange={handleLeadChange}
-            placeholder="Seleccionar líder"
-            isLoading={leadsLoading}
-            isDisabled={!selectedRoute}
-          />
-        </Box>
-        <Box css={styles.selector}>
-          <div css={styles.selectorLabel}>Fecha</div>
-          <input
-            type="date"
-            value={selectedDate.toISOString().split('T')[0]}
-            onChange={handleDateChange}
-            css={styles.dateInput}
-          />
-        </Box>
+    <Box css={styles.container}>
+      <Box css={styles.header}>
+        <h2 css={styles.title}>Selección de Ruta y Líder</h2>
       </Box>
 
-      {selectedRoute && routeSummary && (
-        <Box css={styles.accountsContainer}>
-          {routeSummary.accounts.map((account) => (
-            <div key={account.id} css={styles.summaryCard}>
-              <div css={styles.cardTopBorder} />
-              <div css={styles.cardLabel}>{account.name}</div>
-              <div css={styles.cardValue}>{formatCurrency(account.amount)}</div>
-              <div css={styles.cardSubValue}>
-                {account.totalAccounts} cuentas
-              </div>
-            </div>
-          ))}
+      <Box css={styles.content}>
+        <Box css={styles.selectorsContainer}>
+          <Box css={styles.selector}>
+            <div css={styles.selectorLabel}>Ruta</div>
+            <Select
+              value={routeOptions.find(option => option.value === selectedRoute?.id) || null}
+              options={routeOptions}
+              onChange={handleRouteChange}
+              placeholder="Seleccionar ruta"
+              isLoading={routesLoading}
+            />
+          </Box>
+
+          <Box css={styles.selector}>
+            <div css={styles.selectorLabel}>Líder</div>
+            <Box css={styles.selectContainer}>
+              <Select
+                value={leadOptions.find(option => option.value === selectedLead?.id) || null}
+                options={leadOptions}
+                onChange={handleLeadChange}
+                placeholder="Seleccionar líder"
+                isLoading={leadsLoading}
+                isDisabled={!selectedRoute}
+              />
+              {selectedLead && (
+                <button
+                  css={styles.clearButton}
+                  onClick={() => onLeadSelect(null)}
+                  title="Limpiar líder seleccionado"
+                >
+                  <FaTimes />
+                </button>
+              )}
+            </Box>
+          </Box>
+
+          <Box css={styles.selector}>
+            <div css={styles.selectorLabel}>Fecha</div>
+            <input
+              type="date"
+              value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''}
+              onChange={handleDateChange}
+              css={styles.dateInput}
+            />
+          </Box>
         </Box>
-      )}
-    </>
+
+        {selectedRoute && routeSummary && (
+          <Box css={styles.accountsContainer}>
+            {routeSummary.accounts.map((account) => (
+              <div key={account.id} css={styles.summaryCard}>
+                <div css={styles.cardTopBorder} />
+                <div css={styles.cardLabel}>{account.name}</div>
+                <div css={styles.cardValue}>{formatCurrency(account.amount)}</div>
+                <div css={styles.cardSubValue}>
+                  {account.totalAccounts} cuentas
+                </div>
+              </div>
+            ))}
+          </Box>
+        )}
+
+        {(routesError || leadsError) && (
+          <GraphQLErrorNotice networkError={routesError || leadsError} errors={[]} />
+        )}
+      </Box>
+    </Box>
   );
 };
+
+export default RouteLeadSelectorComponent;

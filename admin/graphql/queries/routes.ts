@@ -19,9 +19,29 @@ export const GET_ROUTE = gql`
         name
         type
         amount
-        __typename
+        transactions {
+          id
+          amount
+          type
+        }
       }
-      __typename
+      employees {
+        id
+        type
+        LeadManagedLoans {
+          id
+          status
+          requestedAmount
+          weeklyPaymentAmount
+          finishedDate
+          badDebtDate
+          payments {
+            id
+            amount
+            receivedAt
+          }
+        }
+      }
     }
   }
 `;

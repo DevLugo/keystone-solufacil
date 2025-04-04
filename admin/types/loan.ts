@@ -38,6 +38,7 @@ export type Loan = BaseLoan & {
   weeklyPaymentAmount: string;
   amountToPay: string;
   pendingAmount: string;
+  comissionAmount: string;
 };
 
 export type LoanType = {

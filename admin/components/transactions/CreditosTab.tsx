@@ -13,6 +13,7 @@ import { FaPlus, FaTrash, FaEdit, FaSearch, FaEllipsisV, FaCheck, FaTimes } from
 import { useQuery, useMutation } from '@apollo/client';
 import { gql } from '@apollo/client';
 import { calculateLoanAmounts } from '../../utils/loanCalculations';
+import { GET_ROUTE } from '../../graphql/queries/routes';
 
 // Import types
 import type { Loan } from '../../types/loan';
@@ -290,6 +291,7 @@ interface CreditosTabProps {
     };
     __typename: string;
   } | null;
+  onBalanceUpdate?: (balance: number) => void;
 }
 
 interface DropdownPortalProps {
@@ -316,7 +318,7 @@ const DropdownPortal = ({ children, isOpen }: DropdownPortalProps) => {
   );
 };
 
-export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: CreditosTabProps) => {
+export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalanceUpdate }: CreditosTabProps) => {
   const [loans, setLoans] = useState<Loan[]>([]);
   const [newLoan, setNewLoan] = useState<Partial<Loan>>({
     requestedAmount: '0',
@@ -352,23 +354,33 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
   const [isAddingNew, setIsAddingNew] = useState(false);
   const buttonRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [routeBalance, setRouteBalance] = useState<number>(0);
 
-  const { data: loansData, loading: loansLoading, error: loansError, refetch: refetchLoans } = useQuery(GET_LOANS, {
+  const { data: routeData, loading: routeLoading, error: routeError, refetch: refetchRoute } = useQuery<{ route: Route }>(GET_ROUTE, {
     variables: { 
-      leadId: selectedLead?.id || '',
-      date: selectedDate?.toISOString().split('T')[0] + 'T00:00:00.000Z',
-      nextDate: selectedDate ? new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000 - 60000).toISOString() : ''
+      where: { id: selectedRoute }
     },
-    skip: !selectedLead || !selectedDate,
-    onCompleted: (data) => {
-      if (data?.loans) {
-        setLoans(data.loans);
-      }
-    }
+    skip: !selectedRoute,
   });
 
-  const [createLoan, { loading: createLoading }] = useMutation(CREATE_LOAN);
-  const [updateLoan, { loading: updateLoading }] = useMutation(UPDATE_LOAN);
+  const { data: loansData, loading: loansLoading, error: loansError, refetch: refetchLoans } = useQuery<{ loans: Loan[] }>(GET_LOANS, {
+    variables: {
+      date: selectedDate ? new Date(new Date(selectedDate).setHours(0, 0, 0, 0)).toISOString() : '',
+      nextDate: selectedDate ? new Date(new Date(selectedDate).setHours(24, 0, 0, 0)).toISOString() : '',
+      leadId: selectedLead?.id || null
+    },
+    skip: !selectedDate || !selectedLead?.id,
+  });
+
+  // Efecto para actualizar el estado de loans cuando cambien los datos
+  useEffect(() => {
+    if (loansData?.loans) {
+      console.log('Loans data recibida:', loansData.loans);
+      setLoans(loansData.loans);
+    }
+  }, [loansData]);
 
   const { data: loanTypesData, loading: loanTypesLoading } = useQuery(GET_LOAN_TYPES);
 
@@ -570,6 +582,8 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
     });
   };
 
+  const [createLoan, { loading: creatingLoan }] = useMutation(CREATE_LOAN);
+
   const handleSaveNewLoan = async () => {
     try {
       const loanData = {
@@ -597,13 +611,31 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
         }
       };
 
-      const { data } = await createLoan({ variables: { data: loanData } });
+      const { data } = await createLoan({ 
+        variables: { 
+          data: loanData 
+        } 
+      });
       
       if (data?.createLoan) {
+        // 1. Actualizar la lista de préstamos
         setLoans([...loans, data.createLoan]);
         setNewLoanId(data.createLoan.id);
-        setIsAddingNew(false);
+        
+        // 2. Actualizar los datos de la ruta
+        await refetchRoute();
+        
+        // 3. Actualizar la lista de préstamos
         await refetchLoans();
+        
+        // 4. Actualizar el balance local
+        if (onBalanceUpdate) {
+          const totalAmount = parseFloat(data.createLoan.amountGived);
+          onBalanceUpdate(-totalAmount);
+        }
+        
+        // 5. Cerrar el formulario
+        setIsAddingNew(false);
       }
     } catch (error) {
       console.error('Error al crear el préstamo:', error);
@@ -653,6 +685,13 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
         setLoans(loans.map(loan => loan.id === editingLoan.id ? data.updateLoan : loan));
         setEditingLoan(null);
         await refetchLoans();
+        await refetchRoute();
+        // Actualizar el balance después de actualizar un préstamo
+        if (onBalanceUpdate) {
+          const oldTotal = parseFloat(editingLoan.amountGived) + parseFloat(editingLoan.comissionAmount || '0');
+          const newTotal = parseFloat(data.updateLoan.amountGived) + parseFloat(data.updateLoan.comissionAmount || '0');
+          onBalanceUpdate(oldTotal - newTotal);
+        }
       }
     } catch (error) {
       console.error('Error al actualizar el préstamo:', error);
@@ -661,6 +700,9 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
 
   const handleDeleteLoan = async (id: string) => {
     try {
+      const loanToDelete = loans.find(loan => loan.id === id);
+      if (!loanToDelete) return;
+
       const { data } = await updateLoan({
         variables: {
           id,
@@ -673,6 +715,12 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
       if (data?.updateLoan) {
         setLoans(loans.filter(loan => loan.id !== id));
         await refetchLoans();
+        await refetchRoute();
+        // Actualizar el balance después de eliminar un préstamo
+        if (onBalanceUpdate) {
+          const totalAmount = parseFloat(loanToDelete.amountGived) + parseFloat(loanToDelete.comissionAmount || '0');
+          onBalanceUpdate(totalAmount);
+        }
       }
     } catch (error) {
       console.error('Error al eliminar el préstamo:', error);
@@ -699,6 +747,16 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
       left: rect.right - 160, // 160px es el ancho del dropdown
     };
   };
+
+  useEffect(() => {
+    if (routeData?.route) {
+      const balance = routeData.route.accounts.reduce((total, account) => total + account.amount, 0);
+      setRouteBalance(balance);
+      if (onBalanceUpdate) {
+        onBalanceUpdate(balance);
+      }
+    }
+  }, [routeData, onBalanceUpdate]);
 
   if (loansLoading || loanTypesLoading || previousLoansLoading) {
     return (
@@ -1459,39 +1517,52 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead }: Credi
                       width: '100px',
                     }}>
                       <Box style={{ display: 'flex', gap: '4px' }}>
-                        <Button
-                          tone="positive"
-                          size="small"
-                          onClick={handleSaveNewLoan}
-                          style={{
-                            padding: '6px',
-                            width: '32px',
-                            height: '32px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
+                        {creatingLoan ? (
+                          <Box style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
                             justifyContent: 'center',
-                          }}
-                          title="Guardar"
-                        >
-                          <FaCheck size={14} />
-                        </Button>
-                        <Button
-                          tone="passive"
-                          size="small"
-                          onClick={handleCancelNew}
-                          style={{
-                            padding: '6px',
-                            width: '32px',
-                            height: '32px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
-                          title="Cancelar"
-                        >
-                          <FaTimes size={14} />
-                        </Button>
-                        
+                            width: '100%',
+                            height: '32px'
+                          }}>
+                            <LoadingDots label="Guardando" size="small" />
+                          </Box>
+                        ) : (
+                          <>
+                            <Button
+                              tone="positive"
+                              size="small"
+                              onClick={handleSaveNewLoan}
+                              style={{
+                                padding: '6px',
+                                width: '32px',
+                                height: '32px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                              title="Guardar"
+                            >
+                              <FaCheck size={14} />
+                            </Button>
+                            <Button
+                              tone="passive"
+                              size="small"
+                              onClick={handleCancelNew}
+                              style={{
+                                padding: '6px',
+                                width: '32px',
+                                height: '32px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                              title="Cancelar"
+                            >
+                              <FaTimes size={14} />
+                            </Button>
+                          </>
+                        )}
                       </Box>
                     </td>
                   </tr>

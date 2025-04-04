@@ -14,7 +14,7 @@ import { FaPlus, FaEllipsisV, FaCheck, FaTimes, FaEdit, FaTrash } from 'react-ic
 import { createPortal } from 'react-dom';
 
 // Import components
-import { RouteLeadSelector } from '../components/routes/RouteLeadSelector';
+import RouteLeadSelector from '../components/routes/RouteLeadSelector';
 
 // Import GraphQL queries and mutations
 import { GET_ROUTES, GET_LEADS } from '../graphql/queries/routes';
