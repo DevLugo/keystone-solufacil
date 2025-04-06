@@ -164,8 +164,8 @@ const CREATE_LOAN = gql`
 `;
 
 const UPDATE_LOAN = gql`
-  mutation UpdateLoan($id: ID!, $data: LoanUpdateInput!) {
-    updateLoan(where: { id: $id }, data: $data) {
+  mutation UpdateLoan($where: LoanWhereUniqueInput!, $data: LoanUpdateInput!) {
+    updateLoan(where: $where, data: $data) {
       id
       requestedAmount
       amountGived
@@ -227,6 +227,16 @@ const UPDATE_LOAN = gql`
         __typename
       }
       __typename
+    }
+  }
+`;
+
+const DELETE_LOAN = gql`
+  mutation DeleteLoan($where: LoanWhereUniqueInput!) {
+    deleteLoan(where: $where) {
+      id
+      amountGived
+      comissionAmount
     }
   }
 `;
@@ -357,6 +367,9 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [routeBalance, setRouteBalance] = useState<number>(0);
+  const [isCreating, setIsCreating] = useState(false);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [isUpdating, setIsUpdating] = useState<string | null>(null);
 
   const { data: routeData, loading: routeLoading, error: routeError, refetch: refetchRoute } = useQuery<{ route: Route }>(GET_ROUTE, {
     variables: { 
@@ -582,10 +595,13 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     });
   };
 
-  const [createLoan, { loading: creatingLoan }] = useMutation(CREATE_LOAN);
+  const [createLoan] = useMutation(CREATE_LOAN);
+  const [updateLoan] = useMutation(UPDATE_LOAN);
+  const [deleteLoan] = useMutation(DELETE_LOAN);
 
   const handleSaveNewLoan = async () => {
     try {
+      setIsCreating(true);
       const loanData = {
         requestedAmount: newLoan.requestedAmount,
         amountGived: newLoan.amountGived,
@@ -622,23 +638,25 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         setLoans([...loans, data.createLoan]);
         setNewLoanId(data.createLoan.id);
         
-        // 2. Actualizar los datos de la ruta
-        await refetchRoute();
-        
-        // 3. Actualizar la lista de préstamos
-        await refetchLoans();
-        
-        // 4. Actualizar el balance local
-        if (onBalanceUpdate) {
-          const totalAmount = parseFloat(data.createLoan.amountGived);
-          onBalanceUpdate(-totalAmount);
-        }
-        
-        // 5. Cerrar el formulario
+        // 2. Cerrar el formulario inmediatamente
         setIsAddingNew(false);
+        
+        // 3. Actualizar los datos en segundo plano
+        Promise.all([
+          refetchRoute(),
+          refetchLoans()
+        ]).then(() => {
+          // 4. Actualizar el balance local
+          if (onBalanceUpdate) {
+            const totalAmount = parseFloat(data.createLoan.amountGived);
+            onBalanceUpdate(-totalAmount);
+          }
+        });
       }
     } catch (error) {
       console.error('Error al crear el préstamo:', error);
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -661,6 +679,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     if (!editingLoan) return;
 
     try {
+      setIsUpdating(editingLoan.id);
       const loanData = {
         requestedAmount: editingLoan.requestedAmount,
         amountGived: editingLoan.amountGived,
@@ -669,61 +688,67 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         comissionAmount: editingLoan.comissionAmount
       };
 
-      console.log('Actualizando préstamo:', {
-        id: editingLoan.id,
-        data: loanData
-      });
-
       const { data } = await updateLoan({
         variables: {
-          id: editingLoan.id,
+          where: { id: editingLoan.id },
           data: loanData
         }
       });
 
       if (data?.updateLoan) {
-        setLoans(loans.map(loan => loan.id === editingLoan.id ? data.updateLoan : loan));
+        setLoans(prevLoans => 
+          prevLoans.map(loan => loan.id === editingLoan.id ? data.updateLoan : loan)
+        );
+        
+        Promise.all([
+          refetchLoans(),
+          refetchRoute()
+        ]).then(() => {
+          if (onBalanceUpdate) {
+            const oldTotal = parseFloat(editingLoan.amountGived) + parseFloat(editingLoan.comissionAmount || '0');
+            const newTotal = parseFloat(data.updateLoan.amountGived) + parseFloat(data.updateLoan.comissionAmount || '0');
+            onBalanceUpdate(oldTotal - newTotal);
+          }
+        });
+        
         setEditingLoan(null);
-        await refetchLoans();
-        await refetchRoute();
-        // Actualizar el balance después de actualizar un préstamo
-        if (onBalanceUpdate) {
-          const oldTotal = parseFloat(editingLoan.amountGived) + parseFloat(editingLoan.comissionAmount || '0');
-          const newTotal = parseFloat(data.updateLoan.amountGived) + parseFloat(data.updateLoan.comissionAmount || '0');
-          onBalanceUpdate(oldTotal - newTotal);
-        }
       }
     } catch (error) {
       console.error('Error al actualizar el préstamo:', error);
+      await refetchLoans();
+    } finally {
+      setIsUpdating(null);
     }
   };
 
   const handleDeleteLoan = async (id: string) => {
     try {
-      const loanToDelete = loans.find(loan => loan.id === id);
-      if (!loanToDelete) return;
-
-      const { data } = await updateLoan({
+      setIsDeleting(id);
+      const { data } = await deleteLoan({
         variables: {
-          id,
-          data: {
-            finishedDate: new Date().toISOString()
-          }
+          where: { id }
         }
       });
 
-      if (data?.updateLoan) {
-        setLoans(loans.filter(loan => loan.id !== id));
-        await refetchLoans();
-        await refetchRoute();
-        // Actualizar el balance después de eliminar un préstamo
-        if (onBalanceUpdate) {
-          const totalAmount = parseFloat(loanToDelete.amountGived) + parseFloat(loanToDelete.comissionAmount || '0');
-          onBalanceUpdate(totalAmount);
-        }
+      if (data?.deleteLoan) {
+        setLoans(prevLoans => prevLoans.filter(loan => loan.id !== id));
+        
+        Promise.all([
+          refetchLoans(),
+          refetchRoute()
+        ]).then(() => {
+          if (onBalanceUpdate) {
+            const updatedBalance = routeBalance + parseFloat(data.deleteLoan.amountGived) + parseFloat(data.deleteLoan.comissionAmount || '0');
+            onBalanceUpdate(updatedBalance);
+            setRouteBalance(updatedBalance);
+          }
+        });
       }
     } catch (error) {
       console.error('Error al eliminar el préstamo:', error);
+      await refetchLoans();
+    } finally {
+      setIsDeleting(null);
     }
   };
 
@@ -743,7 +768,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
 
     const rect = button.getBoundingClientRect();
     return {
-      top: rect.bottom + 4,
+      top: rect.top - 4, // Posicionar arriba del botón
       left: rect.right - 160, // 160px es el ancho del dropdown
     };
   };
@@ -1284,22 +1309,34 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                       width: '40px',
                       position: 'relative',
                     }}>
-                      <Button
-                        ref={el => buttonRefs.current[loan.id] = el}
-                        tone="passive"
-                        size="small"
-                        onClick={() => setActiveMenu(activeMenu === loan.id ? null : loan.id)}
-                        style={{
-                          padding: '6px',
-                          minWidth: '32px',
-                          height: '32px',
-                          display: 'inline-flex',
-                          alignItems: 'center',
+                      {isDeleting === loan.id ? (
+                        <Box style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
                           justifyContent: 'center',
-                        }}
-                      >
-                        <FaEllipsisV size={14} />
-                      </Button>
+                          width: '100%',
+                          height: '32px'
+                        }}>
+                          <LoadingDots label="Eliminando" size="small" />
+                        </Box>
+                      ) : (
+                        <Button
+                          ref={el => buttonRefs.current[loan.id] = el}
+                          tone="passive"
+                          size="small"
+                          onClick={() => setActiveMenu(activeMenu === loan.id ? null : loan.id)}
+                          style={{
+                            padding: '6px',
+                            minWidth: '32px',
+                            height: '32px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <FaEllipsisV size={14} />
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -1517,7 +1554,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                       width: '100px',
                     }}>
                       <Box style={{ display: 'flex', gap: '4px' }}>
-                        {creatingLoan ? (
+                        {isCreating ? (
                           <Box style={{ 
                             display: 'flex', 
                             alignItems: 'center', 
@@ -1546,7 +1583,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                               <FaCheck size={14} />
                             </Button>
                             <Button
-                              tone="passive"
+                              tone="negative"
                               size="small"
                               onClick={handleCancelNew}
                               style={{
@@ -1585,10 +1622,11 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                 ...getDropdownPosition(loan.id),
                 backgroundColor: 'white',
                 borderRadius: '8px',
-                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                boxShadow: '0 -4px 6px -1px rgba(0, 0, 0, 0.1), 0 -2px 4px -1px rgba(0, 0, 0, 0.06)',
                 pointerEvents: 'auto',
                 minWidth: '160px',
                 zIndex: 10000,
+                transform: 'translateY(-100%)', // Mover el menú hacia arriba
               }}
             >
               <button
@@ -1610,10 +1648,19 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                   ...menuItemStyle,
                   color: '#DC2626',
                   borderTop: '1px solid #E5E7EB',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  width: '100%',
+                  padding: '8px 12px',
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  textAlign: 'left'
                 }}
+                disabled={isDeleting === loan.id}
               >
-                <FaTrash size={14} style={{ marginRight: '8px' }} />
-                Eliminar
+                <FaTrash size={14} />
+                <span>Eliminar</span>
               </button>
             </div>
           )
@@ -1627,10 +1674,11 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
               ...getDropdownPosition('new'),
               backgroundColor: 'white',
               borderRadius: '8px',
-              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+              boxShadow: '0 -4px 6px -1px rgba(0, 0, 0, 0.1), 0 -2px 4px -1px rgba(0, 0, 0, 0.06)',
               pointerEvents: 'auto',
               minWidth: '160px',
               zIndex: 10000,
+              transform: 'translateY(-100%)', // Mover el menú hacia arriba
             }}
           >
             <button
@@ -1951,14 +1999,21 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                   size="large"
                   weight="bold"
                   onClick={handleUpdateLoan}
+                  disabled={isUpdating === editingLoan.id}
                   style={{
                     padding: '10px 20px',
                     borderRadius: '8px',
                     fontSize: '14px',
                     backgroundColor: '#0052CC',
+                    opacity: isUpdating === editingLoan.id ? 0.7 : 1,
+                    cursor: isUpdating === editingLoan.id ? 'wait' : 'pointer'
                   }}
                 >
-                  Guardar Cambios
+                  {isUpdating === editingLoan.id ? (
+                    <LoadingDots label="Guardando" size="small" />
+                  ) : (
+                    'Guardar Cambios'
+                  )}
                 </Button>
               </Box>
             </Stack>

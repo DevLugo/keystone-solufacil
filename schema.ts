@@ -237,7 +237,7 @@ export const PersonalData = list({
 export const Loan = list({
   access: allowAll,
   db: {
-    idField: { kind: 'cuid' }, // Usa db.idField para definir el campo id
+    idField: { kind: 'cuid' },
   },
   fields: {
     oldId: text({ db: { isNullable: true }, isIndexed: 'unique', isFilterable: true }),
@@ -438,8 +438,21 @@ export const Loan = list({
     }),
   },
   hooks: {
+    beforeOperation: async ({ operation, item, context }) => {
+      if (operation === 'delete') {
+        // Guardar las transacciones asociadas antes de eliminar el préstamo
+        const transactions = await context.prisma.transaction.findMany({
+          where: {
+            loanId: item.id.toString()
+          }
+        });
+        console.log("////////////TRANSACTIONS-beforeOperation///////////", transactions, operation, item);
+        // Almacenar las transacciones en el contexto para usarlas después
+        context.transactionsToDelete = transactions;
+      }
+    },
     afterOperation: async ({ operation, item, context, originalItem }) => {
-
+      console.log("////////////HOOK///////////", operation, item, originalItem);
       if ((operation === 'create' || operation === 'update') && item) {
         const loan = await prisma.loan.findFirst({
           where: { id: item.id.toString() },
@@ -449,7 +462,6 @@ export const Loan = list({
           }
         });
 
-        console.log("////////////LOAN///////////", loan);
         const leadId: string = item.leadId as string;
         if (leadId === null) {
           return;
@@ -457,18 +469,7 @@ export const Loan = list({
         const lead = await context.db.Employee.findOne({
           where: { id: leadId },
         });
-        console.log("////////////LEAD///////////", item, lead);
-        // si status es igual a finalizado/renavado/cancelado, entonces se setea la fecha de termino
-        if (item.status === 'FINISHED' || item.status === 'RENOVATED' || item.status === 'CANCELED') {
-          context.db.Loan.updateOne({
-            where: { id: item.id.toString() },
-            data: { finishedDate: new Date() },
-          })
-        }
-        console.log("////////////LEAD1///////////",);
 
-
-        
         const account = await context.prisma.account.findFirst({
           where: { 
             routeId: lead?.routesId,
@@ -476,9 +477,8 @@ export const Loan = list({
           },
         });
 
-        console.log("////////////LEAD2///////////", account);
         if (operation === 'create') {
-          // TODO:update the existing transaction on the update/delete action
+          // Crear transacciones de apertura
           const transactions = await context.db.Transaction.createMany({
             data: [
               {
@@ -501,18 +501,74 @@ export const Loan = list({
               }
             ]
           });
-        };
-        console.log("////////////originalItem///////////", originalItem, item);
-        
+
+          // Actualizar balance de la cuenta
+          if (account) {
+            const currentAmount = parseFloat(account.amount.toString());
+            const newAmount = currentAmount - parseFloat(item.amountGived.toString()) - parseFloat(item.comissionAmount?.toString() || '0');
+            await context.db.Account.updateOne({
+              where: { id: account.id },
+              data: { amount: newAmount.toString() }
+            });
+          }
+        } else if (operation === 'update') {
+          // Actualizar transacciones existentes
+          const existingTransactions = await context.db.Transaction.findMany({
+            where: {
+              loan: { id: { equals: item.id.toString() } },
+              type: { equals: 'EXPENSE' },
+              OR: [
+                { expenseSource: { equals: 'LOAN_GRANTED' } },
+                { expenseSource: { equals: 'LOAN_GRANTED_COMISSION' } }
+              ]
+            }
+          });
+
+          for (const transaction of existingTransactions) {
+            if (transaction.expenseSource === 'LOAN_GRANTED') {
+              await context.db.Transaction.updateOne({
+                where: { id: transaction.id.toString() },
+                data: {
+                  amount: item.amountGived.toString(),
+                  date: item.signDate
+                }
+              });
+            } else if (transaction.expenseSource === 'LOAN_GRANTED_COMISSION') {
+              await context.db.Transaction.updateOne({
+                where: { id: transaction.id.toString() },
+                data: {
+                  amount: item.comissionAmount?.toString() || '0',
+                  date: item.signDate
+                }
+              });
+            }
+          }
+
+          // Actualizar balance de la cuenta
+          if (account) {
+            const currentAmount = parseFloat(account.amount.toString());
+            const oldAmount = parseFloat(originalItem?.amountGived.toString() || '0');
+            const oldCommission = parseFloat(originalItem?.comissionAmount?.toString() || '0');
+            const newAmount = parseFloat(item.amountGived.toString());
+            const newCommission = parseFloat(item.comissionAmount?.toString() || '0');
+            
+            const balanceChange = (oldAmount + oldCommission) - (newAmount + newCommission);
+            const updatedAmount = currentAmount + balanceChange;
+            
+            await context.db.Account.updateOne({
+              where: { id: account.id },
+              data: { amount: updatedAmount.toString() }
+            });
+          }
+        }
+
         const totalProfitAmount = await calculateLoanProfitAmount(loan?.id as string);
-        ///const previosLoanProfitAmount = await calculatePendingProfitAmount(loan?.previousLoanId as string);
         await prisma.loan.update({
           where: { id: item.id.toString() },
           data: { profitAmount: totalProfitAmount },
         });
-        // Trigger afterOperation hook for LoanPayment
+
         if (originalItem && originalItem.loantypeId !== item.loantypeId) {
-          // Trigger afterOperation hook for LoanPayment
           const payments = await context.db.LoanPayment.findMany({
             where: { loan: { id: { equals: item.id.toString() } } },
           });
@@ -520,11 +576,68 @@ export const Loan = list({
           for (const payment of payments) {
             await context.db.LoanPayment.updateOne({
               where: { id: payment.id as string },
-              data: { updatedAt: new Date() }, // Trigger the afterOperation hook
+              data: { updatedAt: new Date() },
             });
           }
         }
+      } else if (operation === 'delete' && originalItem) {
+        try {
+          console.log('Iniciando eliminación de préstamo:', originalItem.id);
+          
+          // Obtener el lead y la cuenta asociada
+          const lead = await context.db.Employee.findOne({
+            where: { id: originalItem.leadId as string },
+          });
+          console.log('Lead encontrado:', lead?.id);
 
+          const account = await context.prisma.account.findFirst({
+            where: { 
+              routeId: lead?.routesId,
+              type: 'EMPLOYEE_CASH_FUND'
+            },
+          });
+          console.log('Cuenta encontrada:', account?.id);
+
+          // Eliminar todas las transacciones asociadas al préstamo
+          console.log('Eliminando transacciones...');
+          const transactionsToDelete = context.transactionsToDelete || [];
+          console.log('Transacciones a eliminar:', transactionsToDelete.length);
+
+          for (const transaction of transactionsToDelete) {
+            await context.prisma.transaction.delete({
+              where: { id: transaction.id }
+            });
+          }
+          console.log('Transacciones eliminadas');
+
+          // Actualizar balance de la cuenta
+          if (account) {
+            console.log('Actualizando balance de cuenta...');
+            const currentAmount = parseFloat(account.amount.toString());
+            const loanAmount = parseFloat(originalItem.amountGived?.toString() || '0');
+            const commissionAmount = parseFloat(originalItem.comissionAmount?.toString() || '0');
+            const totalAmount = loanAmount + commissionAmount;
+            
+            const updatedAmount = currentAmount + totalAmount;
+            console.log('Montos:', {
+              currentAmount,
+              loanAmount,
+              commissionAmount,
+              totalAmount,
+              updatedAmount
+            });
+
+            // Actualizar el balance usando prisma directamente
+            await context.prisma.account.update({
+              where: { id: account.id },
+              data: { amount: updatedAmount.toString() }
+            });
+            console.log('Balance actualizado:', updatedAmount);
+          }
+        } catch (error) {
+          console.error('Error al eliminar transacciones asociadas al préstamo:', error);
+          throw error;
+        }
       }
     },
   },
@@ -533,8 +646,6 @@ export const Loan = list({
       initialColumns: ['totalPayments', 'signDate', 'payments', 'oldId'],
     },
   },
-  
-
 });
 
 /* export const Profit = list({
