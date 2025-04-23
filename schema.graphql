@@ -1836,6 +1836,7 @@ type CustomLeadPaymentReceived {
 }
 
 type Payment {
+  id: ID!
   amount: Float!
   comission: Float!
   loanId: String!

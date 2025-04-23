@@ -388,7 +388,7 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
   const { data: expensesData, loading: expensesLoading, refetch: refetchExpenses } = useQuery(GET_EXPENSES_BY_DATE, {
     variables: { 
       date: selectedDate.toISOString().split('T')[0] + 'T00:00:00.000Z',
-      nextDate: new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000 - 60000).toISOString() // Restamos 1 minuto
+      nextDate: new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0] + 'T00:00:00.000Z'
     },
     skip: !selectedDate,
     onCompleted: (data) => {
@@ -951,7 +951,13 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
                   <td style={styles.tableCellStyle}>
                     ${parseFloat(transaction.amount).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
-                  <td style={styles.tableCellStyle}>{new Date(transaction.date).toLocaleDateString()}</td>
+                  <td style={styles.tableCellStyle}>
+                    {new Date(new Date(transaction.date).getTime() + new Date().getTimezoneOffset() * 60000).toLocaleDateString('es-MX', {
+                      year: 'numeric',
+                      month: '2-digit',
+                      day: '2-digit'
+                    })}
+                  </td>
                   <td style={styles.tableCellStyle}>{transaction.lead?.personalData?.fullName || 'Sin líder'}</td>
                   <td style={styles.tableCellStyle}>{transaction.sourceAccount?.name || '-'}</td>
                   <td style={{
@@ -1006,7 +1012,13 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
                       placeholder="0.00"
                     />
                   </td>
-                  <td style={styles.tableCellStyle}>{new Date(transaction.date).toLocaleDateString()}</td>
+                  <td style={styles.tableCellStyle}>
+                    {new Date(new Date(transaction.date).getTime() + new Date().getTimezoneOffset() * 60000).toLocaleDateString('es-MX', {
+                      year: 'numeric',
+                      month: '2-digit',
+                      day: '2-digit'
+                    })}
+                  </td>
                   <td style={styles.tableCellStyle}>{selectedLead?.personalData?.fullName}</td>
                   <td style={styles.tableCellStyle}>
                     <Box css={styles.selectContainer}>

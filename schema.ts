@@ -690,7 +690,9 @@ export const LoanPayment = list({
     oldLoanId: text({ db: { isNullable: true } }),
     loan: relationship({ ref: 'Loan.payments' }),
     //collector: relationship({ ref: 'Employee.loanPayment' }),
-    transactions: relationship({ ref: 'Transaction.loanPayment', many: true }),
+    transactions: relationship({ ref: 'Transaction.loanPayment', many: true, hooks:{
+
+    } }),
     //transactionId: text({ isIndexed: 'unique' }),
     type: select({
       options: [
@@ -969,6 +971,12 @@ export const Transaction = list({
         if (operation === 'update' && originalItem) {
           console.log('Revirtiendo transacción original...');
           
+          // Si la transacción está asociada a un LoanPayment, no actualizamos balances
+          if (originalItem.loanPaymentId) {
+            console.log('Transacción asociada a LoanPayment, omitiendo actualización de balances');
+            return;
+          }
+          
           // Obtener cuentas involucradas en la transacción original
           let originalSourceAccount = null;
           let originalDestAccount = null;
@@ -986,34 +994,47 @@ export const Transaction = list({
           }
 
           const originalAmount = parseAmount(originalItem.amount);
+          const newAmount = parseAmount(item.amount);
+          // La diferencia es el cambio neto que queremos aplicar
+          const difference = originalAmount - newAmount;
 
-          // Revertir el efecto en la cuenta origen
-          if (originalSourceAccount && (originalItem.type === 'EXPENSE' || originalItem.type === 'TRANSFER')) {
+          // Aplicar la diferencia en la cuenta origen
+          if (originalSourceAccount && (item.type === 'EXPENSE' || item.type === 'TRANSFER')) {
             const currentAmount = parseAmount(originalSourceAccount.amount);
-            const revertedAmount = parseFloat((currentAmount + originalAmount).toFixed(2));
+            const newBalance = parseFloat((currentAmount + difference).toFixed(2));
+            
+            if (newBalance < 0) {
+              throw new Error(`La operación resultaría en un balance negativo: ${newBalance}`);
+            }
+
             await context.prisma.account.update({
               where: { id: originalSourceAccount.id },
-              data: { amount: revertedAmount.toString() }
+              data: { amount: newBalance.toString() }
             });
-            console.log('Revertido en cuenta origen:', {
+            console.log('Nuevo balance cuenta origen:', {
               original: currentAmount,
-              reverted: revertedAmount,
-              amount: originalAmount
+              nuevo: newBalance,
+              diferencia: difference,
+              montoOriginal: originalAmount,
+              montoNuevo: newAmount
             });
           }
 
-          // Revertir el efecto en la cuenta destino
-          if (originalDestAccount && (originalItem.type === 'INCOME' || originalItem.type === 'TRANSFER')) {
+          // Aplicar la diferencia en la cuenta destino
+          if (originalDestAccount && (item.type === 'INCOME' || item.type === 'TRANSFER')) {
             const currentAmount = parseAmount(originalDestAccount.amount);
-            const revertedAmount = parseFloat((currentAmount - originalAmount).toFixed(2));
+            const newBalance = parseFloat((currentAmount - difference).toFixed(2));
+
             await context.prisma.account.update({
               where: { id: originalDestAccount.id },
-              data: { amount: revertedAmount.toString() }
+              data: { amount: newBalance.toString() }
             });
-            console.log('Revertido en cuenta destino:', {
+            console.log('Nuevo balance cuenta destino:', {
               original: currentAmount,
-              reverted: revertedAmount,
-              amount: originalAmount
+              nuevo: newBalance,
+              diferencia: difference,
+              montoOriginal: originalAmount,
+              montoNuevo: newAmount
             });
           }
         }
