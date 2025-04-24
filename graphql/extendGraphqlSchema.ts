@@ -479,5 +479,191 @@ export const extendGraphqlSchema = graphql.extend(base => {
         },
       }),
     },
+    query: {
+      getTransactionsSummary: graphql.field({
+        type: graphql.nonNull(graphql.list(graphql.nonNull(graphql.object()({
+          name: 'TransactionSummary',
+          fields: {
+            date: graphql.field({ type: graphql.nonNull(graphql.String) }),
+            locality: graphql.field({ type: graphql.nonNull(graphql.String) }),
+            abono: graphql.field({ type: graphql.nonNull(graphql.Float) }),
+            credito: graphql.field({ type: graphql.nonNull(graphql.Float) }),
+            viatic: graphql.field({ type: graphql.nonNull(graphql.Float) }),
+            gasoline: graphql.field({ type: graphql.nonNull(graphql.Float) }),
+            accommodation: graphql.field({ type: graphql.nonNull(graphql.Float) }),
+            nominaSalary: graphql.field({ type: graphql.nonNull(graphql.Float) }),
+            externalSalary: graphql.field({ type: graphql.nonNull(graphql.Float) }),
+            vehiculeMaintenance: graphql.field({ type: graphql.nonNull(graphql.Float) }),
+            loanGranted: graphql.field({ type: graphql.nonNull(graphql.Float) }),
+            loanPaymentComission: graphql.field({ type: graphql.nonNull(graphql.Float) }),
+            loanGrantedComission: graphql.field({ type: graphql.nonNull(graphql.Float) }),
+            leadComission: graphql.field({ type: graphql.nonNull(graphql.Float) }),
+            moneyInvestment: graphql.field({ type: graphql.nonNull(graphql.Float) }),
+            otro: graphql.field({ type: graphql.nonNull(graphql.Float) }),
+            balance: graphql.field({ type: graphql.nonNull(graphql.Float) }),
+            profit: graphql.field({ type: graphql.nonNull(graphql.Float) }),
+          },
+        })))),
+        args: {
+          startDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          endDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+        },
+        resolve: async (root, { startDate, endDate }, context: Context) => {
+          const start = new Date(startDate);
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+
+          console.log('Buscando transacciones entre:', start, 'y', end);
+
+          const rangeTransactions = await context.prisma.transaction.findMany({
+            where: {
+              date: {
+                gte: start,
+                lte: end,
+              },
+            },
+            include: {
+              lead: {
+                include: {
+                  personalData: {
+                    include: {
+                      addresses: {
+                        include: {
+                          location: {
+                            include: {
+                              municipality: {
+                                include: {
+                                  state: true
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          });
+
+          console.log('Transacciones encontradas:', rangeTransactions);
+          console.log('Número de transacciones:', rangeTransactions.length);
+
+          if (!rangeTransactions || !Array.isArray(rangeTransactions)) {
+            console.error('Las transacciones no son un array:', rangeTransactions);
+            return [];
+          }
+
+          if (rangeTransactions.length === 0) {
+            console.log('No se encontraron transacciones en el rango de fechas especificado');
+            return [];
+          }
+
+          const localidades: Record<string, Record<string, { [key: string]: number }>> = {};
+
+          for (const transaction of rangeTransactions) {
+            console.log('Procesando transacción:', {
+              id: transaction.id,
+              date: transaction.date,
+              type: transaction.type,
+              amount: transaction.amount,
+              lead: transaction.lead?.personalData?.fullName
+            });
+
+            const date = transaction.date ? transaction.date.toISOString().split('T')[0] : 'Invalid Date';
+            
+            // Obtener la localidad y estado del lead
+            const leadLocation = transaction.lead?.personalData?.addresses[0]?.location;
+            const location = leadLocation;
+
+            console.log("LEAD LOCATION Perosnal data", transaction.lead?.personalData);
+            console.log('Ubicación encontrada:', {
+              leadLocation: leadLocation?.name,
+              selectedLocation: location?.municipality?.name
+            });
+
+            const localityName = location?.name || 'General';
+            const stateName = location?.municipality?.state?.name || '';
+            const leaderName = transaction.lead?.personalData?.fullName || 'Sin líder';
+            
+            const localityWithLeader = `${localityName}${stateName ? `, ${stateName}` : ''} - ${leaderName}`;
+
+            console.log('Localidad formateada:', localityWithLeader);
+
+            const type = transaction.type === 'INCOME' && (transaction.incomeSource === 'CASH_LOAN_PAYMENT' || transaction.incomeSource === 'BANK_LOAN_PAYMENT') ? 'ABONO' :
+                        transaction.type === 'INCOME' && transaction.incomeSource === 'MONEY_INVESMENT' ? 'MONEY_INVESMENT' :
+                        transaction.type === 'EXPENSE' && transaction.expenseSource === 'VIATIC' ? 'VIATIC' :
+                        transaction.type === 'EXPENSE' && transaction.expenseSource === 'GASOLINE' ? 'GASOLINE' :
+                        transaction.type === 'EXPENSE' && transaction.expenseSource === 'ACCOMMODATION' ? 'ACCOMMODATION' :
+                        transaction.type === 'EXPENSE' && transaction.expenseSource === 'NOMINA_SALARY' ? 'NOMINA_SALARY' :
+                        transaction.type === 'EXPENSE' && transaction.expenseSource === 'EXTERNAL_SALARY' ? 'EXTERNAL_SALARY' :
+                        transaction.type === 'EXPENSE' && transaction.expenseSource === 'VEHICULE_MAINTENANCE' ? 'VEHICULE_MAINTENANCE' :
+                        transaction.type === 'EXPENSE' && transaction.expenseSource === 'LOAN_GRANTED' ? 'LOAN_GRANTED' :
+                        transaction.type === 'EXPENSE' && transaction.expenseSource === 'LOAN_PAYMENT_COMISSION' ? 'LOAN_PAYMENT_COMISSION' :
+                        transaction.type === 'EXPENSE' && transaction.expenseSource === 'LOAN_GRANTED_COMISSION' ? 'LOAN_GRANTED_COMISSION' :
+                        transaction.type === 'EXPENSE' && transaction.expenseSource === 'LEAD_COMISSION' ? 'LEAD_COMISSION' :
+                        'OTRO';
+
+            if (!localidades[date]) {
+              localidades[date] = {};
+            }
+            if (!localidades[date][localityWithLeader]) {
+              localidades[date][localityWithLeader] = {
+                ABONO: 0,
+                CREDITO: 0,
+                VIATIC: 0,
+                GASOLINE: 0,
+                ACCOMMODATION: 0,
+                NOMINA_SALARY: 0,
+                EXTERNAL_SALARY: 0,
+                VEHICULE_MAINTENANCE: 0,
+                LOAN_GRANTED: 0,
+                LOAN_PAYMENT_COMISSION: 0,
+                LOAN_GRANTED_COMISSION: 0,
+                LEAD_COMISSION: 0,
+                MONEY_INVESMENT: 0,
+                OTRO: 0,
+                BALANCE: 0,
+                PROFIT: 0,
+              };
+            }
+
+            const amount = transaction.amount ? Number(transaction.amount) : 0;
+            const profit = transaction.profitAmount ? Number(transaction.profitAmount) : 0;
+            
+            localidades[date][localityWithLeader][type] += amount;
+            localidades[date][localityWithLeader].BALANCE += transaction.type === 'INCOME' ? amount : -amount;
+            localidades[date][localityWithLeader].PROFIT += profit;
+          }
+
+          const result = Object.entries(localidades).flatMap(([date, localities]) => 
+            Object.entries(localities).map(([locality, data]) => ({
+              date,
+              locality,
+              abono: data.ABONO,
+              credito: data.CREDITO,
+              viatic: data.VIATIC,
+              gasoline: data.GASOLINE,
+              accommodation: data.ACCOMMODATION,
+              nominaSalary: data.NOMINA_SALARY,
+              externalSalary: data.EXTERNAL_SALARY,
+              vehiculeMaintenance: data.VEHICULE_MAINTENANCE,
+              loanGranted: data.LOAN_GRANTED,
+              loanPaymentComission: data.LOAN_PAYMENT_COMISSION,
+              loanGrantedComission: data.LOAN_GRANTED_COMISSION,
+              leadComission: data.LEAD_COMISSION,
+              moneyInvestment: data.MONEY_INVESMENT,
+              otro: data.OTRO,
+              balance: data.BALANCE,
+              profit: data.PROFIT,
+            }))
+          );
+
+          console.log('Resultado final:', result);
+          return result;
+        },
+      }),
+    },
   };
 });

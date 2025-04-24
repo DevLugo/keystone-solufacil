@@ -1929,6 +1929,28 @@ type Query {
   accountsCount(where: AccountWhereInput! = {}): Int
   keystone: KeystoneMeta!
   authenticatedItem: AuthenticatedItem
+  getTransactionsSummary(startDate: String!, endDate: String!): [TransactionSummary!]!
+}
+
+type TransactionSummary {
+  date: String!
+  locality: String!
+  abono: Float!
+  credito: Float!
+  viatic: Float!
+  gasoline: Float!
+  accommodation: Float!
+  nominaSalary: Float!
+  externalSalary: Float!
+  vehiculeMaintenance: Float!
+  loanGranted: Float!
+  loanPaymentComission: Float!
+  loanGrantedComission: Float!
+  leadComission: Float!
+  moneyInvestment: Float!
+  otro: Float!
+  balance: Float!
+  profit: Float!
 }
 
 union AuthenticatedItem = User

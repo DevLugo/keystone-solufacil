@@ -9,6 +9,7 @@ import { CreatePaymentForm } from './abonos';
 import { CreditosTab } from '../components/transactions/CreditosTab';
 import RouteLeadSelector from '../components/routes/RouteLeadSelector';
 import type { Option, RouteOption, Route, Employee } from '../types/transaction';
+import { gql, useQuery } from '@apollo/client';
 
 const styles = {
   container: {
@@ -35,8 +36,191 @@ const styles = {
   }
 };
 
+const GET_TRANSACTIONS_SUMMARY = gql`
+  query GetTransactionsSummary($startDate: String!, $endDate: String!) {
+    getTransactionsSummary(startDate: $startDate, endDate: $endDate) {
+      date
+      locality
+      abono
+      credito
+      viatic
+      gasoline
+      accommodation
+      nominaSalary
+      externalSalary
+      vehiculeMaintenance
+      loanGranted
+      loanPaymentComission
+      loanGrantedComission
+      leadComission
+      moneyInvestment
+      otro
+      balance
+      profit
+    }
+  }
+`;
+
+const SummaryTab = ({ selectedDate }: { selectedDate: Date }) => {
+  const { data, loading, error } = useQuery(GET_TRANSACTIONS_SUMMARY, {
+    variables: {
+      startDate: selectedDate.toISOString().split('T')[0],
+      endDate: selectedDate.toISOString().split('T')[0]
+    }
+  });
+
+  const [expandedLocality, setExpandedLocality] = useState<string | null>(null);
+
+  if (loading) return <div>Cargando...</div>;
+  if (error) return <div>Error: {error.message}</div>;
+
+  const summaryData = data?.getTransactionsSummary || [];
+
+  // Agrupar por localidad
+  const groupedByLocality = summaryData.reduce((acc: Record<string, any>, item: any) => {
+    const localityName = item.locality || 'General';
+    if (!acc[localityName]) {
+      acc[localityName] = {
+        locality: localityName,
+        totalIncome: 0,
+        totalExpenses: 0,
+        totalComissions: 0,
+        balance: 0,
+        profit: 0,
+        details: []
+      };
+    }
+    
+    // Calcular totales
+    const income = item.abono + item.moneyInvestment;
+    const expenses = item.credito + item.viatic + item.gasoline + item.accommodation + 
+                    item.nominaSalary + item.externalSalary + item.vehiculeMaintenance + 
+                    item.loanGranted + item.otro;
+    const comissions = item.loanPaymentComission + item.loanGrantedComission + item.leadComission;
+
+    acc[localityName].totalIncome += income;
+    acc[localityName].totalExpenses += expenses;
+    acc[localityName].totalComissions += comissions;
+    acc[localityName].balance += item.balance;
+    acc[localityName].profit += item.profit;
+    acc[localityName].details.push(item);
+
+    return acc;
+  }, {});
+
+  const localities = Object.values(groupedByLocality);
+
+  return (
+    <Box css={{ padding: '16px' }}>
+      {localities.map((locality: any) => (
+        <Box key={locality.locality} css={{ marginBottom: '24px' }}>
+          <h2 css={{ 
+            margin: '0 0 16px 0', 
+            padding: '8px 16px',
+            backgroundColor: '#f7fafc',
+            borderRadius: '4px',
+            borderLeft: '4px solid #4299e1'
+          }}>
+            {locality.locality.split(' - ')[0]} - {locality.locality.split(' - ')[1]}
+          </h2>
+          <table css={{ width: '100%', borderCollapse: 'collapse', marginBottom: '16px' }}>
+            <thead>
+              <tr>
+                <th css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'left' }}>Concepto</th>
+                <th css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right' }}>Monto</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td css={{ padding: '8px', border: '1px solid #e2e8f0' }}>Créditos otorgados</td>
+                <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right' }}>
+                  ${locality.totalExpenses.toFixed(2)}
+                </td>
+              </tr>
+              <tr>
+                <td css={{ padding: '8px', border: '1px solid #e2e8f0' }}>Comisiones</td>
+                <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right' }}>
+                  ${locality.totalComissions.toFixed(2)}
+                </td>
+              </tr>
+              <tr>
+                <td css={{ padding: '8px', border: '1px solid #e2e8f0' }}>Gastos</td>
+                <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right' }}>
+                  ${locality.totalExpenses.toFixed(2)}
+                </td>
+              </tr>
+              <tr>
+                <td css={{ padding: '8px', border: '1px solid #e2e8f0' }}>Ingresos</td>
+                <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right' }}>
+                  ${locality.totalIncome.toFixed(2)}
+                </td>
+              </tr>
+              <tr css={{ backgroundColor: '#f7fafc', fontWeight: 'bold' }}>
+                <td css={{ padding: '8px', border: '1px solid #e2e8f0' }}>Balance</td>
+                <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right' }}>
+                  ${locality.balance.toFixed(2)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </Box>
+      ))}
+      {/* Totales Generales */}
+      <Box css={{ 
+        marginTop: '32px', 
+        padding: '16px',
+        backgroundColor: '#f7fafc',
+        borderRadius: '8px',
+        border: '1px solid #e2e8f0'
+      }}>
+        <h2 css={{ margin: '0 0 16px 0', color: '#2d3748' }}>Totales Generales</h2>
+        <table css={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'left' }}>Concepto</th>
+              <th css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right' }}>Monto</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td css={{ padding: '8px', border: '1px solid #e2e8f0' }}>Total Créditos otorgados</td>
+              <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right' }}>
+                ${localities.reduce((sum, loc) => sum + loc.totalExpenses, 0).toFixed(2)}
+              </td>
+            </tr>
+            <tr>
+              <td css={{ padding: '8px', border: '1px solid #e2e8f0' }}>Total Comisiones</td>
+              <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right' }}>
+                ${localities.reduce((sum, loc) => sum + loc.totalComissions, 0).toFixed(2)}
+              </td>
+            </tr>
+            <tr>
+              <td css={{ padding: '8px', border: '1px solid #e2e8f0' }}>Total Gastos</td>
+              <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right' }}>
+                ${localities.reduce((sum, loc) => sum + loc.totalExpenses, 0).toFixed(2)}
+              </td>
+            </tr>
+            <tr>
+              <td css={{ padding: '8px', border: '1px solid #e2e8f0' }}>Total Ingresos</td>
+              <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right' }}>
+                ${localities.reduce((sum, loc) => sum + loc.totalIncome, 0).toFixed(2)}
+              </td>
+            </tr>
+            <tr css={{ backgroundColor: '#e2e8f0', fontWeight: 'bold' }}>
+              <td css={{ padding: '8px', border: '1px solid #e2e8f0' }}>Balance Total</td>
+              <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right' }}>
+                ${localities.reduce((sum, loc) => sum + loc.balance, 0).toFixed(2)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </Box>
+    </Box>
+  );
+};
+
 export default function TransaccionesPage() {
-  const [selectedTab, setSelectedTab] = useState<'expenses' | 'credits' | 'payments'>('expenses');
+  const [selectedTab, setSelectedTab] = useState<'expenses' | 'credits' | 'payments' | 'summary'>('expenses');
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [selectedRoute, setSelectedRoute] = useState<Option | null>(null);
   const [selectedLead, setSelectedLead] = useState<Employee | null>(null);
@@ -50,6 +234,8 @@ export default function TransaccionesPage() {
         return 'Registrar Créditos';
       case 'payments':
         return 'Registrar Pagos';
+      case 'summary':
+        return 'Resumen de Transacciones';
       default:
         return 'Gestión de Transacciones';
     }
@@ -135,6 +321,22 @@ export default function TransaccionesPage() {
               >
                 Abonos
               </button>
+              <button
+                onClick={() => setSelectedTab('summary')}
+                css={{
+                  padding: '8px 16px',
+                  border: 'none',
+                  background: 'none',
+                  borderBottom: selectedTab === 'summary' ? '2px solid #4299e1' : 'none',
+                  marginBottom: '-2px',
+                  cursor: 'pointer',
+                  color: selectedTab === 'summary' ? '#2c5282' : '#4a5568',
+                  fontWeight: selectedTab === 'summary' ? 600 : 400,
+                  fontSize: '14px'
+                }}
+              >
+                Resumen
+              </button>
             </Box>
 
             <Box css={{ marginBottom: '8px' }}>
@@ -170,6 +372,9 @@ export default function TransaccionesPage() {
                   selectedRoute={selectedRoute}
                   selectedLead={selectedLead}
                 />
+              )}
+              {selectedTab === 'summary' && (
+                <SummaryTab selectedDate={selectedDate || new Date()} />
               )}
             </Box>
           </Stack>
