@@ -303,6 +303,7 @@ export interface GastosProps {
   selectedRoute: Route | null;
   selectedLead: Employee | null;
   onSaveComplete?: () => void;
+  refreshKey: number;
 }
 
 interface FormState {
@@ -328,7 +329,12 @@ const DELETE_TRANSACTION = gql`
   }
 `;
 
-export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, onSaveComplete }: GastosProps) => {
+export const CreateExpensesForm = ({ 
+  selectedDate, 
+  selectedRoute, 
+  selectedLead,
+  refreshKey 
+}: GastosProps) => {
   const [state, setState] = useState<FormState>({
     newTransactions: [],
     transactions: [],
@@ -647,6 +653,10 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
       updateState({ transactions: filteredTransactions });
     }
   }, [selectedDate, selectedLead, expensesData]);
+
+  useEffect(() => {
+    refetchExpenses();
+  }, [refreshKey, refetchExpenses]);
 
   const getDropdownPosition = (buttonId: string) => {
     const button = buttonRefs.current[buttonId];
@@ -1318,6 +1328,7 @@ export default function ExpensesPage() {
           selectedDate={selectedDate}
           selectedRoute={selectedRoute}
           selectedLead={selectedLead}
+          refreshKey={refreshKey}
           onSaveComplete={handleRefresh}
         />
       </Box>

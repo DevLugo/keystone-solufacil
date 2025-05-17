@@ -115,21 +115,6 @@ const GET_LEAD_PAYMENTS = gql`
             fullName
           }
         }
-        payments {
-          id
-          amount
-          comission
-          type
-          paymentMethod
-          loan {
-            id
-            borrower {
-              personalData {
-                fullName
-              }
-            }
-          }
-        }
       }
     }
   }
@@ -301,9 +286,20 @@ export interface AbonosProps {
   selectedDate: Date | null;
   selectedRoute: Route | null;
   selectedLead: Employee | null;
+  refreshKey: number;
 }
 
-export const CreatePaymentForm = ({ selectedDate, selectedRoute, selectedLead }: AbonosProps) => {
+export const CreatePaymentForm = ({ 
+  selectedDate, 
+  selectedRoute, 
+  selectedLead,
+  refreshKey 
+}: { 
+  selectedDate: Date, 
+  selectedRoute: Route | null, 
+  selectedLead: Employee | null,
+  refreshKey: number 
+}) => {
   const [state, setState] = useState<{
     payments: LoanPayment[];
     comission: number;
@@ -670,6 +666,10 @@ export const CreatePaymentForm = ({ selectedDate, selectedRoute, selectedLead }:
 
   const [activeTab, setActiveTab] = useState<'existing' | 'new'>('existing');
 
+  useEffect(() => {
+    refetchPayments();
+  }, [refreshKey, refetchPayments]);
+
   if (loansLoading) return <LoadingDots label="Loading loans" size="large" />;
   if (loansError) return <GraphQLErrorNotice errors={loansError?.graphQLErrors || []} networkError={loansError?.networkError} />;
 
@@ -924,6 +924,21 @@ export const CreatePaymentForm = ({ selectedDate, selectedRoute, selectedLead }:
           padding: '4px 8px'
         }}>
           <div
+            onClick={() => setActiveTab('new')}
+            style={{ 
+              padding: '8px 16px',
+              cursor: 'pointer',
+              borderBottom: activeTab === 'new' ? '2px solid #0052CC' : 'none',
+              color: activeTab === 'new' ? '#0052CC' : '#6B7280',
+              fontWeight: activeTab === 'new' ? '600' : '500',
+              backgroundColor: activeTab === 'new' ? 'white' : 'transparent',
+              borderRadius: '4px 4px 0 0',
+              boxShadow: activeTab === 'new' ? '0 1px 2px rgba(0, 0, 0, 0.05)' : 'none'
+            }}
+          >
+            Nuevos Pagos
+          </div>
+          <div
             onClick={() => setActiveTab('existing')}
             style={{ 
               padding: '8px 16px',
@@ -939,21 +954,7 @@ export const CreatePaymentForm = ({ selectedDate, selectedRoute, selectedLead }:
           >
             Pagos Registrados
           </div>
-          <div
-            onClick={() => setActiveTab('new')}
-            style={{ 
-              padding: '8px 16px',
-              cursor: 'pointer',
-              borderBottom: activeTab === 'new' ? '2px solid #0052CC' : 'none',
-              color: activeTab === 'new' ? '#0052CC' : '#6B7280',
-              fontWeight: activeTab === 'new' ? '600' : '500',
-              backgroundColor: activeTab === 'new' ? 'white' : 'transparent',
-              borderRadius: '4px 4px 0 0',
-              boxShadow: activeTab === 'new' ? '0 1px 2px rgba(0, 0, 0, 0.05)' : 'none'
-            }}
-          >
-            Nuevos Pagos
-          </div>
+          
         </div>
 
         {activeTab === 'existing' && (
@@ -1064,19 +1065,9 @@ export const CreatePaymentForm = ({ selectedDate, selectedRoute, selectedLead }:
                               tone="negative"
                               size="small"
                               onClick={() => {
-                                // Filtrar para quitar el pago de la lista principal
-                                const updatedExistingPayments = existingPayments.filter(p => p.id !== payment.id);
-                                
-                                // Quitarlo también del mapa de ediciones si está ahí
                                 const newEditedPayments = { ...editedPayments };
                                 delete newEditedPayments[payment.id];
-                                
-                                // Actualizar el estado
-                                setState(prev => ({
-                                  ...prev,
-                                  existingPayments: updatedExistingPayments,
-                                  editedPayments: newEditedPayments
-                                }));
+                                setState(prev => ({ ...prev, editedPayments: newEditedPayments }));
                               }}
                             >
                               <TrashIcon size="small" />
@@ -1277,6 +1268,7 @@ export default function CustomPage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [selectedLead, setSelectedLead] = useState<Employee | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   return (
     <PageContainer header="Abonos">
@@ -1320,6 +1312,7 @@ export default function CustomPage() {
           selectedDate={selectedDate}
           selectedRoute={selectedRoute}
           selectedLead={selectedLead}
+          refreshKey={refreshKey}
         />
       </Box>
     </PageContainer>

@@ -190,31 +190,34 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
           // Si hay pago por transferencia, crear la transacción
           if (bankPaidAmount > 0) {
-            await context.db.Transaction.createOne({
-              data: {
-                amount: bankPaidAmount.toFixed(2),
-                date: new Date(paymentDate),
-                type: 'TRANSFER',
-                description: `Transferencia de pago de préstamo - ${paymentDate}`,
-                sourceAccount: { connect: { id: cashAccount.id } },
-                destinationAccount: { connect: { id: bankAccount.id } }
-              }
-            });
+            const bankTransaction = {
+              amount: bankPaidAmount.toFixed(2),
+              date: new Date(paymentDate),
+              type: 'INCOME',
+              incomeSource: 'BANK_LOAN_PAYMENT',
+              description: `Transferencia de pago de préstamo - ${paymentDate}`,
+              sourceAccount: { connect: { id: cashAccount.id } },
+              destinationAccount: { connect: { id: bankAccount.id } },
+              lead: { connect: { id: leadId } }
+            };
+            console.log('Creando transacción bancaria:', bankTransaction);
+            await context.db.Transaction.createOne({ data: bankTransaction });
+          }
 
-            // Actualizar los saldos de las cuentas
-            await context.db.Account.updateOne({
-              where: { id: cashAccount.id },
-              data: {
-                amount: (parseFloat(cashAccount.amount?.toString() || '0') - bankPaidAmount).toFixed(2)
-              }
-            });
-
-            await context.db.Account.updateOne({
-              where: { id: bankAccount.id },
-              data: {
-                amount: (parseFloat(bankAccount.amount?.toString() || '0') + bankPaidAmount).toFixed(2)
-              }
-            });
+          // Si hay pago en efectivo, crear la transacción
+          if (cashPaidAmount > 0) {
+            const cashTransaction = {
+              amount: cashPaidAmount.toFixed(2),
+              date: new Date(paymentDate),
+              type: 'INCOME',
+              incomeSource: 'CASH_LOAN_PAYMENT',
+              description: `Pago en efectivo de préstamo - ${paymentDate}`,
+              sourceAccount: { connect: { id: bankAccount.id } },
+              destinationAccount: { connect: { id: cashAccount.id } },
+              lead: { connect: { id: leadId } }
+            };
+            console.log('Creando transacción en efectivo:', cashTransaction);
+            await context.db.Transaction.createOne({ data: cashTransaction });
           }
 
           return {
@@ -369,17 +372,75 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   // Cambio de efectivo a transferencia: restar del efectivo y sumar al banco
                   cashAmount -= oldAmount;
                   bankAmount += oldAmount;
+
+                  // Crear transacción bancaria
+                  await context.db.Transaction.createOne({
+                    data: {
+                      amount: oldAmount.toFixed(2),
+                      date: new Date(paymentDate),
+                      type: 'INCOME',
+                      incomeSource: 'BANK_LOAN_PAYMENT',
+                      description: `Transferencia de pago de préstamo - ${paymentDate}`,
+                      sourceAccount: { connect: { id: routeCashAccount.id } },
+                      destinationAccount: { connect: { id: routeBankAccount.id } },
+                      lead: { connect: { id: leadId } }
+                    }
+                  });
                 } else {
                   // Cambio de transferencia a efectivo: restar del banco y sumar al efectivo
                   bankAmount -= oldAmount;
                   cashAmount += oldAmount;
+
+                  // Crear transacción en efectivo
+                  await context.db.Transaction.createOne({
+                    data: {
+                      amount: oldAmount.toFixed(2),
+                      date: new Date(paymentDate),
+                      type: 'INCOME',
+                      incomeSource: 'CASH_LOAN_PAYMENT',
+                      description: `Pago en efectivo de préstamo - ${paymentDate}`,
+                      sourceAccount: { connect: { id: routeBankAccount.id } },
+                      destinationAccount: { connect: { id: routeCashAccount.id } },
+                      lead: { connect: { id: leadId } }
+                    }
+                  });
                 }
               } else {
                 // Si no cambió el método, solo aplicamos la diferencia
                 if (payment.paymentMethod === 'CASH') {
                   cashAmount -= (newAmount - oldAmount);
+                  // Crear transacción en efectivo por la diferencia
+                  if (newAmount > oldAmount) {
+                    await context.db.Transaction.createOne({
+                      data: {
+                        amount: (newAmount - oldAmount).toFixed(2),
+                        date: new Date(paymentDate),
+                        type: 'INCOME',
+                        incomeSource: 'CASH_LOAN_PAYMENT',
+                        description: `Pago en efectivo de préstamo - ${paymentDate}`,
+                        sourceAccount: { connect: { id: routeBankAccount.id } },
+                        destinationAccount: { connect: { id: routeCashAccount.id } },
+                        lead: { connect: { id: leadId } }
+                      }
+                    });
+                  }
                 } else {
                   bankAmount -= (newAmount - oldAmount);
+                  // Crear transacción bancaria por la diferencia
+                  if (newAmount > oldAmount) {
+                    await context.db.Transaction.createOne({
+                      data: {
+                        amount: (newAmount - oldAmount).toFixed(2),
+                        date: new Date(paymentDate),
+                        type: 'INCOME',
+                        incomeSource: 'BANK_LOAN_PAYMENT',
+                        description: `Transferencia de pago de préstamo - ${paymentDate}`,
+                        sourceAccount: { connect: { id: routeCashAccount.id } },
+                        destinationAccount: { connect: { id: routeBankAccount.id } },
+                        lead: { connect: { id: leadId } }
+                      }
+                    });
+                  }
                 }
               }
 
@@ -484,24 +545,94 @@ export const extendGraphqlSchema = graphql.extend(base => {
         type: graphql.nonNull(graphql.list(graphql.nonNull(graphql.object()({
           name: 'TransactionSummary',
           fields: {
-            date: graphql.field({ type: graphql.nonNull(graphql.String) }),
-            locality: graphql.field({ type: graphql.nonNull(graphql.String) }),
-            abono: graphql.field({ type: graphql.nonNull(graphql.Float) }),
-            credito: graphql.field({ type: graphql.nonNull(graphql.Float) }),
-            viatic: graphql.field({ type: graphql.nonNull(graphql.Float) }),
-            gasoline: graphql.field({ type: graphql.nonNull(graphql.Float) }),
-            accommodation: graphql.field({ type: graphql.nonNull(graphql.Float) }),
-            nominaSalary: graphql.field({ type: graphql.nonNull(graphql.Float) }),
-            externalSalary: graphql.field({ type: graphql.nonNull(graphql.Float) }),
-            vehiculeMaintenance: graphql.field({ type: graphql.nonNull(graphql.Float) }),
-            loanGranted: graphql.field({ type: graphql.nonNull(graphql.Float) }),
-            loanPaymentComission: graphql.field({ type: graphql.nonNull(graphql.Float) }),
-            loanGrantedComission: graphql.field({ type: graphql.nonNull(graphql.Float) }),
-            leadComission: graphql.field({ type: graphql.nonNull(graphql.Float) }),
-            moneyInvestment: graphql.field({ type: graphql.nonNull(graphql.Float) }),
-            otro: graphql.field({ type: graphql.nonNull(graphql.Float) }),
-            balance: graphql.field({ type: graphql.nonNull(graphql.Float) }),
-            profit: graphql.field({ type: graphql.nonNull(graphql.Float) }),
+            date: graphql.field({ 
+              type: graphql.nonNull(graphql.String),
+              resolve: (item) => item.date
+            }),
+            locality: graphql.field({ 
+              type: graphql.nonNull(graphql.String),
+              resolve: (item) => item.locality
+            }),
+            abono: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item) => item.abono
+            }),
+            credito: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item) => item.credito
+            }),
+            viatic: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item) => item.viatic
+            }),
+            gasoline: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item) => item.gasoline
+            }),
+            accommodation: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item) => item.accommodation
+            }),
+            nominaSalary: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item) => item.nominaSalary
+            }),
+            externalSalary: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item) => item.externalSalary
+            }),
+            vehiculeMaintenance: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item) => item.vehiculeMaintenance
+            }),
+            loanGranted: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item) => item.loanGranted
+            }),
+            loanPaymentComission: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item) => item.loanPaymentComission
+            }),
+            loanGrantedComission: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item) => item.loanGrantedComission
+            }),
+            leadComission: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item) => item.leadComission
+            }),
+            moneyInvestment: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item) => item.moneyInvestment
+            }),
+            otro: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item) => item.otro
+            }),
+            balance: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item) => item.balance
+            }),
+            profit: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item) => item.profit
+            }),
+            cashBalance: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item) => item.cashBalance
+            }),
+            bankBalance: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item) => item.bankBalance
+            }),
+            cashAbono: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item) => item.cashAbono
+            }),
+            bankAbono: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item) => item.bankAbono
+            }),
           },
         })))),
         args: {
@@ -510,10 +641,15 @@ export const extendGraphqlSchema = graphql.extend(base => {
         },
         resolve: async (root, { startDate, endDate }, context: Context) => {
           const start = new Date(startDate);
+          start.setHours(0, 0, 0, 0); // Inicio del día
+          
           const end = new Date(endDate);
-          end.setHours(23, 59, 59, 999);
+          end.setHours(23, 59, 59, 999); // Fin del día
 
-          console.log('Buscando transacciones entre:', start, 'y', end);
+          console.log('Buscando transacciones entre:', {
+            start: start.toISOString(),
+            end: end.toISOString()
+          });
 
           const rangeTransactions = await context.prisma.transaction.findMany({
             where: {
@@ -543,74 +679,57 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     }
                   }
                 }
-              }
+              },
+              sourceAccount: true,
+              destinationAccount: true
             }
           });
 
-          console.log('Transacciones encontradas:', rangeTransactions);
-          console.log('Número de transacciones:', rangeTransactions.length);
-
-          if (!rangeTransactions || !Array.isArray(rangeTransactions)) {
-            console.error('Las transacciones no son un array:', rangeTransactions);
-            return [];
-          }
-
-          if (rangeTransactions.length === 0) {
-            console.log('No se encontraron transacciones en el rango de fechas especificado');
-            return [];
-          }
+          console.log('=== INICIO DE PROCESAMIENTO DE TRANSACCIONES ===');
+          console.log(`Total de transacciones encontradas: ${rangeTransactions.length}`);
 
           const localidades: Record<string, Record<string, { [key: string]: number }>> = {};
 
           for (const transaction of rangeTransactions) {
-            console.log('Procesando transacción:', {
+            // Obtener la fecha de la transacción en formato YYYY-MM-DD
+            const transactionDate = transaction.date?.toISOString().split('T')[0] || new Date().toISOString().split('T')[0];
+            
+            // Obtener la localidad de la transacción
+            const locality = transaction.lead?.personalData?.addresses?.[0]?.location?.municipality?.name || 'General';
+            const state = transaction.lead?.personalData?.addresses?.[0]?.location?.municipality?.state?.name || 'General';
+            const localityWithLeader = `${locality} - ${state}`;
+
+            console.log('=== DETALLE DE TRANSACCIÓN ===');
+            console.log({
               id: transaction.id,
-              date: transaction.date,
-              type: transaction.type,
-              amount: transaction.amount,
-              lead: transaction.lead?.personalData?.fullName
+              fecha: transactionDate,
+              tipo: transaction.type,
+              monto: transaction.amount,
+              fuente: transaction.incomeSource,
+              localidad: localityWithLeader,
+              cuentaOrigen: {
+                id: transaction.sourceAccount?.id,
+                tipo: transaction.sourceAccount?.type,
+                nombre: transaction.sourceAccount?.name
+              },
+              cuentaDestino: {
+                id: transaction.destinationAccount?.id,
+                tipo: transaction.destinationAccount?.type,
+                nombre: transaction.destinationAccount?.name
+              }
             });
 
-            const date = transaction.date ? transaction.date.toISOString().split('T')[0] : 'Invalid Date';
-            
-            // Obtener la localidad y estado del lead
-            const leadLocation = transaction.lead?.personalData?.addresses[0]?.location;
-            const location = leadLocation;
-
-            console.log("LEAD LOCATION Perosnal data", transaction.lead?.personalData);
-            console.log('Ubicación encontrada:', {
-              leadLocation: leadLocation?.name,
-              selectedLocation: location?.municipality?.name
-            });
-
-            const localityName = location?.name || 'General';
-            const stateName = location?.municipality?.state?.name || '';
-            const leaderName = transaction.lead?.personalData?.fullName || 'Sin líder';
-            
-            const localityWithLeader = `${localityName}${stateName ? `, ${stateName}` : ''} - ${leaderName}`;
-
-            console.log('Localidad formateada:', localityWithLeader);
-
-            const type = transaction.type === 'INCOME' && (transaction.incomeSource === 'CASH_LOAN_PAYMENT' || transaction.incomeSource === 'BANK_LOAN_PAYMENT') ? 'ABONO' :
-                        transaction.type === 'INCOME' && transaction.incomeSource === 'MONEY_INVESMENT' ? 'MONEY_INVESMENT' :
-                        transaction.type === 'EXPENSE' && transaction.expenseSource === 'VIATIC' ? 'VIATIC' :
-                        transaction.type === 'EXPENSE' && transaction.expenseSource === 'GASOLINE' ? 'GASOLINE' :
-                        transaction.type === 'EXPENSE' && transaction.expenseSource === 'ACCOMMODATION' ? 'ACCOMMODATION' :
-                        transaction.type === 'EXPENSE' && transaction.expenseSource === 'NOMINA_SALARY' ? 'NOMINA_SALARY' :
-                        transaction.type === 'EXPENSE' && transaction.expenseSource === 'EXTERNAL_SALARY' ? 'EXTERNAL_SALARY' :
-                        transaction.type === 'EXPENSE' && transaction.expenseSource === 'VEHICULE_MAINTENANCE' ? 'VEHICULE_MAINTENANCE' :
-                        transaction.type === 'EXPENSE' && transaction.expenseSource === 'LOAN_GRANTED' ? 'LOAN_GRANTED' :
-                        transaction.type === 'EXPENSE' && transaction.expenseSource === 'LOAN_PAYMENT_COMISSION' ? 'LOAN_PAYMENT_COMISSION' :
-                        transaction.type === 'EXPENSE' && transaction.expenseSource === 'LOAN_GRANTED_COMISSION' ? 'LOAN_GRANTED_COMISSION' :
-                        transaction.type === 'EXPENSE' && transaction.expenseSource === 'LEAD_COMISSION' ? 'LEAD_COMISSION' :
-                        'OTRO';
-
-            if (!localidades[date]) {
-              localidades[date] = {};
+            // Inicializar la estructura para la fecha si no existe
+            if (!localidades[transactionDate]) {
+              localidades[transactionDate] = {};
             }
-            if (!localidades[date][localityWithLeader]) {
-              localidades[date][localityWithLeader] = {
+
+            // Inicializar la estructura para la localidad si no existe
+            if (!localidades[transactionDate][localityWithLeader]) {
+              localidades[transactionDate][localityWithLeader] = {
                 ABONO: 0,
+                CASH_ABONO: 0,
+                BANK_ABONO: 0,
                 CREDITO: 0,
                 VIATIC: 0,
                 GASOLINE: 0,
@@ -624,40 +743,143 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 LEAD_COMISSION: 0,
                 MONEY_INVESMENT: 0,
                 OTRO: 0,
-                BALANCE: 0,
-                PROFIT: 0,
+                CASH_BALANCE: 0,
+                BANK_BALANCE: 0
               };
             }
 
-            const amount = transaction.amount ? Number(transaction.amount) : 0;
-            const profit = transaction.profitAmount ? Number(transaction.profitAmount) : 0;
-            
-            localidades[date][localityWithLeader][type] += amount;
-            localidades[date][localityWithLeader].BALANCE += transaction.type === 'INCOME' ? amount : -amount;
-            localidades[date][localityWithLeader].PROFIT += profit;
+            if (transaction.type === 'INCOME') {
+              console.log('\n--- PROCESANDO TRANSACCIÓN DE INGRESO ---');
+              const isBankTransaction = transaction.incomeSource === 'BANK_LOAN_PAYMENT';
+              
+              console.log('¿Es transacción bancaria?', isBankTransaction);
+              console.log('Tipo de cuenta origen:', transaction.sourceAccount?.type);
+              console.log('Tipo de cuenta destino:', transaction.destinationAccount?.type);
+              console.log('Fuente de ingreso:', transaction.incomeSource);
+
+              if (isBankTransaction) {
+                console.log('Procesando como ABONO BANCARIO');
+                localidades[transactionDate][localityWithLeader].BANK_ABONO += Number(transaction.amount || 0);
+                localidades[transactionDate][localityWithLeader].BANK_BALANCE += Number(transaction.amount || 0);
+                localidades[transactionDate][localityWithLeader].ABONO += Number(transaction.amount || 0);
+              } else {
+                console.log('Procesando como ABONO EN EFECTIVO');
+                localidades[transactionDate][localityWithLeader].CASH_ABONO += Number(transaction.amount || 0);
+                localidades[transactionDate][localityWithLeader].CASH_BALANCE += Number(transaction.amount || 0);
+                localidades[transactionDate][localityWithLeader].ABONO += Number(transaction.amount || 0);
+              }
+
+              console.log('Totales actualizados:', {
+                abonoTotal: localidades[transactionDate][localityWithLeader].ABONO,
+                abonoEfectivo: localidades[transactionDate][localityWithLeader].CASH_ABONO,
+                abonoBanco: localidades[transactionDate][localityWithLeader].BANK_ABONO,
+                balanceEfectivo: localidades[transactionDate][localityWithLeader].CASH_BALANCE,
+                balanceBanco: localidades[transactionDate][localityWithLeader].BANK_BALANCE
+              });
+            }
           }
 
+          console.log('\n=== RESUMEN FINAL ===');
+          Object.entries(localidades).forEach(([date, localities]) => {
+            console.log(`\nFecha: ${date}`);
+            Object.entries(localities).forEach(([locality, data]) => {
+              console.log(`Localidad: ${locality}`);
+              console.log({
+                abonoTotal: data.ABONO,
+                abonoEfectivo: data.CASH_ABONO,
+                abonoBanco: data.BANK_ABONO,
+                balanceEfectivo: data.CASH_BALANCE,
+                balanceBanco: data.BANK_BALANCE
+              });
+            });
+          });
+
           const result = Object.entries(localidades).flatMap(([date, localities]) => 
-            Object.entries(localities).map(([locality, data]) => ({
-              date,
-              locality,
-              abono: data.ABONO,
-              credito: data.CREDITO,
-              viatic: data.VIATIC,
-              gasoline: data.GASOLINE,
-              accommodation: data.ACCOMMODATION,
-              nominaSalary: data.NOMINA_SALARY,
-              externalSalary: data.EXTERNAL_SALARY,
-              vehiculeMaintenance: data.VEHICULE_MAINTENANCE,
-              loanGranted: data.LOAN_GRANTED,
-              loanPaymentComission: data.LOAN_PAYMENT_COMISSION,
-              loanGrantedComission: data.LOAN_GRANTED_COMISSION,
-              leadComission: data.LEAD_COMISSION,
-              moneyInvestment: data.MONEY_INVESMENT,
-              otro: data.OTRO,
-              balance: data.BALANCE,
-              profit: data.PROFIT,
-            }))
+            Object.entries(localities).map(([locality, data]) => {
+              console.log(`Generando resultado para ${date} - ${locality}:`, {
+                comisiones: {
+                  loanPaymentComission: data.LOAN_PAYMENT_COMISSION,
+                  loanGrantedComission: data.LOAN_GRANTED_COMISSION,
+                  leadComission: data.LEAD_COMISSION
+                }
+              });
+              
+              // Verificar si hay valores negativos o inválidos
+              const checkValue = (value: number, name: string) => {
+                if (isNaN(value) || value < 0) {
+                  console.log(`ADVERTENCIA: Valor inválido en ${name} para ${date} - ${locality}: ${value}`);
+                  return 0;
+                }
+                return value;
+              };
+
+              // Calcular el balance final usando los totales acumulados
+              const totalIngresos = checkValue(data.ABONO, 'ABONO') + checkValue(data.MONEY_INVESMENT, 'MONEY_INVESMENT');
+              const totalGastos = checkValue(data.CREDITO, 'CREDITO') + 
+                                checkValue(data.VIATIC, 'VIATIC') + 
+                                checkValue(data.GASOLINE, 'GASOLINE') + 
+                                checkValue(data.ACCOMMODATION, 'ACCOMMODATION') + 
+                                checkValue(data.NOMINA_SALARY, 'NOMINA_SALARY') + 
+                                checkValue(data.EXTERNAL_SALARY, 'EXTERNAL_SALARY') + 
+                                checkValue(data.VEHICULE_MAINTENANCE, 'VEHICULE_MAINTENANCE') + 
+                                checkValue(data.LOAN_GRANTED, 'LOAN_GRANTED') + 
+                                checkValue(data.OTRO, 'OTRO');
+              const totalComisiones = checkValue(data.LOAN_PAYMENT_COMISSION, 'LOAN_PAYMENT_COMISSION') + 
+                                    checkValue(data.LOAN_GRANTED_COMISSION, 'LOAN_GRANTED_COMISSION') + 
+                                    checkValue(data.LEAD_COMISSION, 'LEAD_COMISSION');
+              
+              const balanceFinal = totalIngresos - totalGastos - totalComisiones;
+              const profitFinal = totalIngresos - totalGastos;
+
+              console.log('Cálculo final de balance:', {
+                totalIngresos,
+                totalGastos,
+                totalComisiones,
+                balanceFinal,
+                profitFinal,
+                detalle: {
+                  abono: data.ABONO,
+                  moneyInvestment: data.MONEY_INVESMENT,
+                  credito: data.CREDITO,
+                  viatic: data.VIATIC,
+                  gasoline: data.GASOLINE,
+                  accommodation: data.ACCOMMODATION,
+                  nominaSalary: data.NOMINA_SALARY,
+                  externalSalary: data.EXTERNAL_SALARY,
+                  vehiculeMaintenance: data.VEHICULE_MAINTENANCE,
+                  loanGranted: data.LOAN_GRANTED,
+                  otro: data.OTRO,
+                  loanPaymentComission: data.LOAN_PAYMENT_COMISSION,
+                  loanGrantedComission: data.LOAN_GRANTED_COMISSION,
+                  leadComission: data.LEAD_COMISSION
+                }
+              });
+              
+              return {
+                date,
+                locality,
+                abono: checkValue(data.ABONO, 'ABONO'),
+                cashAbono: checkValue(data.CASH_ABONO, 'CASH_ABONO'),
+                bankAbono: checkValue(data.BANK_ABONO, 'BANK_ABONO'),
+                credito: checkValue(data.CREDITO, 'CREDITO'),
+                viatic: checkValue(data.VIATIC, 'VIATIC'),
+                gasoline: checkValue(data.GASOLINE, 'GASOLINE'),
+                accommodation: checkValue(data.ACCOMMODATION, 'ACCOMMODATION'),
+                nominaSalary: checkValue(data.NOMINA_SALARY, 'NOMINA_SALARY'),
+                externalSalary: checkValue(data.EXTERNAL_SALARY, 'EXTERNAL_SALARY'),
+                vehiculeMaintenance: checkValue(data.VEHICULE_MAINTENANCE, 'VEHICULE_MAINTENANCE'),
+                loanGranted: checkValue(data.LOAN_GRANTED, 'LOAN_GRANTED'),
+                loanPaymentComission: checkValue(data.LOAN_PAYMENT_COMISSION, 'LOAN_PAYMENT_COMISSION'),
+                loanGrantedComission: checkValue(data.LOAN_GRANTED_COMISSION, 'LOAN_GRANTED_COMISSION'),
+                leadComission: checkValue(data.LEAD_COMISSION, 'LEAD_COMISSION'),
+                moneyInvestment: checkValue(data.MONEY_INVESMENT, 'MONEY_INVESMENT'),
+                otro: checkValue(data.OTRO, 'OTRO'),
+                balance: balanceFinal,
+                profit: profitFinal,
+                cashBalance: checkValue(data.CASH_BALANCE, 'CASH_BALANCE'),
+                bankBalance: checkValue(data.BANK_BALANCE, 'BANK_BALANCE'),
+              };
+            })
           );
 
           console.log('Resultado final:', result);

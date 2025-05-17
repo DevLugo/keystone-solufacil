@@ -1951,6 +1951,10 @@ type TransactionSummary {
   otro: Float!
   balance: Float!
   profit: Float!
+  cashBalance: Float!
+  bankBalance: Float!
+  cashAbono: Float!
+  bankAbono: Float!
 }
 
 union AuthenticatedItem = User

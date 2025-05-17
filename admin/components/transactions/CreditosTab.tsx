@@ -387,22 +387,14 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     skip: !selectedDate || !selectedLead?.id,
   });
 
-  // Efecto para actualizar el estado de loans cuando cambien los datos
-  useEffect(() => {
-    if (loansData?.loans) {
-      console.log('Loans data recibida:', loansData.loans);
-      setLoans(loansData.loans);
-    }
-  }, [loansData]);
-
-  const { data: loanTypesData, loading: loanTypesLoading } = useQuery(GET_LOAN_TYPES);
-
-  const { data: previousLoansData, loading: previousLoansLoading } = useQuery(GET_PREVIOUS_LOANS, {
+  const { data: previousLoansData, loading: previousLoansLoading, refetch: refetchPreviousLoans } = useQuery(GET_PREVIOUS_LOANS, {
     variables: { 
       leadId: selectedLead?.id || ''
     },
     skip: !selectedLead,
   });
+
+  const { data: loanTypesData, loading: loanTypesLoading } = useQuery(GET_LOAN_TYPES);
 
   const loanTypeOptions = React.useMemo(() => {
     return loanTypesData?.loantypes?.map(type => ({
@@ -438,7 +430,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       options.push(
         ...sortedLoans.map((loan: any) => ({
           value: loan.id,
-          label: `${loan.borrower?.personalData?.fullName || 'Sin nombre'} ($${loan.amountToPay || 0})`
+          label: `${loan.borrower?.personalData?.fullName || 'Sin nombre'} ($${loan.pendingAmount || 0})`
         }))
       );
     }
@@ -523,12 +515,45 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     }
   };
 
+  // Efecto para actualizar el estado de loans cuando cambien los datos
+  useEffect(() => {
+    if (loansData?.loans) {
+      console.log('Loans data recibida:', loansData.loans);
+      setLoans(loansData.loans);
+    }
+  }, [loansData]);
+
   // Efecto para actualizar el estado cuando cambie la fecha o el líder
   React.useEffect(() => {
     if (selectedDate && selectedLead) {
-      refetchLoans();
+      // Recargar todos los datos
+      Promise.all([
+        refetchLoans(),
+        refetchRoute(),
+        refetchPreviousLoans()
+      ]).then(() => {
+        console.log('Datos recargados exitosamente');
+      }).catch(error => {
+        console.error('Error al recargar los datos:', error);
+      });
     }
-  }, [selectedDate, selectedLead, refetchLoans]);
+  }, [selectedDate, selectedLead, refetchLoans, refetchRoute, refetchPreviousLoans]);
+
+  // Efecto para recargar datos cuando se active la pestaña
+  React.useEffect(() => {
+    if (selectedDate && selectedLead) {
+      // Recargar todos los datos
+      Promise.all([
+        refetchLoans(),
+        refetchRoute(),
+        refetchPreviousLoans()
+      ]).then(() => {
+        console.log('Datos recargados al activar la pestaña');
+      }).catch(error => {
+        console.error('Error al recargar los datos:', error);
+      });
+    }
+  }, [selectedDate, selectedLead, refetchLoans, refetchRoute, refetchPreviousLoans]);
 
   // Efecto para actualizar el newLoan cuando cambie el líder
   React.useEffect(() => {
@@ -1352,7 +1377,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                           onChange={handlePreviousLoanChange}
                           value={newLoan.previousLoan?.id ? {
                             value: newLoan.previousLoan.id,
-                            label: `${newLoan.previousLoan.borrower?.personalData?.fullName || 'Sin nombre'} ($${newLoan.previousLoan.amountToPay || 0})`
+                            label: `${newLoan.previousLoan.borrower?.personalData?.fullName || 'Sin nombre'} ($${newLoan.previousLoan.pendingAmount || 0})`
                           } : { value: '', label: 'Seleccionar préstamo previo' }}
                           menuPlacement="auto"
                           menuPosition="fixed"
