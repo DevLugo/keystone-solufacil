@@ -348,9 +348,14 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
   };
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const date = new Date(e.target.value);
-    if (!isNaN(date.getTime())) {
-      date.setHours(0, 0, 0, 0);
+    const dateString = e.target.value; // formato YYYY-MM-DD
+    if (dateString) {
+      // Dividimos la cadena de fecha en sus componentes
+      const [year, month, day] = dateString.split('-').map(num => parseInt(num, 10));
+      
+      // Creamos la fecha asegurando que se use exactamente el día seleccionado
+      // Los meses en JavaScript son 0-indexed (enero = 0)
+      const date = new Date(year, month - 1, day, 0, 0, 0, 0);
       onDateSelect(date);
     }
   };
