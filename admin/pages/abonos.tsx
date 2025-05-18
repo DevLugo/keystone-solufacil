@@ -353,8 +353,8 @@ export const CreatePaymentForm = ({
 
   const { data: paymentsData, loading: paymentsLoading, refetch: refetchPayments } = useQuery(GET_LEAD_PAYMENTS, {
     variables: {
-      date: selectedDate ? new Date(selectedDate.setHours(0, 0, 0, 0)).toISOString() : new Date().toISOString(),
-      nextDate: selectedDate ? new Date(selectedDate.setHours(23, 59, 59, 999)).toISOString() : new Date().toISOString(),
+      date: selectedDate ? new Date(new Date(selectedDate).setHours(0, 0, 0, 0)).toISOString() : new Date().toISOString(),
+      nextDate: selectedDate ? new Date(new Date(selectedDate).setHours(23, 59, 59, 999)).toISOString() : new Date().toISOString(),
       leadId: selectedLead?.id || ''
     },
     skip: !selectedDate || !selectedLead,

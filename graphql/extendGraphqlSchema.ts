@@ -188,38 +188,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
             });
           }
 
-          // Si hay pago por transferencia, crear la transacción
-          if (bankPaidAmount > 0) {
-            const bankTransaction = {
-              amount: bankPaidAmount.toFixed(2),
-              date: new Date(paymentDate),
-              type: 'INCOME',
-              incomeSource: 'BANK_LOAN_PAYMENT',
-              description: `Transferencia de pago de préstamo - ${paymentDate}`,
-              sourceAccount: { connect: { id: cashAccount.id } },
-              destinationAccount: { connect: { id: bankAccount.id } },
-              lead: { connect: { id: leadId } }
-            };
-            console.log('Creando transacción bancaria:', bankTransaction);
-            await context.db.Transaction.createOne({ data: bankTransaction });
-          }
-
-          // Si hay pago en efectivo, crear la transacción
-          if (cashPaidAmount > 0) {
-            const cashTransaction = {
-              amount: cashPaidAmount.toFixed(2),
-              date: new Date(paymentDate),
-              type: 'INCOME',
-              incomeSource: 'CASH_LOAN_PAYMENT',
-              description: `Pago en efectivo de préstamo - ${paymentDate}`,
-              sourceAccount: { connect: { id: bankAccount.id } },
-              destinationAccount: { connect: { id: cashAccount.id } },
-              lead: { connect: { id: leadId } }
-            };
-            console.log('Creando transacción en efectivo:', cashTransaction);
-            await context.db.Transaction.createOne({ data: cashTransaction });
-          }
-
           return {
             id: leadPaymentReceived.id,
             expectedAmount: parseFloat(leadPaymentReceived.expectedAmount?.toString() || '0'),
@@ -761,13 +729,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 console.log('Procesando como ABONO BANCARIO');
                 localidades[transactionDate][localityWithLeader].BANK_ABONO += Number(transaction.amount || 0);
                 localidades[transactionDate][localityWithLeader].BANK_BALANCE += Number(transaction.amount || 0);
-                localidades[transactionDate][localityWithLeader].ABONO += Number(transaction.amount || 0);
+                // No sumamos al ABONO general ya que ya está incluido en BANK_ABONO
               } else {
                 console.log('Procesando como ABONO EN EFECTIVO');
                 localidades[transactionDate][localityWithLeader].CASH_ABONO += Number(transaction.amount || 0);
                 localidades[transactionDate][localityWithLeader].CASH_BALANCE += Number(transaction.amount || 0);
-                localidades[transactionDate][localityWithLeader].ABONO += Number(transaction.amount || 0);
+                // No sumamos al ABONO general ya que ya está incluido en CASH_ABONO
               }
+
+              // Sumamos al ABONO general solo una vez
+              localidades[transactionDate][localityWithLeader].ABONO += Number(transaction.amount || 0);
 
               console.log('Totales actualizados:', {
                 abonoTotal: localidades[transactionDate][localityWithLeader].ABONO,

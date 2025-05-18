@@ -7,7 +7,24 @@ import { calculateLoanProfitAmount, calculatePendingProfitAmount } from './utils
 import { calculatePaymentProfitAmount } from './utils/loanPayment';
 import { Decimal } from '@prisma/client/runtime/library';
 
+// Función para manejar decimales con precisión
+const parseAmount = (value: unknown): number => {
+  if (typeof value === 'string') {
+    return parseFloat(parseFloat(value).toFixed(2));
+  }
+  if (typeof value === 'number') {
+    return parseFloat(value.toFixed(2));
+  }
+  if (typeof value === 'object' && value !== null && 'toString' in value) {
+    return parseFloat(parseFloat(value.toString()).toFixed(2));
+  }
+  return 0;
+};
+
 // Extender el tipo de contexto para incluir skipAfterOperation
+interface ExtendedContext extends KeystoneContext {
+  transactionsToDelete?: any[];
+}
 
 interface LoanType {
   rate: Decimal | null;
@@ -20,6 +37,19 @@ interface Loan {
   amountGived: Decimal;
   profitAmount: Decimal | null;
   loantype: LoanType | null;
+  comissionAmount?: Decimal;
+  signDate: Date;
+  leadId?: string;
+}
+
+interface TransactionItem {
+  id: string;
+  amount: Decimal | string | number;
+  type: string;
+  incomeSource?: string;
+  expenseSource?: string;
+  sourceAccountId?: string;
+  destinationAccountId?: string;
 }
 
 export const User = list({
@@ -448,7 +478,7 @@ export const Loan = list({
         });
         console.log("////////////TRANSACTIONS-beforeOperation///////////", transactions, operation, item);
         // Almacenar las transacciones en el contexto para usarlas después
-        context.transactionsToDelete = transactions;
+        (context as ExtendedContext).transactionsToDelete = transactions;
       }
     },
     afterOperation: async ({ operation, item, context, originalItem }) => {
@@ -482,7 +512,7 @@ export const Loan = list({
           const transactions = await context.db.Transaction.createMany({
             data: [
               {
-                amount: item.amountGived,
+                amount: parseAmount(item.amountGived),
                 date: item.signDate,
                 type: 'EXPENSE',
                 expenseSource: 'LOAN_GRANTED',
@@ -491,7 +521,7 @@ export const Loan = list({
                 lead: { connect: { id: lead?.id } },
               },
               {
-                amount: item.comissionAmount,
+                amount: parseAmount(item.comissionAmount),
                 date: item.signDate,
                 type: 'EXPENSE',
                 expenseSource: 'LOAN_GRANTED_COMISSION',
@@ -505,7 +535,7 @@ export const Loan = list({
           // Actualizar balance de la cuenta
           if (account) {
             const currentAmount = parseFloat(account.amount.toString());
-            const newAmount = currentAmount - parseFloat(item.amountGived.toString()) - parseFloat(item.comissionAmount?.toString() || '0');
+            const newAmount = currentAmount - parseAmount(item.amountGived) - parseAmount(item.comissionAmount);
             await context.db.Account.updateOne({
               where: { id: account.id },
               data: { amount: newAmount.toString() }
@@ -529,7 +559,7 @@ export const Loan = list({
               await context.db.Transaction.updateOne({
                 where: { id: transaction.id.toString() },
                 data: {
-                  amount: item.amountGived.toString(),
+                  amount: parseAmount(item.amountGived).toString(),
                   date: item.signDate
                 }
               });
@@ -537,7 +567,7 @@ export const Loan = list({
               await context.db.Transaction.updateOne({
                 where: { id: transaction.id.toString() },
                 data: {
-                  amount: item.comissionAmount?.toString() || '0',
+                  amount: parseAmount(item.comissionAmount).toString(),
                   date: item.signDate
                 }
               });
@@ -547,10 +577,10 @@ export const Loan = list({
           // Actualizar balance de la cuenta
           if (account) {
             const currentAmount = parseFloat(account.amount.toString());
-            const oldAmount = parseFloat(originalItem?.amountGived.toString() || '0');
-            const oldCommission = parseFloat(originalItem?.comissionAmount?.toString() || '0');
-            const newAmount = parseFloat(item.amountGived.toString());
-            const newCommission = parseFloat(item.comissionAmount?.toString() || '0');
+            const oldAmount = parseAmount(originalItem?.amountGived);
+            const oldCommission = parseAmount(originalItem?.comissionAmount);
+            const newAmount = parseAmount(item.amountGived);
+            const newCommission = parseAmount(item.comissionAmount);
             
             const balanceChange = (oldAmount + oldCommission) - (newAmount + newCommission);
             const updatedAmount = currentAmount + balanceChange;
@@ -600,7 +630,7 @@ export const Loan = list({
 
           // Eliminar todas las transacciones asociadas al préstamo
           console.log('Eliminando transacciones...');
-          const transactionsToDelete = context.transactionsToDelete || [];
+          const transactionsToDelete = (context as ExtendedContext).transactionsToDelete || [];
           console.log('Transacciones a eliminar:', transactionsToDelete.length);
 
           for (const transaction of transactionsToDelete) {
@@ -851,7 +881,7 @@ export const LoanPayment = list({
                 data: {
                   ...baseTransactionData,
                   type: 'INCOME',
-                  incomeSource: 'LOAN_PAYMENT',
+                  incomeSource: 'BANK_LOAN_PAYMENT',
                   destinationAccount: { connect: { id: bankAccounts[0].id } },
                 },
               });
@@ -946,104 +976,42 @@ export const Transaction = list({
   hooks: {
     afterOperation: async ({ operation, item, context, originalItem }) => {
       try {
-        console.log('\n=== TRANSACTION HOOK START ===');
-        console.log('Operation:', operation);
-        console.log('Transaction:', item);
-        console.log('Original Item:', originalItem);
-
-        // Función para manejar decimales con precisión
-        const parseAmount = (value: unknown): number => {
-          if (typeof value === 'string') {
-            return parseFloat(parseFloat(value).toFixed(2));
-          }
-          if (typeof value === 'number') {
-            return parseFloat(value.toFixed(2));
-          }
-          if (typeof value === 'object' && value !== null && 'toString' in value) {
-            return parseFloat(parseFloat(value.toString()).toFixed(2));
-          }
-          return 0;
-        };
-
-        // Para actualizaciones, primero revertimos la transacción original
-        if (operation === 'update' && originalItem) {
-          console.log('Revirtiendo transacción original...');
-          
-          // Obtener cuentas involucradas en la transacción original
-          let originalSourceAccount = null;
-          let originalDestAccount = null;
-
-          if (originalItem.sourceAccountId) {
-            originalSourceAccount = await context.prisma.account.findUnique({
-              where: { id: originalItem.sourceAccountId.toString() }
-            });
-          }
-
-          if (originalItem.destinationAccountId) {
-            originalDestAccount = await context.prisma.account.findUnique({
-              where: { id: originalItem.destinationAccountId.toString() }
-            });
-          }
-
-          const originalAmount = parseAmount(originalItem.amount);
-
-          // Revertir el efecto en la cuenta origen
-          if (originalSourceAccount && (originalItem.type === 'EXPENSE' || originalItem.type === 'TRANSFER')) {
-            const currentAmount = parseAmount(originalSourceAccount.amount);
-            const revertedAmount = parseFloat((currentAmount + originalAmount).toFixed(2));
-            await context.prisma.account.update({
-              where: { id: originalSourceAccount.id },
-              data: { amount: revertedAmount.toString() }
-            });
-            console.log('Revertido en cuenta origen:', {
-              original: currentAmount,
-              reverted: revertedAmount,
-              amount: originalAmount
-            });
-          }
-
-          // Revertir el efecto en la cuenta destino
-          if (originalDestAccount && (originalItem.type === 'INCOME' || originalItem.type === 'TRANSFER')) {
-            const currentAmount = parseAmount(originalDestAccount.amount);
-            const revertedAmount = parseFloat((currentAmount - originalAmount).toFixed(2));
-            await context.prisma.account.update({
-              where: { id: originalDestAccount.id },
-              data: { amount: revertedAmount.toString() }
-            });
-            console.log('Revertido en cuenta destino:', {
-              original: currentAmount,
-              reverted: revertedAmount,
-              amount: originalAmount
-            });
-          }
-        }
-
-        // Proceder con la nueva transacción (para create y update)
-        if (operation === 'create' || operation === 'update') {
+        if (operation === 'create') {
           if (!item) {
             console.log('No hay datos de transacción para procesar');
+            return;
+          }
+
+          const transactionItem = item as unknown as TransactionItem;
+
+          // Si es una transacción de pago de préstamo bancario o en efectivo, no procesar aquí
+          // ya que estas se manejan en el hook de LoanPayment
+          if (transactionItem.type === 'INCOME' && 
+              (transactionItem.incomeSource === 'BANK_LOAN_PAYMENT' || 
+               transactionItem.incomeSource === 'CASH_LOAN_PAYMENT')) {
+            console.log('Transacción de pago de préstamo detectada, omitiendo procesamiento adicional');
             return;
           }
 
           let sourceAccount = null;
           let destinationAccount = null;
 
-          if (item.sourceAccountId) {
+          if (transactionItem.sourceAccountId) {
             sourceAccount = await context.prisma.account.findUnique({
-              where: { id: item.sourceAccountId.toString() }
+              where: { id: transactionItem.sourceAccountId.toString() }
             });
           }
 
-          if (item.destinationAccountId) {
+          if (transactionItem.destinationAccountId) {
             destinationAccount = await context.prisma.account.findUnique({
-              where: { id: item.destinationAccountId.toString() }
+              where: { id: transactionItem.destinationAccountId.toString() }
             });
           }
 
-          const transactionAmount = parseAmount(item.amount);
+          const transactionAmount = parseAmount(transactionItem.amount);
 
           // Aplicar el nuevo efecto en la cuenta origen
-          if (sourceAccount && (item.type === 'EXPENSE' || item.type === 'TRANSFER')) {
+          if (sourceAccount && (transactionItem.type === 'EXPENSE' || transactionItem.type === 'TRANSFER')) {
             const currentAmount = parseAmount(sourceAccount.amount);
             const newAmount = parseFloat((currentAmount - transactionAmount).toFixed(2));
             
@@ -1063,10 +1031,10 @@ export const Transaction = list({
           }
 
           // Aplicar el nuevo efecto en la cuenta destino
-          if (destinationAccount && (item.type === 'INCOME' || item.type === 'TRANSFER')) {
+          if (destinationAccount && (transactionItem.type === 'INCOME' || transactionItem.type === 'TRANSFER')) {
             const currentAmount = parseAmount(destinationAccount.amount);
             const newAmount = parseFloat((currentAmount + transactionAmount).toFixed(2));
-
+            
             await context.prisma.account.update({
               where: { id: destinationAccount.id },
               data: { amount: newAmount.toString() }
@@ -1078,51 +1046,6 @@ export const Transaction = list({
             });
           }
         }
-
-        // Manejar eliminación
-        if (operation === 'delete' && originalItem) {
-          let sourceAccount = null;
-          let destinationAccount = null;
-
-          if (originalItem.sourceAccountId) {
-            sourceAccount = await context.prisma.account.findUnique({
-              where: { id: originalItem.sourceAccountId.toString() }
-            });
-          }
-
-          if (originalItem.destinationAccountId) {
-            destinationAccount = await context.prisma.account.findUnique({
-              where: { id: originalItem.destinationAccountId.toString() }
-            });
-          }
-
-          const transactionAmount = parseAmount(originalItem.amount);
-
-          if (sourceAccount && (originalItem.type === 'EXPENSE' || originalItem.type === 'TRANSFER')) {
-            const currentAmount = parseAmount(sourceAccount.amount);
-            const newAmount = parseFloat((currentAmount + transactionAmount).toFixed(2));
-            await context.prisma.account.update({
-              where: { id: sourceAccount.id },
-              data: { amount: newAmount.toString() }
-            });
-            console.log('Balance actualizado después de eliminar en cuenta origen:', newAmount);
-          }
-
-          if (destinationAccount && (originalItem.type === 'INCOME' || originalItem.type === 'TRANSFER')) {
-            const currentAmount = parseAmount(destinationAccount.amount);
-            const newAmount = parseFloat((currentAmount - transactionAmount).toFixed(2));
-            if (newAmount < 0) {
-              throw new Error(`La eliminación resultaría en un balance negativo: ${newAmount}`);
-            }
-            await context.prisma.account.update({
-              where: { id: destinationAccount.id },
-              data: { amount: newAmount.toString() }
-            });
-            console.log('Balance actualizado después de eliminar en cuenta destino:', newAmount);
-          }
-        }
-
-        console.log('=== TRANSACTION HOOK END ===\n');
       } catch (error) {
         console.error('Error en afterOperation de Transaction:', error);
         throw error;
