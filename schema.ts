@@ -697,7 +697,14 @@ export const Loan = list({
 });
  */
 export const LoanPayment = list({
-  access: allowAll,
+  access: {
+    operation: {
+      query: () => true,
+      create: () => true,
+      update: () => true,
+      delete: () => true,
+    },
+  },
   fields: {
     amount: decimal({
       precision: 10,
@@ -718,7 +725,10 @@ export const LoanPayment = list({
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),
     oldLoanId: text({ db: { isNullable: true } }),
-    loan: relationship({ ref: 'Loan.payments' }),
+    loan: relationship({ 
+      ref: 'Loan.payments',
+      db: { isIndexed: true }
+    }),
     //collector: relationship({ ref: 'Employee.loanPayment' }),
     transactions: relationship({ ref: 'Transaction.loanPayment', many: true }),
     //transactionId: text({ isIndexed: 'unique' }),
@@ -742,182 +752,161 @@ export const LoanPayment = list({
   hooks: {
     afterOperation: async (args) => {
       const { operation, item, context, resolvedData } = args;
-      //const extendedContext = context as unknown as ExtendedContext;
-      //if (extendedContext.skipAfterOperation) {
-      //  return;
-      //}
-      //extendedContext.skipAfterOperation = true;
-      if ((operation === 'create' || operation === 'update') && item) {
-        if (item.type !== 'WITHOUT_PAYMENT') {
-          try {
-            // Obtener el pago actual
-            const payment = await context.prisma.loanPayment.findUnique({
-              where: { id: item.id.toString() },
-            });
-            
-            if (!payment || payment.loanId === null) {
-              throw new Error("No hay Credito asociado a este pago");
-            }
-            
-            // Obtener el préstamo asociado con su tipo
-            const loan = await context.prisma.loan.findUnique({
-              where: { id: payment.loanId },
-              include: { loantype: true }
-            });
 
-            if (!loan || !loan.loantype) {
-              throw new Error("No se encontró el préstamo o tipo de préstamo asociado");
-            }
+      if (operation === 'create' || operation === 'update') {
+        try {
+          console.log(`Operación ${operation} de LoanPayment:`, item);
+          
+          const loan = await context.db.Loan.findOne({
+            where: { id: item.loanId as string },
+          });
 
-            const loanType = loan.loantype as { rate: { toString: () => string } };
-            
-            // Obtener todos los pagos excepto el actual
-            const payments = await context.prisma.loanPayment.findMany({
-              where: {
-                id: { not: { equals: item.id.toString() } },
-                loanId: payment.loanId
-              },
-            });
+          const leadPaymentReceived = await context.db.LeadPaymentReceived.findOne({
+            where: { id: item.leadPaymentReceivedId as string },
+          });
 
-            // Calcular montos y tasas
-            const rate = loanType.rate ? parseFloat(loanType.rate.toString()) : 0;
-            const requestedAmount = parseFloat(loan.requestedAmount.toString());
-            const originalProfit = requestedAmount * rate;
-            const totalAmountToPay = requestedAmount + originalProfit;
-            const amountGiven = parseFloat(loan.amountGived.toString());
-            const totalProfit = loan.profitAmount ? parseFloat(loan.profitAmount.toString()) : 0;
-
-            // Calcular total pagado y deuda pendiente
-            const totalPayed = payments.reduce((sum: number, payment: any) => {
-              if (!payment.amount) return sum;
-              return sum + Number(payment.amount);
-            }, 0);
-
-            const pendingDebt = Math.max(0, totalAmountToPay - totalPayed);
-            const pendingProfit = (pendingDebt * totalProfit) / totalAmountToPay;
-
-            // Calcular montos de ganancia y retorno de capital
-            const {profitAmount, returnToCapital} = await calculatePaymentProfitAmount(
-              Number(item.amount),
-              totalProfit,
-              totalAmountToPay,
-              requestedAmount,
-              totalPayed
-            );
-
-            // Actualizar datos resueltos
-            if (resolvedData) {
-              resolvedData.profitAmount = profitAmount;
-              resolvedData.returnToCapital = returnToCapital;
-            }
-
-            // Buscar el líder y sus cuentas asociadas
-            const lead = await context.prisma.employee.findUnique({
-              where: { id: loan.leadId || '' },
-            });
-
-            if (!lead) {
-              throw new Error("No se encontró el líder asociado al préstamo");
-            }
-
-            // Buscar cuenta de efectivo del empleado
-            const employeeCashAccounts = await context.prisma.account.findMany({
-              where: {
-                routeId: lead.routesId || '',
-                type: 'EMPLOYEE_CASH_FUND'
-              },
-            });
-
-            const employeeCashAccount = employeeCashAccounts[0];
-            if (!employeeCashAccount) {
-              throw new Error("No hay cuenta de efectivo asociada a este empleado");
-            }
-
-            // Crear transacción según el método de pago
-            // Asegurarnos de que los montos sean strings con 2 decimales
-            const getDecimalString = (value: unknown): string => {
-              if (typeof value === 'object' && value !== null && 'toString' in value) {
-                return (value as { toString(): string }).toString();
-              }
-              if (typeof value === 'number') {
-                return value.toFixed(2);
-              }
-              return '0.00';
-            };
-
-            const baseTransactionData = {
-              amount: getDecimalString(item.amount),
-              date: new Date(item.receivedAt as string),
-              loanPayment: { connect: { id: item.id.toString() } },
-              loan: { connect: { id: loan.id } },
-              lead: { connect: { id: lead.id } },
-              profitAmount: getDecimalString(profitAmount),
-              returnToCapital: getDecimalString(returnToCapital),
-            };
-
-            if (item.paymentMethod === 'CASH') {
-              await context.db.Transaction.createOne({
-                data: {
-                  ...baseTransactionData,
-                  type: 'INCOME',
-                  incomeSource: 'CASH_LOAN_PAYMENT',
-                  destinationAccount: { connect: { id: employeeCashAccount.id } },
-                },
-              });
-            } else {
-              // Buscar cuenta bancaria
-              const bankAccounts = await context.prisma.account.findMany({
-                where: {
-                  type: 'BANK',
-                  routeId: lead.routesId || ''
-                },
-              });
-
-              if (!bankAccounts.length) {
-                throw new Error("No se encontró cuenta bancaria asociada");
-              }
-
-              await context.db.Transaction.createOne({
-                data: {
-                  ...baseTransactionData,
-                  type: 'INCOME',
-                  incomeSource: 'BANK_LOAN_PAYMENT',
-                  destinationAccount: { connect: { id: bankAccounts[0].id } },
-                },
-              });
-            }
-
-            // Crear transacción de comisión si existe
-            if (item.comission) {
-              await context.db.Transaction.createOne({
-                data: {
-                  amount: getDecimalString(item.comission),
-                  date: new Date(item.receivedAt as string),
-                  type: 'EXPENSE',
-                  expenseSource: 'LOAN_PAYMENT_COMISSION',
-                  sourceAccount: { connect: { id: employeeCashAccount.id } },
-                  loanPayment: { connect: { id: item.id.toString() } },
-                  loan: { connect: { id: loan.id } },
-                  lead: { connect: { id: lead.id } },
-                  createdAt: new Date(),
-                },
-              });
-            }
-
-          } catch (error) {
-            console.error('Error en afterOperation de LoanPayment:', error);
-            throw error;
+          if (!loan || !leadPaymentReceived) {
+            throw new Error('No se encontró el préstamo o el pago recibido');
           }
+
+          const lead = await context.db.Employee.findOne({
+            where: { id: leadPaymentReceived.leadId as string },
+          });
+
+          if (!lead) {
+            throw new Error('No se encontró el lead');
+          }
+
+          // Obtener el tipo de préstamo
+          const loanType = await context.db.Loantype.findOne({
+            where: { id: loan.loantypeId as string },
+          });
+
+          if (!loanType) {
+            throw new Error('No se encontró el tipo de préstamo');
+          }
+
+          // Calcular montos
+          const amount = parseFloat((item.amount as { toString(): string }).toString());
+          const comission = parseFloat((item.comission as { toString(): string }).toString());
+          const loanTypeData = loanType as unknown as { 
+            rate: { toString(): string },
+            weekDuration: { toString(): string }
+          };
+          const loanData = loan as unknown as { 
+            amountGived: { toString(): string }
+          };
+          const rate = parseFloat(loanTypeData.rate.toString());
+          const weekDuration = parseInt(loanTypeData.weekDuration.toString());
+          const loanAmount = parseFloat(loanData.amountGived.toString());
+
+          const profitAmount = (amount * (rate / 100)) / weekDuration;
+          const returnToCapital = amount - profitAmount;
+
+          // Buscar transacciones existentes - usamos findMany por si hay más de una
+          console.log(`Buscando transacciones asociadas al pago con ID ${item.id}`);
+          const existingTransactions = await context.prisma.transaction.findMany({
+            where: { 
+              loanPaymentId: item.id.toString()
+            },
+          });
+          
+          console.log(`Transacciones encontradas:`, existingTransactions);
+
+          // Crear o actualizar transacción según el método de pago
+          const getDecimalString = (value: unknown): string => {
+            if (typeof value === 'object' && value !== null && 'toString' in value) {
+              return (value as { toString(): string }).toString();
+            }
+            if (typeof value === 'number') {
+              return value.toFixed(2);
+            }
+            return '0.00';
+          };
+
+          const baseTransactionData = {
+            amount: getDecimalString(item.amount),
+            date: new Date(item.receivedAt as string),
+            profitAmount: getDecimalString(profitAmount),
+            returnToCapital: getDecimalString(returnToCapital),
+          };
+
+          if (existingTransactions.length > 0) {
+            // Actualizar transacción existente
+            console.log(`Actualizando transacción existente con ID: ${existingTransactions[0].id}`);
+            
+            // Usar prisma directamente para actualizar la transacción
+            await context.prisma.transaction.update({
+              where: { id: existingTransactions[0].id },
+              data: {
+                ...baseTransactionData,
+                type: 'INCOME',
+                incomeSource: item.paymentMethod === 'CASH' ? 'CASH_LOAN_PAYMENT' : 'BANK_LOAN_PAYMENT',
+              },
+            });
+            
+            console.log('Transacción actualizada correctamente');
+          } else {
+            // Crear nueva transacción usando prisma directamente
+            console.log('Creando nueva transacción para el pago');
+            
+            await context.prisma.transaction.create({
+              data: {
+                ...baseTransactionData,
+                type: 'INCOME',
+                incomeSource: item.paymentMethod === 'CASH' ? 'CASH_LOAN_PAYMENT' : 'BANK_LOAN_PAYMENT',
+                loanPaymentId: item.id.toString(),
+                loanId: loan.id.toString(),
+                leadId: lead.id.toString(),
+              },
+            });
+            
+            console.log('Nueva transacción creada correctamente');
+          }
+
+          // Actualizar balance de la cuenta según el método de pago
+          const accountType = item.paymentMethod === 'CASH' ? 'CASH' : 'BANK';
+          console.log(`Buscando cuenta de tipo: ${accountType}`);
+          
+          const accounts = await context.prisma.account.findMany({
+            where: { 
+              type: accountType
+            },
+          });
+
+          console.log(`Cuentas encontradas:`, accounts);
+          
+          const account = accounts[0];
+          if (account) {
+            const currentAmount = parseFloat(account.amount.toString());
+            const transactionAmount = parseFloat((item.amount as { toString(): string }).toString());
+            
+            // Si es una actualización, necesitamos considerar el monto anterior
+            let balanceChange = transactionAmount;
+            if (operation === 'update' && args.originalItem) {
+              const oldAmount = parseFloat((args.originalItem.amount as { toString(): string }).toString());
+              balanceChange = transactionAmount - oldAmount;
+              console.log(`Actualización - Monto anterior: ${oldAmount}, Nuevo monto: ${transactionAmount}, Cambio: ${balanceChange}`);
+            }
+
+            const updatedAmount = currentAmount + balanceChange;
+            console.log(`Actualizando balance de cuenta - Monto actual: ${currentAmount}, Nuevo monto: ${updatedAmount}`);
+            
+            // Usar prisma directamente para actualizar la cuenta
+            await context.prisma.account.update({
+              where: { id: account.id },
+              data: { amount: updatedAmount.toString() }
+            });
+            
+            console.log('Balance de cuenta actualizado correctamente');
+          }
+        } catch (error) {
+          console.error('Error en hook afterOperation de LoanPayment:', error);
+          throw error;
         }
       }
-      
-      /* // Marcar que el afterOperation ha terminado
-      extendedContext.skipAfterOperation = false;
-        }
-      } */
-    }
+    },
   },
-  
 });
 
 export const Transaction = list({

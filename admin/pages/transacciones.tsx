@@ -108,7 +108,7 @@ export default function TransaccionesPage() {
   const { data: summaryData, loading: summaryLoading, refetch: refetchSummary } = useQuery(GET_TRANSACTIONS_SUMMARY, {
     variables: {
       date: selectedDate.toISOString(),
-      nextDate: new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000).toISOString()
+      nextDate: new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000 - 1).toISOString()
     },
     skip: activeTab !== 'summary'
   });
@@ -220,7 +220,7 @@ export default function TransaccionesPage() {
             selectedDate={selectedDate}
             onRouteSelect={handleRouteSelect}
             onLeadSelect={handleLeadSelect}
-            onDateSelect={date => handleDateChange(date.toISOString().split('T')[0])}
+            onDateSelect={date => handleDateChange(date.toISOString())}
           />
         </Box>
 

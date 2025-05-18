@@ -54,8 +54,8 @@ interface LocalitySummary {
 export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
   const { data, loading, error, refetch } = useQuery(GET_TRANSACTIONS_SUMMARY, {
     variables: {
-      startDate: selectedDate.toISOString().split('T')[0],
-      endDate: selectedDate.toISOString().split('T')[0]
+      startDate: selectedDate.toISOString(),
+      endDate: new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000 - 1).toISOString()
     },
     skip: !selectedDate
   });

@@ -350,6 +350,7 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const date = new Date(e.target.value);
     if (!isNaN(date.getTime())) {
+      date.setHours(0, 0, 0, 0);
       onDateSelect(date);
     }
   };

@@ -183,6 +183,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 loan: { connect: { id: payment.loanId } },
                 type: payment.type,
                 paymentMethod: payment.paymentMethod,
+                receivedAt: new Date(paymentDate),
                 leadPaymentReceived: { connect: { id: leadPaymentReceived.id } },
               },
             });
@@ -236,11 +237,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
 
           // Obtener el LeadPaymentReceived existente
-          const existingPayment = await context.prisma.leadPaymentReceived.findUnique({
+          const existingPayment = await context.db.LeadPaymentReceived.findOne({
             where: { id },
-            include: {
-              agent: true
-            }
           });
 
           if (!existingPayment) {
@@ -261,22 +259,25 @@ export const extendGraphqlSchema = graphql.extend(base => {
           });
 
           // Obtener la ruta del agente
-          const agentRoute = await context.prisma.route.findFirst({
+          const agentRoutes = await context.db.Route.findMany({
             where: { 
               employees: { some: { id: { equals: agentId } } }
-            },
-            include: {
-              accounts: true
             }
           });
 
-          if (!agentRoute) {
+          if (!agentRoutes || agentRoutes.length === 0) {
             throw new Error(`Ruta no encontrada para el agente ${agentId}`);
           }
 
+          const agentRoute = agentRoutes[0];
+
           // Obtener las cuentas de la ruta
-          const routeCashAccount = agentRoute.accounts.find(account => account.type === 'EMPLOYEE_CASH_FUND');
-          const routeBankAccount = agentRoute.accounts.find(account => account.type === 'BANK');
+          const routeAccounts = await context.db.Account.findMany({
+            where: { route: { id: { equals: agentRoute.id } } }
+          });
+
+          const routeCashAccount = routeAccounts.find((account: any) => account.type === 'EMPLOYEE_CASH_FUND');
+          const routeBankAccount = routeAccounts.find((account: any) => account.type === 'BANK');
 
           if (!routeCashAccount || !routeBankAccount) {
             throw new Error('Cuentas de la ruta no encontradas');
@@ -420,15 +421,15 @@ export const extendGraphqlSchema = graphql.extend(base => {
               console.log('Saldo efectivo actual:', cashAmount);
               console.log('Saldo banco actual:', bankAmount);
 
-              // Actualizar pago existente
-              await context.prisma.loanPayment.update({
+              // Actualizar pago existente usando context.db para asegurar que se disparen los hooks
+              await context.db.LoanPayment.updateOne({
                 where: { id: existingPayment.id },
                 data: {
                   amount: payment.amount.toFixed(2),
                   comission: payment.comission.toFixed(2),
                   type: payment.type,
                   paymentMethod: payment.paymentMethod,
-                  leadPaymentReceivedId: leadPaymentReceived.id,
+                  receivedAt: new Date(paymentDate),
                   updatedAt: new Date()
                 }
               });
@@ -441,6 +442,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   loan: { connect: { id: payment.loanId } },
                   type: payment.type,
                   paymentMethod: payment.paymentMethod,
+                  receivedAt: new Date(paymentDate),
                   leadPaymentReceived: { connect: { id: leadPaymentReceived.id } },
                 }
               });
@@ -608,49 +610,26 @@ export const extendGraphqlSchema = graphql.extend(base => {
           endDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
         },
         resolve: async (root, { startDate, endDate }, context: Context) => {
+          // Normalizar las fechas al inicio y fin del día en la zona horaria local
           const start = new Date(startDate);
-          start.setHours(0, 0, 0, 0); // Inicio del día
+          start.setHours(0, 0, 0, 0);
           
           const end = new Date(endDate);
-          end.setHours(23, 59, 59, 999); // Fin del día
+          end.setHours(23, 59, 59, 999);
 
           console.log('Buscando transacciones entre:', {
             start: start.toISOString(),
             end: end.toISOString()
           });
 
-          const rangeTransactions = await context.prisma.transaction.findMany({
+          const rangeTransactions = await context.db.Transaction.findMany({
             where: {
               date: {
                 gte: start,
                 lte: end,
               },
             },
-            include: {
-              lead: {
-                include: {
-                  personalData: {
-                    include: {
-                      addresses: {
-                        include: {
-                          location: {
-                            include: {
-                              municipality: {
-                                include: {
-                                  state: true
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              },
-              sourceAccount: true,
-              destinationAccount: true
-            }
+            query: 'id type amount incomeSource date lead { personalData { addresses { location { municipality { name state { name } } } } } } sourceAccount { id type name } destinationAccount { id type name }'
           });
 
           console.log('=== INICIO DE PROCESAMIENTO DE TRANSACCIONES ===');

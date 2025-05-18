@@ -5,6 +5,16 @@ export const GET_ROUTES = gql`
     routes(where: $where) {
       id
       name
+      accounts {
+        id
+        name
+        type
+        amount
+      }
+      employees {
+        id
+        type
+      }
     }
   }
 `;
@@ -58,6 +68,31 @@ export const GET_LEADS = gql`
         accounts {
           id
           type
+        }
+      }
+    }
+  }
+`;
+
+export const GET_ROUTE_LOANS = gql`
+  query RouteLoans($routeId: ID!, $first: Int = 10, $skip: Int = 0) {
+    route(where: { id: $routeId }) {
+      id
+      employees {
+        id
+        type
+        LeadManagedLoans(first: $first, skip: $skip) {
+          id
+          status
+          requestedAmount
+          weeklyPaymentAmount
+          finishedDate
+          badDebtDate
+          payments(first: 10) {
+            id
+            amount
+            receivedAt
+          }
         }
       }
     }
