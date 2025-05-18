@@ -355,7 +355,11 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
       
       // Creamos la fecha asegurando que se use exactamente el día seleccionado
       // Los meses en JavaScript son 0-indexed (enero = 0)
-      const date = new Date(year, month - 1, day, 0, 0, 0, 0);
+      const date = new Date(year, month - 1, day);
+      
+      // Ajustamos la zona horaria para evitar problemas de desplazamiento de día
+      date.setUTCHours(12, 0, 0, 0);
+      
       onDateSelect(date);
     }
   };
