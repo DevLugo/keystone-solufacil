@@ -16,6 +16,7 @@ import { CreateExpensesForm } from './gastos';
 import { CreditosTab } from '../components/transactions/CreditosTab';
 import { CreatePaymentForm } from './abonos';
 import { SummaryTab } from '../components/transactions/SummaryTab';
+import TransferForm from '../components/transactions/TransferForm';
 
 const GET_TRANSACTIONS_SUMMARY = gql`
   query GetTransactionsSummary($date: DateTime!, $nextDate: DateTime!) {
@@ -205,6 +206,16 @@ export default function TransaccionesPage() {
             refreshKey={refreshKey}
           />
         );
+      case 'transfers':
+        return (
+          <TransferForm
+            selectedDate={selectedDate}
+            selectedRoute={toRoute(selectedRoute)}
+            selectedLead={toEmployee(selectedLead)}
+            refreshKey={refreshKey}
+            onTransferComplete={handleRefresh}
+          />
+        );
       default:
         return null;
     }
@@ -288,6 +299,22 @@ export default function TransaccionesPage() {
             }}
           >
             Abonos
+          </button>
+          <button
+            onClick={() => handleTabChange('transfers')}
+            css={{
+              padding: '8px 16px',
+              backgroundColor: activeTab === 'transfers' ? '#3182ce' : '#e2e8f0',
+              color: activeTab === 'transfers' ? 'white' : '#4a5568',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              '&:hover': {
+                backgroundColor: activeTab === 'transfers' ? '#2c5282' : '#cbd5e0',
+              },
+            }}
+          >
+            Transferencias
           </button>
         </Box>
 
