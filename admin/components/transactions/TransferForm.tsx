@@ -25,7 +25,7 @@ const GET_ACCOUNTS = gql`
   }
 `;
 
-// Mutation para crear una transacción de transferencia
+// Mutation para crear una transacción de transferencia o inversión
 const CREATE_TRANSFER = gql`
   mutation CreateTransaction($data: TransactionCreateInput!) {
     createTransaction(data: $data) {
@@ -72,6 +72,7 @@ export const TransferForm: React.FC<TransferFormProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [showSuccess, setShowSuccess] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isCapitalInvestment, setIsCapitalInvestment] = useState<boolean>(false);
 
   // Consulta para obtener las cuentas basadas en la ruta seleccionada
   const { data, loading: accountsLoading } = useQuery(GET_ACCOUNTS, {
@@ -91,6 +92,13 @@ export const TransferForm: React.FC<TransferFormProps> = ({
     setDescription('');
     setErrorMessage(null);
   }, [selectedRoute, refreshKey]);
+
+  // Resetear cuenta de origen cuando se activa inversión de capital
+  useEffect(() => {
+    if (isCapitalInvestment) {
+      setSourceAccount(null);
+    }
+  }, [isCapitalInvestment]);
 
   // Opciones para el selector de cuentas
   const accountOptions: AccountOption[] = data?.accounts?.map((account: Account) => ({
@@ -115,8 +123,8 @@ export const TransferForm: React.FC<TransferFormProps> = ({
     ? parseFloat(sourceAccountData.amount.toString()) 
     : 0;
   
-  // Verificar si el monto excede el saldo disponible
-  const isAmountValid = !amount || parseFloat(amount) <= availableBalance;
+  // Verificar si el monto excede el saldo disponible (solo para transferencias)
+  const isAmountValid = isCapitalInvestment || !amount || parseFloat(amount) <= availableBalance;
   
   // Mensaje de error si el monto excede el saldo
   const amountErrorMessage = !isAmountValid 
@@ -124,9 +132,11 @@ export const TransferForm: React.FC<TransferFormProps> = ({
     : null;
   
   // Verificar si los datos están completos para habilitar el botón de envío
-  const isFormValid = sourceAccount && destinationAccount && amount && parseFloat(amount) > 0 && isAmountValid;
+  const isFormValid = isCapitalInvestment 
+    ? (destinationAccount && amount && parseFloat(amount) > 0)
+    : (sourceAccount && destinationAccount && amount && parseFloat(amount) > 0 && isAmountValid);
 
-  // Manejar la transferencia
+  // Manejar la transferencia o inversión
   const handleTransfer = async () => {
     if (!isFormValid || !selectedRoute) {
       setErrorMessage('Por favor completa todos los campos requeridos.');
@@ -139,18 +149,28 @@ export const TransferForm: React.FC<TransferFormProps> = ({
     try {
       const numericAmount = parseFloat(amount);
 
-      // Crear la transferencia
+      // Crear la transacción según el tipo
+      const transactionData = isCapitalInvestment ? {
+        amount: numericAmount.toString(),
+        date: selectedDate.toISOString(),
+        type: 'INCOME',
+        incomeSource: 'MONEY_INVESMENT',
+        description: description || 'Inversión de capital',
+        destinationAccount: { connect: { id: destinationAccount } },
+        lead: selectedLead ? { connect: { id: selectedLead.id } } : undefined
+      } : {
+        amount: numericAmount.toString(),
+        date: selectedDate.toISOString(),
+        type: 'TRANSFER',
+        description: description || 'Transferencia entre cuentas',
+        sourceAccount: { connect: { id: sourceAccount } },
+        destinationAccount: { connect: { id: destinationAccount } },
+        lead: selectedLead ? { connect: { id: selectedLead.id } } : undefined
+      };
+
       await createTransfer({
         variables: {
-          data: {
-            amount: numericAmount.toString(), // Convertir a string para cumplir con el tipo Decimal
-            date: selectedDate.toISOString(),
-            type: 'TRANSFER',
-            description: description || 'Transferencia entre cuentas',
-            sourceAccount: { connect: { id: sourceAccount } },
-            destinationAccount: { connect: { id: destinationAccount } },
-            lead: selectedLead ? { connect: { id: selectedLead.id } } : undefined
-          }
+          data: transactionData
         }
       });
 
@@ -167,8 +187,8 @@ export const TransferForm: React.FC<TransferFormProps> = ({
         onTransferComplete();
       }
     } catch (error) {
-      console.error('Error al realizar la transferencia:', error);
-      setErrorMessage('Error al realizar la transferencia. Por favor intenta nuevamente.');
+      console.error('Error al realizar la operación:', error);
+      setErrorMessage('Error al realizar la operación. Por favor intenta nuevamente.');
     } finally {
       setIsSubmitting(false);
     }
@@ -184,31 +204,59 @@ export const TransferForm: React.FC<TransferFormProps> = ({
 
   return (
     <Box css={{ backgroundColor: 'white', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)' }}>
-      <h3 css={{ fontSize: '18px', fontWeight: 600, marginBottom: '20px' }}>Transferencia entre Cuentas</h3>
+      <h3 css={{ fontSize: '18px', fontWeight: 600, marginBottom: '20px' }}>
+        {isCapitalInvestment ? 'Inversión de Capital' : 'Transferencia entre Cuentas'}
+      </h3>
       
       {!selectedRoute && (
         <Box css={{ padding: '16px', backgroundColor: '#FFFBEA', borderRadius: '4px', marginBottom: '16px' }}>
           Por favor selecciona una ruta para ver las cuentas disponibles.
         </Box>
       )}
-      
-      <Box css={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '20px' }}>
-        <FieldContainer>
-          <FieldLabel>Cuenta de Origen</FieldLabel>
-          <Select
-            value={sourceOptions.find(option => option.value === sourceAccount) || null}
-            options={sourceOptions}
-            onChange={(option: AccountOption | null) => {
-              setSourceAccount(option?.value || null);
-              // Si se selecciona la misma cuenta como destino, deseleccionarla
-              if (option?.value === destinationAccount) {
-                setDestinationAccount(null);
-              }
-            }}
-            placeholder="Seleccionar cuenta de origen"
-            isDisabled={!selectedRoute || isSubmitting}
+
+      {/* Checkbox para inversión de capital */}
+      <Box css={{ marginBottom: '20px' }}>
+        <label css={{ display: 'flex', alignItems: 'center', cursor: 'pointer', fontSize: '14px' }}>
+          <input
+            type="checkbox"
+            checked={isCapitalInvestment}
+            onChange={(e) => setIsCapitalInvestment(e.target.checked)}
+            css={{ marginRight: '8px' }}
+            disabled={isSubmitting}
           />
-        </FieldContainer>
+          Inversión de Capital
+        </label>
+        {isCapitalInvestment && (
+          <div css={{ fontSize: '12px', color: '#6B7280', marginTop: '4px', marginLeft: '20px' }}>
+            Cuando está activo, no se requiere cuenta de origen (el dinero ingresa al sistema)
+          </div>
+        )}
+      </Box>
+      
+      <Box css={{ 
+        display: 'grid', 
+        gridTemplateColumns: isCapitalInvestment ? '1fr' : 'repeat(2, 1fr)', 
+        gap: '16px', 
+        marginBottom: '20px' 
+      }}>
+        {!isCapitalInvestment && (
+          <FieldContainer>
+            <FieldLabel>Cuenta de Origen</FieldLabel>
+            <Select
+              value={sourceOptions.find(option => option.value === sourceAccount) || null}
+              options={sourceOptions}
+              onChange={(option: AccountOption | null) => {
+                setSourceAccount(option?.value || null);
+                // Si se selecciona la misma cuenta como destino, deseleccionarla
+                if (option?.value === destinationAccount) {
+                  setDestinationAccount(null);
+                }
+              }}
+              placeholder="Seleccionar cuenta de origen"
+              isDisabled={!selectedRoute || isSubmitting}
+            />
+          </FieldContainer>
+        )}
         
         <FieldContainer>
           <FieldLabel>Cuenta de Destino</FieldLabel>
@@ -217,25 +265,25 @@ export const TransferForm: React.FC<TransferFormProps> = ({
             options={destinationOptions}
             onChange={(option: AccountOption | null) => setDestinationAccount(option?.value || null)}
             placeholder="Seleccionar cuenta de destino"
-            isDisabled={!sourceAccount || isSubmitting}
+            isDisabled={(!sourceAccount && !isCapitalInvestment) || !selectedRoute || isSubmitting}
           />
         </FieldContainer>
       </Box>
       
       <Box css={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '20px' }}>
         <FieldContainer>
-          <FieldLabel>Monto a Transferir</FieldLabel>
+          <FieldLabel>{isCapitalInvestment ? 'Monto de Inversión' : 'Monto a Transferir'}</FieldLabel>
           <TextInput
             type="number"
             value={amount}
             onChange={e => setAmount(e.target.value)}
-            placeholder="Ingresa el monto"
-            disabled={!sourceAccount || !destinationAccount || isSubmitting}
+            placeholder={isCapitalInvestment ? 'Ingresa el monto a invertir' : 'Ingresa el monto'}
+            disabled={(!sourceAccount && !isCapitalInvestment) || !destinationAccount || isSubmitting}
             min="0"
             step="0.01"
             invalid={amount !== '' && !isAmountValid}
           />
-          {sourceAccountData && (
+          {!isCapitalInvestment && sourceAccountData && (
             <div css={{ fontSize: '13px', color: '#4B5563', marginTop: '4px' }}>
               Saldo disponible: {formatCurrency(availableBalance)}
             </div>
@@ -253,7 +301,7 @@ export const TransferForm: React.FC<TransferFormProps> = ({
             type="text"
             value={description}
             onChange={e => setDescription(e.target.value)}
-            placeholder="Descripción de la transferencia"
+            placeholder={isCapitalInvestment ? 'Descripción de la inversión' : 'Descripción de la transferencia'}
             disabled={isSubmitting}
           />
         </FieldContainer>
@@ -274,13 +322,13 @@ export const TransferForm: React.FC<TransferFormProps> = ({
           isDisabled={!isFormValid || isSubmitting}
           isLoading={isSubmitting}
         >
-          Realizar Transferencia
+          {isCapitalInvestment ? 'Realizar Inversión' : 'Realizar Transferencia'}
         </Button>
       </Box>
       
       {showSuccess && (
         <AlertDialog
-          title="Transferencia completada"
+          title={isCapitalInvestment ? 'Inversión completada' : 'Transferencia completada'}
           isOpen={showSuccess}
           actions={{
             confirm: {
@@ -289,7 +337,10 @@ export const TransferForm: React.FC<TransferFormProps> = ({
             },
           }}
         >
-          La transferencia se ha realizado correctamente.
+          {isCapitalInvestment 
+            ? 'La inversión de capital se ha registrado correctamente.' 
+            : 'La transferencia se ha realizado correctamente.'
+          }
         </AlertDialog>
       )}
     </Box>
