@@ -238,6 +238,7 @@ export default function TransaccionesPage() {
         <Box css={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
           <button
             onClick={() => handleTabChange('summary')}
+            data-testid="tab-summary"
             css={{
               padding: '8px 16px',
               backgroundColor: activeTab === 'summary' ? '#3182ce' : '#e2e8f0',
@@ -254,6 +255,7 @@ export default function TransaccionesPage() {
           </button>
           <button
             onClick={() => handleTabChange('expenses')}
+            data-testid="tab-expenses"
             css={{
               padding: '8px 16px',
               backgroundColor: activeTab === 'expenses' ? '#3182ce' : '#e2e8f0',
@@ -270,6 +272,7 @@ export default function TransaccionesPage() {
           </button>
           <button
             onClick={() => handleTabChange('credits')}
+            data-testid="tab-credits"
             css={{
               padding: '8px 16px',
               backgroundColor: activeTab === 'credits' ? '#3182ce' : '#e2e8f0',
@@ -286,6 +289,7 @@ export default function TransaccionesPage() {
           </button>
           <button
             onClick={() => handleTabChange('payments')}
+            data-testid="tab-payments"
             css={{
               padding: '8px 16px',
               backgroundColor: activeTab === 'payments' ? '#3182ce' : '#e2e8f0',
@@ -302,6 +306,7 @@ export default function TransaccionesPage() {
           </button>
           <button
             onClick={() => handleTabChange('transfers')}
+            data-testid="tab-transfers"
             css={{
               padding: '8px 16px',
               backgroundColor: activeTab === 'transfers' ? '#3182ce' : '#e2e8f0',

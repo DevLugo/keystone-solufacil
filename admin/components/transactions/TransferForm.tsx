@@ -223,6 +223,7 @@ export const TransferForm: React.FC<TransferFormProps> = ({
             onChange={(e) => setIsCapitalInvestment(e.target.checked)}
             css={{ marginRight: '8px' }}
             disabled={isSubmitting}
+            data-testid="capital-investment-checkbox"
           />
           Inversión de Capital
         </label>
@@ -254,6 +255,7 @@ export const TransferForm: React.FC<TransferFormProps> = ({
               }}
               placeholder="Seleccionar cuenta de origen"
               isDisabled={!selectedRoute || isSubmitting}
+              data-testid="source-account"
             />
           </FieldContainer>
         )}
@@ -266,6 +268,7 @@ export const TransferForm: React.FC<TransferFormProps> = ({
             onChange={(option: AccountOption | null) => setDestinationAccount(option?.value || null)}
             placeholder="Seleccionar cuenta de destino"
             isDisabled={(!sourceAccount && !isCapitalInvestment) || !selectedRoute || isSubmitting}
+            data-testid="destination-account"
           />
         </FieldContainer>
       </Box>
@@ -282,6 +285,7 @@ export const TransferForm: React.FC<TransferFormProps> = ({
             min="0"
             step="0.01"
             invalid={amount !== '' && !isAmountValid}
+            data-testid="amount-input"
           />
           {!isCapitalInvestment && sourceAccountData && (
             <div css={{ fontSize: '13px', color: '#4B5563', marginTop: '4px' }}>
@@ -289,7 +293,7 @@ export const TransferForm: React.FC<TransferFormProps> = ({
             </div>
           )}
           {amount !== '' && !isAmountValid && (
-            <div css={{ fontSize: '13px', color: '#DC2626', marginTop: '4px' }}>
+            <div css={{ fontSize: '13px', color: '#DC2626', marginTop: '4px' }} data-testid="amount-error">
               {amountErrorMessage}
             </div>
           )}
@@ -303,6 +307,7 @@ export const TransferForm: React.FC<TransferFormProps> = ({
             onChange={e => setDescription(e.target.value)}
             placeholder={isCapitalInvestment ? 'Descripción de la inversión' : 'Descripción de la transferencia'}
             disabled={isSubmitting}
+            data-testid="description-input"
           />
         </FieldContainer>
       </Box>
@@ -321,6 +326,7 @@ export const TransferForm: React.FC<TransferFormProps> = ({
           onClick={handleTransfer}
           isDisabled={!isFormValid || isSubmitting}
           isLoading={isSubmitting}
+          data-testid="submit-button"
         >
           {isCapitalInvestment ? 'Realizar Inversión' : 'Realizar Transferencia'}
         </Button>
@@ -336,6 +342,7 @@ export const TransferForm: React.FC<TransferFormProps> = ({
               action: () => setShowSuccess(false),
             },
           }}
+          data-testid="success-modal"
         >
           {isCapitalInvestment 
             ? 'La inversión de capital se ha registrado correctamente.' 

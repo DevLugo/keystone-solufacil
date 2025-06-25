@@ -392,6 +392,7 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
               onChange={handleRouteChange}
               placeholder="Seleccionar ruta"
               isLoading={routesLoading}
+              data-testid="route-selector"
             />
           </Box>
 
@@ -405,6 +406,7 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
                 placeholder="Seleccionar líder"
                 isLoading={leadsLoading}
                 isDisabled={!selectedRoute}
+                data-testid="lead-selector"
               />
               {selectedLead && (
                 <button
