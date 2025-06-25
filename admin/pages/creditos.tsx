@@ -831,4 +831,8 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
   );
 };
 
+// Export default para que funcione correctamente con Next.js
+export default CreateLoanForm;
+
+// También mantener el named export para compatibilidad
 export { CreateLoanForm };
