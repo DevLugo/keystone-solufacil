@@ -6,10 +6,17 @@
     "dev": "keystone dev",
     "dev:test": "cross-env NODE_ENV=test dotenv -e .env.test -- keystone dev",
     "start": "keystone start",
-    "build": "keystone build",
+    "build": "keystone build && keystone prisma migrate deploy",
+    "build:production": "npm ci --omit=dev && keystone build && keystone prisma migrate deploy",
     "generate": "keystone prisma migrate dev",
     "postinstall": "keystone postinstall",
     "deploy": "keystone build && keystone prisma migrate deploy",
+    "migrate": "keystone prisma migrate deploy",
+    "migrate:reset": "keystone prisma migrate reset --force",
+    "verify-deployment": "node scripts/verify-deployment.js",
+    "prepare-render": "npm run verify-deployment && echo '✅ Proyecto listo para Render. Ve a DEPLOY_RENDER.md para instrucciones.'",
+    "clean:cypress": "rm -rf cypress/screenshots cypress/videos cypress/downloads && echo '🧹 Archivos temporales de Cypress eliminados'",
+    "clean:all": "npm run clean:cypress && rm -rf node_modules && echo '🧹 Limpieza completa realizada'",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:integration": "jest --testPathPattern=integration",
@@ -31,11 +38,13 @@
     "@keystone-6/core": "^6.3.1",
     "@keystone-6/fields-document": "^9.0.0",
     "@types/bcrypt": "^5.0.2",
+    "@types/node": "^22.13.10",
     "bcrypt": "^6.0.0",
     "dotenv": "^16.4.7",
     "pdfkit": "^0.16.0",
     "pg": "^8.13.1",
-    "react-icons": "^5.4.0"
+    "react-icons": "^5.4.0",
+    "typescript": "^5.8.2"
   },
   "devDependencies": {
     "@faker-js/faker": "^8.4.1",
@@ -44,7 +53,6 @@
     "@testing-library/user-event": "^14.5.2",
     "@types/jest": "^29.5.14",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^22.13.10",
     "@types/pdfkit": "^0.13.9",
     "@types/supertest": "^6.0.2",
     "apollo-server-testing": "^2.25.4",
@@ -57,7 +65,10 @@
     "msw": "^2.2.1",
     "supertest": "^6.3.4",
     "ts-jest": "^29.2.6",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.8.2"
+    "ts-node": "^10.9.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
   }
 }

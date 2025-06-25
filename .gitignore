@@ -2,3 +2,56 @@ node_modules
 .keystone/
 keystone.db
 *.log
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.staging
+
+# Build artifacts
+dist/
+build/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.temp
+
+# Coverage reports
+coverage/
+.nyc_output
+
+# Prisma
+prisma/migrations/dev.db*
+
+# Cypress - Archivos temporales y de testing
+cypress/screenshots/
+cypress/videos/
+cypress/downloads/
+cypress/fixtures/downloads/
+cypress.config.js.backup
+cypress/plugins/index.js
+mochawesome-report/
+.cypress_cache/
+
+# Testing artifacts
+*.spec.js.map
+*.test.js.map
+test-results/
+playwright-report/
+junit.xml

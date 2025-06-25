@@ -27,13 +27,36 @@ declare global {
 // Load environment variables from .env file
 dotenv.config();
 
+// Validate required environment variables
+const requiredEnvVars = ['DATABASE_URL', 'SESSION_SECRET'];
+const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
+
+if (missingEnvVars.length > 0) {
+  console.error('❌ Error: Missing required environment variables:');
+  missingEnvVars.forEach(envVar => console.error(`   - ${envVar}`));
+  console.error('\n💡 Please set these variables in your .env file or deployment environment');
+  process.exit(1);
+}
+
+// Validate DATABASE_URL format for PostgreSQL
+if (!process.env.DATABASE_URL?.startsWith('postgresql://') && !process.env.DATABASE_URL?.startsWith('postgres://')) {
+  console.error('❌ Error: DATABASE_URL must be a valid PostgreSQL connection string');
+  console.error('   Example: postgresql://username:password@hostname:5432/database_name');
+  process.exit(1);
+}
+
+console.log('✅ Environment variables validated successfully');
+console.log(`🚀 Starting Keystone in ${process.env.NODE_ENV || 'development'} mode`);
+
 const app = express();
 
 // Initialize Prisma client with proper typing
 let prisma: PrismaClient;
 
 if (typeof global.prisma === 'undefined') {
-  global.prisma = new PrismaClient();
+  global.prisma = new PrismaClient({
+    log: process.env.NODE_ENV === 'development' ? ['query'] : ['error'],
+  });
 }
 
 prisma = global.prisma;
@@ -42,11 +65,10 @@ export { prisma };
 export default withAuth(
   config({
     db: {
-      // we're using sqlite for the fastest startup experience
-      //   for more information on what database might be appropriate for you
-      //   see https://keystonejs.com/docs/guides/choosing-a-database#title
       provider: 'postgresql',
-      url: process.env.DATABASE_URL || '',
+      url: process.env.DATABASE_URL,
+      shadowDatabaseUrl: process.env.SHADOW_DATABASE_URL,
+      enableLogging: process.env.NODE_ENV === 'development',
     },
     lists,
     graphql: {
