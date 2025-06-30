@@ -54,39 +54,7 @@ const DropdownPortal: React.FC<DropdownPortalProps> = ({ isOpen, children }) => 
   );
 };
 
-const GET_EXPENSES_BY_DATE = gql`
-  query GetExpensesByDate($date: DateTime!, $nextDate: DateTime!) {
-    transactions(where: {
-      AND: [
-        { date: { gte: $date } },
-        { date: { lt: $nextDate } },
-        { type: { equals: "EXPENSE" } },
-        { expenseSource: { not: { equals: "LOAN_GRANTED" } } },
-        { expenseSource: { not: { equals: "LOAN_GRANTED_COMISSION" } } },
-        { expenseSource: { not: { equals: "LOAN_PAYMENT_COMISSION" } } }
-      ]
-    }) {
-      id
-      amount
-      expenseSource
-      date
-      sourceAccount {
-        id
-        name
-        __typename
-      }
-      lead {
-        id
-        personalData {
-          fullName
-          __typename
-        }
-        __typename
-      }
-      __typename
-    }
-  }
-`;
+import { GET_EXPENSES_BY_DATE_SIMPLE } from '../graphql/queries/transactions';
 
 const styles = {
   form: {
@@ -334,7 +302,8 @@ export const CreateExpensesForm = ({
   selectedDate, 
   selectedRoute, 
   selectedLead,
-  refreshKey 
+  refreshKey,
+  onSaveComplete
 }: GastosProps) => {
   const [state, setState] = useState<FormState>({
     newTransactions: [],
@@ -392,7 +361,7 @@ export const CreateExpensesForm = ({
 
   const [getLeads, { data: leadsData, loading: leadsLoading, error: leadsError }] = useLazyQuery(GET_LEADS);
 
-  const { data: expensesData, loading: expensesLoading, refetch: refetchExpenses } = useQuery(GET_EXPENSES_BY_DATE, {
+  const { data: expensesData, loading: expensesLoading, refetch: refetchExpenses } = useQuery(GET_EXPENSES_BY_DATE_SIMPLE, {
     variables: { 
       date: selectedDate.toISOString().split('T')[0] + 'T00:00:00.000Z',
       nextDate: new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0] + 'T00:00:00.000Z'
@@ -502,10 +471,7 @@ export const CreateExpensesForm = ({
       });
 
       setTimeout(() => {
-        updateState(prev => ({
-          ...prev,
-          showSuccessMessage: false
-        }));
+        updateState({ showSuccessMessage: false });
       }, 2000);
 
     } catch (error) {
@@ -590,13 +556,13 @@ export const CreateExpensesForm = ({
         newTransactions: [],
         editedTransactions: {}
       });
+
+      // 🔧 FIX: Ocultar los rows de creación
+      setIsAddingNew(false);
       
       // Ocultar el mensaje después de 2 segundos
       setTimeout(() => {
-        updateState(prev => ({
-          ...prev,
-          showSuccessMessage: false
-        }));
+        updateState({ showSuccessMessage: false });
       }, 2000);
 
     } catch (error) {
@@ -628,10 +594,7 @@ export const CreateExpensesForm = ({
 
       updateState({ showSuccessMessage: true });
       setTimeout(() => {
-        updateState(prev => ({
-          ...prev,
-          showSuccessMessage: false
-        }));
+        updateState({ showSuccessMessage: false });
       }, 2000);
 
     } catch (error) {
@@ -665,8 +628,8 @@ export const CreateExpensesForm = ({
 
     const rect = button.getBoundingClientRect();
     return {
-      top: rect.bottom + 4,
-      left: rect.right - 160,
+      top: rect.top - 4, // Posicionar arriba del botón
+      left: rect.right - 160, // 160px es el ancho del dropdown
     };
   };
 
@@ -1107,10 +1070,11 @@ export const CreateExpensesForm = ({
                 ...getDropdownPosition(transaction.id),
                 backgroundColor: 'white',
                 borderRadius: '8px',
-                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                boxShadow: '0 -4px 6px -1px rgba(0, 0, 0, 0.1), 0 -2px 4px -1px rgba(0, 0, 0, 0.06)',
                 pointerEvents: 'auto',
                 minWidth: '160px',
                 zIndex: 10000,
+                transform: 'translateY(-100%)', // Mover el menú hacia arriba
               }}
             >
               <button

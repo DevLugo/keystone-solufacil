@@ -1073,6 +1073,224 @@ export const Transaction = list({
             });
           }
         }
+        else if (operation === 'update') {
+          if (!item || !originalItem) {
+            console.log('No hay datos suficientes para procesar la actualización');
+            return;
+          }
+
+          const transactionItem = item as unknown as TransactionItem;
+          const originalTransaction = originalItem as unknown as TransactionItem;
+
+          console.log('🔄 Procesando actualización de transacción:', {
+            original: { amount: originalTransaction.amount, type: originalTransaction.type },
+            nuevo: { amount: transactionItem.amount, type: transactionItem.type }
+          });
+
+          // Si es una transacción de pago de préstamo, no procesar aquí
+          if (transactionItem.type === 'INCOME' && 
+              (transactionItem.incomeSource === 'BANK_LOAN_PAYMENT' || 
+               transactionItem.incomeSource === 'CASH_LOAN_PAYMENT')) {
+            console.log('Transacción de pago de préstamo detectada, omitiendo procesamiento adicional');
+            return;
+          }
+
+          // Obtener cuentas originales
+          let originalSourceAccount = null;
+          let originalDestinationAccount = null;
+
+          if (originalTransaction.sourceAccountId) {
+            originalSourceAccount = await context.prisma.account.findUnique({
+              where: { id: originalTransaction.sourceAccountId.toString() }
+            });
+          }
+
+          if (originalTransaction.destinationAccountId) {
+            originalDestinationAccount = await context.prisma.account.findUnique({
+              where: { id: originalTransaction.destinationAccountId.toString() }
+            });
+          }
+
+          // Obtener cuentas nuevas
+          let newSourceAccount = null;
+          let newDestinationAccount = null;
+
+          if (transactionItem.sourceAccountId) {
+            newSourceAccount = await context.prisma.account.findUnique({
+              where: { id: transactionItem.sourceAccountId.toString() }
+            });
+          }
+
+          if (transactionItem.destinationAccountId) {
+            newDestinationAccount = await context.prisma.account.findUnique({
+              where: { id: transactionItem.destinationAccountId.toString() }
+            });
+          }
+
+          const originalAmount = parseAmount(originalTransaction.amount);
+          const newAmount = parseAmount(transactionItem.amount);
+
+          // PASO 1: Revertir el efecto de la transacción original
+
+          // Revertir efecto en cuenta origen original
+          if (originalSourceAccount && (originalTransaction.type === 'EXPENSE' || originalTransaction.type === 'TRANSFER')) {
+            const currentAmount = parseAmount(originalSourceAccount.amount);
+            const revertedAmount = parseFloat((currentAmount + originalAmount).toFixed(2)); // Sumar porque había sido restado
+            
+            await context.prisma.account.update({
+              where: { id: originalSourceAccount.id },
+              data: { amount: revertedAmount.toString() }
+            });
+            console.log('🔙 Revertido balance cuenta origen original:', {
+              cuenta: originalSourceAccount.id,
+              original: currentAmount,
+              revertido: revertedAmount,
+              monto: originalAmount
+            });
+          }
+
+          // Revertir efecto en cuenta destino original
+          if (originalDestinationAccount && (originalTransaction.type === 'INCOME' || originalTransaction.type === 'TRANSFER')) {
+            const currentAmount = parseAmount(originalDestinationAccount.amount);
+            const revertedAmount = parseFloat((currentAmount - originalAmount).toFixed(2)); // Restar porque había sido sumado
+            
+            await context.prisma.account.update({
+              where: { id: originalDestinationAccount.id },
+              data: { amount: revertedAmount.toString() }
+            });
+            console.log('🔙 Revertido balance cuenta destino original:', {
+              cuenta: originalDestinationAccount.id,
+              original: currentAmount,
+              revertido: revertedAmount,
+              monto: originalAmount
+            });
+          }
+
+          // PASO 2: Aplicar el efecto de la nueva transacción
+
+          // Aplicar nuevo efecto en cuenta origen
+          if (newSourceAccount && (transactionItem.type === 'EXPENSE' || transactionItem.type === 'TRANSFER')) {
+            const currentAmount = parseAmount(newSourceAccount.amount);
+            const finalAmount = parseFloat((currentAmount - newAmount).toFixed(2));
+            
+            if (finalAmount < 0) {
+              throw new Error(`La operación resultaría en un balance negativo: ${finalAmount}`);
+            }
+
+            await context.prisma.account.update({
+              where: { id: newSourceAccount.id },
+              data: { amount: finalAmount.toString() }
+            });
+            console.log('✅ Aplicado nuevo balance cuenta origen:', {
+              cuenta: newSourceAccount.id,
+              original: currentAmount,
+              nuevo: finalAmount,
+              monto: newAmount
+            });
+          }
+
+          // Aplicar nuevo efecto en cuenta destino
+          if (newDestinationAccount && (transactionItem.type === 'INCOME' || transactionItem.type === 'TRANSFER')) {
+            const currentAmount = parseAmount(newDestinationAccount.amount);
+            const finalAmount = parseFloat((currentAmount + newAmount).toFixed(2));
+            
+            await context.prisma.account.update({
+              where: { id: newDestinationAccount.id },
+              data: { amount: finalAmount.toString() }
+            });
+            console.log('✅ Aplicado nuevo balance cuenta destino:', {
+              cuenta: newDestinationAccount.id,
+              original: currentAmount,
+              nuevo: finalAmount,
+              monto: newAmount
+            });
+          }
+
+          console.log('🎉 Actualización de transacción completada exitosamente');
+        }
+        else if (operation === 'delete') {
+          if (!originalItem) {
+            console.log('No hay datos de la transacción original para revertir');
+            return;
+          }
+
+          const originalTransaction = originalItem as unknown as TransactionItem;
+
+          console.log('🗑️ Procesando eliminación de transacción:', {
+            id: originalTransaction.id,
+            amount: originalTransaction.amount,
+            type: originalTransaction.type
+          });
+
+          // Si es una transacción de pago de préstamo, no procesar aquí
+          if (originalTransaction.type === 'INCOME' && 
+              (originalTransaction.incomeSource === 'BANK_LOAN_PAYMENT' || 
+               originalTransaction.incomeSource === 'CASH_LOAN_PAYMENT')) {
+            console.log('Transacción de pago de préstamo detectada, omitiendo procesamiento adicional');
+            return;
+          }
+
+          // Obtener cuentas de la transacción eliminada
+          let originalSourceAccount = null;
+          let originalDestinationAccount = null;
+
+          if (originalTransaction.sourceAccountId) {
+            originalSourceAccount = await context.prisma.account.findUnique({
+              where: { id: originalTransaction.sourceAccountId.toString() }
+            });
+          }
+
+          if (originalTransaction.destinationAccountId) {
+            originalDestinationAccount = await context.prisma.account.findUnique({
+              where: { id: originalTransaction.destinationAccountId.toString() }
+            });
+          }
+
+          const originalAmount = parseAmount(originalTransaction.amount);
+
+          // Revertir el efecto de la transacción eliminada
+
+          // Para gastos y transferencias: devolver dinero a la cuenta origen
+          if (originalSourceAccount && (originalTransaction.type === 'EXPENSE' || originalTransaction.type === 'TRANSFER')) {
+            const currentAmount = parseAmount(originalSourceAccount.amount);
+            const revertedAmount = parseFloat((currentAmount + originalAmount).toFixed(2)); // Sumar porque había sido restado
+            
+            await context.prisma.account.update({
+              where: { id: originalSourceAccount.id },
+              data: { amount: revertedAmount.toString() }
+            });
+            console.log('💰 Devuelto dinero a cuenta origen:', {
+              cuenta: originalSourceAccount.id,
+              antes: currentAmount,
+              despues: revertedAmount,
+              monto_devuelto: originalAmount
+            });
+          }
+
+          // Para ingresos y transferencias: quitar dinero de la cuenta destino
+          if (originalDestinationAccount && (originalTransaction.type === 'INCOME' || originalTransaction.type === 'TRANSFER')) {
+            const currentAmount = parseAmount(originalDestinationAccount.amount);
+            const revertedAmount = parseFloat((currentAmount - originalAmount).toFixed(2)); // Restar porque había sido sumado
+            
+            // Validar que no quede en negativo
+            if (revertedAmount < 0) {
+              throw new Error(`No se puede eliminar la transacción: resultaría en un balance negativo (${revertedAmount})`);
+            }
+            
+            await context.prisma.account.update({
+              where: { id: originalDestinationAccount.id },
+              data: { amount: revertedAmount.toString() }
+            });
+            console.log('💸 Removido dinero de cuenta destino:', {
+              cuenta: originalDestinationAccount.id,
+              antes: currentAmount,
+              despues: revertedAmount,
+              monto_removido: originalAmount
+            });
+          }
+
+          console.log('🎉 Eliminación de transacción completada exitosamente');
+        }
       } catch (error) {
         console.error('Error en afterOperation de Transaction:', error);
         throw error;
