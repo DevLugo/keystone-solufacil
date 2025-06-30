@@ -25,7 +25,13 @@ export const GET_LOANS_BY_LEAD = gql`
   query Loans($where: LoanWhereInput!) {
     loans(where: $where) {
       id
-      weeklyPaymentAmount
+      requestedAmount
+      amountGived
+      loantype {
+        id
+        rate
+        weekDuration
+      }
       borrower {
         personalData{
           fullName

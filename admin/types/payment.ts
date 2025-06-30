@@ -8,7 +8,13 @@ export type Lead = {
 
 export type Loan = {
   id: string;
-  weeklyPaymentAmount: string;
+  requestedAmount: string;
+  amountGived: string;
+  loantype: {
+    id: string;
+    rate: string;
+    weekDuration: number;
+  } | null;
   borrower: {
     personalData: {
       fullName: string;

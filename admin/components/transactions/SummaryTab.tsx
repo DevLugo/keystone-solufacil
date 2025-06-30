@@ -74,12 +74,12 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
 
   const summaryData = data?.getTransactionsSummary || [];
 
-  // Agrupar por localidad
-  const groupedByLocality = summaryData.reduce((acc: Record<string, any>, item: any) => {
-    const localityName = item.locality || 'General';
-    if (!acc[localityName]) {
-      acc[localityName] = {
-        locality: localityName,
+  // Agrupar por líder
+  const groupedByLeader = summaryData.reduce((acc: Record<string, any>, item: any) => {
+    const leaderInfo = item.locality || 'General'; // El campo locality ahora contiene el nombre del líder
+    if (!acc[leaderInfo]) {
+      acc[leaderInfo] = {
+        locality: leaderInfo,
         totalIncome: 0,
         totalExpenses: 0,
         totalComissions: 0,
@@ -92,30 +92,68 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
     }
     
     // Calcular totales
-    const income = item.abono;
+    const income = item.abono + item.moneyInvestment;
     const expenses = item.viatic + item.gasoline + item.accommodation + 
                     item.nominaSalary + item.externalSalary + item.vehiculeMaintenance + 
-                    item.loanGranted + item.otro;
+                    item.otro; // loanGranted se muestra por separado
     const comissions = item.loanPaymentComission + item.loanGrantedComission + item.leadComission;
+    
+    // CALCULAR BALANCES EN EL FRONTEND (ingresos - gastos)
+    const totalIngresosReales = item.cashAbono + item.bankAbono;
+    const totalEgresos = expenses + item.credito + item.loanGranted + comissions;
+    
+    // CORREGIDO: Balance = Ingresos - Gastos (puede ser negativo)
+    let calculatedCashBalance = 0;
+    let calculatedBankBalance = 0;
+    
+    if (totalIngresosReales === 0 && item.moneyInvestment === 0) {
+      // CASO 1: No hay ingresos, solo gastos -> Balance negativo
+      // Asumir que los gastos se hacen en efectivo por defecto
+      calculatedCashBalance = -totalEgresos;
+      calculatedBankBalance = 0;
+      
+    } else if (totalIngresosReales === 0 && item.moneyInvestment > 0) {
+      // CASO 2: Solo hay inversión de dinero, no abonos
+      // Asumir que la inversión es en efectivo por defecto
+      calculatedCashBalance = item.moneyInvestment - totalEgresos;
+      calculatedBankBalance = 0;
+      
+    } else {
+      // CASO 3: Hay ingresos reales (abonos), distribuir proporcionalmente
+      const cashProportion = item.cashAbono / totalIngresosReales;
+      const bankProportion = item.bankAbono / totalIngresosReales;
+      
+      // Distribuir moneyInvestment proporcionalmente
+      const moneyInvestmentCash = item.moneyInvestment * cashProportion;
+      const moneyInvestmentBank = item.moneyInvestment * bankProportion;
+      
+      // Distribuir gastos proporcionalmente
+      const cashExpenses = totalEgresos * cashProportion;
+      const bankExpenses = totalEgresos * bankProportion;
+      
+      // Balance final = Ingresos - Gastos
+      calculatedCashBalance = (item.cashAbono + moneyInvestmentCash) - cashExpenses;
+      calculatedBankBalance = (item.bankAbono + moneyInvestmentBank) - bankExpenses;
+    }
 
-    acc[localityName].totalIncome += income;
-    acc[localityName].totalExpenses += expenses;
-    acc[localityName].totalComissions += comissions;
-    acc[localityName].balance += item.balance;
-    acc[localityName].profit += item.profit;
-    acc[localityName].cashBalance += item.cashBalance;
-    acc[localityName].bankBalance += item.bankBalance;
-    acc[localityName].details.push(item);
+    acc[leaderInfo].totalIncome += income;
+    acc[leaderInfo].totalExpenses += expenses;
+    acc[leaderInfo].totalComissions += comissions;
+    acc[leaderInfo].balance += item.balance;
+    acc[leaderInfo].profit += item.profit;
+    acc[leaderInfo].cashBalance += calculatedCashBalance;
+    acc[leaderInfo].bankBalance += calculatedBankBalance;
+    acc[leaderInfo].details.push(item);
 
     return acc;
   }, {});
 
-  const localities = Object.values(groupedByLocality) as LocalitySummary[];
+  const leaders = Object.values(groupedByLeader) as LocalitySummary[];
 
   return (
     <Box css={{ padding: '16px' }}>
-      {localities.map((locality: any) => (
-        <Box key={locality.locality} css={{ marginBottom: '24px' }}>
+      {leaders.map((leader: any) => (
+        <Box key={leader.locality} css={{ marginBottom: '24px' }}>
           <h2 css={{ 
             margin: '0 0 16px 0', 
             padding: '8px 16px',
@@ -123,7 +161,7 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
             borderRadius: '4px',
             borderLeft: '4px solid #4299e1'
           }}>
-            {locality.locality.split(' - ')[0]} - {locality.locality.split(' - ')[1]}
+            👤 {leader.locality}
           </h2>
           <table css={{ width: '100%', borderCollapse: 'collapse', marginBottom: '16px' }}>
             <thead>
@@ -136,13 +174,19 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
               <tr>
                 <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#e53e3e' }}>(-) Dinero otorgado en créditos</td>
                 <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#e53e3e' }}>
-                  ${locality.details.reduce((sum: number, item: any) => sum + item.credito, 0).toFixed(2)}
+                  ${leader.details.reduce((sum: number, item: any) => sum + item.credito, 0).toFixed(2)}
+                </td>
+              </tr>
+              <tr>
+                <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#e53e3e' }}>(-) Préstamos otorgados</td>
+                <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#e53e3e' }}>
+                  ${leader.details.reduce((sum: number, item: any) => sum + item.loanGranted, 0).toFixed(2)}
                 </td>
               </tr>
               <tr>
                 <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#e53e3e' }}>(-) Gastos operativos</td>
                 <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#e53e3e' }}>
-                  ${locality.details.reduce((sum: number, item: any) => 
+                  ${leader.details.reduce((sum: number, item: any) => 
                     sum + item.viatic + item.gasoline + item.accommodation + 
                     item.nominaSalary + item.externalSalary + item.vehiculeMaintenance + 
                     item.otro, 0).toFixed(2)}
@@ -151,31 +195,37 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
               <tr>
                 <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#e53e3e' }}>(-) Comisiones</td>
                 <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#e53e3e' }}>
-                  ${locality.totalComissions.toFixed(2)}
+                  ${leader.totalComissions.toFixed(2)}
                 </td>
               </tr>
               <tr>
                 <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#38a169' }}>(+) Total Abonos en Efectivo</td>
                 <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#38a169' }}>
-                  ${locality.details.reduce((sum: number, item: any) => sum + item.cashAbono, 0).toFixed(2)}
+                  ${leader.details.reduce((sum: number, item: any) => sum + item.cashAbono, 0).toFixed(2)}
                 </td>
               </tr>
               <tr>
                 <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#38a169' }}>(+) Total Abonos en Banco</td>
                 <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#38a169' }}>
-                  ${locality.details.reduce((sum: number, item: any) => sum + item.bankAbono, 0).toFixed(2)}
+                  ${leader.details.reduce((sum: number, item: any) => sum + item.bankAbono, 0).toFixed(2)}
+                </td>
+              </tr>
+              <tr>
+                <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#3182ce' }}>(+) Inversión de dinero</td>
+                <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#3182ce' }}>
+                  ${leader.details.reduce((sum: number, item: any) => sum + item.moneyInvestment, 0).toFixed(2)}
                 </td>
               </tr>
               <tr css={{ backgroundColor: '#f7fafc', fontWeight: 'bold' }}>
                 <td css={{ padding: '8px', border: '1px solid #e2e8f0' }}>Balance en Efectivo</td>
                 <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right' }}>
-                  ${locality.cashBalance.toFixed(2)}
+                  ${leader.cashBalance.toFixed(2)}
                 </td>
               </tr>
               <tr css={{ backgroundColor: '#f7fafc', fontWeight: 'bold' }}>
                 <td css={{ padding: '8px', border: '1px solid #e2e8f0' }}>Balance en Banco</td>
                 <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right' }}>
-                  ${locality.bankBalance.toFixed(2)}
+                  ${leader.bankBalance.toFixed(2)}
                 </td>
               </tr>
             </tbody>
@@ -202,13 +252,19 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
             <tr>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#e53e3e' }}>(-) Total Dinero otorgado en créditos</td>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#e53e3e' }}>
-                ${localities.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => sum + item.credito, 0), 0).toFixed(2)}
+                ${leaders.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => sum + item.credito, 0), 0).toFixed(2)}
+              </td>
+            </tr>
+            <tr>
+              <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#e53e3e' }}>(-) Total Préstamos otorgados</td>
+              <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#e53e3e' }}>
+                ${leaders.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => sum + item.loanGranted, 0), 0).toFixed(2)}
               </td>
             </tr>
             <tr>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#e53e3e' }}>(-) Total Gastos operativos</td>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#e53e3e' }}>
-                ${localities.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => 
+                ${leaders.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => 
                   sum + item.viatic + item.gasoline + item.accommodation + 
                   item.nominaSalary + item.externalSalary + item.vehiculeMaintenance + 
                   item.otro, 0), 0).toFixed(2)}
@@ -217,31 +273,37 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
             <tr>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#e53e3e' }}>(-) Total Comisiones</td>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#e53e3e' }}>
-                ${localities.reduce((sum: number, loc: LocalitySummary) => sum + loc.totalComissions, 0).toFixed(2)}
+                ${leaders.reduce((sum: number, loc: LocalitySummary) => sum + loc.totalComissions, 0).toFixed(2)}
               </td>
             </tr>
             <tr>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#38a169' }}>(+) Total Abonos en Efectivo</td>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#38a169' }}>
-                ${localities.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => sum + item.cashAbono, 0), 0).toFixed(2)}
+                ${leaders.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => sum + item.cashAbono, 0), 0).toFixed(2)}
               </td>
             </tr>
             <tr>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#38a169' }}>(+) Total Abonos en Banco</td>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#38a169' }}>
-                ${localities.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => sum + item.bankAbono, 0), 0).toFixed(2)}
+                ${leaders.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => sum + item.bankAbono, 0), 0).toFixed(2)}
+              </td>
+            </tr>
+            <tr>
+              <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#3182ce' }}>(+) Total Inversión de dinero</td>
+              <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#3182ce' }}>
+                ${leaders.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => sum + item.moneyInvestment, 0), 0).toFixed(2)}
               </td>
             </tr>
             <tr css={{ backgroundColor: '#e2e8f0', fontWeight: 'bold' }}>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0' }}>Balance Total en Efectivo</td>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right' }}>
-                ${localities.reduce((sum: number, loc: LocalitySummary) => sum + loc.cashBalance, 0).toFixed(2)}
+                ${leaders.reduce((sum: number, loc: LocalitySummary) => sum + loc.cashBalance, 0).toFixed(2)}
               </td>
             </tr>
             <tr css={{ backgroundColor: '#e2e8f0', fontWeight: 'bold' }}>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0' }}>Balance Total en Banco</td>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right' }}>
-                ${localities.reduce((sum: number, loc: LocalitySummary) => sum + loc.bankBalance, 0).toFixed(2)}
+                ${leaders.reduce((sum: number, loc: LocalitySummary) => sum + loc.bankBalance, 0).toFixed(2)}
               </td>
             </tr>
           </tbody>

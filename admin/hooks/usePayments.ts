@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLazyQuery, useQuery, useMutation } from '@apollo/client';
 import { GET_LEADS, GET_ROUTES, GET_LOANS_BY_LEAD } from '../graphql/queries/payment';
 import { CREATE_LEAD_PAYMENT_RECEIVED } from '../graphql/mutations/payment';
+import { calculateAmountToPay } from '../utils/loanCalculations';
 import { Lead, Loan, LoanPayment, Route, Option, PaymentDistribution, PaymentType, PaymentMethod } from '../types/payment';
 
 export const usePayments = () => {
@@ -55,7 +56,9 @@ export const usePayments = () => {
   useEffect(() => {
     if (loansData?.loans) {
       const newPayments = loansData.loans.map(loan => ({
-        amount: loan.weeklyPaymentAmount,
+        amount: loan.loantype?.rate ? 
+          calculateAmountToPay(loan.requestedAmount, loan.loantype.rate) : 
+          '0',
         comission,
         loanId: loan.id,
         type: PaymentType.PAYMENT,

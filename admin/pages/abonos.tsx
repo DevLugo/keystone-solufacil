@@ -347,6 +347,9 @@ export const CreatePaymentForm = ({
     existingPayments, editedPayments, isEditing, groupedPayments
   } = state;
 
+  // Estado separado para trackear pagos eliminados visualmente
+  const [deletedPaymentIds, setDeletedPaymentIds] = useState<string[]>([]);
+
   const updateState = (updates: Partial<typeof state>) => {
     setState(prev => ({ ...prev, ...updates }));
   };
@@ -408,8 +411,10 @@ export const CreatePaymentForm = ({
 
   const handleSaveAllChanges = async () => {
     try {
-      // Agrupar los pagos por leadPaymentReceived
-      const paymentsByLeadPayment = existingPayments.reduce((acc, payment) => {
+      // Agrupar los pagos por leadPaymentReceived (excluyendo los eliminados)
+      const paymentsByLeadPayment = existingPayments
+        .filter(payment => !deletedPaymentIds.includes(payment.id))
+        .reduce((acc, payment) => {
         const leadPaymentId = payment.leadPaymentReceived?.id;
         if (!leadPaymentId) return acc;
 
@@ -664,6 +669,39 @@ export const CreatePaymentForm = ({
     return payments.reduce((sum, payment) => sum + parseFloat(payment.comission.toString() || '0'), 0);
   }, [payments]);
 
+  // Calcular totales de pagos existentes (considerando ediciones y eliminaciones)
+  const totalExistingAmount = useMemo(() => {
+    return existingPayments
+      .filter(payment => !deletedPaymentIds.includes(payment.id))
+      .reduce((sum, payment) => {
+        const editedPayment = editedPayments[payment.id] || payment;
+        return sum + parseFloat(editedPayment.amount || '0');
+      }, 0);
+  }, [existingPayments, editedPayments, deletedPaymentIds]);
+
+  const totalExistingComission = useMemo(() => {
+    return existingPayments
+      .filter(payment => !deletedPaymentIds.includes(payment.id))
+      .reduce((sum, payment) => {
+        const editedPayment = editedPayments[payment.id] || payment;
+        return sum + parseFloat(editedPayment.comission || '0');
+      }, 0);
+  }, [existingPayments, editedPayments, deletedPaymentIds]);
+
+  // Total general (nuevos + existentes)
+  const grandTotalAmount = useMemo(() => {
+    return totalAmount + totalExistingAmount;
+  }, [totalAmount, totalExistingAmount]);
+
+  const grandTotalComission = useMemo(() => {
+    return totalComission + totalExistingComission;
+  }, [totalComission, totalExistingComission]);
+
+  // Contar pagos existentes (considerando eliminaciones)
+  const existingPaymentsCount = useMemo(() => {
+    return existingPayments.filter(payment => !deletedPaymentIds.includes(payment.id)).length;
+  }, [existingPayments, deletedPaymentIds]);
+
   const [activeTab, setActiveTab] = useState<'existing' | 'new'>('existing');
 
   useEffect(() => {
@@ -736,7 +774,7 @@ export const CreatePaymentForm = ({
               lineHeight: '1',
               marginBottom: '2px',
             }}>
-              {existingPayments.length + payments.length}
+              {existingPaymentsCount + payments.length}
             </div>
             <div style={{
               fontSize: '12px',
@@ -745,7 +783,7 @@ export const CreatePaymentForm = ({
               alignItems: 'center',
               gap: '4px',
             }}>
-              <span>Registrados</span>
+              <span>{existingPaymentsCount} registrados + {payments.length} nuevos</span>
             </div>
           </div>
 
@@ -828,7 +866,7 @@ export const CreatePaymentForm = ({
               lineHeight: '1',
               marginBottom: '2px',
             }}>
-              ${totalAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ${grandTotalAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
             <div style={{
               fontSize: '12px',
@@ -837,7 +875,7 @@ export const CreatePaymentForm = ({
               alignItems: 'center',
               gap: '4px',
             }}>
-              <span>En {existingPayments.length + payments.length} pagos</span>
+              <span>${totalExistingAmount.toFixed(2)} registrados + ${totalAmount.toFixed(2)} nuevos</span>
             </div>
           </div>
 
@@ -874,7 +912,7 @@ export const CreatePaymentForm = ({
               lineHeight: '1',
               marginBottom: '2px',
             }}>
-              ${totalComission.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ${grandTotalComission.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
             <div style={{
               fontSize: '12px',
@@ -883,7 +921,7 @@ export const CreatePaymentForm = ({
               alignItems: 'center',
               gap: '4px',
             }}>
-              <span>Por guardar</span>
+              <span>${totalExistingComission.toFixed(2)} registradas + ${totalComission.toFixed(2)} nuevas</span>
             </div>
           </div>
         </div>
@@ -974,7 +1012,10 @@ export const CreatePaymentForm = ({
                     <Button
                       tone="negative"
                       weight="bold"
-                      onClick={() => setState(prev => ({ ...prev, editedPayments: {}, isEditing: false }))}
+                      onClick={() => {
+                        setState(prev => ({ ...prev, editedPayments: {}, isEditing: false }));
+                        setDeletedPaymentIds([]); // Resetear eliminados al cancelar
+                      }}
                     >
                       Cancelar
                     </Button>
@@ -1010,7 +1051,9 @@ export const CreatePaymentForm = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {existingPayments.map((payment) => {
+                  {existingPayments
+                    .filter(payment => !deletedPaymentIds.includes(payment.id))
+                    .map((payment) => {
                     const editedPayment = editedPayments[payment.id] || payment;
                     return (
                       <tr key={payment.id}>
@@ -1065,6 +1108,9 @@ export const CreatePaymentForm = ({
                               tone="negative"
                               size="small"
                               onClick={() => {
+                                // Agregar a la lista de eliminados visualmente
+                                setDeletedPaymentIds(prev => [...prev, payment.id]);
+                                // También eliminar del estado editedPayments
                                 const newEditedPayments = { ...editedPayments };
                                 delete newEditedPayments[payment.id];
                                 setState(prev => ({ ...prev, editedPayments: newEditedPayments }));

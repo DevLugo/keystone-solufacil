@@ -8,7 +8,7 @@ import { DatePicker } from '@keystone-ui/fields';
 import { LoadingDots } from '@keystone-ui/loading';
 import { useQuery } from '@apollo/client';
 import { gql } from '@apollo/client';
-import { GET_ROUTES } from '../graphql/queries/routes';
+import { GET_ROUTES_SIMPLE } from '../graphql/queries/routes-optimized';
 import RouteLeadSelector from '../components/routes/RouteLeadSelector';
 import type { Route, Employee } from '../types/transaction';
 import type { RouteWithEmployees, EmployeeWithTypename } from '../types/components';
@@ -98,7 +98,7 @@ export default function TransaccionesPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
 
-  const { data: routesData, loading: routesLoading } = useQuery(GET_ROUTES, {
+  const { data: routesData, loading: routesLoading } = useQuery(GET_ROUTES_SIMPLE, {
     variables: {
       where: {
         isActive: { equals: true }

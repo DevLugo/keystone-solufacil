@@ -20,8 +20,8 @@ export const GET_ROUTES = gql`
 `;
 
 export const GET_ROUTE = gql`
-  query Route($where: RouteWhereInput!) {
-    routes(where: $where) {
+  query Route($where: RouteWhereUniqueInput!) {
+    route(where: $where) {
       id
       name
       accounts {
@@ -29,7 +29,7 @@ export const GET_ROUTE = gql`
         name
         type
         amount
-        transactions {
+        transactions(take: 10, orderBy: { date: desc }) {
           id
           amount
           type
@@ -38,14 +38,19 @@ export const GET_ROUTE = gql`
       employees {
         id
         type
-        LeadManagedLoans {
+        LeadManagedLoans(take: 20, orderBy: { signDate: desc }) {
           id
           status
           requestedAmount
-          weeklyPaymentAmount
+          amountGived
           finishedDate
           badDebtDate
-          payments {
+          loantype {
+            id
+            rate
+            weekDuration
+          }
+          payments(take: 5, orderBy: { receivedAt: desc }) {
             id
             amount
             receivedAt
@@ -81,14 +86,19 @@ export const GET_ROUTE_LOANS = gql`
       employees {
         id
         type
-        LeadManagedLoans(first: $first, skip: $skip) {
+        LeadManagedLoans(first: $first, skip: $skip, orderBy: { signDate: desc }) {
           id
           status
           requestedAmount
-          weeklyPaymentAmount
+          amountGived
           finishedDate
           badDebtDate
-          payments(first: 10) {
+          loantype {
+            id
+            rate
+            weekDuration
+          }
+          payments(first: 10, orderBy: { receivedAt: desc }) {
             id
             amount
             receivedAt

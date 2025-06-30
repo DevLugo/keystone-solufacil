@@ -18,6 +18,7 @@ import RouteLeadSelector from '../components/routes/RouteLeadSelector';
 
 // Import GraphQL queries and mutations
 import { GET_ROUTES, GET_LEADS } from '../graphql/queries/routes';
+import { GET_ROUTES_SIMPLE } from '../graphql/queries/routes-optimized';
 import { CREATE_TRANSACTION, UPDATE_TRANSACTION } from '../graphql/mutations/transactions';
 import type { Transaction, Account, Option, TransactionCreateInput, Route, Employee } from '../types/transaction';
 
@@ -365,7 +366,7 @@ export const CreateExpensesForm = ({
     setState(prev => ({ ...prev, ...updates }));
   };
 
-  const { data: routesData, loading: routesLoading, error: routesError, refetch: refetchRoutes } = useQuery<{ routes: Route[] }>(GET_ROUTES, {
+  const { data: routesData, loading: routesLoading, error: routesError, refetch: refetchRoutes } = useQuery<{ routes: Route[] }>(GET_ROUTES_SIMPLE, {
     variables: { where: {} },
   });
 
@@ -1268,7 +1269,7 @@ export default function ExpensesPage() {
   const [selectedLead, setSelectedLead] = useState<Employee | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const { refetch: refetchRouteData } = useQuery(GET_ROUTES, {
+  const { refetch: refetchRouteData } = useQuery(GET_ROUTES_SIMPLE, {
     variables: { where: {} },
     fetchPolicy: 'network-only',
   });

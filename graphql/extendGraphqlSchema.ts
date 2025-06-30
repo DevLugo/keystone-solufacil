@@ -106,108 +106,150 @@ export const extendGraphqlSchema = graphql.extend(base => {
           payments: graphql.arg({ type: graphql.nonNull(graphql.list(graphql.nonNull(PaymentInputType))) }),
         },
         resolve: async (root, { expectedAmount, cashPaidAmount = 0, bankPaidAmount = 0, agentId, leadId, payments, paymentDate }, context: Context): Promise<LeadPaymentReceivedResponse> => {
-          cashPaidAmount = cashPaidAmount ?? 0;
-          bankPaidAmount = bankPaidAmount ?? 0;
-          const totalPaidAmount = cashPaidAmount + bankPaidAmount;
-          const falcoAmount = expectedAmount - totalPaidAmount;
-          let paymentStatus = 'FALCO';
+          // Usar transacción para garantizar atomicidad
+          return await context.prisma.$transaction(async (tx) => {
+            cashPaidAmount = cashPaidAmount ?? 0;
+            bankPaidAmount = bankPaidAmount ?? 0;
+            const totalPaidAmount = cashPaidAmount + bankPaidAmount;
+            const falcoAmount = expectedAmount - totalPaidAmount;
+            let paymentStatus = 'FALCO';
 
-          if (totalPaidAmount >= expectedAmount) {
-            paymentStatus = 'COMPLETE';
-          } else if (totalPaidAmount > 0 && totalPaidAmount < expectedAmount) {
-            paymentStatus = 'PARTIAL';
-          }
-
-          // Obtener la cuenta de efectivo del agente
-          const agent = await context.db.Employee.findOne({
-            where: { id: agentId },
-          });
-
-          if (!agent) {
-            throw new Error('Agente no encontrado');
-          }
-
-          // Obtener las cuentas del agente
-          const agentAccounts = await context.db.Account.findMany({
-            where: { 
-              AND: [
-                { route: { employees: { some: { id: { equals: agentId } } } } },
-                { type: { equals: 'EMPLOYEE_CASH_FUND' } }
-              ]
+            if (totalPaidAmount >= expectedAmount) {
+              paymentStatus = 'COMPLETE';
+            } else if (totalPaidAmount > 0 && totalPaidAmount < expectedAmount) {
+              paymentStatus = 'PARTIAL';
             }
-          });
-          console.log("AGENT ACCOUNTS", agentAccounts);
-          const cashAccount = agentAccounts[0];
-          console.log("CASH ACCOUNT", cashAccount);
-          if (!cashAccount) {
-            throw new Error('Cuenta de efectivo no encontrada');
-          }
 
-          // Obtener la cuenta bancaria
-          const bankAccounts = await context.db.Account.findMany({
-            where: { 
-              AND: [
-                { route: { employees: { some: { id: { equals: agentId } } } } },
-                { type: { equals: 'BANK' } }
-              ]
+            // Obtener todas las cuentas del agente en una sola query
+            const agentAccounts = await tx.account.findMany({
+              where: { 
+                route: { 
+                  employees: { 
+                    some: { id: agentId } 
+                  } 
+                },
+                type: { 
+                  in: ['EMPLOYEE_CASH_FUND', 'BANK'] 
+                }
+              }
+            });
+
+            const cashAccount = agentAccounts.find((account: any) => account.type === 'EMPLOYEE_CASH_FUND');
+            const bankAccount = agentAccounts.find((account: any) => account.type === 'BANK');
+
+            if (!cashAccount) {
+              throw new Error('Cuenta de efectivo no encontrada');
             }
-          });
 
-          const bankAccount = bankAccounts[0];
-          console.log("BANK ACCOUNT", bankAccount);
-          if (!bankAccount) {
-            throw new Error('Cuenta bancaria no encontradaaaa');
-          }
+            if (!bankAccount) {
+              throw new Error('Cuenta bancaria no encontrada');
+            }
 
-          // Crear el LeadPaymentReceived
-          const leadPaymentReceived = await context.db.LeadPaymentReceived.createOne({
-            data: {
-              expectedAmount: expectedAmount.toFixed(2),
-              paidAmount: totalPaidAmount.toFixed(2),
-              cashPaidAmount: cashPaidAmount.toFixed(2),
-              bankPaidAmount: bankPaidAmount.toFixed(2),
-              falcoAmount: falcoAmount > 0 ? falcoAmount.toFixed(2) : '0.00',
-              createdAt: new Date(paymentDate),
-              paymentStatus,
-              agent: { connect: { id: agentId } },
-              lead: { connect: { id: leadId } },
-            },
-          });
-
-          // Crear los pagos
-          for (const payment of payments) {
-            await context.db.LoanPayment.createOne({
+            // Crear el LeadPaymentReceived
+            const leadPaymentReceived = await tx.leadPaymentReceived.create({
               data: {
+                expectedAmount: expectedAmount.toFixed(2),
+                paidAmount: totalPaidAmount.toFixed(2),
+                cashPaidAmount: cashPaidAmount.toFixed(2),
+                bankPaidAmount: bankPaidAmount.toFixed(2),
+                falcoAmount: falcoAmount > 0 ? falcoAmount.toFixed(2) : '0.00',
+                createdAt: new Date(paymentDate),
+                paymentStatus,
+                agentId,
+                leadId,
+              },
+            });
+
+            // Crear todos los pagos usando createMany para performance
+            const createdPayments: any[] = [];
+            if (payments.length > 0) {
+              const paymentData = payments.map(payment => ({
                 amount: payment.amount.toFixed(2),
                 comission: payment.comission.toFixed(2),
-                loan: { connect: { id: payment.loanId } },
+                loanId: payment.loanId,
                 type: payment.type,
                 paymentMethod: payment.paymentMethod,
                 receivedAt: new Date(paymentDate),
-                leadPaymentReceived: { connect: { id: leadPaymentReceived.id } },
-              },
-            });
-          }
+                leadPaymentReceivedId: leadPaymentReceived.id,
+              }));
 
-          return {
-            id: leadPaymentReceived.id,
-            expectedAmount: parseFloat(leadPaymentReceived.expectedAmount?.toString() || '0'),
-            paidAmount: parseFloat(leadPaymentReceived.paidAmount?.toString() || '0'),
-            cashPaidAmount: parseFloat(leadPaymentReceived.cashPaidAmount?.toString() || '0'),
-            bankPaidAmount: parseFloat(leadPaymentReceived.bankPaidAmount?.toString() || '0'),
-            falcoAmount: parseFloat(leadPaymentReceived.falcoAmount?.toString() || '0'),
-            paymentStatus: leadPaymentReceived.paymentStatus || 'FALCO',
-            payments: payments.map(p => ({
-              amount: p.amount,
-              comission: p.comission,
-              loanId: p.loanId,
-              type: p.type,
-              paymentMethod: p.paymentMethod
-            })),
-            paymentDate,
-            agentId,
-            leadId,
-          };
+              await tx.loanPayment.createMany({ data: paymentData });
+
+              // Obtener los pagos creados para crear las transacciones
+              const createdPaymentRecords = await tx.loanPayment.findMany({
+                where: { leadPaymentReceivedId: leadPaymentReceived.id }
+              });
+
+              // Crear las transacciones manualmente (lógica del hook)
+              const transactionData = [];
+              let cashAmountChange = 0;
+              let bankAmountChange = 0;
+
+              for (const payment of createdPaymentRecords) {
+                const paymentAmount = parseFloat((payment.amount || 0).toString());
+                
+                // Preparar datos de transacción
+                transactionData.push({
+                  amount: (payment.amount || 0).toString(),
+                  date: new Date(paymentDate),
+                  type: 'INCOME',
+                  incomeSource: payment.paymentMethod === 'CASH' ? 'CASH_LOAN_PAYMENT' : 'BANK_LOAN_PAYMENT',
+                  loanPaymentId: payment.id,
+                  loanId: payment.loanId,
+                  leadId: leadId, // Aquí está el leadId que estaba faltando!
+                });
+
+                // Acumular cambios en balances
+                if (payment.paymentMethod === 'CASH') {
+                  cashAmountChange += paymentAmount;
+                } else {
+                  bankAmountChange += paymentAmount;
+                }
+              }
+
+              // Crear todas las transacciones de una vez
+              if (transactionData.length > 0) {
+                await tx.transaction.createMany({ data: transactionData });
+              }
+
+              // Actualizar balances de cuentas si hay cambios
+              if (cashAmountChange > 0) {
+                const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
+                await tx.account.update({
+                  where: { id: cashAccount.id },
+                  data: { amount: (currentCashAmount + cashAmountChange).toString() }
+                });
+              }
+
+              if (bankAmountChange > 0) {
+                const currentBankAmount = parseFloat((bankAccount.amount || 0).toString());
+                await tx.account.update({
+                  where: { id: bankAccount.id },
+                  data: { amount: (currentBankAmount + bankAmountChange).toString() }
+                });
+              }
+            }
+
+            return {
+              id: leadPaymentReceived.id,
+              expectedAmount: parseFloat(leadPaymentReceived.expectedAmount?.toString() || '0'),
+              paidAmount: parseFloat(leadPaymentReceived.paidAmount?.toString() || '0'),
+              cashPaidAmount: parseFloat(leadPaymentReceived.cashPaidAmount?.toString() || '0'),
+              bankPaidAmount: parseFloat(leadPaymentReceived.bankPaidAmount?.toString() || '0'),
+              falcoAmount: parseFloat(leadPaymentReceived.falcoAmount?.toString() || '0'),
+              paymentStatus: leadPaymentReceived.paymentStatus || 'FALCO',
+              payments: payments.map(p => ({
+                amount: p.amount,
+                comission: p.comission,
+                loanId: p.loanId,
+                type: p.type,
+                paymentMethod: p.paymentMethod
+              })),
+              paymentDate,
+              agentId,
+              leadId,
+            };
+          });
         },
       }),
       updateCustomLeadPaymentReceived: graphql.field({
@@ -222,291 +264,198 @@ export const extendGraphqlSchema = graphql.extend(base => {
           payments: graphql.arg({ type: graphql.nonNull(graphql.list(graphql.nonNull(PaymentInputType))) }),
         },
         resolve: async (root, { id, expectedAmount, cashPaidAmount = 0, bankPaidAmount = 0, paymentDate, payments }, context: Context): Promise<LeadPaymentReceivedResponse> => {
-          cashPaidAmount = cashPaidAmount ?? 0;
-          bankPaidAmount = bankPaidAmount ?? 0;
-          const totalPaidAmount = cashPaidAmount + bankPaidAmount;
-          const falcoAmount = expectedAmount - totalPaidAmount;
-          let paymentStatus = 'FALCO';
-          let agentId = '';
-          let leadId = '';
+          // Usar transacción para garantizar atomicidad y optimizar performance
+          return await context.prisma.$transaction(async (tx) => {
+            cashPaidAmount = cashPaidAmount ?? 0;
+            bankPaidAmount = bankPaidAmount ?? 0;
+            const totalPaidAmount = cashPaidAmount + bankPaidAmount;
+            const falcoAmount = expectedAmount - totalPaidAmount;
+            let paymentStatus = 'FALCO';
 
-          if (totalPaidAmount >= expectedAmount) {
-            paymentStatus = 'COMPLETE';
-          } else if (totalPaidAmount > 0 && totalPaidAmount < expectedAmount) {
-            paymentStatus = 'PARTIAL';
-          }
-
-          // Obtener el LeadPaymentReceived existente
-          const existingPayment = await context.db.LeadPaymentReceived.findOne({
-            where: { id },
-          });
-
-          if (!existingPayment) {
-            throw new Error('Pago no encontrado');
-          }
-
-          agentId = existingPayment.agentId || '';
-          leadId = existingPayment.leadId || '';
-
-          // Obtener pagos existentes
-          const existingPayments = await context.db.LoanPayment.findMany({
-            where: { leadPaymentReceived: { id: { equals: id } } }
-          });
-
-          console.log('Pagos existentes antes de la actualización:', {
-            total: existingPayments.length,
-            payments: existingPayments.map(p => ({ id: p.id, loanId: p.loanId, amount: p.amount }))
-          });
-
-          // Obtener la ruta del agente
-          const agentRoutes = await context.db.Route.findMany({
-            where: { 
-              employees: { some: { id: { equals: agentId } } }
+            if (totalPaidAmount >= expectedAmount) {
+              paymentStatus = 'COMPLETE';
+            } else if (totalPaidAmount > 0 && totalPaidAmount < expectedAmount) {
+              paymentStatus = 'PARTIAL';
             }
-          });
 
-          if (!agentRoutes || agentRoutes.length === 0) {
-            throw new Error(`Ruta no encontrada para el agente ${agentId}`);
-          }
-
-          const agentRoute = agentRoutes[0];
-
-          // Obtener las cuentas de la ruta
-          const routeAccounts = await context.db.Account.findMany({
-            where: { route: { id: { equals: agentRoute.id } } }
-          });
-
-          const routeCashAccount = routeAccounts.find((account: any) => account.type === 'EMPLOYEE_CASH_FUND');
-          const routeBankAccount = routeAccounts.find((account: any) => account.type === 'BANK');
-
-          if (!routeCashAccount || !routeBankAccount) {
-            throw new Error('Cuentas de la ruta no encontradas');
-          }
-
-          // Obtener los saldos actuales de las cuentas
-          const currentCashAccount = await context.db.Account.findOne({
-            where: { id: routeCashAccount.id }
-          });
-          const currentBankAccount = await context.db.Account.findOne({
-            where: { id: routeBankAccount.id }
-          });
-
-          let cashAmount = parseFloat(currentCashAccount?.amount?.toString() || '0');
-          let bankAmount = parseFloat(currentBankAccount?.amount?.toString() || '0');
-
-          console.log('=== DEBUG: Saldos iniciales ===');
-          console.log('Saldo efectivo:', cashAmount);
-          console.log('Saldo banco:', bankAmount);
-
-          // Actualizar el LeadPaymentReceived
-          const leadPaymentReceived = await context.db.LeadPaymentReceived.updateOne({
-            where: { id },
-            data: {
-              expectedAmount: expectedAmount.toFixed(2),
-              paidAmount: totalPaidAmount.toFixed(2),
-              cashPaidAmount: cashPaidAmount.toFixed(2),
-              bankPaidAmount: bankPaidAmount.toFixed(2),
-              falcoAmount: falcoAmount > 0 ? falcoAmount.toFixed(2) : '0.00',
-              createdAt: new Date(paymentDate),
-              paymentStatus,
-            },
-          });
-
-          // Crear un mapa de pagos existentes por ID para fácil acceso
-          const existingPaymentsMap = new Map(
-            existingPayments.map(payment => [payment.id, payment])
-          );
-
-          // Procesar cada pago en la lista nueva
-          for (const payment of payments) {
-            // Buscar si existe un pago para este loanId asociado a este LeadPaymentReceived
-            const existingPayment = existingPayments.find(p => p.loanId === payment.loanId);
-
-            if (existingPayment) {
-              console.log('Actualizando pago existente:', {
-                id: existingPayment.id,
-                loanId: existingPayment.loanId,
-                oldAmount: existingPayment.amount,
-                newAmount: payment.amount,
-                oldPaymentMethod: existingPayment.paymentMethod,
-                newPaymentMethod: payment.paymentMethod
-              });
-
-              const oldAmount = parseFloat(existingPayment.amount?.toString() || '0');
-              const newAmount = parseFloat(payment.amount?.toString() || '0');
-
-              // Si el método de pago cambió, revertir el monto anterior
-              if (existingPayment.paymentMethod !== payment.paymentMethod) {
-                if (existingPayment.paymentMethod === 'CASH') {
-                  // Cambio de efectivo a transferencia: restar del efectivo y sumar al banco
-                  cashAmount -= oldAmount;
-                  bankAmount += oldAmount;
-
-                  // Crear transacción bancaria
-                  await context.db.Transaction.createOne({
-                    data: {
-                      amount: oldAmount.toFixed(2),
-                      date: new Date(paymentDate),
-                      type: 'INCOME',
-                      incomeSource: 'BANK_LOAN_PAYMENT',
-                      description: `Transferencia de pago de préstamo - ${paymentDate}`,
-                      sourceAccount: { connect: { id: routeCashAccount.id } },
-                      destinationAccount: { connect: { id: routeBankAccount.id } },
-                      lead: { connect: { id: leadId } }
-                    }
-                  });
-                } else {
-                  // Cambio de transferencia a efectivo: restar del banco y sumar al efectivo
-                  bankAmount -= oldAmount;
-                  cashAmount += oldAmount;
-
-                  // Crear transacción en efectivo
-                  await context.db.Transaction.createOne({
-                    data: {
-                      amount: oldAmount.toFixed(2),
-                      date: new Date(paymentDate),
-                      type: 'INCOME',
-                      incomeSource: 'CASH_LOAN_PAYMENT',
-                      description: `Pago en efectivo de préstamo - ${paymentDate}`,
-                      sourceAccount: { connect: { id: routeBankAccount.id } },
-                      destinationAccount: { connect: { id: routeCashAccount.id } },
-                      lead: { connect: { id: leadId } }
-                    }
-                  });
-                }
-              } else {
-                // Si no cambió el método, solo aplicamos la diferencia
-                if (payment.paymentMethod === 'CASH') {
-                  cashAmount -= (newAmount - oldAmount);
-                  // Crear transacción en efectivo por la diferencia
-                  if (newAmount > oldAmount) {
-                    await context.db.Transaction.createOne({
-                      data: {
-                        amount: (newAmount - oldAmount).toFixed(2),
-                        date: new Date(paymentDate),
-                        type: 'INCOME',
-                        incomeSource: 'CASH_LOAN_PAYMENT',
-                        description: `Pago en efectivo de préstamo - ${paymentDate}`,
-                        sourceAccount: { connect: { id: routeBankAccount.id } },
-                        destinationAccount: { connect: { id: routeCashAccount.id } },
-                        lead: { connect: { id: leadId } }
-                      }
-                    });
-                  }
-                } else {
-                  bankAmount -= (newAmount - oldAmount);
-                  // Crear transacción bancaria por la diferencia
-                  if (newAmount > oldAmount) {
-                    await context.db.Transaction.createOne({
-                      data: {
-                        amount: (newAmount - oldAmount).toFixed(2),
-                        date: new Date(paymentDate),
-                        type: 'INCOME',
-                        incomeSource: 'BANK_LOAN_PAYMENT',
-                        description: `Transferencia de pago de préstamo - ${paymentDate}`,
-                        sourceAccount: { connect: { id: routeCashAccount.id } },
-                        destinationAccount: { connect: { id: routeBankAccount.id } },
-                        lead: { connect: { id: leadId } }
-                      }
-                    });
+            // Obtener el LeadPaymentReceived existente con pagos y transacciones relacionadas
+            const existingPayment = await tx.leadPaymentReceived.findUnique({
+              where: { id },
+              include: {
+                payments: {
+                  include: {
+                    transactions: true
                   }
                 }
               }
-
-              console.log('=== DEBUG: Actualización de saldos ===');
-              console.log('Método anterior:', existingPayment.paymentMethod);
-              console.log('Método nuevo:', payment.paymentMethod);
-              console.log('Monto anterior:', oldAmount);
-              console.log('Monto nuevo:', newAmount);
-              console.log('Saldo efectivo actual:', cashAmount);
-              console.log('Saldo banco actual:', bankAmount);
-
-              // Actualizar pago existente usando context.db para asegurar que se disparen los hooks
-              await context.db.LoanPayment.updateOne({
-                where: { id: existingPayment.id },
-                data: {
-                  amount: payment.amount.toFixed(2),
-                  comission: payment.comission.toFixed(2),
-                  type: payment.type,
-                  paymentMethod: payment.paymentMethod,
-                  receivedAt: new Date(paymentDate),
-                  updatedAt: new Date()
-                }
-              });
-            } else {
-              // Crear nuevo pago
-              await context.db.LoanPayment.createOne({
-                data: {
-                  amount: payment.amount.toFixed(2),
-                  comission: payment.comission.toFixed(2),
-                  loan: { connect: { id: payment.loanId } },
-                  type: payment.type,
-                  paymentMethod: payment.paymentMethod,
-                  receivedAt: new Date(paymentDate),
-                  leadPaymentReceived: { connect: { id: leadPaymentReceived.id } },
-                }
-              });
-
-              // Aplicar el nuevo monto según el método de pago
-              if (payment.paymentMethod === 'CASH') {
-                cashAmount -= payment.amount;
-              } else {
-                bankAmount -= payment.amount;
-              }
-            }
-          }
-
-          // Eliminar pagos que ya no están en la lista
-          const paymentsToDelete = existingPayments.filter(p => !payments.some(np => np.loanId === p.loanId));
-          for (const paymentToDelete of paymentsToDelete) {
-            const amount = parseFloat(paymentToDelete.amount?.toString() || '0');
-            
-            // Revertir el pago según su método
-            if (paymentToDelete.paymentMethod === 'CASH') {
-              cashAmount += amount;
-            } else {
-              bankAmount += amount;
-            }
-
-            await context.db.LoanPayment.deleteOne({
-              where: { id: paymentToDelete.id }
             });
-          }
 
-          console.log('=== DEBUG: Saldos finales ===');
-          console.log('Saldo efectivo:', cashAmount.toFixed(2));
-          console.log('Saldo banco:', bankAmount.toFixed(2));
+            if (!existingPayment) {
+              throw new Error('Pago no encontrado');
+            }
 
-          // Actualizar los saldos de las cuentas
-          await context.db.Account.updateOne({
-            where: { id: routeCashAccount.id },
-            data: { amount: cashAmount.toFixed(2) }
+            const agentId = existingPayment.agentId || '';
+            const leadId = existingPayment.leadId || '';
+
+            // Obtener cuentas del agente para calcular cambios en balances
+            const agentAccounts = await tx.account.findMany({
+              where: { 
+                route: { 
+                  employees: { 
+                    some: { id: agentId } 
+                  } 
+                },
+                type: { 
+                  in: ['EMPLOYEE_CASH_FUND', 'BANK'] 
+                }
+              }
+            });
+
+            const cashAccount = agentAccounts.find((account: any) => account.type === 'EMPLOYEE_CASH_FUND');
+            const bankAccount = agentAccounts.find((account: any) => account.type === 'BANK');
+
+            if (!cashAccount || !bankAccount) {
+              throw new Error('Cuentas del agente no encontradas');
+            }
+
+            // Calcular cambios en balances de pagos existentes (para revertir)
+            let oldCashAmountChange = 0;
+            let oldBankAmountChange = 0;
+
+            for (const payment of existingPayment.payments) {
+              const paymentAmount = parseFloat((payment.amount || 0).toString());
+              if (payment.paymentMethod === 'CASH') {
+                oldCashAmountChange += paymentAmount;
+              } else {
+                oldBankAmountChange += paymentAmount;
+              }
+            }
+
+            // Eliminar transacciones existentes en lote
+            if (existingPayment.payments.length > 0) {
+              const transactionIds = existingPayment.payments
+                .flatMap((payment: any) => payment.transactions.map((t: any) => t.id));
+              
+              if (transactionIds.length > 0) {
+                await tx.transaction.deleteMany({
+                  where: { id: { in: transactionIds } }
+                });
+              }
+
+              // Eliminar pagos existentes en lote
+              await tx.loanPayment.deleteMany({
+                where: { leadPaymentReceivedId: id }
+              });
+            }
+
+            // Actualizar el LeadPaymentReceived
+            const leadPaymentReceived = await tx.leadPaymentReceived.update({
+              where: { id },
+              data: {
+                expectedAmount: expectedAmount.toFixed(2),
+                paidAmount: totalPaidAmount.toFixed(2),
+                cashPaidAmount: cashPaidAmount.toFixed(2),
+                bankPaidAmount: bankPaidAmount.toFixed(2),
+                falcoAmount: falcoAmount > 0 ? falcoAmount.toFixed(2) : '0.00',
+                createdAt: new Date(paymentDate),
+                paymentStatus,
+              },
+            });
+
+            // Crear nuevos pagos y transacciones en lote
+            let newCashAmountChange = 0;
+            let newBankAmountChange = 0;
+
+            if (payments.length > 0) {
+              // Crear pagos en lote
+              const paymentData = payments.map(payment => ({
+                amount: payment.amount.toFixed(2),
+                comission: payment.comission.toFixed(2),
+                loanId: payment.loanId,
+                type: payment.type,
+                paymentMethod: payment.paymentMethod,
+                receivedAt: new Date(paymentDate),
+                leadPaymentReceivedId: leadPaymentReceived.id,
+              }));
+
+              await tx.loanPayment.createMany({ data: paymentData });
+
+              // Obtener los pagos creados para crear las transacciones
+              const createdPaymentRecords = await tx.loanPayment.findMany({
+                where: { leadPaymentReceivedId: leadPaymentReceived.id }
+              });
+
+              // Crear las transacciones manualmente en lote
+              const transactionData = [];
+
+              for (const payment of createdPaymentRecords) {
+                const paymentAmount = parseFloat((payment.amount || 0).toString());
+                
+                // Preparar datos de transacción
+                transactionData.push({
+                  amount: (payment.amount || 0).toString(),
+                  date: new Date(paymentDate),
+                  type: 'INCOME',
+                  incomeSource: payment.paymentMethod === 'CASH' ? 'CASH_LOAN_PAYMENT' : 'BANK_LOAN_PAYMENT',
+                  loanPaymentId: payment.id,
+                  loanId: payment.loanId,
+                  leadId: leadId,
+                });
+
+                // Acumular cambios en balances
+                if (payment.paymentMethod === 'CASH') {
+                  newCashAmountChange += paymentAmount;
+                } else {
+                  newBankAmountChange += paymentAmount;
+                }
+              }
+
+              // Crear todas las transacciones de una vez
+              if (transactionData.length > 0) {
+                await tx.transaction.createMany({ data: transactionData });
+              }
+            }
+
+            // Actualizar balances de cuentas (revertir antiguos y aplicar nuevos)
+            const cashBalanceChange = newCashAmountChange - oldCashAmountChange;
+            const bankBalanceChange = newBankAmountChange - oldBankAmountChange;
+
+            if (cashBalanceChange !== 0) {
+              const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
+              await tx.account.update({
+                where: { id: cashAccount.id },
+                data: { amount: (currentCashAmount + cashBalanceChange).toString() }
+              });
+            }
+
+            if (bankBalanceChange !== 0) {
+              const currentBankAmount = parseFloat((bankAccount.amount || 0).toString());
+              await tx.account.update({
+                where: { id: bankAccount.id },
+                data: { amount: (currentBankAmount + bankBalanceChange).toString() }
+              });
+            }
+
+            return {
+              id: leadPaymentReceived.id,
+              expectedAmount: parseFloat(leadPaymentReceived.expectedAmount?.toString() || '0'),
+              paidAmount: parseFloat(leadPaymentReceived.paidAmount?.toString() || '0'),
+              cashPaidAmount: parseFloat(leadPaymentReceived.cashPaidAmount?.toString() || '0'),
+              bankPaidAmount: parseFloat(leadPaymentReceived.bankPaidAmount?.toString() || '0'),
+              falcoAmount: parseFloat(leadPaymentReceived.falcoAmount?.toString() || '0'),
+              paymentStatus: leadPaymentReceived.paymentStatus || 'FALCO',
+              payments: payments.map(p => ({
+                amount: p.amount,
+                comission: p.comission,
+                loanId: p.loanId,
+                type: p.type,
+                paymentMethod: p.paymentMethod
+              })),
+              paymentDate,
+              agentId,
+              leadId,
+            };
           });
-
-          await context.db.Account.updateOne({
-            where: { id: routeBankAccount.id },
-            data: { amount: bankAmount.toFixed(2) }
-          });
-
-          return {
-            id: leadPaymentReceived.id,
-            expectedAmount: parseFloat(leadPaymentReceived.expectedAmount?.toString() || '0'),
-            paidAmount: parseFloat(leadPaymentReceived.paidAmount?.toString() || '0'),
-            cashPaidAmount: parseFloat(leadPaymentReceived.cashPaidAmount?.toString() || '0'),
-            bankPaidAmount: parseFloat(leadPaymentReceived.bankPaidAmount?.toString() || '0'),
-            falcoAmount: parseFloat(leadPaymentReceived.falcoAmount?.toString() || '0'),
-            paymentStatus: leadPaymentReceived.paymentStatus || 'FALCO',
-            payments: payments.map(p => ({
-              amount: p.amount,
-              comission: p.comission,
-              loanId: p.loanId,
-              type: p.type,
-              paymentMethod: p.paymentMethod
-            })),
-            paymentDate,
-            agentId,
-            leadId,
-          };
         },
       }),
     },
@@ -627,7 +576,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
             end: end.toISOString()
           });
 
-          // Obtenemos todas las transacciones dentro del rango de fechas especificado
+          // OPTIMIZADO: Obtenemos todas las transacciones dentro del rango de fechas especificado
           const rangeTransactions = await context.db.Transaction.findMany({
             where: {
               date: {
@@ -639,7 +588,46 @@ export const extendGraphqlSchema = graphql.extend(base => {
           
           console.log(`Obtenidas ${rangeTransactions.length} transacciones en el rango`);
           
-          // Recopilamos todos los IDs de líderes para obtener sus datos
+          // DEBUG: Analizar todas las transacciones para encontrar problemas
+          console.log('\n=== ANÁLISIS DE TRANSACCIONES ===');
+          const transactionsByLeadId = new Map();
+          rangeTransactions.forEach(transaction => {
+            const leadId = transaction.leadId?.toString() || 'sin-lead';
+            if (!transactionsByLeadId.has(leadId)) {
+              transactionsByLeadId.set(leadId, []);
+            }
+            transactionsByLeadId.get(leadId).push({
+              id: transaction.id,
+              type: transaction.type,
+              amount: transaction.amount,
+              incomeSource: transaction.incomeSource,
+              expenseSource: transaction.expenseSource,
+              date: transaction.date
+            });
+          });
+          
+          // DEBUG ESPECÍFICO: Buscar transacciones de Rafaela
+          console.log('\n🔍 BÚSQUEDA ESPECÍFICA: Rafaela Baeza Carrillo');
+          let rafaelaTransactions = 0;
+          rangeTransactions.forEach(transaction => {
+            // Buscar en diferentes campos que podrían contener información de Rafaela
+            const description = transaction.description?.toLowerCase() || '';
+            const hasRafaela = description.includes('rafaela') || description.includes('baeza') || description.includes('carrillo');
+            
+            if (hasRafaela) {
+              rafaelaTransactions++;
+              console.log(`  📝 Transacción posible de Rafaela: ${transaction.id}`);
+              console.log(`     - leadId: ${transaction.leadId || 'NULL'}`);
+              console.log(`     - type: ${transaction.type}`);
+              console.log(`     - amount: ${transaction.amount}`);
+              console.log(`     - description: ${transaction.description || 'sin descripción'}`);
+              console.log(`     - incomeSource: ${transaction.incomeSource || 'NULL'}`);
+              console.log(`     - expenseSource: ${transaction.expenseSource || 'NULL'}`);
+            }
+          });
+                     console.log(`   Total transacciones con menciones de Rafaela: ${rafaelaTransactions}`);
+          
+          // OPTIMIZADO: Recopilamos todos los IDs de líderes únicos para minimizar consultas
           const leadIds = new Set<string>();
           rangeTransactions.forEach(transaction => {
             if (transaction.leadId) {
@@ -647,9 +635,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
             }
           });
           
-          console.log(`Encontrados ${leadIds.size} líderes únicos en las transacciones`);
-          
-          // Obtenemos información de todos los líderes involucrados
+          // OPTIMIZADO: Una sola consulta para obtener todos los líderes con sus datos personales
           const leads = await context.db.Employee.findMany({
             where: { 
               id: { in: Array.from(leadIds) } 
@@ -657,42 +643,102 @@ export const extendGraphqlSchema = graphql.extend(base => {
             orderBy: { id: 'asc' }
           });
           
-          console.log(`Obtenidos ${leads.length} líderes con sus datos`);
+          // OPTIMIZADO: Obtenemos todos los PersonalData de una vez
+          const personalDataIds = leads.map(lead => lead.personalDataId).filter(Boolean) as string[];
           
-          // Obtenemos datos personales y de localidad para cada líder
+          const personalDataList = await context.db.PersonalData.findMany({
+            where: { id: { in: personalDataIds } }
+          });
+          
+          // DEBUG ESPECÍFICO: Buscar Rafaela en PersonalData
+          personalDataList.forEach(pd => {
+            const fullName = pd.fullName?.toLowerCase() || '';
+            if (fullName.includes('rafaela') || fullName.includes('baeza') || fullName.includes('carrillo')) {
+              console.log(`🎯 ENCONTRADO PERSONALDATA DE RAFAELA: ${pd.id} - ${pd.fullName}`);
+            }
+          });
+          
+          // OPTIMIZADO: Cache de datos personales por ID
+          const personalDataMap = new Map();
+          personalDataList.forEach(pd => {
+            personalDataMap.set(pd.id, pd);
+          });
+          
+          // OPTIMIZADO: Obtenemos todas las direcciones de una vez
+          const addresses = await context.db.Address.findMany({
+            where: { personalData: { id: { in: personalDataIds } } }
+          });
+          
+          // OPTIMIZADO: Cache de direcciones por personalDataId
+          const addressMap = new Map();
+          addresses.forEach(addr => {
+            if (!addressMap.has(addr.personalDataId)) {
+              addressMap.set(addr.personalDataId, []);
+            }
+            addressMap.get(addr.personalDataId).push(addr);
+          });
+          
+          // OPTIMIZADO: Obtenemos todas las localidades, municipios y estados de una vez
+          const locationIds = addresses.map(addr => addr.locationId).filter(Boolean) as string[];
+          const locations = await context.db.Location.findMany({
+            where: { id: { in: locationIds } }
+          });
+          
+          // DEBUG ESPECÍFICO: Buscar Calkiní en localidades
+          locations.forEach(loc => {
+            const locationName = loc.name?.toLowerCase() || '';
+            if (locationName.includes('calkini') || locationName.includes('calkiní')) {
+              console.log(`🎯 ENCONTRADA LOCALIDAD CALKINÍ: ${loc.id} - ${loc.name}`);
+            }
+          });
+          
+          const municipalityIds = locations.map(loc => loc.municipalityId).filter(Boolean) as string[];
+          const municipalities = await context.db.Municipality.findMany({
+            where: { id: { in: municipalityIds } }
+          });
+          
+          // DEBUG ESPECÍFICO: Buscar Calkiní en municipios
+          municipalities.forEach(mun => {
+            const munName = mun.name?.toLowerCase() || '';
+            if (munName.includes('calkini') || munName.includes('calkiní')) {
+              console.log(`🎯 ENCONTRADO MUNICIPIO CALKINÍ: ${mun.id} - ${mun.name}`);
+            }
+          });
+          
+          const stateIds = municipalities.map(mun => mun.stateId).filter(Boolean) as string[];
+          const states = await context.db.State.findMany({
+            where: { id: { in: stateIds } }
+          });
+          
+          // OPTIMIZADO: Crear mapas de cache para lookups rápidos
+          const locationMap = new Map();
+          locations.forEach(loc => locationMap.set(loc.id, loc));
+          
+          const municipalityMap = new Map();
+          municipalities.forEach(mun => municipalityMap.set(mun.id, mun));
+          
+          const stateMap = new Map();
+          states.forEach(state => stateMap.set(state.id, state));
+          
+          // OPTIMIZADO: Crear mapa de localidades por líder
           const leadInfoMap = new Map();
           
-          // Para cada líder, intentamos obtener su localidad
-          for (const lead of leads) {
-            try {
-              // Obtenemos los datos personales completos del líder
-              const personalData = await context.db.PersonalData.findOne({
-                where: { id: lead.personalDataId }
-              });
+          leads.forEach(lead => {
+            if (lead.personalDataId) {
+              const personalData = personalDataMap.get(lead.personalDataId);
               
-              if (personalData && personalData.id) {
-                // Buscamos las direcciones del líder
-                const addresses = await context.db.Address.findMany({
-                  where: { personalData: { id: { equals: personalData.id } } }
-                });
+              if (personalData) {
+                const leaderAddresses = addressMap.get(personalData.id) || [];
                 
-                if (addresses && addresses.length > 0) {
-                  // Obtenemos la localidad del líder
-                  const location = await context.db.Location.findOne({
-                    where: { id: addresses[0].locationId }
-                  });
+                if (leaderAddresses.length > 0) {
+                  const address = leaderAddresses[0]; // Primera dirección
+                  const location = locationMap.get(address.locationId);
                   
                   if (location && location.municipalityId) {
-                    // Obtenemos el municipio
-                    const municipality = await context.db.Municipality.findOne({
-                      where: { id: location.municipalityId }
-                    });
+                    const municipality = municipalityMap.get(location.municipalityId);
                     
-                    if (municipality) {
-                      // Obtenemos el estado
-                      const state = await context.db.State.findOne({
-                        where: { id: municipality.stateId }
-                      });
+                    if (municipality && municipality.stateId) {
+                      const state = stateMap.get(municipality.stateId);
                       
                       if (municipality.name && state && state.name) {
                         leadInfoMap.set(lead.id, {
@@ -700,18 +746,27 @@ export const extendGraphqlSchema = graphql.extend(base => {
                           state: state.name,
                           fullName: personalData.fullName || 'Sin nombre'
                         });
-                        console.log(`✅ Líder mapeado: ${lead.id} (${personalData.fullName}) → ${municipality.name}, ${state.name}`);
+                        
+                        // DEBUG ESPECÍFICO: Verificar si es Rafaela/Calkiní
+                        const fullName = personalData.fullName?.toLowerCase() || '';
+                        const munName = municipality.name?.toLowerCase() || '';
+                        const isRafaela = fullName.includes('rafaela') || fullName.includes('baeza') || fullName.includes('carrillo');
+                        const isCalkiní = munName.includes('calkini') || munName.includes('calkiní');
+                        
+                        if (isRafaela || isCalkiní) {
+                          console.log(`🎯 RAFAELA/CALKINÍ EN MAPA FINAL:`);
+                          console.log(`   - leadId: ${lead.id}`);
+                          console.log(`   - fullName: ${personalData.fullName}`);
+                          console.log(`   - municipality: ${municipality.name}`);
+                          console.log(`   - state: ${state.name}`);
+                        }
                       }
                     }
                   }
                 }
               }
-            } catch (error) {
-              console.error(`Error obteniendo datos para líder ${lead.id}:`, error);
             }
-          }
-          
-          console.log(`Mapa de líderes creado con ${leadInfoMap.size} entradas`);
+          });
           
           // Obtenemos información de todas las cuentas relevantes
           const accountIds = new Set<string>();
@@ -733,11 +788,74 @@ export const extendGraphqlSchema = graphql.extend(base => {
               type: account.type 
             });
           });
-          
-          console.log(`Mapa de cuentas creado con ${accountMap.size} entradas`);
 
-          console.log('=== INICIO DE PROCESAMIENTO DE TRANSACCIONES ===');
-          console.log(`Total de transacciones encontradas: ${rangeTransactions.length}`);
+          // DEBUG ESPECÍFICO: Búsqueda directa de Rafaela en la base de datos
+          console.log('\n🔍 BÚSQUEDA DIRECTA DE RAFAELA EN LA BASE DE DATOS');
+          
+          const rafaelaEmployees = await context.db.Employee.findMany({
+            where: {
+              personalData: {
+                fullName: {
+                  contains: 'Rafaela',
+                  mode: 'insensitive'
+                }
+              }
+            }
+          });
+          
+          console.log(`   Empleados con nombre Rafaela encontrados: ${rafaelaEmployees.length}`);
+          rafaelaEmployees.forEach(emp => {
+            console.log(`     - Employee ID: ${emp.id}, personalDataId: ${emp.personalDataId}`);
+          });
+          
+          // También buscar por apellidos
+          const baezaEmployees = await context.db.Employee.findMany({
+            where: {
+              personalData: {
+                fullName: {
+                  contains: 'Baeza',
+                  mode: 'insensitive'
+                }
+              }
+            }
+          });
+          
+          console.log(`   Empleados con apellido Baeza encontrados: ${baezaEmployees.length}`);
+          baezaEmployees.forEach(emp => {
+            console.log(`     - Employee ID: ${emp.id}, personalDataId: ${emp.personalDataId}`);
+          });
+          
+          // Buscar localidades con Calkiní
+          const calkiniLocations = await context.db.Location.findMany({
+            where: {
+              OR: [
+                { name: { contains: 'Calkiní', mode: 'insensitive' } },
+                { name: { contains: 'Calkini', mode: 'insensitive' } }
+              ]
+            }
+          });
+          
+          console.log(`   Localidades con Calkiní encontradas: ${calkiniLocations.length}`);
+          calkiniLocations.forEach(loc => {
+            console.log(`     - Location ID: ${loc.id}, name: ${loc.name}`);
+          });
+          
+          // DEBUG: Cruzar leadIds de transacciones con empleados de Rafaela encontrados
+          console.log('\n🔗 CRUZANDO leadIds CON EMPLEADOS DE RAFAELA');
+          const rafaelaEmployeeIds = [...rafaelaEmployees.map(emp => emp.id), ...baezaEmployees.map(emp => emp.id)];
+          console.log(`   IDs de empleados Rafaela/Baeza: [${rafaelaEmployeeIds.join(', ')}]`);
+          
+          let transactionsWithRafaelaId = 0;
+          rangeTransactions.forEach(transaction => {
+            if (transaction.leadId && rafaelaEmployeeIds.includes(transaction.leadId)) {
+              transactionsWithRafaelaId++;
+              console.log(`     ✅ Transacción con leadId de Rafaela: ${transaction.id} (leadId: ${transaction.leadId})`);
+              console.log(`        - type: ${transaction.type}, amount: ${transaction.amount}`);
+            }
+          });
+          console.log(`   Total transacciones con leadId de Rafaela: ${transactionsWithRafaelaId}`);
+          
+          console.log('\n=== PROCESANDO TRANSACCIONES ===');
 
           // Este objeto almacenará los datos agrupados por fecha y localidad
           // Cada localidad contendrá valores para cada tipo de ingreso o gasto
@@ -750,8 +868,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
             const txDate = transaction.date ? new Date(transaction.date) : new Date();
             const transactionDate = txDate.toISOString().split('T')[0];
             
-            console.log(`\n🔍 PROCESANDO TRANSACCIÓN: ${transaction.id} (${transaction.type}) - Fecha: ${transactionDate}`);
-            
             // ESTRATEGIA MEJORADA PARA LOCALIDADES:
             let locality = null;
             let state = null;
@@ -761,63 +877,69 @@ export const extendGraphqlSchema = graphql.extend(base => {
             
             // Si tenemos leadId, buscamos primero en el mapa de líderes que ya cargamos
             if (leadId) {
-              console.log(`Buscando localidad para líder ${leadId} en el mapa (${leadInfoMap.size} entradas)`);
-              
               if (leadInfoMap.has(leadId)) {
                 const leadInfo = leadInfoMap.get(leadId);
                 locality = leadInfo.municipality;
                 state = leadInfo.state;
                 leadName = leadInfo.fullName;
                 localitySource = 'mapa de líderes';
-                
-                console.log(`✅ LOCALIDAD ENCONTRADA EN MAPA: ${locality}, ${state} (${leadName})`);
               } else {
-                console.log(`⚠️ LÍDER NO ENCONTRADO: ${leadId} no está en el mapa`);
+                // Verificar si es por problema de tipo
+                const leadIdString = leadId.toString();
+                if (leadInfoMap.has(leadIdString)) {
+                  const leadInfo = leadInfoMap.get(leadIdString);
+                  locality = leadInfo.municipality;
+                  state = leadInfo.state;
+                  leadName = leadInfo.fullName;
+                  localitySource = 'mapa de líderes (string)';
+                }
               }
             }
             
-            // Usar 'General' como último recurso si no hay localidad
-            locality = locality || 'General';
-            state = state || 'General';
+            // Construir la clave de agrupación con líder + localidad + municipio
+            let leaderKey = '';
+            if (leadName && leadName !== '') {
+              if (locality && state && locality !== 'General' && state !== 'General') {
+                leaderKey = `${leadName} - ${locality}, ${state}`;
+              } else {
+                leaderKey = leadName;
+              }
+            } else if (leadId) {
+              leaderKey = `Líder ID: ${leadId}`;
+            } else {
+              leaderKey = 'General';
+            }
             
-            const localityWithLeader = `${locality} - ${state}`;
-            console.log(`📍 LOCALIDAD FINAL: "${localityWithLeader}" (${localitySource}) para ${transaction.id}`);
+            // DEBUG: Solo log si es Rafaela/Calkiní
+            const isRafaelaTransaction = leadName.toLowerCase().includes('rafaela') || 
+                                       leadName.toLowerCase().includes('baeza') || 
+                                       leadName.toLowerCase().includes('carrillo') ||
+                                       leaderKey.toLowerCase().includes('calkini') ||
+                                       leaderKey.toLowerCase().includes('calkiní');
+            
+            if (isRafaelaTransaction) {
+              console.log(`🎯 TRANSACCIÓN DE RAFAELA/CALKINÍ: ${transaction.id}`);
+              console.log(`   - leadId: ${leadId}`);
+              console.log(`   - leadName: ${leadName}`);
+              console.log(`   - leaderKey: ${leaderKey}`);
+              console.log(`   - type: ${transaction.type}`);
+              console.log(`   - amount: ${transaction.amount}`);
+              console.log(`   - date: ${transactionDate}`);
+            }
             
             // Obtener información de cuentas
             const sourceAccount = (transaction.sourceAccountId) ? accountMap.get(transaction.sourceAccountId) : null;
             const destinationAccount = (transaction.destinationAccountId) ? accountMap.get(transaction.destinationAccountId) : null;
-
-            console.log('=== DETALLE DE TRANSACCIÓN ===');
-            console.log({
-              id: transaction.id,
-              fecha: transactionDate,
-              tipo: transaction.type,
-              monto: transaction.amount,
-              fuente: transaction.incomeSource,
-              localidad: localityWithLeader,
-              liderId: transaction.leadId || 'N/A',
-              liderNombre: leadName || 'N/A',
-              cuentaOrigen: {
-                id: transaction.sourceAccountId || 'N/A',
-                tipo: sourceAccount?.type || 'N/A',
-                nombre: sourceAccount?.name || 'N/A'
-              },
-              cuentaDestino: {
-                id: transaction.destinationAccountId || 'N/A',
-                tipo: destinationAccount?.type || 'N/A',
-                nombre: destinationAccount?.name || 'N/A'
-              }
-            });
 
             // Para cada transacción, inicializamos las estructuras de datos necesarias
             if (!localidades[transactionDate]) {
               localidades[transactionDate] = {};
             }
             
-            // Utilizamos los valores de localidad y estado determinados anteriormente
-            // Inicializamos la estructura para esta localidad si no existe
-            if (!localidades[transactionDate][localityWithLeader]) {
-              localidades[transactionDate][localityWithLeader] = {
+            // Utilizamos el nombre del líder determinado anteriormente
+            // Inicializamos la estructura para este líder si no existe
+            if (!localidades[transactionDate][leaderKey]) {
+              localidades[transactionDate][leaderKey] = {
                 ABONO: 0, CASH_ABONO: 0, BANK_ABONO: 0,
                 CREDITO: 0, VIATIC: 0, GASOLINE: 0, ACCOMMODATION: 0,
                 NOMINA_SALARY: 0, EXTERNAL_SALARY: 0, VEHICULE_MAINTENANCE: 0,
@@ -830,190 +952,182 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
 
             if (transaction.type === 'INCOME') {
-              console.log(`\n--- PROCESANDO TRANSACCIÓN DE INGRESO: ${transaction.id} (${localityWithLeader}) ---`);
+              if (isRafaelaTransaction) {
+                console.log(`🎯 PROCESANDO INGRESO DE RAFAELA: $${transaction.amount}`);
+              }
               
               // Determinar si es una transacción bancaria basado en la información de las cuentas
               const isBankTransaction = transaction.incomeSource === 'BANK_LOAN_PAYMENT' || 
                                        destinationAccount?.type === 'BANK';
               
-              console.log('¿Es transacción bancaria?', isBankTransaction);
-              console.log('Tipo de cuenta origen:', sourceAccount?.type);
-              console.log('Tipo de cuenta destino:', destinationAccount?.type);
-              console.log('Fuente de ingreso:', transaction.incomeSource);
-              
-              // Procesamos el abono según su tipo (efectivo o banco)
               const amount = Number(transaction.amount || 0);
-              if (isBankTransaction) {
-                console.log(`💰 Procesando como ABONO BANCARIO: $${amount} para ${localityWithLeader}`);
-                localidades[transactionDate][localityWithLeader].BANK_ABONO += amount;
-                localidades[transactionDate][localityWithLeader].BANK_BALANCE += amount;
+              
+              // Procesar diferentes tipos de ingresos
+              if (transaction.incomeSource === 'LOAN_PAYMENT' || transaction.incomeSource === 'CASH_LOAN_PAYMENT' || transaction.incomeSource === 'BANK_LOAN_PAYMENT') {
+                // Abonos de pagos de préstamos
+                if (isBankTransaction) {
+                  localidades[transactionDate][leaderKey].BANK_ABONO += amount;
+                  localidades[transactionDate][leaderKey].BANK_BALANCE += amount;
+                } else {
+                  localidades[transactionDate][leaderKey].CASH_ABONO += amount;
+                  localidades[transactionDate][leaderKey].CASH_BALANCE += amount;
+                }
+                
+                // Sumamos al ABONO general
+                localidades[transactionDate][leaderKey].ABONO += amount;
+                
+              } else if (transaction.incomeSource === 'MONEY_INVESMENT') {
+                localidades[transactionDate][leaderKey].MONEY_INVESMENT += amount;
+                
+                // Actualizar balance correspondiente
+                if (isBankTransaction) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE += amount;
+                } else {
+                  localidades[transactionDate][leaderKey].CASH_BALANCE += amount;
+                }
+                
               } else {
-                console.log(`💵 Procesando como ABONO EN EFECTIVO: $${amount} para ${localityWithLeader}`);
-                localidades[transactionDate][localityWithLeader].CASH_ABONO += amount;
-                localidades[transactionDate][localityWithLeader].CASH_BALANCE += amount;
+                // Otros tipos de ingresos se procesan como abonos generales
+                if (isBankTransaction) {
+                  localidades[transactionDate][leaderKey].BANK_ABONO += amount;
+                  localidades[transactionDate][leaderKey].BANK_BALANCE += amount;
+                } else {
+                  localidades[transactionDate][leaderKey].CASH_ABONO += amount;
+                  localidades[transactionDate][leaderKey].CASH_BALANCE += amount;
+                }
+
+                // Sumamos al ABONO general
+                localidades[transactionDate][leaderKey].ABONO += amount;
               }
-
-              // Sumamos al ABONO general
-              localidades[transactionDate][localityWithLeader].ABONO += amount;
-
-              console.log(`✅ Totales actualizados para ${localityWithLeader}:`, {
-                abonoTotal: localidades[transactionDate][localityWithLeader].ABONO,
-                abonoEfectivo: localidades[transactionDate][localityWithLeader].CASH_ABONO,
-                abonoBanco: localidades[transactionDate][localityWithLeader].BANK_ABONO,
-                balanceEfectivo: localidades[transactionDate][localityWithLeader].CASH_BALANCE,
-                balanceBanco: localidades[transactionDate][localityWithLeader].BANK_BALANCE
-              });
             } else if (transaction.type === 'EXPENSE') {
-              console.log('\n--- PROCESANDO TRANSACCIÓN DE GASTO ---');
-              console.log('Fuente de gasto:', transaction.incomeSource);
+              if (isRafaelaTransaction) {
+                console.log(`🎯 PROCESANDO GASTO DE RAFAELA: $${transaction.amount} (${transaction.expenseSource})`);
+              }
               
               // Procesar diferentes tipos de gastos
               const amount = Number(transaction.amount || 0);
               
               // Determinar si es un gasto en efectivo o bancario
               const isBankExpense = sourceAccount?.type === 'BANK';
-              console.log('¿Es gasto bancario?', isBankExpense);
               
-              // Verificar el tipo de gasto según incomeSource y actualizar los balances
-              if (transaction.incomeSource === 'GASOLINE') {
-                console.log(`⛽ Procesando gasto de GASOLINA: $${amount} para ${localityWithLeader}`);
-                localidades[transactionDate][localityWithLeader].GASOLINE += amount;
-                
-                // Actualizar el balance correspondiente
+              // CORREGIDO: Verificar el tipo de gasto según expenseSource
+              if (transaction.expenseSource === 'GASOLINE') {
+                localidades[transactionDate][leaderKey].GASOLINE += amount;
                 if (isBankExpense) {
-                  localidades[transactionDate][localityWithLeader].BANK_BALANCE -= amount;
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
                 } else {
-                  localidades[transactionDate][localityWithLeader].CASH_BALANCE -= amount;
+                  localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
-              } else if (transaction.incomeSource === 'VIATIC') {
-                console.log(`🚌 Procesando gasto de VIÁTICOS: $${amount} para ${localityWithLeader}`);
-                localidades[transactionDate][localityWithLeader].VIATIC += amount;
-                
-                // Actualizar el balance correspondiente
+              } else if (transaction.expenseSource === 'VIATIC') {
+                localidades[transactionDate][leaderKey].VIATIC += amount;
                 if (isBankExpense) {
-                  localidades[transactionDate][localityWithLeader].BANK_BALANCE -= amount;
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
                 } else {
-                  localidades[transactionDate][localityWithLeader].CASH_BALANCE -= amount;
+                  localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
-              } else if (transaction.incomeSource === 'ACCOMMODATION') {
-                console.log(`🏨 Procesando gasto de HOSPEDAJE: $${amount} para ${localityWithLeader}`);
-                localidades[transactionDate][localityWithLeader].ACCOMMODATION += amount;
-                
-                // Actualizar el balance correspondiente
+              } else if (transaction.expenseSource === 'ACCOMMODATION') {
+                localidades[transactionDate][leaderKey].ACCOMMODATION += amount;
                 if (isBankExpense) {
-                  localidades[transactionDate][localityWithLeader].BANK_BALANCE -= amount;
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
                 } else {
-                  localidades[transactionDate][localityWithLeader].CASH_BALANCE -= amount;
+                  localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
-              } else if (transaction.incomeSource === 'VEHICULE_MAINTENANCE') {
-                console.log(`🔧 Procesando gasto de MANTENIMIENTO DE VEHÍCULO: $${amount} para ${localityWithLeader}`);
-                localidades[transactionDate][localityWithLeader].VEHICULE_MAINTENANCE += amount;
-                
-                // Actualizar el balance correspondiente
+              } else if (transaction.expenseSource === 'VEHICULE_MAINTENANCE') {
+                localidades[transactionDate][leaderKey].VEHICULE_MAINTENANCE += amount;
                 if (isBankExpense) {
-                  localidades[transactionDate][localityWithLeader].BANK_BALANCE -= amount;
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
                 } else {
-                  localidades[transactionDate][localityWithLeader].CASH_BALANCE -= amount;
+                  localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
-              } else if (transaction.incomeSource === 'NOMINA_SALARY') {
-                console.log(`💼 Procesando gasto de SALARIO DE NÓMINA: $${amount} para ${localityWithLeader}`);
-                localidades[transactionDate][localityWithLeader].NOMINA_SALARY += amount;
-                
-                // Actualizar el balance correspondiente
+              } else if (transaction.expenseSource === 'NOMINA_SALARY') {
+                localidades[transactionDate][leaderKey].NOMINA_SALARY += amount;
                 if (isBankExpense) {
-                  localidades[transactionDate][localityWithLeader].BANK_BALANCE -= amount;
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
                 } else {
-                  localidades[transactionDate][localityWithLeader].CASH_BALANCE -= amount;
+                  localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
-              } else if (transaction.incomeSource === 'EXTERNAL_SALARY') {
-                console.log(`👷‍♂️ Procesando gasto de SALARIO EXTERNO: $${amount} para ${localityWithLeader}`);
-                localidades[transactionDate][localityWithLeader].EXTERNAL_SALARY += amount;
-                
-                // Actualizar el balance correspondiente
+              } else if (transaction.expenseSource === 'EXTERNAL_SALARY') {
+                localidades[transactionDate][leaderKey].EXTERNAL_SALARY += amount;
                 if (isBankExpense) {
-                  localidades[transactionDate][localityWithLeader].BANK_BALANCE -= amount;
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
                 } else {
-                  localidades[transactionDate][localityWithLeader].CASH_BALANCE -= amount;
+                  localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
-              } else if (transaction.incomeSource === 'CREDITO') {
-                console.log(`💳 Procesando gasto de CRÉDITO: $${amount} para ${localityWithLeader}`);
-                localidades[transactionDate][localityWithLeader].CREDITO += amount;
-                
-                // Actualizar el balance correspondiente
+              } else if (transaction.expenseSource === 'CREDITO') {
+                localidades[transactionDate][leaderKey].CREDITO += amount;
                 if (isBankExpense) {
-                  localidades[transactionDate][localityWithLeader].BANK_BALANCE -= amount;
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
                 } else {
-                  localidades[transactionDate][localityWithLeader].CASH_BALANCE -= amount;
+                  localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
-              } else if (transaction.incomeSource === 'LOAN_GRANTED') {
-                console.log(`🏦 Procesando gasto de PRÉSTAMO OTORGADO: $${amount} para ${localityWithLeader}`);
-                localidades[transactionDate][localityWithLeader].LOAN_GRANTED += amount;
-                
-                // Actualizar el balance correspondiente
+              } else if (transaction.expenseSource === 'LOAN_GRANTED') {
+                localidades[transactionDate][leaderKey].LOAN_GRANTED += amount;
                 if (isBankExpense) {
-                  localidades[transactionDate][localityWithLeader].BANK_BALANCE -= amount;
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
                 } else {
-                  localidades[transactionDate][localityWithLeader].CASH_BALANCE -= amount;
+                  localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
+                }
+              } else if (transaction.expenseSource === 'LOAN_GRANTED_COMISSION') {
+                localidades[transactionDate][leaderKey].LOAN_GRANTED_COMISSION += amount;
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
+                  localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
+                }
+              } else if (transaction.expenseSource === 'LOAN_PAYMENT_COMISSION') {
+                localidades[transactionDate][leaderKey].LOAN_PAYMENT_COMISSION += amount;
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
+                  localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
+                }
+              } else if (transaction.expenseSource === 'LEAD_COMISSION') {
+                localidades[transactionDate][leaderKey].LEAD_COMISSION += amount;
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
+                  localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else {
-                console.log(`📊 Procesando OTRO tipo de gasto: $${amount} para ${localityWithLeader}`);
-                localidades[transactionDate][localityWithLeader].OTRO += amount;
-                
-                // Actualizar el balance correspondiente
+                localidades[transactionDate][leaderKey].OTRO += amount;
                 if (isBankExpense) {
-                  localidades[transactionDate][localityWithLeader].BANK_BALANCE -= amount;
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
                 } else {
-                  localidades[transactionDate][localityWithLeader].CASH_BALANCE -= amount;
+                  localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               }
-              
-              // Mostrar los balances actualizados después del gasto
-              console.log(`✅ Balances actualizados para ${localityWithLeader} después del gasto:`, {
-                balanceEfectivo: localidades[transactionDate][localityWithLeader].CASH_BALANCE,
-                balanceBanco: localidades[transactionDate][localityWithLeader].BANK_BALANCE
-              });
-              
-              console.log(`✅ Gastos actualizados para ${localityWithLeader}:`, {
-                gasolina: localidades[transactionDate][localityWithLeader].GASOLINE,
-                viaticos: localidades[transactionDate][localityWithLeader].VIATIC,
-                hospedaje: localidades[transactionDate][localityWithLeader].ACCOMMODATION,
-                mantenimiento: localidades[transactionDate][localityWithLeader].VEHICULE_MAINTENANCE,
-                credito: localidades[transactionDate][localityWithLeader].CREDITO,
-                prestamos: localidades[transactionDate][localityWithLeader].LOAN_GRANTED,
-                otros: localidades[transactionDate][localityWithLeader].OTRO
-              });
+
             }
           }
 
-          console.log('\n=== RESUMEN FINAL ===');
+          // Verificar estadísticas finales
+          const localidadesUnicas = new Set();
           Object.entries(localidades).forEach(([date, localities]) => {
-            console.log(`\nFecha: ${date}`);
-            Object.entries(localities).forEach(([locality, data]) => {
-              console.log(`Localidad: ${locality}`);
-              console.log({
-                abonoTotal: data.ABONO,
-                abonoEfectivo: data.CASH_ABONO,
-                abonoBanco: data.BANK_ABONO,
-                balanceEfectivo: data.CASH_BALANCE,
-                balanceBanco: data.BANK_BALANCE
-              });
+            Object.keys(localities).forEach(locality => {
+              localidadesUnicas.add(locality);
             });
+          });
+          
+          console.log(`\n📊 RESUMEN: ${localidadesUnicas.size} líderes únicos encontrados`);
+          
+          // DEBUG: Mostrar solo los líderes únicos para verificar si Rafaela aparece
+          const leadersFound = Array.from(localidadesUnicas) as string[];
+          leadersFound.forEach(leader => {
+            const isRafaela = leader.toLowerCase().includes('rafaela') || 
+                            leader.toLowerCase().includes('baeza') || 
+                            leader.toLowerCase().includes('carrillo') ||
+                            leader.toLowerCase().includes('calkini') ||
+                            leader.toLowerCase().includes('calkiní');
+            if (isRafaela) {
+              console.log(`🎯 RAFAELA ENCONTRADA EN RESULTADOS FINALES: ${leader}`);
+            }
           });
 
           const result = Object.entries(localidades).flatMap(([date, localities]) => 
             Object.entries(localities).map(([locality, data]) => {
-              console.log(`Generando resultado para ${date} - ${locality}:`, {
-                comisiones: {
-                  loanPaymentComission: data.LOAN_PAYMENT_COMISSION,
-                  loanGrantedComission: data.LOAN_GRANTED_COMISSION,
-                  leadComission: data.LEAD_COMISSION
-                }
-              });
-              
               // Verificar si hay valores negativos o inválidos
               const checkValue = (value: number, name: string) => {
                 if (isNaN(value) || value < 0) {
-                  console.log(`ADVERTENCIA: Valor inválido en ${name} para ${date} - ${locality}: ${value}`);
                   return 0;
                 }
                 return value;
@@ -1036,30 +1150,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
               
               const balanceFinal = totalIngresos - totalGastos - totalComisiones;
               const profitFinal = totalIngresos - totalGastos;
-
-              console.log('Cálculo final de balance:', {
-                totalIngresos,
-                totalGastos,
-                totalComisiones,
-                balanceFinal,
-                profitFinal,
-                detalle: {
-                  abono: data.ABONO,
-                  moneyInvestment: data.MONEY_INVESMENT,
-                  credito: data.CREDITO,
-                  viatic: data.VIATIC,
-                  gasoline: data.GASOLINE,
-                  accommodation: data.ACCOMMODATION,
-                  nominaSalary: data.NOMINA_SALARY,
-                  externalSalary: data.EXTERNAL_SALARY,
-                  vehiculeMaintenance: data.VEHICULE_MAINTENANCE,
-                  loanGranted: data.LOAN_GRANTED,
-                  otro: data.OTRO,
-                  loanPaymentComission: data.LOAN_PAYMENT_COMISSION,
-                  loanGrantedComission: data.LOAN_GRANTED_COMISSION,
-                  leadComission: data.LEAD_COMISSION
-                }
-              });
               
               return {
                 date,
@@ -1088,7 +1178,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
             })
           );
 
-          console.log('Resultado final:', result);
           return result;
         },
       }),

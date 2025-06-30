@@ -17,7 +17,9 @@ import { GET_ROUTE } from '../../graphql/queries/routes';
 
 // Import types
 import type { Loan } from '../../types/loan';
+import { calculateAmountToPay, calculatePendingAmountSimple, processLoansWithCalculations } from '../../utils/loanCalculations';
 
+// OPTIMIZADA: SIN campos virtuales costosos
 const GET_LOANS = gql`
   query GetLoans($date: DateTime!, $nextDate: DateTime!, $leadId: ID!) {
     loans(
@@ -29,12 +31,11 @@ const GET_LOANS = gql`
           { finishedDate: { equals: null } }
         ]
       }
+      orderBy: { signDate: desc }
     ) {
       id
       requestedAmount
       amountGived
-      amountToPay
-      pendingAmount
       signDate
       finishedDate
       createdAt
@@ -73,7 +74,9 @@ const GET_LOANS = gql`
       }
       previousLoan {
         id
-        pendingAmount
+        requestedAmount
+        amountGived
+        profitAmount
         avalName
         avalPhone
         borrower {
@@ -254,7 +257,7 @@ const GET_LOAN_TYPES = gql`
 `;
 
 const GET_PREVIOUS_LOANS = gql`
-  query GetPreviousLoans($leadId: ID!) {
+  query GetPreviousLoansOptimized($leadId: ID!) {
     loans(
       where: {
         AND: [
@@ -263,24 +266,17 @@ const GET_PREVIOUS_LOANS = gql`
         ]
       }
       orderBy: { signDate: desc }
+      take: 50
     ) {
       id
       requestedAmount
       amountGived
-      amountToPay
-      pendingAmount
       signDate
       borrower {
         id
         personalData {
           fullName
-          phones {
-            number
-            __typename
-          }
-          __typename
         }
-        __typename
       }
       avalName
       avalPhone
@@ -483,33 +479,33 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       console.log('Objeto previousLoan creado:', previousLoan);
       console.log('pendingAmount en previousLoan:', previousLoan.pendingAmount);
 
-      // Calcular el monto a pagar basado en el tipo de préstamo
-      let amountToPay = '0';
-      if (newLoan.loantype?.rate && newLoan.loantype.rate !== '0') {
+      // Calcular amountToPay para el nuevo préstamo
+      let newLoanAmountToPay = '0';
+      if (newLoan.loantype?.rate) {
         const rate = parseFloat(newLoan.loantype.rate);
-        if (!isNaN(rate)) {
-          amountToPay = (parseFloat(newLoan.requestedAmount || '0') * (1 + rate / 100)).toFixed(2);
-          console.log('Cálculo de monto a pagar:', {
-            requestedAmount: newLoan.requestedAmount,
-            rate,
-            amountToPay
-          });
+        const requestedAmount = parseFloat(newLoan.requestedAmount || '0');
+        if (!isNaN(rate) && !isNaN(requestedAmount)) {
+          newLoanAmountToPay = (requestedAmount * (1 + rate)).toFixed(2);
         }
       }
 
       setNewLoan(prev => {
         const updatedLoan = {
           ...prev,
-          previousLoan,
+          previousLoan: {
+            ...selectedLoan,
+            pendingAmount,
+            amountToPay: selectedLoan.loantype?.rate ? 
+              (parseFloat(selectedLoan.requestedAmount) * (1 + parseFloat(selectedLoan.loantype.rate))).toFixed(2) : 
+              '0'
+          },
           borrower: selectedLoan.borrower,
           avalName: selectedLoan.avalName,
           avalPhone: selectedLoan.avalPhone,
           pendingAmount,
-          amountToPay
+          amountToPay: newLoanAmountToPay
         };
-        console.log('Nuevo estado de newLoan:', updatedLoan);
-        console.log('pendingAmount en newLoan:', updatedLoan.pendingAmount);
-        console.log('amountToPay en newLoan:', updatedLoan.amountToPay);
+        console.log('Nuevo estado de newLoan optimizado:', updatedLoan);
         return updatedLoan;
       });
     }
@@ -1145,7 +1141,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                   <th style={tableHeaderStyle}>Monto Solicitado</th>
                   <th style={tableHeaderStyle}>Deuda Pendiente</th>
                   <th style={tableHeaderStyle}>Monto Entregado</th>
-                  <th style={tableHeaderStyle}>Monto a Pagar</th>
+                  <th style={tableHeaderStyle}>Monto a Pagars</th>
                   <th style={tableHeaderStyle}>Comisión</th>
                   <th style={tableHeaderStyle}>Nombre del Aval</th>
                   <th style={tableHeaderStyle}>Teléfono del Aval</th>
@@ -1270,7 +1266,11 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                     <td style={tableCellStyle}>${loan.requestedAmount}</td>
                     <td style={tableCellStyle}>${loan.previousLoan?.pendingAmount || '0'}</td>
                     <td style={tableCellStyle}>${loan.amountGived}</td>
-                    <td style={tableCellStyle}>${loan.amountToPay}</td>
+                    <td style={tableCellStyle}>
+                      ${loan.loantype?.rate ? 
+                        calculateAmountToPay(loan.requestedAmount, loan.loantype.rate) : 
+                        'N/A'}
+                    </td>
                     <td style={tableCellStyle}>${loan.comissionAmount}</td>
                     <td style={tableCellStyle}>
                       <div 
