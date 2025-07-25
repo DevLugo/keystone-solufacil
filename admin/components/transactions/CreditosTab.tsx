@@ -354,6 +354,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     __typename: 'Loan'
   });
   const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
+
   const [newLoanId, setNewLoanId] = useState<string | null>(null);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -686,12 +687,19 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   };
 
   const handleEditLoan = (loan: Loan) => {
+    // Calcular amountToPay si no existe
+    const calculatedAmountToPay = loan.amountToPay || 
+      calculateAmountToPay(loan.requestedAmount.toString(), loan.loantype?.rate?.toString() || '0');
+    
+    // Calcular pendingAmount si no existe - usar 0 como valor por defecto seguro
+    const calculatedPendingAmount = loan.pendingAmount || '0';
+    
     setEditingLoan({
       ...loan,
       requestedAmount: loan.requestedAmount.toString(),
       amountGived: loan.amountGived.toString(),
-      amountToPay: loan.amountToPay.toString(),
-      pendingAmount: loan.pendingAmount.toString(),
+      amountToPay: calculatedAmountToPay.toString(),
+      pendingAmount: calculatedPendingAmount.toString(),
       comissionAmount: loan.comissionAmount?.toString() || '0'
     });
   };
@@ -725,11 +733,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
           refetchLoans(),
           refetchRoute()
         ]).then(() => {
-          if (onBalanceUpdate) {
-            const oldTotal = parseFloat(editingLoan.amountGived) + parseFloat(editingLoan.comissionAmount || '0');
-            const newTotal = parseFloat(data.updateLoan.amountGived) + parseFloat(data.updateLoan.comissionAmount || '0');
-            onBalanceUpdate(oldTotal - newTotal);
-          }
+          console.log('✅ Préstamo actualizado y datos refrescados');
         });
         
         setEditingLoan(null);
@@ -2010,7 +2014,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                 <Button
                   tone="negative"
                   size="large"
-                  onClick={() => setEditingLoan(null)}
+                                          onClick={() => setEditingLoan(null)}
                   style={{
                     padding: '10px 20px',
                     borderRadius: '8px',

@@ -214,12 +214,10 @@ export const Borrower = list({
       field: graphql.field({
         type: graphql.String,
         resolve: async (item, args, context) => {
-          console.log("////////////ITEM///////////", item);
           /* const borrower = await context.db.Borrower.findOne({
             where: { id: {equal:(item as { id: string }).id }
             },
           });
-          console.log("////////////BORROWER///////////", borrower);
           
           if(borrower === null){
             return "";
@@ -329,7 +327,6 @@ export const Loan = list({
           const pendingProfit = await calculatePendingProfitAmount((item as { id: string }).id.toString());
           // Redondear a 2 decimales
           let roundedPendingProfit = Math.round((pendingProfit + Number.EPSILON) * 100) / 100;
-          console.log("////////////PENDING PROFIT///////////", roundedPendingProfit);
           // Si el valor es muy cercano a cero, establecerlo explícitamente a cero
           if (roundedPendingProfit < 0.01) {
             roundedPendingProfit = 0;
@@ -345,7 +342,6 @@ export const Loan = list({
           const loan = await prisma.loan.findUnique({
             where: { id: (item as { id: string }).id.toString() },
           });
-          console.log("////////////LOAN///////////", loan);
           if (loan) {
             const payments = await prisma.loanPayment.findMany({
               where: { loan: { id: { equals: (item as { id: string }).id.toString() } } },
@@ -360,7 +356,6 @@ export const Loan = list({
               }, 0);
               return sum + transactionProfit;
             }, 0);
-            console.log("payments", payments.length, profitAmount);
             return parseFloat(profitAmount.toFixed(2));
           }
           return 0;
@@ -476,16 +471,14 @@ export const Loan = list({
             loanId: item.id.toString()
           }
         });
-        console.log("////////////TRANSACTIONS-beforeOperation///////////", transactions, operation, item);
         // Almacenar las transacciones en el contexto para usarlas después
         (context as ExtendedContext).transactionsToDelete = transactions;
       }
     },
     afterOperation: async ({ operation, item, context, originalItem }) => {
-      console.log("////////////HOOK///////////", operation, item, originalItem);
       if ((operation === 'create' || operation === 'update') && item) {
         const leadId: string = item.leadId as string;
-        if (leadId === null) {
+        if (leadId === null || leadId === undefined) {
           return;
         }
 
@@ -562,7 +555,6 @@ export const Loan = list({
             })
           ]);
 
-          console.log('✅ CreateLoan ultra-optimizado completado en <1s');
         } else if (operation === 'update') {
           // OPTIMIZADO: Obtener transacciones y calcular profit en paralelo
           const [existingTransactions, totalProfitAmount] = await Promise.all([
@@ -614,7 +606,9 @@ export const Loan = list({
             const newAmount = parseAmount(item.amountGived);
             const newCommission = parseAmount(item.comissionAmount);
             
-            const balanceChange = (oldAmount + oldCommission) - (newAmount + newCommission);
+            const oldTotal = oldAmount + oldCommission;
+            const newTotal = newAmount + newCommission;
+            const balanceChange = oldTotal - newTotal;
             const updatedAmount = currentAmount + balanceChange;
             
             updateOperations.push(
@@ -651,13 +645,10 @@ export const Loan = list({
         }
       } else if (operation === 'delete' && originalItem) {
         try {
-          console.log('Iniciando eliminación de préstamo:', originalItem.id);
-          
           // Obtener el lead y la cuenta asociada
           const lead = await context.db.Employee.findOne({
             where: { id: originalItem.leadId as string },
           });
-          console.log('Lead encontrado:', lead?.id);
 
           const account = await context.prisma.account.findFirst({
             where: { 
@@ -665,44 +656,31 @@ export const Loan = list({
               type: 'EMPLOYEE_CASH_FUND'
             },
           });
-          console.log('Cuenta encontrada:', account?.id);
 
           // Eliminar todas las transacciones asociadas al préstamo
-          console.log('Eliminando transacciones...');
           const transactionsToDelete = (context as ExtendedContext).transactionsToDelete || [];
-          console.log('Transacciones a eliminar:', transactionsToDelete.length);
 
-          for (const transaction of transactionsToDelete) {
-            await context.prisma.transaction.delete({
-              where: { id: transaction.id }
-            });
-          }
-          console.log('Transacciones eliminadas');
+                      for (const transaction of transactionsToDelete) {
+              await context.prisma.transaction.delete({
+                where: { id: transaction.id }
+              });
+            }
 
-          // Actualizar balance de la cuenta
-          if (account) {
-            console.log('Actualizando balance de cuenta...');
-            const currentAmount = parseFloat(account.amount.toString());
-            const loanAmount = parseFloat(originalItem.amountGived?.toString() || '0');
-            const commissionAmount = parseFloat(originalItem.comissionAmount?.toString() || '0');
-            const totalAmount = loanAmount + commissionAmount;
-            
-            const updatedAmount = currentAmount + totalAmount;
-            console.log('Montos:', {
-              currentAmount,
-              loanAmount,
-              commissionAmount,
-              totalAmount,
-              updatedAmount
-            });
+            // Actualizar balance de la cuenta
+            if (account) {
+              const currentAmount = parseFloat(account.amount.toString());
+              const loanAmount = parseFloat(originalItem.amountGived?.toString() || '0');
+              const commissionAmount = parseFloat(originalItem.comissionAmount?.toString() || '0');
+              const totalAmount = loanAmount + commissionAmount;
+              
+              const updatedAmount = currentAmount + totalAmount;
 
-            // Actualizar el balance usando prisma directamente
-            await context.prisma.account.update({
-              where: { id: account.id },
-              data: { amount: updatedAmount.toString() }
-            });
-            console.log('Balance actualizado:', updatedAmount);
-          }
+                          // Actualizar el balance usando prisma directamente
+              await context.prisma.account.update({
+                where: { id: account.id },
+                data: { amount: updatedAmount.toString() }
+              });
+            }
         } catch (error) {
           console.error('Error al eliminar transacciones asociadas al préstamo:', error);
           throw error;
@@ -793,7 +771,6 @@ export const LoanPayment = list({
 
       if (operation === 'create' || operation === 'update') {
         try {
-          console.log(`Operación ${operation} de LoanPayment:`, item);
           
           const loan = await context.db.Loan.findOne({
             where: { id: item.loanId as string },
@@ -842,14 +819,11 @@ export const LoanPayment = list({
           const returnToCapital = amount - profitAmount;
 
           // Buscar transacciones existentes - usamos findMany por si hay más de una
-          console.log(`Buscando transacciones asociadas al pago con ID ${item.id}`);
           const existingTransactions = await context.prisma.transaction.findMany({
             where: { 
               loanPaymentId: item.id.toString()
             },
           });
-          
-          console.log(`Transacciones encontradas:`, existingTransactions);
 
           // Crear o actualizar transacción según el método de pago
           const getDecimalString = (value: unknown): string => {
@@ -871,9 +845,6 @@ export const LoanPayment = list({
 
           if (existingTransactions.length > 0) {
             // Actualizar transacción existente
-            console.log(`Actualizando transacción existente con ID: ${existingTransactions[0].id}`);
-            
-            // Usar prisma directamente para actualizar la transacción
             await context.prisma.transaction.update({
               where: { id: existingTransactions[0].id },
               data: {
@@ -882,11 +853,8 @@ export const LoanPayment = list({
                 incomeSource: item.paymentMethod === 'CASH' ? 'CASH_LOAN_PAYMENT' : 'BANK_LOAN_PAYMENT',
               },
             });
-            
-            console.log('Transacción actualizada correctamente');
           } else {
             // Crear nueva transacción usando prisma directamente
-            console.log('Creando nueva transacción para el pago');
             
             await context.prisma.transaction.create({
               data: {
@@ -898,21 +866,16 @@ export const LoanPayment = list({
                 leadId: lead.id.toString(),
               },
             });
-            
-            console.log('Nueva transacción creada correctamente');
           }
 
           // Actualizar balance de la cuenta según el método de pago
           const accountType = item.paymentMethod === 'CASH' ? 'CASH' : 'BANK';
-          console.log(`Buscando cuenta de tipo: ${accountType}`);
           
           const accounts = await context.prisma.account.findMany({
             where: { 
               type: accountType
             },
           });
-
-          console.log(`Cuentas encontradas:`, accounts);
           
           const account = accounts[0];
           if (account) {
@@ -924,19 +887,15 @@ export const LoanPayment = list({
             if (operation === 'update' && args.originalItem) {
               const oldAmount = parseFloat((args.originalItem.amount as { toString(): string }).toString());
               balanceChange = transactionAmount - oldAmount;
-              console.log(`Actualización - Monto anterior: ${oldAmount}, Nuevo monto: ${transactionAmount}, Cambio: ${balanceChange}`);
             }
 
             const updatedAmount = currentAmount + balanceChange;
-            console.log(`Actualizando balance de cuenta - Monto actual: ${currentAmount}, Nuevo monto: ${updatedAmount}`);
             
             // Usar prisma directamente para actualizar la cuenta
             await context.prisma.account.update({
               where: { id: account.id },
               data: { amount: updatedAmount.toString() }
             });
-            
-            console.log('Balance de cuenta actualizado correctamente');
           }
         } catch (error) {
           console.error('Error en hook afterOperation de LoanPayment:', error);
@@ -1005,18 +964,19 @@ export const Transaction = list({
       try {
         if (operation === 'create') {
           if (!item) {
-            console.log('No hay datos de transacción para procesar');
             return;
           }
 
           const transactionItem = item as unknown as TransactionItem;
 
-          // Si es una transacción de pago de préstamo bancario o en efectivo, no procesar aquí
-          // ya que estas se manejan en el hook de LoanPayment
-          if (transactionItem.type === 'INCOME' && 
+          // Si es una transacción de pago de préstamo o de préstamo otorgado, no procesar aquí
+          // ya que estas se manejan en sus respectivos hooks
+          if ((transactionItem.type === 'INCOME' && 
               (transactionItem.incomeSource === 'BANK_LOAN_PAYMENT' || 
-               transactionItem.incomeSource === 'CASH_LOAN_PAYMENT')) {
-            console.log('Transacción de pago de préstamo detectada, omitiendo procesamiento adicional');
+               transactionItem.incomeSource === 'CASH_LOAN_PAYMENT')) ||
+              (transactionItem.type === 'EXPENSE' && 
+              (transactionItem.expenseSource === 'LOAN_GRANTED' || 
+               transactionItem.expenseSource === 'LOAN_GRANTED_COMISSION'))) {
             return;
           }
 
@@ -1050,11 +1010,6 @@ export const Transaction = list({
               where: { id: sourceAccount.id },
               data: { amount: newAmount.toString() }
             });
-            console.log('Actualizado balance cuenta origen:', {
-              original: currentAmount,
-              nuevo: newAmount,
-              monto: transactionAmount
-            });
           }
 
           // Aplicar el nuevo efecto en la cuenta destino
@@ -1066,32 +1021,24 @@ export const Transaction = list({
               where: { id: destinationAccount.id },
               data: { amount: newAmount.toString() }
             });
-            console.log('Actualizado balance cuenta destino:', {
-              original: currentAmount,
-              nuevo: newAmount,
-              monto: transactionAmount
-            });
           }
         }
         else if (operation === 'update') {
           if (!item || !originalItem) {
-            console.log('No hay datos suficientes para procesar la actualización');
             return;
           }
 
           const transactionItem = item as unknown as TransactionItem;
           const originalTransaction = originalItem as unknown as TransactionItem;
 
-          console.log('🔄 Procesando actualización de transacción:', {
-            original: { amount: originalTransaction.amount, type: originalTransaction.type },
-            nuevo: { amount: transactionItem.amount, type: transactionItem.type }
-          });
-
-          // Si es una transacción de pago de préstamo, no procesar aquí
-          if (transactionItem.type === 'INCOME' && 
+          // Si es una transacción de pago de préstamo o de préstamo otorgado, no procesar aquí
+          // ya que estas se manejan en sus respectivos hooks
+          if ((transactionItem.type === 'INCOME' && 
               (transactionItem.incomeSource === 'BANK_LOAN_PAYMENT' || 
-               transactionItem.incomeSource === 'CASH_LOAN_PAYMENT')) {
-            console.log('Transacción de pago de préstamo detectada, omitiendo procesamiento adicional');
+               transactionItem.incomeSource === 'CASH_LOAN_PAYMENT')) ||
+              (transactionItem.type === 'EXPENSE' && 
+              (transactionItem.expenseSource === 'LOAN_GRANTED' || 
+               transactionItem.expenseSource === 'LOAN_GRANTED_COMISSION'))) {
             return;
           }
 
@@ -1141,12 +1088,6 @@ export const Transaction = list({
               where: { id: originalSourceAccount.id },
               data: { amount: revertedAmount.toString() }
             });
-            console.log('🔙 Revertido balance cuenta origen original:', {
-              cuenta: originalSourceAccount.id,
-              original: currentAmount,
-              revertido: revertedAmount,
-              monto: originalAmount
-            });
           }
 
           // Revertir efecto en cuenta destino original
@@ -1157,12 +1098,6 @@ export const Transaction = list({
             await context.prisma.account.update({
               where: { id: originalDestinationAccount.id },
               data: { amount: revertedAmount.toString() }
-            });
-            console.log('🔙 Revertido balance cuenta destino original:', {
-              cuenta: originalDestinationAccount.id,
-              original: currentAmount,
-              revertido: revertedAmount,
-              monto: originalAmount
             });
           }
 
@@ -1181,12 +1116,6 @@ export const Transaction = list({
               where: { id: newSourceAccount.id },
               data: { amount: finalAmount.toString() }
             });
-            console.log('✅ Aplicado nuevo balance cuenta origen:', {
-              cuenta: newSourceAccount.id,
-              original: currentAmount,
-              nuevo: finalAmount,
-              monto: newAmount
-            });
           }
 
           // Aplicar nuevo efecto en cuenta destino
@@ -1198,35 +1127,23 @@ export const Transaction = list({
               where: { id: newDestinationAccount.id },
               data: { amount: finalAmount.toString() }
             });
-            console.log('✅ Aplicado nuevo balance cuenta destino:', {
-              cuenta: newDestinationAccount.id,
-              original: currentAmount,
-              nuevo: finalAmount,
-              monto: newAmount
-            });
           }
-
-          console.log('🎉 Actualización de transacción completada exitosamente');
         }
         else if (operation === 'delete') {
           if (!originalItem) {
-            console.log('No hay datos de la transacción original para revertir');
             return;
           }
 
           const originalTransaction = originalItem as unknown as TransactionItem;
 
-          console.log('🗑️ Procesando eliminación de transacción:', {
-            id: originalTransaction.id,
-            amount: originalTransaction.amount,
-            type: originalTransaction.type
-          });
-
-          // Si es una transacción de pago de préstamo, no procesar aquí
-          if (originalTransaction.type === 'INCOME' && 
+          // Si es una transacción de pago de préstamo o de préstamo otorgado, no procesar aquí
+          // ya que estas se manejan en sus respectivos hooks
+          if ((originalTransaction.type === 'INCOME' && 
               (originalTransaction.incomeSource === 'BANK_LOAN_PAYMENT' || 
-               originalTransaction.incomeSource === 'CASH_LOAN_PAYMENT')) {
-            console.log('Transacción de pago de préstamo detectada, omitiendo procesamiento adicional');
+               originalTransaction.incomeSource === 'CASH_LOAN_PAYMENT')) ||
+              (originalTransaction.type === 'EXPENSE' && 
+              (originalTransaction.expenseSource === 'LOAN_GRANTED' || 
+               originalTransaction.expenseSource === 'LOAN_GRANTED_COMISSION'))) {
             return;
           }
 
@@ -1259,12 +1176,6 @@ export const Transaction = list({
               where: { id: originalSourceAccount.id },
               data: { amount: revertedAmount.toString() }
             });
-            console.log('💰 Devuelto dinero a cuenta origen:', {
-              cuenta: originalSourceAccount.id,
-              antes: currentAmount,
-              despues: revertedAmount,
-              monto_devuelto: originalAmount
-            });
           }
 
           // Para ingresos y transferencias: quitar dinero de la cuenta destino
@@ -1281,15 +1192,7 @@ export const Transaction = list({
               where: { id: originalDestinationAccount.id },
               data: { amount: revertedAmount.toString() }
             });
-            console.log('💸 Removido dinero de cuenta destino:', {
-              cuenta: originalDestinationAccount.id,
-              antes: currentAmount,
-              despues: revertedAmount,
-              monto_removido: originalAmount
-            });
           }
-
-          console.log('🎉 Eliminación de transacción completada exitosamente');
         }
       } catch (error) {
         console.error('Error en afterOperation de Transaction:', error);
