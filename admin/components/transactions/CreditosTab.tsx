@@ -272,6 +272,11 @@ const GET_PREVIOUS_LOANS = gql`
       requestedAmount
       amountGived
       signDate
+      loantype {
+        id
+        rate
+        weekDuration
+      }
       borrower {
         id
         personalData {
@@ -280,6 +285,9 @@ const GET_PREVIOUS_LOANS = gql`
       }
       avalName
       avalPhone
+      payments {
+        amount
+      }
       __typename
     }
   }
@@ -400,6 +408,23 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     })) || [];
   }, [loanTypesData]);
 
+  // Función para calcular la deuda pendiente localmente
+  const calculateLocalPendingAmount = (loan: any): number => {
+    if (!loan?.loantype?.rate || !loan?.requestedAmount) return 0;
+    
+    const rate = parseFloat(loan.loantype.rate);
+    const requestedAmount = parseFloat(loan.requestedAmount);
+    const totalAmountToPay = requestedAmount * (1 + rate);
+    
+    // Calcular el total pagado sumando todos los pagos
+    const payedAmount = loan.payments?.reduce((sum: number, payment: any) => {
+      return sum + parseFloat(payment.amount || '0');
+    }, 0) || 0;
+    
+    const pendingAmount = totalAmountToPay - payedAmount;
+    return Math.max(0, pendingAmount); // No puede ser negativo
+  };
+
   const previousLoanOptions = React.useMemo(() => {
     const options = [
       { value: '', label: 'Seleccionar préstamo previo' }
@@ -425,10 +450,13 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       });
 
       options.push(
-        ...sortedLoans.map((loan: any) => ({
-          value: loan.id,
-          label: `${loan.borrower?.personalData?.fullName || 'Sin nombre'} ($${loan.pendingAmount || 0})`
-        }))
+        ...sortedLoans.map((loan: any) => {
+          const pendingAmount = calculateLocalPendingAmount(loan);
+          return {
+            value: loan.id,
+            label: `${loan.borrower?.personalData?.fullName || 'Sin nombre'} ($${pendingAmount.toFixed(2)})`
+          };
+        })
       );
     }
 
@@ -462,23 +490,21 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
 
     const selectedLoan = previousLoansData?.loans?.find(loan => loan.id === option.value);
     if (selectedLoan) {
-      console.log('Préstamo seleccionado completo:', selectedLoan);
-      console.log('pendingAmount del préstamo seleccionado:', selectedLoan.pendingAmount);
+      // Calcular la deuda pendiente localmente
+      const pendingAmountNum = calculateLocalPendingAmount(selectedLoan);
+      const pendingAmount = pendingAmountNum.toFixed(2);
       
-      // Asegurarse de que pendingAmount sea un string
-      const pendingAmount = selectedLoan.pendingAmount ? selectedLoan.pendingAmount.toString() : '0';
-      
-      console.log('Deuda pendiente convertida a string:', pendingAmount);
+      // Calcular amountToPay del préstamo seleccionado
+      const selectedLoanAmountToPay = selectedLoan.loantype?.rate ? 
+        (parseFloat(selectedLoan.requestedAmount) * (1 + parseFloat(selectedLoan.loantype.rate))).toFixed(2) : 
+        '0';
 
       // Crear una copia del préstamo seleccionado con los campos necesarios
       const previousLoan = {
         ...selectedLoan,
         pendingAmount,
-        amountToPay: selectedLoan.amountToPay || '0'
+        amountToPay: selectedLoanAmountToPay
       };
-
-      console.log('Objeto previousLoan creado:', previousLoan);
-      console.log('pendingAmount en previousLoan:', previousLoan.pendingAmount);
 
       // Calcular amountToPay para el nuevo préstamo
       let newLoanAmountToPay = '0';
@@ -493,20 +519,13 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       setNewLoan(prev => {
         const updatedLoan = {
           ...prev,
-          previousLoan: {
-            ...selectedLoan,
-            pendingAmount,
-            amountToPay: selectedLoan.loantype?.rate ? 
-              (parseFloat(selectedLoan.requestedAmount) * (1 + parseFloat(selectedLoan.loantype.rate))).toFixed(2) : 
-              '0'
-          },
+          previousLoan,
           borrower: selectedLoan.borrower,
           avalName: selectedLoan.avalName,
           avalPhone: selectedLoan.avalPhone,
           pendingAmount,
           amountToPay: newLoanAmountToPay
         };
-        console.log('Nuevo estado de newLoan optimizado:', updatedLoan);
         return updatedLoan;
       });
     }
@@ -624,7 +643,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   const handleSaveNewLoan = async () => {
     try {
       setIsCreating(true);
-      const loanData = {
+      const loanData: any = {
         requestedAmount: newLoan.requestedAmount,
         amountGived: newLoan.amountGived,
         signDate: selectedDate,
@@ -633,21 +652,28 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         comissionAmount: newLoan.comissionAmount,
         lead: { connect: { id: selectedLead?.id } },
         loantype: { connect: { id: newLoan.loantype?.id || '' } },
-        borrower: {
-          create: {
-            personalData: {
+        borrower: newLoan.previousLoan?.id
+          ? { connect: { id: newLoan.borrower?.id } }
+          : {
               create: {
-                fullName: newLoan.borrower?.personalData?.fullName || '',
-                phones: {
-                  create: newLoan.borrower?.personalData?.phones?.map(phone => ({
-                    number: phone.number
-                  })) || []
+                personalData: {
+                  create: {
+                    fullName: newLoan.borrower?.personalData?.fullName || '',
+                    phones: {
+                      create: newLoan.borrower?.personalData?.phones?.map(phone => ({
+                        number: phone.number
+                      })) || []
+                    }
+                  }
                 }
               }
             }
-          }
-        }
       };
+
+      // SI HAY UN PRÉSTAMO PREVIO, AGREGARLO
+      if (newLoan.previousLoan?.id) {
+        loanData.previousLoan = { connect: { id: newLoan.previousLoan.id } };
+      }
 
       const { data } = await createLoan({ 
         variables: { 

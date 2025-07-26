@@ -555,6 +555,17 @@ export const Loan = list({
             })
           ]);
 
+          // SI HAY UN PRÉSTAMO PREVIO, FINALIZARLO AL RENOVAR
+          if (item.previousLoanId) {
+            await context.prisma.loan.update({
+              where: { id: item.previousLoanId as string },
+              data: {
+                status: 'RENOVATED',
+                finishedDate: new Date(item.signDate as string)
+              }
+            });
+          }
+
         } else if (operation === 'update') {
           // OPTIMIZADO: Obtener transacciones y calcular profit en paralelo
           const [existingTransactions, totalProfitAmount] = await Promise.all([
@@ -660,13 +671,24 @@ export const Loan = list({
           // Eliminar todas las transacciones asociadas al préstamo
           const transactionsToDelete = (context as ExtendedContext).transactionsToDelete || [];
 
-                      for (const transaction of transactionsToDelete) {
-              await context.prisma.transaction.delete({
-                where: { id: transaction.id }
-              });
-            }
+          for (const transaction of transactionsToDelete) {
+            await context.prisma.transaction.delete({
+              where: { id: transaction.id }
+            });
+          }
 
-            // Actualizar balance de la cuenta
+          // SI HAY UN PRÉSTAMO PREVIO, REACTIVARLO
+          if (originalItem.previousLoanId) {
+            await context.prisma.loan.update({
+              where: { id: originalItem.previousLoanId as string },
+              data: {
+                status: 'ACTIVE',
+                finishedDate: null
+              }
+            });
+          }
+
+          // Actualizar balance de la cuenta
             if (account) {
               const currentAmount = parseFloat(account.amount.toString());
               const loanAmount = parseFloat(originalItem.amountGived?.toString() || '0');
