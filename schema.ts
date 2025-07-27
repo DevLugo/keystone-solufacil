@@ -58,6 +58,13 @@ export const User = list({
     name: text({ defaultValue: '' }),
     email: text({ isIndexed: 'unique', defaultValue: '' }),
     password: password(),
+    role: select({
+      options: [
+        { label: 'Administrador', value: 'ADMIN' },
+        { label: 'Usuario Normal', value: 'NORMAL' },
+      ],
+      defaultValue: 'NORMAL',
+    }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
   }
 });
@@ -1298,6 +1305,7 @@ export const Account = list({
         { label: 'BANK', value: 'BANK' },
         { label: 'OFFICE_CASH_FUND', value: 'OFFICE_CASH_FUND' },
         { label: 'EMPLOYEE_CASH_FUND', value: 'EMPLOYEE_CASH_FUND' },
+        { label: 'PREPAID_GAS', value: 'PREPAID_GAS' },
       ],
     }),
     amount: decimal(),

@@ -6,6 +6,7 @@ type User {
   name: String
   email: String
   password: PasswordState
+  role: String
   createdAt: DateTime
 }
 
@@ -28,6 +29,7 @@ input UserWhereInput {
   name: StringFilter
   email: StringFilter
   password: PasswordFilter
+  role: StringNullableFilter
   createdAt: DateTimeNullableFilter
 }
 
@@ -80,6 +82,21 @@ input PasswordFilter {
   isSet: Boolean!
 }
 
+input StringNullableFilter {
+  equals: String
+  in: [String!]
+  notIn: [String!]
+  lt: String
+  lte: String
+  gt: String
+  gte: String
+  contains: String
+  startsWith: String
+  endsWith: String
+  mode: QueryMode
+  not: StringNullableFilter
+}
+
 input DateTimeNullableFilter {
   equals: DateTime
   in: [DateTime!]
@@ -95,6 +112,7 @@ input UserOrderByInput {
   id: OrderDirection
   name: OrderDirection
   email: OrderDirection
+  role: OrderDirection
   createdAt: OrderDirection
 }
 
@@ -107,6 +125,7 @@ input UserUpdateInput {
   name: String
   email: String
   password: String
+  role: String
   createdAt: DateTime
 }
 
@@ -119,6 +138,7 @@ input UserCreateInput {
   name: String
   email: String
   password: String
+  role: String
   createdAt: DateTime
 }
 
@@ -162,21 +182,6 @@ input EmployeeWhereInput {
   LeadPaymentReceivedLead: LeadPaymentReceivedManyRelationFilter
   leadPaymentsReceivedAgent: LeadPaymentReceivedManyRelationFilter
   type: StringNullableFilter
-}
-
-input StringNullableFilter {
-  equals: String
-  in: [String!]
-  notIn: [String!]
-  lt: String
-  lte: String
-  gt: String
-  gte: String
-  contains: String
-  startsWith: String
-  endsWith: String
-  mode: QueryMode
-  not: StringNullableFilter
 }
 
 input TransactionManyRelationFilter {

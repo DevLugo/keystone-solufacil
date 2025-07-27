@@ -414,6 +414,18 @@ export const CreateExpensesForm = ({
     setIsAddingNew(true);
   };
 
+  // Función helper para obtener la cuenta Toka
+  const getTokaAccount = () => {
+    return selectedRoute?.accounts?.find(acc => 
+      acc.type === 'PREPAID_GAS' && acc.name?.toLowerCase().includes('toka')
+    );
+  };
+
+  // Función helper para verificar si hay cuenta Toka disponible
+  const hasTokaAccount = () => {
+    return getTokaAccount() !== undefined;
+  };
+
   const handleEditExistingTransaction = (transactionId: string, field: string, value: string) => {
     const transaction = transactions.find(t => t.id === transactionId);
     if (!transaction) return;
@@ -486,6 +498,16 @@ export const CreateExpensesForm = ({
     switch (field) {
       case 'expenseType': {
         transaction.expenseSource = value;
+        
+        // Si es gasolina, buscar la cuenta toka como default
+        if (value === 'GASOLINE' && selectedRoute?.accounts) {
+          const tokaAccount = selectedRoute.accounts.find(acc => 
+            acc.type === 'PREPAID_GAS' && acc.name?.toLowerCase().includes('toka')
+          );
+          if (tokaAccount) {
+            transaction.sourceAccount = { connect: { id: tokaAccount.id } };
+          }
+        }
         break;
       }
       case 'amount': {
@@ -965,8 +987,8 @@ export const CreateExpensesForm = ({
                     backgroundColor: '#F0F9FF',
                     position: 'relative',
                   }}
-                >
-                  <td style={styles.tableCellStyle}>
+                                  >
+                    <td style={styles.tableCellStyle}>
                     <Box css={styles.selectContainer}>
                       <Select
                         value={expenseTypes.find(t => t.value === transaction.expenseSource) || expenseTypes[0]}
@@ -1001,8 +1023,17 @@ export const CreateExpensesForm = ({
                           label: acc.name || '',
                           value: acc.id
                         })).find(acc => acc.value === transaction.sourceAccount?.connect?.id) || null}
-                        options={selectedRoute?.accounts?.map(acc => ({
-                          label: acc.name || '',
+                        options={selectedRoute?.accounts?.filter(acc => {
+                          // Si es gasolina, solo mostrar PREPAID_GAS (toka) y EMPLOYEE_CASH_FUND (efectivo)
+                          if (transaction.expenseSource === 'GASOLINE') {
+                            return acc.type === 'PREPAID_GAS' || acc.type === 'EMPLOYEE_CASH_FUND';
+                          }
+                          // Para otros tipos, mostrar todas las cuentas EXCEPTO PREPAID_GAS (toka)
+                          return acc.type !== 'PREPAID_GAS';
+                        }).map(acc => ({
+                          label: acc.type === 'PREPAID_GAS' ? `${acc.name || 'Toka'} (Prepago Gas)` : 
+                                 acc.type === 'EMPLOYEE_CASH_FUND' ? `${acc.name || 'Efectivo'} (Efectivo)` :
+                                 acc.name || '',
                           value: acc.id
                         })) || []}
                         onChange={option => handleEditTransaction(index, 'sourceAccount', option?.value || '')}
