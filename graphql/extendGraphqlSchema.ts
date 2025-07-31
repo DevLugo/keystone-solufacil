@@ -1181,6 +1181,209 @@ export const extendGraphqlSchema = graphql.extend(base => {
           return result;
         },
       }),
+      
+      getMonthlyResume: graphql.field({
+        type: graphql.nonNull(graphql.JSON),
+        args: {
+          routeId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          year: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
+        },
+        resolve: async (root, { routeId, year }, context: Context) => {
+          try {
+            // Obtener las cuentas de la ruta (cash y bank) usando Prisma directamente
+            const route = await context.prisma.route.findUnique({
+              where: { id: routeId },
+              include: {
+                accounts: true
+              }
+            });
+
+            if (!route || !route.accounts) {
+              throw new Error('Ruta no encontrada o sin cuentas');
+            }
+
+            const cashAccount = route.accounts.find(acc => acc.type === 'EMPLOYEE_CASH_FUND');
+            const bankAccount = route.accounts.find(acc => acc.type === 'BANK');
+
+            if (!cashAccount && !bankAccount) {
+              throw new Error('No se encontraron cuentas EMPLOYEE_CASH_FUND o BANK para esta ruta');
+            }
+
+            const accountIds = [cashAccount?.id, bankAccount?.id].filter(Boolean) as string[];
+
+            // Obtener transacciones del año para las cuentas de la ruta
+            const transactions = await context.prisma.transaction.findMany({
+              where: {
+                OR: [
+                  { sourceAccountId: { in: accountIds } },
+                  { destinationAccountId: { in: accountIds } }
+                ],
+                date: {
+                  gte: new Date(`${year}-01-01`),
+                  lte: new Date(`${year}-12-31T23:59:59.999Z`),
+                },
+              },
+              include: {
+                lead: {
+                  include: {
+                    routes: true,
+                    personalData: {
+                      include: {
+                        addresses: {
+                          include: {
+                            location: {
+                              include: {
+                                route: true
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            });
+
+            // Filtrar transacciones por ruta (usando datos actuales por ahora)
+            const filteredTransactions = transactions.filter(transaction => {
+              // Por ahora usar solo datos actuales, después de la migración usar snapshot histórico
+              const currentRouteId = transaction.lead?.personalData?.addresses?.[0]?.location?.route?.id ||
+                                    transaction.lead?.routes?.id;
+              
+              return currentRouteId === routeId;
+            });
+
+            // Agrupar los pagos por mes (basado en el código de referencia)
+            const totalsByMonth = filteredTransactions.reduce((acc, transaction) => {
+              const month = transaction.date ? transaction.date.getMonth() + 1 : 0;
+              const transactionYear = transaction.date ? transaction.date.getFullYear() : 0;
+              const key = `${transactionYear}-${month.toString().padStart(2, '0')}`;
+              
+              if (!acc[key]) {
+                acc[key] = { 
+                  totalExpenses: 0, 
+                  totalIncomes: 0, 
+                  totalNomina: 0, 
+                  balance: 0, 
+                  reInvertido: 0, 
+                  balanceWithReinvest: 0, 
+                  totalCash: 0,
+                  // Agregamos información de localidades
+                  localities: {}
+                };
+              }
+
+              const amount = Number(transaction.amount || 0);
+              const profitAmount = Number(transaction.profitAmount || 0);
+
+              // Obtener localidad (por ahora solo actual, después de migración usar snapshot)
+              const locality = transaction.lead?.personalData?.addresses?.[0]?.location?.name ||
+                              'Sin localidad';
+
+              // Inicializar localidad si no existe
+              if (!acc[key].localities[locality]) {
+                acc[key].localities[locality] = {
+                  totalExpenses: 0,
+                  totalIncomes: 0,
+                  totalNomina: 0,
+                  reInvertido: 0,
+                  balance: 0
+                };
+              }
+
+              // Lógica basada en el código de referencia
+              if (transaction.type === 'EXPENSE' && transaction.expenseSource === null) {
+                acc[key].totalExpenses += amount;
+                acc[key].localities[locality].totalExpenses += amount;
+              } else if (transaction.type === 'EXPENSE' && transaction.expenseSource === 'NOMINA_SALARY') {
+                acc[key].totalNomina += amount;
+                acc[key].localities[locality].totalNomina += amount;
+              } else if (
+                transaction.type === 'INCOME' && 
+                (transaction.incomeSource === 'CASH_LOAN_PAYMENT' || transaction.incomeSource === 'BANK_LOAN_PAYMENT')
+              ) {
+                acc[key].totalIncomes += profitAmount;
+                acc[key].localities[locality].totalIncomes += profitAmount;
+              } else if (transaction.type === 'EXPENSE' && transaction.expenseSource === 'LOAN_GRANTED') {
+                acc[key].reInvertido += amount;
+                acc[key].localities[locality].reInvertido += amount;
+              }
+
+              // Cálculo de cash flow
+              if (transaction.type === 'EXPENSE') {
+                acc[key].totalCash -= amount;
+              } else if (transaction.type === 'INCOME') {
+                acc[key].totalCash += amount;
+              }
+
+              // Calcular balance por localidad
+              acc[key].localities[locality].balance = 
+                acc[key].localities[locality].totalIncomes - 
+                (acc[key].localities[locality].totalExpenses + acc[key].localities[locality].totalNomina);
+
+              return acc;
+            }, {} as { [key: string]: { 
+              totalExpenses: number, 
+              totalIncomes: number, 
+              totalNomina: number, 
+              balance: number, 
+              reInvertido: number, 
+              balanceWithReinvest: number, 
+              totalCash: number,
+              localities: { [locality: string]: {
+                totalExpenses: number,
+                totalIncomes: number, 
+                totalNomina: number,
+                reInvertido: number,
+                balance: number
+              }}
+            }});
+
+            // Calcular balance principal y balance con reinversión
+            for (const key in totalsByMonth) {
+              totalsByMonth[key].balance = totalsByMonth[key].totalIncomes - 
+                                         (totalsByMonth[key].totalExpenses + totalsByMonth[key].totalNomina);
+              totalsByMonth[key].balanceWithReinvest = totalsByMonth[key].balance - totalsByMonth[key].reInvertido;
+            }
+
+            // Ordenar los resultados por mes
+            const sortedTotalsByMonth = Object.keys(totalsByMonth)
+              .sort()
+              .reduce((acc, key) => {
+                acc[key] = totalsByMonth[key];
+                return acc;
+              }, {} as typeof totalsByMonth);
+
+            // Calcular totales anuales
+            let totalAnnualBalance = 0;
+            let totalAnnualBalanceWithReinvest = 0;
+
+            for (const month of Object.keys(sortedTotalsByMonth)) {
+              totalAnnualBalance += sortedTotalsByMonth[month].balance || 0;
+              totalAnnualBalanceWithReinvest += sortedTotalsByMonth[month].balanceWithReinvest || 0;
+            }
+
+            return {
+              route: {
+                id: route.id,
+                name: route.name
+              },
+              year,
+              monthlyData: sortedTotalsByMonth,
+              annualSummary: {
+                totalAnnualBalance,
+                totalAnnualBalanceWithReinvest,
+                totalMonths: Object.keys(sortedTotalsByMonth).length
+              }
+            };
+
+          } catch (error) {
+            console.error('Error in getMonthlyResume:', error);
+            throw new Error(`Error generating monthly resume: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        },
+      }),
     },
   };
 });

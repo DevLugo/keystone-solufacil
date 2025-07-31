@@ -1013,6 +1013,10 @@ type Loan {
   amountToPay: Float
   status: String
   isLastLoan(where: Boolean): Boolean
+  snapshotRouteId: String
+  snapshotRouteName: String
+  snapshotLocationId: String
+  snapshotLocationName: String
 }
 
 input LoanWhereUniqueInput {
@@ -1046,6 +1050,10 @@ input LoanWhereInput {
   updatedAt: DateTimeNullableFilter
   createdAt: DateTimeNullableFilter
   status: StringNullableFilter
+  snapshotRouteId: StringFilter
+  snapshotRouteName: StringFilter
+  snapshotLocationId: StringFilter
+  snapshotLocationName: StringFilter
 }
 
 input LoanPaymentManyRelationFilter {
@@ -1091,6 +1099,10 @@ input LoanOrderByInput {
   updatedAt: OrderDirection
   createdAt: OrderDirection
   status: OrderDirection
+  snapshotRouteId: OrderDirection
+  snapshotRouteName: OrderDirection
+  snapshotLocationId: OrderDirection
+  snapshotLocationName: OrderDirection
 }
 
 input LoanUpdateInput {
@@ -1115,6 +1127,10 @@ input LoanUpdateInput {
   updatedAt: DateTime
   createdAt: DateTime
   status: String
+  snapshotRouteId: String
+  snapshotRouteName: String
+  snapshotLocationId: String
+  snapshotLocationName: String
 }
 
 input LoanPaymentRelateToManyForUpdateInput {
@@ -1163,6 +1179,10 @@ input LoanCreateInput {
   updatedAt: DateTime
   createdAt: DateTime
   status: String
+  snapshotRouteId: String
+  snapshotRouteName: String
+  snapshotLocationId: String
+  snapshotLocationName: String
 }
 
 input LoanPaymentRelateToManyForCreateInput {
@@ -1289,6 +1309,10 @@ type Transaction {
   loanPayment: LoanPayment
   profitAmount: Decimal
   returnToCapital: Decimal
+  snapshotRouteId: String
+  snapshotRouteName: String
+  snapshotLocationId: String
+  snapshotLocationName: String
   createdAt: DateTime
   updatedAt: DateTime
 }
@@ -1315,6 +1339,10 @@ input TransactionWhereInput {
   loanPayment: LoanPaymentWhereInput
   profitAmount: DecimalNullableFilter
   returnToCapital: DecimalNullableFilter
+  snapshotRouteId: StringFilter
+  snapshotRouteName: StringFilter
+  snapshotLocationId: StringFilter
+  snapshotLocationName: StringFilter
   createdAt: DateTimeNullableFilter
   updatedAt: DateTimeNullableFilter
 }
@@ -1329,6 +1357,10 @@ input TransactionOrderByInput {
   description: OrderDirection
   profitAmount: OrderDirection
   returnToCapital: OrderDirection
+  snapshotRouteId: OrderDirection
+  snapshotRouteName: OrderDirection
+  snapshotLocationId: OrderDirection
+  snapshotLocationName: OrderDirection
   createdAt: OrderDirection
   updatedAt: OrderDirection
 }
@@ -1347,6 +1379,10 @@ input TransactionUpdateInput {
   loanPayment: LoanPaymentRelateToOneForUpdateInput
   profitAmount: Decimal
   returnToCapital: Decimal
+  snapshotRouteId: String
+  snapshotRouteName: String
+  snapshotLocationId: String
+  snapshotLocationName: String
   createdAt: DateTime
   updatedAt: DateTime
 }
@@ -1382,6 +1418,10 @@ input TransactionCreateInput {
   loanPayment: LoanPaymentRelateToOneForCreateInput
   profitAmount: Decimal
   returnToCapital: Decimal
+  snapshotRouteId: String
+  snapshotRouteName: String
+  snapshotLocationId: String
+  snapshotLocationName: String
   createdAt: DateTime
   updatedAt: DateTime
 }
@@ -1935,6 +1975,7 @@ type Query {
   keystone: KeystoneMeta!
   authenticatedItem: AuthenticatedItem
   getTransactionsSummary(startDate: String!, endDate: String!): [TransactionSummary!]!
+  getMonthlyResume(routeId: String!, year: Int!): JSON!
 }
 
 type TransactionSummary {

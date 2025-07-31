@@ -162,6 +162,10 @@ model Loan {
   updatedAt              DateTime?
   createdAt              DateTime?           @default(now())
   status                 String?
+  snapshotRouteId        String              @default("")
+  snapshotRouteName      String              @default("")
+  snapshotLocationId     String              @default("")
+  snapshotLocationName   String              @default("")
   from_Loan_previousLoan Loan[]              @relation("Loan_previousLoan")
 
   @@index([loantypeId])
@@ -211,6 +215,10 @@ model Transaction {
   loanPaymentId        String?      @map("loanPayment")
   profitAmount         Decimal?     @default("0") @postgresql.Decimal(10, 2)
   returnToCapital      Decimal?     @default("0") @postgresql.Decimal(10, 2)
+  snapshotRouteId      String       @default("")
+  snapshotRouteName    String       @default("")
+  snapshotLocationId   String       @default("")
+  snapshotLocationName String       @default("")
   createdAt            DateTime?    @default(now())
   updatedAt            DateTime?
 

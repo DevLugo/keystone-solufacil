@@ -468,9 +468,95 @@ export const Loan = list({
       }),
       
     }),
+    // Campos de tracking histórico para reportes precisos
+    snapshotRouteId: text({
+      label: 'Snapshot Route ID',
+      ui: {
+        description: 'ID de la ruta al momento de crear el préstamo (para reportes históricos)',
+        createView: { fieldMode: 'hidden' },
+        itemView: { fieldMode: 'read' },
+      }
+    }),
+    snapshotRouteName: text({
+      label: 'Snapshot Route Name',
+      ui: {
+        description: 'Nombre de la ruta al momento de crear el préstamo (para reportes históricos)',
+        createView: { fieldMode: 'hidden' },
+        itemView: { fieldMode: 'read' },
+      }
+    }),
+    snapshotLocationId: text({
+      label: 'Snapshot Location ID',
+      ui: {
+        description: 'ID de la localidad al momento de crear el préstamo (para reportes históricos)',
+        createView: { fieldMode: 'hidden' },
+        itemView: { fieldMode: 'read' },
+      }
+    }),
+    snapshotLocationName: text({
+      label: 'Snapshot Location Name',
+      ui: {
+        description: 'Nombre de la localidad al momento de crear el préstamo (para reportes históricos)',
+        createView: { fieldMode: 'hidden' },
+        itemView: { fieldMode: 'read' },
+      }
+    }),
   },
   hooks: {
-    beforeOperation: async ({ operation, item, context }) => {
+    beforeOperation: async ({ operation, item, context, resolvedData }) => {
+      // Capturar snapshot histórico - solo en create o cuando se cambie el lead
+      const shouldCaptureSnapshot = operation === 'create' || 
+        (operation === 'update' && resolvedData && resolvedData.lead);
+
+      if (shouldCaptureSnapshot && resolvedData && resolvedData.lead) {
+        try {
+          const leadId = resolvedData.lead.connect?.id;
+
+          if (leadId) {
+            // Obtener información del lead y su ruta/localidad actual
+            const leadData = await context.prisma.employee.findUnique({
+              where: { id: leadId },
+              include: {
+                routes: true,
+                personalData: {
+                  include: {
+                    addresses: {
+                      include: {
+                        location: {
+                          include: {
+                            route: true
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            });
+
+            if (leadData?.personalData?.addresses?.[0]?.location) {
+              const location = leadData.personalData.addresses[0].location;
+              resolvedData.snapshotLocationId = location.id;
+              resolvedData.snapshotLocationName = location.name;
+              
+              if (location.route) {
+                resolvedData.snapshotRouteId = location.route.id;
+                resolvedData.snapshotRouteName = location.route.name;
+              }
+            } else if (leadData?.routes) {
+              // Fallback: usar la ruta del empleado directamente
+              resolvedData.snapshotRouteId = leadData.routes.id;
+              resolvedData.snapshotRouteName = leadData.routes.name;
+            }
+
+            console.log(`📊 Snapshot capturado para loan ${operation}: Lead ${leadId} → Ruta ${resolvedData.snapshotRouteName}, Localidad ${resolvedData.snapshotLocationName}`);
+          }
+        } catch (error) {
+          console.error('Error capturing historical snapshot for loan:', error);
+          // No fallar el préstamo si no se puede capturar el snapshot
+        }
+      }
+      
       if (operation === 'delete') {
         // Guardar las transacciones asociadas antes de eliminar el préstamo
         const transactions = await context.prisma.transaction.findMany({
@@ -985,10 +1071,97 @@ export const Transaction = list({
       scale: 2,
       defaultValue: "0",
     }),
+    // Campos de tracking histórico para reportes precisos
+    snapshotRouteId: text({
+      label: 'Snapshot Route ID',
+      ui: {
+        description: 'ID de la ruta al momento de crear la transacción (para reportes históricos)',
+        createView: { fieldMode: 'hidden' },
+        itemView: { fieldMode: 'read' },
+      }
+    }),
+    snapshotRouteName: text({
+      label: 'Snapshot Route Name',
+      ui: {
+        description: 'Nombre de la ruta al momento de crear la transacción (para reportes históricos)',
+        createView: { fieldMode: 'hidden' },
+        itemView: { fieldMode: 'read' },
+      }
+    }),
+    snapshotLocationId: text({
+      label: 'Snapshot Location ID',
+      ui: {
+        description: 'ID de la localidad al momento de crear la transacción (para reportes históricos)',
+        createView: { fieldMode: 'hidden' },
+        itemView: { fieldMode: 'read' },
+      }
+    }),
+    snapshotLocationName: text({
+      label: 'Snapshot Location Name',
+      ui: {
+        description: 'Nombre de la localidad al momento de crear la transacción (para reportes históricos)',
+        createView: { fieldMode: 'hidden' },
+        itemView: { fieldMode: 'read' },
+      }
+    }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),
   },
   hooks: {
+    beforeOperation: async ({ operation, resolvedData, context }) => {
+      // Capturar snapshot histórico - solo en create o cuando se cambie el lead
+      const shouldCaptureSnapshot = operation === 'create' || 
+        (operation === 'update' && resolvedData.lead);
+
+      if (shouldCaptureSnapshot && resolvedData.lead) {
+        try {
+          const leadId = resolvedData.lead.connect?.id;
+
+          if (leadId) {
+            // Obtener información del lead y su ruta/localidad actual
+            const leadData = await context.prisma.employee.findUnique({
+              where: { id: leadId },
+              include: {
+                routes: true,
+                personalData: {
+                  include: {
+                    addresses: {
+                      include: {
+                        location: {
+                          include: {
+                            route: true
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            });
+
+            if (leadData?.personalData?.addresses?.[0]?.location) {
+              const location = leadData.personalData.addresses[0].location;
+              resolvedData.snapshotLocationId = location.id;
+              resolvedData.snapshotLocationName = location.name;
+              
+              if (location.route) {
+                resolvedData.snapshotRouteId = location.route.id;
+                resolvedData.snapshotRouteName = location.route.name;
+              }
+            } else if (leadData?.routes) {
+              // Fallback: usar la ruta del empleado directamente
+              resolvedData.snapshotRouteId = leadData.routes.id;
+              resolvedData.snapshotRouteName = leadData.routes.name;
+            }
+
+            console.log(`📊 Snapshot capturado para ${operation}: Lead ${leadId} → Ruta ${resolvedData.snapshotRouteName}, Localidad ${resolvedData.snapshotLocationName}`);
+          }
+        } catch (error) {
+          console.error('Error capturing historical snapshot:', error);
+          // No fallar la transacción si no se puede capturar el snapshot
+        }
+      }
+    },
     afterOperation: async ({ operation, item, context, originalItem }) => {
       try {
         if (operation === 'create') {
