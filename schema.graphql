@@ -1976,6 +1976,8 @@ type Query {
   authenticatedItem: AuthenticatedItem
   getTransactionsSummary(startDate: String!, endDate: String!): [TransactionSummary!]!
   getMonthlyResume(routeId: String!, year: Int!): JSON!
+  getLoansReport(routeId: String!, year: Int!, month: Int!): JSON!
+  getActiveLoansReport(routeId: String!, year: Int!, month: Int!): JSON!
 }
 
 type TransactionSummary {
