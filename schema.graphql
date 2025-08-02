@@ -1978,6 +1978,9 @@ type Query {
   getMonthlyResume(routeId: String!, year: Int!): JSON!
   getLoansReport(routeId: String!, year: Int!, month: Int!): JSON!
   getActiveLoansReport(routeId: String!, year: Int!, month: Int!): JSON!
+  getFinancialReport(routeId: String!, year: Int!): JSON!
+  getClientHistory(clientId: String!, routeId: String, locationId: String): JSON!
+  searchClients(searchTerm: String!, routeId: String, locationId: String, limit: Int = 20): [JSON!]!
 }
 
 type TransactionSummary {

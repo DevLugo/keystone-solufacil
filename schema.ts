@@ -983,6 +983,43 @@ export const LoanPayment = list({
             });
           }
 
+          // 🆕 CREAR TRANSACCIÓN DE COMISIÓN POR RECIBIR PAGO
+          const commissionAmount = parseFloat((item.comission as { toString(): string }).toString());
+          
+          if (commissionAmount > 0) {
+            // Buscar transacción de comisión existente
+            const existingCommissionTransaction = await context.prisma.transaction.findFirst({
+              where: { 
+                loanPaymentId: item.id.toString(),
+                type: 'EXPENSE',
+                expenseSource: 'LOAN_PAYMENT_COMISSION'
+              },
+            });
+
+            const commissionTransactionData = {
+              amount: commissionAmount.toString(),
+              date: new Date(item.receivedAt as string),
+              type: 'EXPENSE',
+              expenseSource: 'LOAN_PAYMENT_COMISSION',
+              loanPaymentId: item.id.toString(),
+              loanId: loan.id.toString(),
+              leadId: lead.id.toString(),
+            };
+
+            if (existingCommissionTransaction) {
+              // Actualizar transacción de comisión existente
+              await context.prisma.transaction.update({
+                where: { id: existingCommissionTransaction.id },
+                data: commissionTransactionData,
+              });
+            } else {
+              // Crear nueva transacción de comisión
+              await context.prisma.transaction.create({
+                data: commissionTransactionData,
+              });
+            }
+          }
+
           // Actualizar balance de la cuenta según el método de pago
           const accountType = item.paymentMethod === 'CASH' ? 'CASH' : 'BANK';
           
