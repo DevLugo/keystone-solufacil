@@ -15,7 +15,7 @@ import { lists } from './schema'
 // when you write your list-level access control functions, as they typically rely on session data
 import { withAuth, session } from './auth'
 import dotenv from 'dotenv';
-import express from 'express';
+import express, { Request, Response } from 'express';
 import PDFDocument from 'pdfkit';
 import { extendGraphqlSchema } from './graphql/extendGraphqlSchema';
 
@@ -74,244 +74,360 @@ export default withAuth(
     graphql: {
       extendGraphqlSchema,
     },
+    ui: {
+      isAccessAllowed: ({ session }) => !!session,
+    },
     session,
     server: {
       extendExpressApp: (app) => {
-        app.use('/generate-pdf', (req, res) => {
-          const doc = new PDFDocument({ margin: 30 });
-          let filename = 'listado_cobranza.pdf';
-          // Remove special characters from filename
-          filename = encodeURIComponent(filename) + '.pdf';
-          // Set headers
-          res.setHeader('Content-disposition', 'attachment; filename="' + filename + '"');
-          res.setHeader('Content-type', 'application/pdf');
-          // Pipe the PDF into the response
-          doc.pipe(res);
+                (app as any).get('/generate-pdf', async (req: Request, res: Response) => {
+          try {
+            const { localityId, routeId, localityName, routeName, leaderName, leaderId } = req.query;
 
-          // Add header elements
-          const headerY = 25;
-          doc.fontSize(14).text('Ruta 1', 30, headerY, { align: 'left', baseline: 'middle' });
-          doc.fontSize(14).text('Listado de Cobranza', 0, headerY, { align: 'center', baseline: 'middle' });
-          doc.image('./solufacil.png', 450, 10, { width: 100 });
-          // Add title and other details
-          // Add title and other details
-          const subtitleY = headerY + 20;
-          doc.fontSize(10).text('Semanal del 10 al 15 de abril', 0, subtitleY, { align: 'center', baseline: 'middle' });
-
-
-          const detailsY = subtitleY + 30;
-
-          doc.fontSize(8).fillColor('gray').text('Localidad:', 30, detailsY, { align: 'left', baseline: 'middle' });
-          doc.fontSize(8).fillColor('black').text('Los divorsiados', 100, detailsY, { align: 'left', baseline: 'middle' });
-          doc.fontSize(8).fillColor('gray').text('Lider:', 400, detailsY, { align: 'left', baseline: 'middle' });
-          doc.fontSize(8).fillColor('black').text('Stephanie de los angeles cocom cabrera', 450, detailsY, { align: 'left', baseline: 'middle' });
-
-          //doc.moveDown().fontSize(30);
-          const additionalDetailsY = detailsY + 20;
-          doc.fontSize(8).fillColor('black').text(`Total de clientas: ${50}`, 30, additionalDetailsY, { align: 'left' });
-          doc.text(`Comisión a pagar a la líder: ${1200}`, 30, additionalDetailsY + 15, { align: 'left' });
-          doc.text(`Total de cobranza esperada: ${70000}`, 30, additionalDetailsY + 30, { align: 'left' });
-          interface PaymentRecord {
-            name: string;
-            phone: string;
-            abono: string;
-            adeudo: string;
-            plazos: string;
-            pagoVdo: string;
-            cobroSemana: string;
-            abonoParcial: string;
-            fInicio: string;
-            nSemana: string;
-            aval: string;
-            [key: string]: string;  // Índice de firma para permitir indexación por string
-          }
-
-          interface ColumnWidths {
-            name: number;
-            phone: number;
-            abono: number;
-            adeudo: number;
-            plazos: number;
-            pagoVdo: number;
-            cobroSemana: number;
-            abonoParcial: number;
-            fInicio: number;
-            nSemana: number;
-            aval: number;
-            [key: string]: number;  // Índice de firma para permitir indexación por string
-          }
-          
-          const columnWidths: ColumnWidths = {
-            name: 100,
-            phone: 40,
-            abono: 70,
-            adeudo: 35,
-            plazos: 35,
-            pagoVdo: 25,
-            cobroSemana: 35,
-            abonoParcial: 35,
-            fInicio: 35,
-            nSemana: 40,
-            aval: 100,
-          };
-          // Function to draw table headers
-          const drawTableHeaders = (y: number): number => {
-            const headers = ['NOMBRE', 'TELEFONO', 'ABONO', 'ADEUDO', 'PLAZOS', 'PAGO VDO', 'COBRO SEMANA', 'ABONO PARCIAL', 'FECHA INICIO', 'NUMERO SEMANA', 'AVAL'];
-
-            const headerHeight = 30;
-
-            // Draw table headers with background and border
-            doc.rect(30, y, Object.values(columnWidths).reduce((a, b) => a + b, 0), headerHeight).fillAndStroke('#f0f0f0', '#000');
-            doc.fillColor('#000').fontSize(7);
-            headers.forEach((header, i) => {
-              const x = 30 + Object.values(columnWidths).slice(0, i).reduce((a, b) => a + b, 0);
-              const columnWidth = Object.values(columnWidths)[i];
-
-              if (header.includes(' ')) {
-                const [firstLine, secondLine] = header.split(' ');
-                doc.text(firstLine, x, y + 5, { width: columnWidth, align: 'center' });
-                doc.text(secondLine, x, y + 15, { width: columnWidth, align: 'center' });
-              } else {
-                doc.text(header, x, y + 10, { width: columnWidth, align: 'center' });
-              }
-            });
-
-            // Draw vertical lines for each column in headers
-            doc.lineWidth(0.5);
-            let x = 30;
-            Object.values(columnWidths).forEach((width) => {
-              doc.moveTo(x, y).lineTo(x, y + headerHeight).stroke();
-              x += width;
-            });
-            doc.moveTo(x, y).lineTo(x, y + headerHeight).stroke(); // Draw the last vertical line
-
-            return y + headerHeight;
-          };
-
-          // Function to add page numbers
-          const addPageNumber = (pageNumber: number): void => {
-            doc.fontSize(10).text(`Page ${pageNumber}`, doc.page.width - 100, doc.page.height - 42, { align: 'right' });
-          };
-
-          // Function to split text into multiple lines if necessary
-          const splitText = (text: string, width: number): string[] => {
-            const words = text.split(' ');
-            const lines = [];
-            let currentLine = '';
-
-            words.forEach((word) => {
-              const testLine = currentLine + word + ' ';
-              const testWidth = doc.widthOfString(testLine);
-
-              if (testWidth > width && currentLine.length > 0) {
-                lines.push(currentLine.trim());
-                currentLine = word + ' ';
-              } else {
-                currentLine = testLine;
-              }
-            });
-
-            lines.push(currentLine.trim());
-            return lines;
-          };
-
-          // Initial table headers
-          let currentY = drawTableHeaders(additionalDetailsY + 50);
-          let pageNumber = 1;
-          addPageNumber(pageNumber);
-
-          const payments: PaymentRecord[] = [
-            // Example data, replace with actual data
-            { name: 'Juan Carlos Pérez Rodríguez', phone: '1234567890', abono: '100', adeudo: '500', plazos: '5', pagoVdo: '100', cobroSemana: '100', abonoParcial: '50', fInicio: '01/01/2022', nSemana: '1', aval: 'María López García' },
-            { name: 'Ana María González Fernández', phone: '0987654321', abono: '200', adeudo: '1000', plazos: '5', pagoVdo: '200', cobroSemana: '200', abonoParcial: '100', fInicio: '01/01/2022', nSemana: '2', aval: 'José Martínez Sánchez' },
-          ];
-
-          // Add more payments to fill the page
-          for (let i = 0; i < 40; i++) {
-            payments.push({
-              name: `Cliente ${i + 1} Apellido Apellido`,
-              phone: `123456789${i}`,
-              abono: `${i * 10}`,
-              adeudo: `${i * 50}`,
-              plazos: `${i % 5 + 1}`,
-              pagoVdo: `${i * 10}`,
-              cobroSemana: `${i * 10}`,
-              abonoParcial: `${i * 5}`,
-              fInicio: `01/01/202${i % 10}`,
-              nSemana: `${i % 10}`,
-              aval: `Aval ${i + 1} Apellido Apellido, 123456789${i}`,
-              
-            });
-          }
-
-          const paddingBottom = 5;
-          const itemHeight = 20;
-          const lineHeight = 12;
-          const pageHeight = doc.page.height - doc.page.margins.bottom;
-
-          payments.forEach((payment, rowIndex) => {
-            const nameLines = splitText(payment.name, columnWidths.name);
-            const rowHeight = lineHeight * nameLines.length + paddingBottom;
-
-            if (currentY + rowHeight > pageHeight) {
-              doc.addPage();
-              pageNumber++;
-              currentY = drawTableHeaders(30); // Reset Y position for new page and draw headers
-              addPageNumber(pageNumber);
+            // Validación de parámetros
+            if (!localityId || !routeId || !localityName || !routeName) {
+              return res.status(400).json({ 
+                error: 'Faltan parámetros requeridos: localityId, routeId, localityName, routeName' 
+              });
             }
 
-            doc.fontSize(6);
-            nameLines.forEach((line, lineIndex) => {
-              const y = currentY + (lineIndex * lineHeight);
-              const textHeight = doc.heightOfString(line, { width: columnWidths.name });
-              const verticalOffset = (rowHeight - textHeight) / 2;
-              doc.text(line, 30 + 5, y + verticalOffset, { width: columnWidths.name, align: 'left' }); // Add a small margin at the top
-            });
+            // Inicializar Prisma client
+            const prisma = globalThis.prisma || new PrismaClient();
+            if (!globalThis.prisma) {
+              globalThis.prisma = prisma;
+            }
 
-            Object.entries(columnWidths).forEach(([key, width], index) => {
-              const x = 30 + Object.values(columnWidths).slice(0, index).reduce((a, b) => a + b, 0);
-              const paddingLeft = key === 'name' ? 5 : 0;
-              const paddingTop = 5;
+            // Calcular rango de fechas semanal
+            const currentDate = new Date();
+            const weekStart = new Date(currentDate.setDate(currentDate.getDate() - currentDate.getDay() + 1));
+            weekStart.setHours(0, 0, 0, 0);
+            const weekEnd = new Date(weekStart);
+            weekEnd.setDate(weekEnd.getDate() + 6);
+            weekEnd.setHours(23, 59, 59, 999);
 
-              if (key === 'abono') {
-                // Draw subcolumns for 'abono'
-                const subColumnWidth = width / 2;
-                const textHeight = doc.heightOfString(payment[key as keyof PaymentRecord], { width: subColumnWidth });
-                const verticalOffset = (rowHeight - textHeight) / 2;
-
-                doc.text('', x + paddingLeft, currentY + verticalOffset, { width: subColumnWidth, align: 'center' }); // Left subcolumn (empty)
-                doc.text(payment[key as keyof PaymentRecord], x + paddingLeft + subColumnWidth, currentY + verticalOffset, { width: subColumnWidth, align: 'center' }); // Right subcolumn (value)
-                // Draw vertical line between subcolumns
-                doc.moveTo(x + subColumnWidth, currentY).lineTo(x + subColumnWidth, currentY + rowHeight).stroke();
-                // Draw vertical line on the left subcolumn
-                doc.moveTo(x, currentY).lineTo(x, currentY + rowHeight).stroke();
-              } else {
-                const textHeight = doc.heightOfString(payment[key as keyof PaymentRecord], { width });
-                const verticalOffset = (rowHeight - textHeight) / 2;
-                doc.text(payment[key as keyof PaymentRecord], x + paddingLeft, currentY + verticalOffset, { width, align: key === 'name' || key === 'aval' ? 'left' : 'center' });
+            // Obtener préstamos activos
+            const activeLoans = await prisma.loan.findMany({
+              where: {
+                AND: [
+                  { finishedDate: null },
+                  { badDebtDate: null },
+                  leaderId ? { leadId: leaderId as string } : {}
+                ]
+              },
+              include: {
+                borrower: {
+                  include: {
+                    personalData: {
+                      include: {
+                        phones: true,
+                        addresses: {
+                          include: {
+                            location: true
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                loantype: true,
+                lead: {
+                  include: {
+                    personalData: true
+                  }
+                }
+              },
+              orderBy: {
+                signDate: 'asc'
               }
             });
-            // Draw border for each row
-            doc.lineWidth(0.5).rect(30, currentY, Object.values(columnWidths).reduce((a, b) => a + b, 0), rowHeight).stroke();
 
-            // Draw vertical lines for each column
-            let x = 30;
-            Object.values(columnWidths).forEach((width) => {
-              doc.moveTo(x, currentY).lineTo(x, currentY + rowHeight).stroke();
-              x += width;
+            // Procesar datos para el PDF
+            const formatCurrency = (amount: number | string) => {
+              const num = typeof amount === 'string' ? parseFloat(amount) : amount;
+              return new Intl.NumberFormat('es-MX', {
+                style: 'currency',
+                currency: 'MXN',
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0
+              }).format(num || 0).replace('MX$', '$');
+            };
+
+            const formatDate = (dateString: string | null) => {
+              if (!dateString) return '';
+              const date = new Date(dateString);
+              return date.toLocaleDateString('es-MX', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric'
+              });
+            };
+
+            const calculateWeekNumber = (signDate: string, weekDuration: number) => {
+              const sign = new Date(signDate);
+              const now = new Date();
+              const diffTime = Math.abs(now.getTime() - sign.getTime());
+              const diffWeeks = Math.ceil(diffTime / (1000 * 60 * 60 * 24 * 7));
+              return Math.min(diffWeeks, weekDuration);
+            };
+
+            // Generar registros de pago
+            const payments = activeLoans.map((loan: any) => {
+              const phone = loan.borrower?.personalData?.phones?.[0]?.number || '';
+               
+              let weeklyPaymentAmount = 0;
+              if (loan.loantype && loan.loantype.weekDuration && loan.loantype.weekDuration > 0) {
+                const rate = loan.loantype.rate ? parseFloat(loan.loantype.rate.toString()) : 0;
+                const totalAmountToPay = parseFloat(loan.requestedAmount.toString()) * (1 + rate);
+                weeklyPaymentAmount = totalAmountToPay / loan.loantype.weekDuration;
+              }
+               
+              const weekNumber = calculateWeekNumber(loan.signDate, loan.loantype?.weekDuration || 1);
+               
+              return {
+                name: loan.borrower?.personalData?.fullName || '',
+                phone: phone,
+                abono: formatCurrency(loan.amountGived || 0),
+                adeudo: formatCurrency(loan.pendingAmount || 0),
+                plazos: (loan.loantype?.weekDuration || 0).toString(),
+                pagoVdo: '$0',
+                cobroSemana: formatCurrency(weeklyPaymentAmount),
+                abonoParcial: '$0',
+                fInicio: formatDate(loan.signDate),
+                nSemana: weekNumber.toString(),
+                aval: loan.avalName || ''
+              };
             });
-            doc.moveTo(x, currentY).lineTo(x, currentY + rowHeight).stroke(); // Draw the last vertical line
 
-            currentY += rowHeight;
-          });
+            // Calcular estadísticas
+            const totalClientes = payments.length;
+            const totalCobranzaEsperada = activeLoans.reduce((sum, loan) => {
+              let weeklyPaymentAmount = 0;
+              if (loan.loantype && loan.loantype.weekDuration && loan.loantype.weekDuration > 0) {
+                const rate = loan.loantype.rate ? parseFloat(loan.loantype.rate.toString()) : 0;
+                const totalAmountToPay = parseFloat(loan.requestedAmount.toString()) * (1 + rate);
+                weeklyPaymentAmount = totalAmountToPay / loan.loantype.weekDuration;
+              }
+              return sum + weeklyPaymentAmount;
+            }, 0);
+             
+            const comisionPorcentaje = 0.08;
+            const totalComisionEsperada = totalCobranzaEsperada * comisionPorcentaje;
 
+            // Crear PDF con diseño de keystone2.ts
+            const doc = new PDFDocument({ margin: 30 });
+            const filename = `listado_cobranza_${(localityName as string).replace(/\s+/g, '_')}.pdf`;
+             
+            res.setHeader('Content-disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+            res.setHeader('Content-type', 'application/pdf');
+            doc.pipe(res);
 
-          addPageNumber(pageNumber);
+            // Generar fecha semanal
+            const weekRange = `${weekStart.toLocaleDateString('es-MX', { day: 'numeric', month: 'long' })} al ${weekEnd.toLocaleDateString('es-MX', { day: 'numeric', month: 'long' })}`;
 
-          // Finalize the PDF and end the stream
-          doc.end();
+            // Header elements (diseño de keystone2.ts)
+            const headerY = 25;
+            doc.fontSize(14).text(routeName as string, 30, headerY, { align: 'left', baseline: 'middle' });
+            doc.fontSize(14).text('Listado de Cobranza', 0, headerY, { align: 'center', baseline: 'middle' });
+            doc.image('./solufacil.png', 450, 10, { width: 100 });
+
+            const subtitleY = headerY + 20;
+            doc.fontSize(10).text(`Semanal del ${weekRange}`, 0, subtitleY, { align: 'center', baseline: 'middle' });
+
+            const detailsY = subtitleY + 30;
+            doc.fontSize(8).fillColor('gray').text('Localidad:', 30, detailsY, { align: 'left', baseline: 'middle' });
+            doc.fontSize(8).fillColor('black').text(localityName as string, 100, detailsY, { align: 'left', baseline: 'middle' });
+            doc.fontSize(8).fillColor('gray').text('Lider:', 400, detailsY, { align: 'left', baseline: 'middle' });
+            doc.fontSize(8).fillColor('black').text((leaderName as string) || 'Sin asignar', 450, detailsY, { align: 'left', baseline: 'middle' });
+
+            const additionalDetailsY = detailsY + 20;
+            doc.fontSize(8).fillColor('black').text(`Total de clientes: ${totalClientes}`, 30, additionalDetailsY, { align: 'left' });
+            doc.text(`Comisión a pagar al líder: ${formatCurrency(totalComisionEsperada)}`, 30, additionalDetailsY + 15, { align: 'left' });
+            doc.text(`Total de cobranza esperada: ${formatCurrency(totalCobranzaEsperada)}`, 30, additionalDetailsY + 30, { align: 'left' });
+
+            // Interfaces y columnas (diseño de keystone2.ts)
+            interface PaymentRecord {
+              name: string;
+              phone: string;
+              abono: string;
+              adeudo: string;
+              plazos: string;
+              pagoVdo: string;
+              cobroSemana: string;
+              abonoParcial: string;
+              fInicio: string;
+              nSemana: string;
+              aval: string;
+              [key: string]: string;
+            }
+
+            interface ColumnWidths {
+              name: number;
+              phone: number;
+              abono: number;
+              adeudo: number;
+              plazos: number;
+              pagoVdo: number;
+              cobroSemana: number;
+              abonoParcial: number;
+              fInicio: number;
+              nSemana: number;
+              aval: number;
+              [key: string]: number;
+            }
+             
+            const columnWidths: ColumnWidths = {
+              name: 100,
+              phone: 40,
+              abono: 70,
+              adeudo: 35,
+              plazos: 35,
+              pagoVdo: 25,
+              cobroSemana: 35,
+              abonoParcial: 35,
+              fInicio: 35,
+              nSemana: 40,
+              aval: 100,
+            };
+
+            // Function to draw table headers (diseño de keystone2.ts)
+            const drawTableHeaders = (y: number): number => {
+              const headers = ['NOMBRE', 'TELEFONO', 'ABONO', 'ADEUDO', 'PLAZOS', 'PAGO VDO', 'COBRO SEMANA', 'ABONO PARCIAL', 'FECHA INICIO', 'NUMERO SEMANA', 'AVAL'];
+              const headerHeight = 30;
+
+              doc.rect(30, y, Object.values(columnWidths).reduce((a, b) => a + b, 0), headerHeight).fillAndStroke('#f0f0f0', '#000');
+              doc.fillColor('#000').fontSize(7);
+              headers.forEach((header, i) => {
+                const x = 30 + Object.values(columnWidths).slice(0, i).reduce((a, b) => a + b, 0);
+                const columnWidth = Object.values(columnWidths)[i];
+
+                if (header.includes(' ')) {
+                  const [firstLine, secondLine] = header.split(' ');
+                  doc.text(firstLine, x, y + 5, { width: columnWidth, align: 'center' });
+                  doc.text(secondLine, x, y + 15, { width: columnWidth, align: 'center' });
+                } else {
+                  doc.text(header, x, y + 10, { width: columnWidth, align: 'center' });
+                }
+              });
+
+              doc.lineWidth(0.5);
+              let x = 30;
+              Object.values(columnWidths).forEach((width) => {
+                doc.moveTo(x, y).lineTo(x, y + headerHeight).stroke();
+                x += width;
+              });
+              doc.moveTo(x, y).lineTo(x, y + headerHeight).stroke();
+
+              return y + headerHeight;
+            };
+
+            // Function to add page numbers (diseño de keystone2.ts)
+            const addPageNumber = (pageNumber: number): void => {
+              doc.fontSize(10).text(`Página ${pageNumber}`, doc.page.width - 100, doc.page.height - 42, { align: 'right' });
+            };
+
+            // Function to split text into multiple lines if necessary (diseño de keystone2.ts)
+            const splitText = (text: string, width: number): string[] => {
+              const words = text.split(' ');
+              const lines = [];
+              let currentLine = '';
+
+              words.forEach((word) => {
+                const testLine = currentLine + word + ' ';
+                const testWidth = doc.widthOfString(testLine);
+
+                if (testWidth > width && currentLine.length > 0) {
+                  lines.push(currentLine.trim());
+                  currentLine = word + ' ';
+                } else {
+                  currentLine = testLine;
+                }
+              });
+
+              lines.push(currentLine.trim());
+              return lines;
+            };
+
+            // Initial table headers (diseño de keystone2.ts)
+            let currentY = drawTableHeaders(additionalDetailsY + 50);
+            let pageNumber = 1;
+            addPageNumber(pageNumber);
+
+            const paddingBottom = 5;
+            const lineHeight = 12;
+            const pageHeight = doc.page.height - doc.page.margins.bottom;
+
+            // Dibujar filas con datos reales de la DB
+            payments.forEach((payment, rowIndex) => {
+                             const nameLines = splitText(payment.name, columnWidths.name);
+               const nameLineHeight = 8; // Altura más compacta para líneas del nombre
+               const rowHeight = nameLineHeight * nameLines.length + paddingBottom + 10; // Padding vertical arriba y abajo
+
+              if (currentY + rowHeight > pageHeight) {
+                doc.addPage();
+                pageNumber++;
+                currentY = drawTableHeaders(30);
+                addPageNumber(pageNumber);
+              }
+
+                             doc.fontSize(6);
+               nameLines.forEach((line, lineIndex) => {
+                 const y = currentY + (lineIndex * nameLineHeight) + 5; // Mismo padding que aval
+                 doc.text(line, 40, y, { width: columnWidths.name - 10, align: 'left' });
+               });
+
+                             // Dibujar columnas individuales para evitar problemas de TypeScript
+               const drawColumn = (key: string, x: number, width: number) => {
+                 const paddingLeft = key === 'name' ? 5 : 0;
+
+                 if (key === 'abono') {
+                   const subColumnWidth = width / 2;
+                   const textHeight = doc.heightOfString(payment[key], { width: subColumnWidth });
+                   const verticalOffset = (rowHeight - textHeight) / 2;
+
+                   doc.text('', x + paddingLeft, currentY + verticalOffset, { width: subColumnWidth, align: 'center' });
+                   doc.text(payment[key], x + paddingLeft + subColumnWidth, currentY + verticalOffset, { width: subColumnWidth, align: 'center' });
+                   doc.moveTo(x + subColumnWidth, currentY).lineTo(x + subColumnWidth, currentY + rowHeight).stroke();
+                   doc.moveTo(x, currentY).lineTo(x, currentY + rowHeight).stroke();
+                 } else if (key !== 'name') {
+                   const value = payment[key];
+                   const textHeight = doc.heightOfString(value, { width });
+                   const verticalOffset = (rowHeight - textHeight) / 2;
+                   
+                   if (key === 'aval') {
+                     // Padding especial para aval
+                     doc.text(value, x + 5, currentY + verticalOffset, { width: width - 10, align: 'left' });
+                   } else {
+                     doc.text(value, x + paddingLeft, currentY + verticalOffset, { width, align: 'center' });
+                   }
+                 }
+               };
+
+               Object.entries(columnWidths).forEach(([key, width], index) => {
+                 const x = 30 + Object.values(columnWidths).slice(0, index).reduce((a, b) => a + b, 0);
+                 drawColumn(key, x, width);
+               });
+
+              doc.lineWidth(0.5).rect(30, currentY, Object.values(columnWidths).reduce((a, b) => a + b, 0), rowHeight).stroke();
+
+              let x = 30;
+              Object.values(columnWidths).forEach((width) => {
+                doc.moveTo(x, currentY).lineTo(x, currentY + rowHeight).stroke();
+                x += width;
+              });
+              doc.moveTo(x, currentY).lineTo(x, currentY + rowHeight).stroke();
+
+              currentY += rowHeight;
+            });
+
+            addPageNumber(pageNumber);
+            doc.end();
+
+          } catch (error) {
+            console.error('Error generando PDF:', error);
+            res.status(500).json({ error: 'Error interno del servidor al generar PDF' });
+          }
         });
-        app.use('/resumen', async (req, res) => {
+        (app as any).get('/resumen', async (req: Request, res: Response) => {
           const { startDate, endDate, routeId } = req.query;
 
           if (!startDate || !endDate || !routeId) {
@@ -518,7 +634,6 @@ export default withAuth(
           }
         });
       },
-    }
-
+    },
   })
 )
