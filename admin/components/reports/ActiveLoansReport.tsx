@@ -14,8 +14,8 @@ import { ExportButton } from './ExportButton';
 
 // Query para obtener el reporte
 const GET_ACTIVE_LOANS_REPORT = gql`
-  query GetActiveLoansReport($routeId: String!, $year: Int!, $month: Int!) {
-    getActiveLoansReport(routeId: $routeId, year: $year, month: $month)
+  query GetActiveLoansReport($routeId: String!, $year: Int!, $month: Int!, $useActiveWeeks: Boolean!) {
+    getActiveLoansReport(routeId: $routeId, year: $year, month: $month, useActiveWeeks: $useActiveWeeks)
   }
 `;
 
@@ -220,11 +220,185 @@ const styles = {
   },
 };
 
+// Estilos CSS personalizados para el calendario
+const calendarStyles = `
+  .react-calendar {
+    width: 100% !important;
+    border: none !important;
+    font-size: 11px !important;
+  }
+  
+  .react-calendar__tile {
+    padding: 4px !important;
+    font-size: 11px !important;
+  }
+  
+  .react-calendar__month-view__weekdays {
+    font-size: 10px !important;
+    font-weight: bold !important;
+  }
+  
+  .active-week-day {
+    background-color: #0ea5e9 !important;
+    color: white !important;
+    border-radius: 4px !important;
+  }
+  
+  .active-week-day:hover {
+    background-color: #0284c7 !important;
+  }
+`;
+
+// Agregar estilos al head
+if (typeof document !== 'undefined') {
+  const styleElement = document.createElement('style');
+  styleElement.textContent = calendarStyles;
+  document.head.appendChild(styleElement);
+}
+
+// Función para verificar si una fecha está en una semana activa
+const isDateInActiveWeek = (date: Date, activeWeeks: Array<{start: Date, end: Date, weekNumber: number}>) => {
+  return activeWeeks.some(week => {
+    const dateTime = date.getTime();
+    const weekStartTime = week.start.getTime();
+    const weekEndTime = week.end.getTime();
+    return dateTime >= weekStartTime && dateTime <= weekEndTime;
+  });
+};
+
+// Componente de calendario personalizado
+const CustomCalendar = ({ year, month, activeWeeks }: { 
+  year: number; 
+  month: number; 
+  activeWeeks: Array<{start: Date, end: Date, weekNumber: number}> 
+}) => {
+  const daysOfWeek = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+  const monthNames = [
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+  ];
+
+  // Generar días del mes
+  const getDaysInMonth = () => {
+    const firstDay = new Date(year, month - 1, 1);
+    const lastDay = new Date(year, month, 0);
+    const days: Array<{date: Date, isCurrentMonth: boolean, isActiveWeek: boolean}> = [];
+    
+    // Agregar días del mes anterior para completar la primera semana
+    const firstDayOfWeek = firstDay.getDay();
+    const daysFromPrevMonth = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1;
+    
+    for (let i = daysFromPrevMonth; i > 0; i--) {
+      const date = new Date(firstDay);
+      date.setDate(date.getDate() - i);
+      days.push({
+        date,
+        isCurrentMonth: false,
+        isActiveWeek: isDateInActiveWeek(date, activeWeeks)
+      });
+    }
+    
+    // Agregar días del mes actual
+    for (let i = 1; i <= lastDay.getDate(); i++) {
+      const date = new Date(year, month - 1, i);
+      days.push({
+        date,
+        isCurrentMonth: true,
+        isActiveWeek: isDateInActiveWeek(date, activeWeeks)
+      });
+    }
+    
+    // Agregar días del mes siguiente para completar la última semana
+    const lastDayOfWeek = lastDay.getDay();
+    const daysFromNextMonth = lastDayOfWeek === 0 ? 0 : 7 - lastDayOfWeek;
+    
+    for (let i = 1; i <= daysFromNextMonth; i++) {
+      const date = new Date(lastDay);
+      date.setDate(date.getDate() + i);
+      days.push({
+        date,
+        isCurrentMonth: false,
+        isActiveWeek: isDateInActiveWeek(date, activeWeeks)
+      });
+    }
+    
+    return days;
+  };
+
+  const days = getDaysInMonth();
+
+  return (
+    <div style={{
+      width: '100%',
+      fontFamily: 'monospace',
+      fontSize: '10px'
+    }}>
+      {/* Encabezado del mes */}
+      <div style={{
+        textAlign: 'center',
+        fontWeight: 'bold',
+        marginBottom: '8px',
+        fontSize: '11px',
+        color: '#0369a1'
+      }}>
+        {monthNames[month - 1]} {year}
+      </div>
+      
+      {/* Días de la semana */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(7, 1fr)',
+        gap: '2px',
+        marginBottom: '4px'
+      }}>
+        {daysOfWeek.map(day => (
+          <div key={day} style={{
+            textAlign: 'center',
+            fontWeight: 'bold',
+            fontSize: '9px',
+            color: '#64748b',
+            padding: '2px'
+          }}>
+            {day}
+          </div>
+        ))}
+      </div>
+      
+      {/* Días del mes */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(7, 1fr)',
+        gap: '2px'
+      }}>
+        {days.map((day, index) => (
+          <div
+            key={index}
+            style={{
+              textAlign: 'center',
+              padding: '4px 2px',
+              fontSize: '9px',
+              borderRadius: '3px',
+              backgroundColor: day.isActiveWeek ? '#0ea5e9' : 'transparent',
+              color: day.isActiveWeek ? 'white' : (day.isCurrentMonth ? '#1f2937' : '#9ca3af'),
+              fontWeight: day.isActiveWeek ? 'bold' : 'normal',
+              cursor: 'default'
+            }}
+          >
+            {day.date.getDate()}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 export default function ActiveLoansReport() {
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [viewMode, setViewMode] = useState<'table' | 'chart'>('table');
+  const [useActiveWeeks, setUseActiveWeeks] = useState(false);
+  const [showTooltip, setShowTooltip] = useState(false);
 
   // Query para obtener rutas
   const { data: routesData, loading: routesLoading } = useQuery(GET_ROUTES);
@@ -240,6 +414,7 @@ export default function ActiveLoansReport() {
       routeId: selectedRoute?.id || '',
       year: selectedYear,
       month: selectedMonth,
+      useActiveWeeks: useActiveWeeks,
     },
     skip: !selectedRoute,
   });
@@ -326,6 +501,213 @@ export default function ActiveLoansReport() {
     return styles.neutral;
   };
 
+  // Función para calcular cuántas semanas activas tiene un mes
+  const getActiveWeeksCount = (year: number, month: number) => {
+    const firstDayOfMonth = new Date(year, month - 1, 1);
+    const lastDayOfMonth = new Date(year, month, 0);
+    
+    // Generar todas las semanas que tocan el mes
+    const weeks: Array<{start: Date, end: Date, weekNumber: number}> = [];
+    let currentDate = new Date(firstDayOfMonth);
+    
+    // Retroceder hasta encontrar el primer lunes antes del mes
+    while (currentDate.getDay() !== 1) { // 1 = lunes
+      currentDate.setDate(currentDate.getDate() - 1);
+    }
+    
+    let weekNumber = 1;
+    
+    // Generar semanas hasta cubrir todo el mes
+    while (currentDate <= lastDayOfMonth) {
+      const weekStart = new Date(currentDate);
+      const weekEnd = new Date(currentDate);
+      weekEnd.setDate(weekEnd.getDate() + 5); // Lunes a sábado (6 días)
+      weekEnd.setHours(23, 59, 59, 999);
+      
+      // Contar días de trabajo (lunes-sábado) que pertenecen al mes
+      let workDaysInMonth = 0;
+      let tempDate = new Date(weekStart);
+      
+      for (let i = 0; i < 6; i++) { // 6 días de trabajo
+        if (tempDate.getMonth() === month - 1) {
+          workDaysInMonth++;
+        }
+        tempDate.setDate(tempDate.getDate() + 1);
+      }
+      
+      // La semana pertenece al mes que tiene más días activos
+      // Si hay empate (3-3), la semana va al mes que tiene el lunes
+      if (workDaysInMonth > 3 || (workDaysInMonth === 3 && weekStart.getMonth() === month - 1)) {
+        weeks.push({
+          start: new Date(weekStart),
+          end: new Date(weekEnd),
+          weekNumber
+        });
+        weekNumber++;
+      }
+      
+      currentDate.setDate(currentDate.getDate() + 7);
+    }
+    
+    return weeks.length;
+  };
+
+  // Función para obtener información detallada de las semanas activas
+  const getActiveWeeksInfo = (year: number, month: number) => {
+    const firstDayOfMonth = new Date(year, month - 1, 1);
+    const lastDayOfMonth = new Date(year, month, 0);
+    
+    // Generar todas las semanas que tocan el mes
+    const weeks: Array<{start: Date, end: Date, weekNumber: number}> = [];
+    let currentDate = new Date(firstDayOfMonth);
+    
+    // Retroceder hasta encontrar el primer lunes antes del mes
+    while (currentDate.getDay() !== 1) { // 1 = lunes
+      currentDate.setDate(currentDate.getDate() - 1);
+    }
+    
+    let weekNumber = 1;
+    
+    // Generar semanas hasta cubrir todo el mes
+    while (currentDate <= lastDayOfMonth) {
+      const weekStart = new Date(currentDate);
+      const weekEnd = new Date(currentDate);
+      weekEnd.setDate(weekEnd.getDate() + 5); // Lunes a sábado (6 días)
+      weekEnd.setHours(23, 59, 59, 999);
+      
+      // Contar días de trabajo (lunes-sábado) que pertenecen al mes
+      let workDaysInMonth = 0;
+      let tempDate = new Date(weekStart);
+      
+      for (let i = 0; i < 6; i++) { // 6 días de trabajo
+        if (tempDate.getMonth() === month - 1) {
+          workDaysInMonth++;
+        }
+        tempDate.setDate(tempDate.getDate() + 1);
+      }
+      
+      // La semana pertenece al mes que tiene más días activos
+      // Si hay empate (3-3), la semana va al mes que tiene el lunes
+      if (workDaysInMonth > 3 || (workDaysInMonth === 3 && weekStart.getMonth() === month - 1)) {
+        weeks.push({
+          start: new Date(weekStart),
+          end: new Date(weekEnd),
+          weekNumber
+        });
+        weekNumber++;
+      }
+      
+      currentDate.setDate(currentDate.getDate() + 7);
+    }
+    
+    // Generar información visual
+    const weeksInfo: string[] = [];
+    const monthName = monthOptions.find(m => m.value === month)?.label;
+    weeksInfo.push(`📅 ${monthName} ${year} - Semanas Activas:`);
+    weeksInfo.push('');
+    
+    // Crear calendario visual
+    const daysOfWeek = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    weeksInfo.push('📋 Calendario de Semanas Activas:');
+    weeksInfo.push('');
+    
+    weeks.forEach(week => {
+      const startDate = week.start.toLocaleDateString('es-MX', { 
+        day: 'numeric', 
+        month: 'short' 
+      });
+      const endDate = week.end.toLocaleDateString('es-MX', { 
+        day: 'numeric', 
+        month: 'short' 
+      });
+      
+      // Mostrar días de la semana
+      let weekDays = '';
+      let tempDate = new Date(week.start);
+      
+      for (let i = 0; i < 6; i++) {
+        const dayStr = tempDate.getDate().toString().padStart(2, '0');
+        const isInMonth = tempDate.getMonth() === month - 1;
+        weekDays += `${daysOfWeek[i]} ${dayStr}${isInMonth ? '' : '*'}`;
+        if (i < 5) weekDays += ' | ';
+        tempDate.setDate(tempDate.getDate() + 1);
+      }
+      
+      weeksInfo.push(`🔹 Semana ${week.weekNumber}: ${startDate} - ${endDate}`);
+      weeksInfo.push(`   ${weekDays}`);
+      weeksInfo.push('');
+    });
+    
+    weeksInfo.push('* Días fuera del mes seleccionado');
+    
+    return weeksInfo.join('\n');
+  };
+
+  // Función para verificar qué meses tienen 5 semanas (para debugging)
+  const getMonthsWith5Weeks = (year: number) => {
+    const monthsWith5Weeks: number[] = [];
+    for (let month = 1; month <= 12; month++) {
+      const weekCount = getActiveWeeksCount(year, month);
+      if (weekCount === 5) {
+        monthsWith5Weeks.push(month);
+      }
+    }
+    return monthsWith5Weeks;
+  };
+
+  // Función para obtener las fechas de las semanas activas
+  const getActiveWeeksDates = (year: number, month: number) => {
+    const firstDayOfMonth = new Date(year, month - 1, 1);
+    const lastDayOfMonth = new Date(year, month, 0);
+    
+    // Generar todas las semanas que tocan el mes
+    const weeks: Array<{start: Date, end: Date, weekNumber: number}> = [];
+    let currentDate = new Date(firstDayOfMonth);
+    
+    // Retroceder hasta encontrar el primer lunes antes del mes
+    while (currentDate.getDay() !== 1) { // 1 = lunes
+      currentDate.setDate(currentDate.getDate() - 1);
+    }
+    
+    let weekNumber = 1;
+    
+    // Generar semanas hasta cubrir todo el mes
+    while (currentDate <= lastDayOfMonth) {
+      const weekStart = new Date(currentDate);
+      const weekEnd = new Date(currentDate);
+      weekEnd.setDate(weekEnd.getDate() + 5); // Lunes a sábado (6 días)
+      weekEnd.setHours(23, 59, 59, 999);
+      
+      // Contar días de trabajo (lunes-sábado) que pertenecen al mes
+      let workDaysInMonth = 0;
+      let tempDate = new Date(weekStart);
+      
+      for (let i = 0; i < 6; i++) { // 6 días de trabajo
+        if (tempDate.getMonth() === month - 1) {
+          workDaysInMonth++;
+        }
+        tempDate.setDate(tempDate.getDate() + 1);
+      }
+      
+      // La semana pertenece al mes que tiene más días activos
+      // Si hay empate (3-3), la semana va al mes que tiene el lunes
+      if (workDaysInMonth > 3 || (workDaysInMonth === 3 && weekStart.getMonth() === month - 1)) {
+        weeks.push({
+          start: new Date(weekStart),
+          end: new Date(weekEnd),
+          weekNumber
+        });
+        weekNumber++;
+      }
+      
+      currentDate.setDate(currentDate.getDate() + 7);
+    }
+    
+    return weeks;
+  };
+
+
+
   if (routesLoading) {
     return <LoadingDots label="Cargando rutas..." />;
   }
@@ -342,6 +724,95 @@ export default function ActiveLoansReport() {
         <p style={styles.subtitle}>
           Control semanal de créditos activos con desglose por localidad
         </p>
+        {useActiveWeeks && (
+          <div style={{
+            backgroundColor: '#f0f9ff',
+            border: '1px solid #0ea5e9',
+            borderRadius: '8px',
+            padding: '12px',
+            marginBottom: '16px',
+            fontSize: '13px',
+            color: '#0369a1'
+          }}>
+            <strong>💡 Modo "Semanas Activas":</strong> El reporte considera solo las semanas completas del mes. 
+            <div style={{ position: 'relative', display: 'inline-block' }}>
+              <span 
+                style={{ 
+                  cursor: 'help', 
+                  textDecoration: 'underline',
+                  fontWeight: '600',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+                onMouseEnter={() => setShowTooltip(true)}
+                onMouseLeave={() => setShowTooltip(false)}
+              >
+                📅 {getActiveWeeksCount(selectedYear, selectedMonth)} semanas activas en {monthOptions.find(m => m.value === selectedMonth)?.label} {selectedYear}
+              </span>
+              
+              {showTooltip && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: '0',
+                  zIndex: 1000,
+                  backgroundColor: 'white',
+                  border: '2px solid #0ea5e9',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                  fontSize: '12px',
+                  lineHeight: '1.4',
+                  maxWidth: '350px',
+                  minWidth: '320px'
+                }}>
+                  <div style={{
+                    fontWeight: '600',
+                    marginBottom: '12px',
+                    color: '#0369a1',
+                    borderBottom: '1px solid #e2e8f0',
+                    paddingBottom: '8px',
+                    textAlign: 'center'
+                  }}>
+                    📅 {monthOptions.find(m => m.value === selectedMonth)?.label} {selectedYear}
+                  </div>
+                  
+                  <div style={{
+                    marginBottom: '12px',
+                    fontSize: '11px',
+                    color: '#64748b',
+                    textAlign: 'center'
+                  }}>
+                    Semanas activas en azul
+                  </div>
+                  
+                  <div style={{
+                    width: '100%',
+                    fontSize: '11px'
+                  }}>
+                    <CustomCalendar 
+                      year={selectedYear}
+                      month={selectedMonth}
+                      activeWeeks={getActiveWeeksDates(selectedYear, selectedMonth)}
+                    />
+                  </div>
+                  
+                  <div style={{
+                    marginTop: '12px',
+                    paddingTop: '8px',
+                    borderTop: '1px solid #e2e8f0',
+                    fontSize: '11px',
+                    color: '#64748b',
+                    textAlign: 'center'
+                  }}>
+                    📊 {getActiveWeeksCount(selectedYear, selectedMonth)} semanas activas
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Filtros */}
         <div style={styles.filtersRow}>
@@ -383,6 +854,26 @@ export default function ActiveLoansReport() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'end', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input
+                type="checkbox"
+                id="useActiveWeeks"
+                checked={useActiveWeeks}
+                onChange={(e) => setUseActiveWeeks(e.target.checked)}
+                style={{ margin: 0 }}
+              />
+              <label 
+                htmlFor="useActiveWeeks" 
+                style={{ 
+                  fontSize: '14px', 
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  userSelect: 'none' as const
+                }}
+              >
+                Semanas activas del mes
+              </label>
+            </div>
             <Button
               tone="active"
               onClick={() => refetchReport()}

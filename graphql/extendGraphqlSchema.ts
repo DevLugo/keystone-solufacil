@@ -212,27 +212,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 await tx.transaction.createMany({ data: transactionData });
               }
 
-              // 🆕 CREAR TRANSACCIONES DE COMISIÓN POR RECIBIR PAGOS
-              const commissionTransactionData = [];
-              
-              for (const payment of payments) {
-                if (payment.comission > 0) {
-                  commissionTransactionData.push({
-                    amount: payment.comission.toString(),
-                    date: new Date(paymentDate),
-                    type: 'EXPENSE',
-                    expenseSource: 'LOAN_PAYMENT_COMISSION',
-                    loanId: payment.loanId,
-                    leadId: leadId,
-                  });
-                }
-              }
-
-              // Crear todas las transacciones de comisión de una vez
-              if (commissionTransactionData.length > 0) {
-                await tx.transaction.createMany({ data: commissionTransactionData });
-              }
-
               // Actualizar balances de cuentas si hay cambios
               if (cashAmountChange > 0) {
                 const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
@@ -248,6 +227,39 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   where: { id: bankAccount.id },
                   data: { amount: (currentBankAmount + bankAmountChange).toString() }
                 });
+              }
+
+              // Validar si los préstamos están completados y marcarlos como terminados
+              for (const payment of createdPaymentRecords) {
+                const loan = await tx.loan.findUnique({
+                  where: { id: payment.loanId },
+                  include: {
+                    loantype: true,
+                    payments: true
+                  }
+                });
+
+                if (loan && (loan as any).loantype) {
+                  // Calcular el monto total que debe pagar (principal + intereses)
+                  // Si rate es 0.4, significa 40% de interés
+                  const rate = (loan as any).loantype.rate ? parseFloat((loan as any).loantype.rate.toString()) : 0;
+                  const totalAmountToPay = parseFloat(loan.requestedAmount.toString()) * (1 + rate);
+                  
+                  // Calcular el total pagado hasta ahora
+                  const totalPaid = (loan as any).payments.reduce((sum: number, p: any) => {
+                    return sum + parseFloat((p.amount || 0).toString());
+                  }, 0);
+
+                  // Si el total pagado es mayor o igual al monto total a pagar, marcar como terminado
+                  if (totalPaid >= totalAmountToPay) {
+                    await tx.loan.update({
+                      where: { id: loan.id },
+                      data: { 
+                        finishedDate: new Date()
+                      }
+                    });
+                  }
+                }
               }
             }
 
@@ -434,27 +446,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
               // Crear todas las transacciones de una vez
               if (transactionData.length > 0) {
                 await tx.transaction.createMany({ data: transactionData });
-              }
-
-              // 🆕 CREAR TRANSACCIONES DE COMISIÓN POR RECIBIR PAGOS
-              const commissionTransactionData = [];
-              
-              for (const payment of payments) {
-                if (payment.comission > 0) {
-                  commissionTransactionData.push({
-                    amount: payment.comission.toString(),
-                    date: new Date(paymentDate),
-                    type: 'EXPENSE',
-                    expenseSource: 'LOAN_PAYMENT_COMISSION',
-                    loanId: payment.loanId,
-                    leadId: leadId,
-                  });
-                }
-              }
-
-              // Crear todas las transacciones de comisión de una vez
-              if (commissionTransactionData.length > 0) {
-                await tx.transaction.createMany({ data: commissionTransactionData });
               }
             }
 
@@ -1725,8 +1716,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
           routeId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
           year: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
           month: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
+          useActiveWeeks: graphql.arg({ type: graphql.nonNull(graphql.Boolean) }),
         },
-        resolve: async (root, { routeId, year, month }, context: Context) => {
+        resolve: async (root, { routeId, year, month, useActiveWeeks }, context: Context) => {
           try {
             // Calcular inicio y fin del mes
             const monthStart = new Date(year, month - 1, 1);
@@ -1743,39 +1735,89 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
             // Generar fechas de inicio/fin de cada semana del mes
             const weeks: { [key: string]: { start: Date, end: Date } } = {};
-            const tempDate = new Date(monthStart);
             
-            while (tempDate <= monthEnd) {
-              const weekNum = getWeekOfMonth(tempDate);
-              const weekKey = `SEMANA ${weekNum}`;
+            if (useActiveWeeks) {
+              // Modo "Semanas Activas": Semanas con mayoría de días de trabajo en el mes
+              const firstDayOfMonth = new Date(year, month - 1, 1);
+              const lastDayOfMonth = new Date(year, month, 0);
               
-              if (!weeks[weekKey]) {
-                // Calcular inicio de la semana (lunes)
-                const weekStart = new Date(tempDate);
-                const dayOfWeek = weekStart.getDay();
-                const diffToMonday = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
-                weekStart.setDate(weekStart.getDate() + diffToMonday);
-                weekStart.setHours(0, 0, 0, 0);
-                
-                // Asegurar que no sea antes del mes
-                if (weekStart < monthStart) {
-                  weekStart.setTime(monthStart.getTime());
-                }
-                
-                // Calcular fin de la semana (domingo)
-                const weekEnd = new Date(weekStart);
-                weekEnd.setDate(weekEnd.getDate() + 6);
-                weekEnd.setHours(23, 59, 59, 999);
-                
-                // Asegurar que no sea después del mes
-                if (weekEnd > monthEnd) {
-                  weekEnd.setTime(monthEnd.getTime());
-                }
-                
-                weeks[weekKey] = { start: weekStart, end: weekEnd };
+              // Generar todas las semanas que tocan el mes
+              let currentDate = new Date(firstDayOfMonth);
+              
+              // Retroceder hasta encontrar el primer lunes antes del mes
+              while (currentDate.getDay() !== 1) { // 1 = lunes
+                currentDate.setDate(currentDate.getDate() - 1);
               }
               
-              tempDate.setDate(tempDate.getDate() + 1);
+              let weekNumber = 1;
+              
+              // Generar semanas hasta cubrir todo el mes
+              while (currentDate <= lastDayOfMonth) {
+                const weekStart = new Date(currentDate);
+                const weekEnd = new Date(currentDate);
+                weekEnd.setDate(weekEnd.getDate() + 5); // Lunes a sábado (6 días)
+                weekEnd.setHours(23, 59, 59, 999);
+                
+                // Contar días de trabajo (lunes-sábado) que pertenecen al mes
+                let workDaysInMonth = 0;
+                let tempDate = new Date(weekStart);
+                
+                for (let i = 0; i < 6; i++) { // 6 días de trabajo
+                  if (tempDate.getMonth() === month - 1) {
+                    workDaysInMonth++;
+                  }
+                  tempDate.setDate(tempDate.getDate() + 1);
+                }
+                
+                // La semana pertenece al mes que tiene más días activos
+                // Si hay empate (3-3), la semana va al mes que tiene el lunes
+                if (workDaysInMonth > 3 || (workDaysInMonth === 3 && weekStart.getMonth() === month - 1)) {
+                  const weekKey = `SEMANA ${weekNumber}`;
+                  weeks[weekKey] = { 
+                    start: new Date(weekStart), 
+                    end: weekEnd 
+                  };
+                  weekNumber++;
+                }
+                
+                currentDate.setDate(currentDate.getDate() + 7);
+              }
+            } else {
+              // Modo "Mes Real": Todas las semanas que toquen el mes
+              const tempDate = new Date(monthStart);
+              
+              while (tempDate <= monthEnd) {
+                const weekNum = getWeekOfMonth(tempDate);
+                const weekKey = `SEMANA ${weekNum}`;
+                
+                if (!weeks[weekKey]) {
+                  // Calcular inicio de la semana (lunes)
+                  const weekStart = new Date(tempDate);
+                  const dayOfWeek = weekStart.getDay();
+                  const diffToMonday = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
+                  weekStart.setDate(weekStart.getDate() + diffToMonday);
+                  weekStart.setHours(0, 0, 0, 0);
+                  
+                  // Asegurar que no sea antes del mes
+                  if (weekStart < monthStart) {
+                    weekStart.setTime(monthStart.getTime());
+                  }
+                  
+                  // Calcular fin de la semana (domingo)
+                  const weekEnd = new Date(weekStart);
+                  weekEnd.setDate(weekEnd.getDate() + 6);
+                  weekEnd.setHours(23, 59, 59, 999);
+                  
+                  // Asegurar que no sea después del mes
+                  if (weekEnd > monthEnd) {
+                    weekEnd.setTime(monthEnd.getTime());
+                  }
+                  
+                  weeks[weekKey] = { start: weekStart, end: weekEnd };
+                }
+                
+                tempDate.setDate(tempDate.getDate() + 1);
+              }
             }
 
             // Obtener TODOS los préstamos relevantes para la ruta (no solo del mes)
@@ -2105,887 +2147,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
             throw new Error(`Error generating active loans report: ${error instanceof Error ? error.message : 'Unknown error'}`);
           }
         },
-      }),
-
-      getFinancialReport: graphql.field({
-        type: graphql.nonNull(graphql.JSON),
-        args: {
-          routeId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
-          year: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
-        },
-        resolve: async (root, { routeId, year }, context: Context) => {
-          try {
-            // Obtener información de la ruta
-            const route = await context.prisma.route.findUnique({
-              where: { id: routeId },
-              include: { accounts: true }
-            });
-
-            if (!route) {
-              throw new Error('Ruta no encontrada');
-            }
-
-            // Obtener cuentas de efectivo y banco de la ruta
-            const cashAccount = route.accounts.find(acc => acc.type === 'EMPLOYEE_CASH_FUND');
-            const bankAccount = route.accounts.find(acc => acc.type === 'BANK');
-            const accounts = [cashAccount?.id, bankAccount?.id].filter(Boolean) as string[];
-
-            if (accounts.length === 0) {
-              throw new Error('No se encontraron cuentas para la ruta');
-            }
-
-            // Obtener todas las transacciones del año para esta ruta
-            const transactions = await context.prisma.transaction.findMany({
-              where: {
-                OR: [
-                  { sourceAccountId: { in: accounts } },
-                  { destinationAccountId: { in: accounts } }
-                ],
-                date: {
-                  gte: new Date(`${year}-01-01`),
-                  lte: new Date(`${year}-12-31`),
-                },
-              },
-              select: {
-                amount: true,
-                type: true,
-                date: true,
-                expenseSource: true,
-                incomeSource: true,
-                loanPayment: true,
-                returnToCapital: true,
-                profitAmount: true,
-                lead: {
-                  select: {
-                    id: true,
-                    personalData: {
-                      select: {
-                        addresses: {
-                          select: {
-                            location: {
-                              select: {
-                                name: true
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            });
-
-            // Obtener préstamos del año para calcular cartera activa
-            const loans = await context.prisma.loan.findMany({
-              where: {
-                lead: {
-                  routes: {
-                    id: routeId
-                  }
-                },
-                signDate: {
-                  gte: new Date(`${year}-01-01`),
-                  lte: new Date(`${year}-12-31`),
-                }
-              },
-              include: {
-                payments: true,
-                borrower: {
-                  include: {
-                    personalData: {
-                      include: {
-                        addresses: {
-                          include: {
-                            location: true
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            });
-
-            // Agrupar transacciones por mes
-            const monthlyData = transactions.reduce((acc, transaction) => {
-              const transactionDate = transaction.date ? new Date(transaction.date) : new Date();
-              const month = transactionDate.getMonth() + 1; // 1-12
-              const monthKey = month.toString().padStart(2, '0');
-
-              if (!acc[monthKey]) {
-                acc[monthKey] = {
-                  totalExpenses: 0,      // Gastos operativos totales
-                  generalExpenses: 0,    // Gastos generales (sin nómina/comisiones)
-                  nomina: 0,             // Gastos de nómina
-                  comissions: 0,         // Comisiones pagadas
-                  incomes: 0,            // Ingresos por cobros (solo ganancia)
-                  totalCash: 0,          // Flujo de efectivo total
-                  loanDisbursements: 0,  // Préstamos otorgados (reinversión)
-                  carteraActiva: 0,      // Créditos activos
-                  carteraVencida: 0,     // Cartera vencida
-                  renovados: 0,          // Créditos renovados
-                  // Nuevos campos para flujo de efectivo
-                  totalIncomingCash: 0,  // Total que entra por pagos (capital + ganancia)
-                  capitalReturn: 0,      // Capital devuelto
-                  profitReturn: 0,       // Ganancia de los pagos
-                  operationalCashUsed: 0, // Dinero usado en operación
-                  // Campos para ROI real
-                  totalInvestment: 0,    // Inversión total (préstamos + gastos operativos)
-                  operationalExpenses: 0, // Solo gastos operativos (sin préstamos)
-                  availableCash: 0       // Dinero disponible en cajas
-                };
-              }
-
-              const amount = Number(transaction.amount || 0);
-              const monthData = acc[monthKey];
-
-              // Clasificar transacciones
-              if (transaction.type === 'EXPENSE') {
-                switch (transaction.expenseSource) {
-                  case 'NOMINA_SALARY':
-                  case 'EXTERNAL_SALARY':
-                    monthData.nomina += amount;
-                    monthData.operationalCashUsed += amount;
-                    monthData.operationalExpenses += amount;
-                    monthData.totalInvestment += amount;
-                    break;
-                  case 'LOAN_PAYMENT_COMISSION':
-                  case 'LOAN_GRANTED_COMISSION':
-                  case 'LEAD_COMISSION':
-                    monthData.comissions += amount;
-                    monthData.operationalCashUsed += amount;
-                    monthData.operationalExpenses += amount;
-                    monthData.totalInvestment += amount;
-                    break;
-                  case 'LOAN_GRANTED':
-                    monthData.loanDisbursements += amount;
-                    monthData.operationalCashUsed += amount;
-                    monthData.totalInvestment += amount; // Préstamos también son inversión
-                    break;
-                  default:
-                    // Gastos operativos (viáticos, gasolina, mantenimiento, etc.)
-                    monthData.generalExpenses += amount;
-                    monthData.operationalCashUsed += amount;
-                    monthData.operationalExpenses += amount;
-                    monthData.totalInvestment += amount;
-                    break;
-                }
-                
-                // Todos los gastos suman al total
-                monthData.totalExpenses += amount;
-                monthData.totalCash -= amount;
-              } else if (transaction.type === 'INCOME') {
-                if (transaction.incomeSource === 'CASH_LOAN_PAYMENT' || 
-                    transaction.incomeSource === 'BANK_LOAN_PAYMENT') {
-                  // Total que entra por pagos
-                  monthData.totalIncomingCash += amount;
-                  
-                  // Ganancia del pago
-                  const profit = Number(transaction.profitAmount || 0);
-                  monthData.profitReturn += profit;
-                  monthData.incomes += profit;
-                  
-                  // Capital devuelto = total del pago - ganancia
-                  const capitalReturned = amount - profit;
-                  monthData.capitalReturn += capitalReturned;
-                  
-                  monthData.totalCash += amount; // El total incluye capital + ganancia
-                } else {
-                  // Otros ingresos
-                  monthData.incomes += amount;
-                  monthData.totalIncomingCash += amount;
-                  monthData.profitReturn += amount; // Otros ingresos son 100% ganancia
-                  monthData.totalCash += amount;
-                }
-              }
-
-              return acc;
-            }, {} as { [month: string]: any });
-
-            // Calcular métricas adicionales para cada mes
-            Object.keys(monthlyData).forEach(monthKey => {
-              const data = monthlyData[monthKey];
-              
-              // Gastos operativos = gastos generales + nómina + comisiones (no incluye préstamos)
-              const operationalExpenses = data.generalExpenses + data.nomina + data.comissions;
-              data.totalExpenses = operationalExpenses;
-              
-              // Ganancia neta = ingresos - gastos operativos
-              data.balance = data.incomes - operationalExpenses;
-              
-              // Porcentaje de ganancia
-              data.profitPercentage = data.incomes > 0 ? ((data.balance / data.incomes) * 100) : 0;
-              
-              // Balance considerando reinversión
-              data.balanceWithReinvest = data.balance - data.loanDisbursements;
-            });
-
-            // Calcular cartera activa y vencida por mes
-            // También calcular dinero en caja acumulativo
-            let cumulativeCashBalance = 0;
-            
-            for (let month = 1; month <= 12; month++) {
-              const monthKey = month.toString().padStart(2, '0');
-              const monthStart = new Date(year, month - 1, 1);
-              const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
-              
-              if (!monthlyData[monthKey]) {
-                monthlyData[monthKey] = {
-                  totalExpenses: 0, generalExpenses: 0, nomina: 0, comissions: 0,
-                  incomes: 0, totalCash: 0, loanDisbursements: 0, balance: 0,
-                  profitPercentage: 0, balanceWithReinvest: 0, carteraActiva: 0,
-                  carteraVencida: 0, carteraMuerta: 0, renovados: 0,
-                  totalIncomingCash: 0, capitalReturn: 0, profitReturn: 0, 
-                  operationalCashUsed: 0, totalInvestment: 0, operationalExpenses: 0, 
-                  availableCash: 0
-                };
-              }
-
-              // Calcular flujo de caja del mes
-              const monthCashFlow = monthlyData[monthKey].totalCash || 0;
-              cumulativeCashBalance += monthCashFlow;
-              monthlyData[monthKey].availableCash = Math.max(0, cumulativeCashBalance);
-
-              // Contar préstamos activos al final del mes
-              let activeLoans = 0;
-              let overdueLoans = 0;
-              let deadLoans = 0;
-              let renewedLoans = 0;
-
-              loans.forEach(loan => {
-                const signDate = new Date(loan.signDate);
-                
-                // Solo procesar préstamos firmados hasta este mes
-                if (signDate <= monthEnd) {
-                  // Verificar si está activo al final del mes
-                  const isActive = isLoanActiveOnDate(loan, monthEnd);
-                  
-                  if (isActive) {
-                    activeLoans++;
-                    
-                    // Verificar si está vencido (sin pagos en el mes)
-                    let hasPaymentInMonth = false;
-                    for (const payment of loan.payments || []) {
-                      const paymentDate = new Date(payment.receivedAt || payment.createdAt);
-                      if (paymentDate >= monthStart && paymentDate <= monthEnd) {
-                        hasPaymentInMonth = true;
-                        break;
-                      }
-                    }
-                    
-                    if (!hasPaymentInMonth && loan.badDetDate && new Date(loan.badDetDate) <= monthEnd) {
-                      overdueLoans++;
-                    }
-                  }
-                  
-                  // Contar cartera muerta (préstamos con badDetDate establecido al final del mes)
-                  if (loan.badDetDate && new Date(loan.badDetDate) <= monthEnd) {
-                    deadLoans++;
-                  }
-                  
-                  // Contar renovados en el mes
-                  if (loan.previousLoanId && signDate >= monthStart && signDate <= monthEnd) {
-                    renewedLoans++;
-                  }
-                }
-              });
-
-              monthlyData[monthKey].carteraActiva = activeLoans;
-              monthlyData[monthKey].carteraVencida = overdueLoans;
-              monthlyData[monthKey].carteraMuerta = deadLoans;
-              monthlyData[monthKey].renovados = renewedLoans;
-            }
-
-            // Función helper para verificar si un préstamo está activo
-            function isLoanActiveOnDate(loan: any, date: Date): boolean {
-              const signDate = new Date(loan.signDate);
-              
-              // Debe estar firmado antes o en la fecha
-              if (signDate > date) return false;
-              
-              // Si tiene finishedDate y es antes de la fecha, no está activo
-              if (loan.finishedDate && new Date(loan.finishedDate) < date) return false;
-              
-              // Si tiene status RENOVATED y finishedDate antes de la fecha, no está activo
-              if (loan.status === 'RENOVATED' && loan.finishedDate && new Date(loan.finishedDate) < date) return false;
-              
-              // Verificar si está completamente pagado antes de la fecha
-              const totalAmount = Number(loan.amountGived || 0);
-              const profitAmount = Number(loan.profitAmount || 0);
-              const totalToPay = totalAmount + profitAmount;
-              
-              let paidAmount = 0;
-              for (const payment of loan.payments || []) {
-                const paymentDate = new Date(payment.receivedAt || payment.createdAt);
-                if (paymentDate <= date) {
-                  paidAmount += Number(payment.amount || 0);
-                }
-              }
-              
-              return paidAmount < totalToPay;
-            }
-
-            return {
-              route: {
-                id: route.id,
-                name: route.name
-              },
-              year,
-              months: [
-                'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
-                'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'
-              ],
-              data: monthlyData
-            };
-
-          } catch (error) {
-            console.error('Error in getFinancialReport:', error);
-            throw new Error(`Error generating financial report: ${error instanceof Error ? error.message : 'Unknown error'}`);
-          }
-        },
-      }),
-
-      getClientHistory: graphql.field({
-        type: graphql.nonNull(graphql.JSON),
-        args: {
-          clientId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
-          routeId: graphql.arg({ type: graphql.String }),
-          locationId: graphql.arg({ type: graphql.String }),
-        },
-        resolve: async (root, { clientId, routeId, locationId }, context: Context) => {
-          try {
-            // Obtener datos del cliente
-            const client = await context.prisma.personalData.findUnique({
-              where: { id: clientId },
-              include: {
-                phones: true,
-                addresses: {
-                  include: {
-                    location: {
-                      include: {
-                        route: true
-                      }
-                    }
-                  }
-                },
-                // Préstamos como cliente principal (a través de Borrower)
-                borrower: {
-                  include: {
-                    loans: {
-                      include: {
-                        loantype: true,
-                        lead: {
-                          include: {
-                            personalData: true,
-                            routes: true
-                          }
-                        },
-                        payments: {
-                          orderBy: { receivedAt: 'asc' },
-                          include: {
-                            transactions: true
-                          }
-                        },
-                        transactions: {
-                          where: {
-                            type: { in: ['EXPENSE', 'INCOME'] }
-                          }
-                        }
-                      },
-                      orderBy: { signDate: 'desc' }
-                    }
-                  }
-                }
-              }
-            });
-
-            if (!client) {
-              throw new Error('Cliente no encontrado');
-            }
-
-            // Obtener préstamos como cliente (a través de borrower)
-            const clientLoans = client.borrower?.loans || [];
-            
-            // Buscar préstamos como aval usando avalName
-            const collateralLoans = await context.prisma.loan.findMany({
-              where: {
-                avalName: {
-                  contains: client.fullName,
-                  mode: 'insensitive'
-                }
-              },
-              include: {
-                loantype: true,
-                lead: {
-                  include: {
-                    personalData: true,
-                    routes: true
-                  }
-                },
-                payments: {
-                  orderBy: { receivedAt: 'asc' },
-                  include: {
-                    transactions: true
-                  }
-                },
-                transactions: {
-                  where: {
-                    type: { in: ['EXPENSE', 'INCOME'] }
-                  }
-                },
-                borrower: {
-                  include: {
-                    personalData: true
-                  }
-                }
-              },
-              orderBy: { signDate: 'desc' }
-            });
-
-            // Filtrar por ruta/localidad si se especifica
-            let filteredLoansAsClient = clientLoans;
-            let filteredLoansAsCollateral = collateralLoans;
-
-            if (routeId || locationId) {
-              filteredLoansAsClient = clientLoans.filter(loan => {
-                if (routeId && loan.lead?.routes?.id !== routeId) return false;
-                if (locationId) {
-                  const loanLocation = client.addresses.find(addr => addr.location?.id === locationId);
-                  if (!loanLocation) return false;
-                }
-                return true;
-              });
-
-              filteredLoansAsCollateral = collateralLoans.filter(loan => {
-                if (routeId && loan.lead?.routes?.id !== routeId) return false;
-                return true; // Por ahora no filtramos por localidad para préstamos como aval
-              });
-            }
-
-            // Función para calcular estadísticas de un préstamo
-            const calculateLoanStats = (loan: any) => {
-              const amountGiven = parseFloat(loan.amountGived?.toString() || '0');
-              const amountRequested = parseFloat(loan.requestedAmount?.toString() || '0');
-              const commission = parseFloat(loan.comissionAmount?.toString() || '0');
-              const interestRate = parseFloat(loan.loantype?.rate?.toString() || '0');
-              
-              // Calcular el monto total a pagar (capital + intereses)
-              // Nota: interestRate ya viene en formato decimal (0.4 = 40%)
-              const totalAmountDue = amountRequested + (amountRequested * interestRate);
-              
-              // Procesar pagos con balance acumulativo y fechas formateadas
-              let runningBalance = totalAmountDue;
-              const detailedPayments = loan.payments
-                .sort((a: any, b: any) => new Date(a.receivedAt).getTime() - new Date(b.receivedAt).getTime())
-                .map((payment: any, index: number) => {
-                  const paymentAmount = parseFloat(payment.amount?.toString() || '0');
-                  const balanceBeforePayment = runningBalance;
-                  runningBalance -= paymentAmount;
-                  
-                  return {
-                    id: payment.id,
-                    amount: paymentAmount,
-                    receivedAt: payment.receivedAt,
-                    receivedAtFormatted: new Date(payment.receivedAt).toLocaleDateString('es-ES', {
-                      year: 'numeric',
-                      month: '2-digit',
-                      day: '2-digit',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    }),
-                    type: payment.type || 'PAGO',
-                    paymentMethod: payment.paymentMethod || 'EFECTIVO',
-                    paymentNumber: index + 1,
-                    balanceBeforePayment: Math.max(0, balanceBeforePayment),
-                    balanceAfterPayment: Math.max(0, runningBalance)
-                  };
-                });
-
-              const totalPaid = detailedPayments.reduce((sum, payment) => sum + payment.amount, 0);
-              const pendingDebt = Math.max(0, totalAmountDue - totalPaid);
-              const isPaidOff = pendingDebt <= 0.01; // Tolerancia para errores de redondeo
-              
-              // Calcular días desde la firma
-              const signDate = new Date(loan.signDate);
-              const today = new Date();
-              const daysSinceSign = Math.floor((today.getTime() - signDate.getTime()) / (1000 * 60 * 60 * 24));
-              
-              // Determinar estado más detallado
-              let loanStatus = 'ACTIVO';
-              let statusDescription = 'Préstamo en curso, pendiente de pagos';
-              
-              // Verificar si fue renovado (hay otro préstamo que tiene este como previousLoanId)
-              const wasRenewed = filteredLoansAsClient.some((l: any) => l.previousLoanId === loan.id);
-              
-              if (loan.finishedDate) {
-                if (wasRenewed) {
-                  loanStatus = 'RENOVADO';
-                  statusDescription = 'Reemplazado por un nuevo préstamo (renovación)';
-                } else {
-                  loanStatus = 'TERMINADO';
-                  statusDescription = 'Pagado completamente y finalizado';
-                }
-              } else if (isPaidOff) {
-                loanStatus = 'PAGADO';
-                statusDescription = 'Monto completo pagado, pendiente de marcar como finalizado';
-              } else if (loan.badDetDate && new Date(loan.badDetDate) <= today) {
-                loanStatus = 'CARTERA MUERTA';
-                statusDescription = 'Marcado como cartera muerta - irrecuperable';
-              } else {
-                // Verificar si está dentro del plazo esperado
-                const expectedWeeks = parseInt(loan.loantype?.weekDuration || '12');
-                const expectedEndDate = new Date(signDate);
-                expectedEndDate.setDate(expectedEndDate.getDate() + (expectedWeeks * 7));
-                
-                if (today > expectedEndDate) {
-                  loanStatus = 'VENCIDO';
-                  statusDescription = `Fuera del plazo esperado (${expectedWeeks} semanas)`;
-                } else {
-                  const daysLeft = Math.ceil((expectedEndDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                  statusDescription = `Préstamo activo - ${daysLeft} días restantes del plazo`;
-                }
-              }
-
-              return {
-                id: loan.id,
-                signDate: loan.signDate,
-                signDateFormatted: signDate.toLocaleDateString('es-ES', {
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric'
-                }),
-                finishedDate: loan.finishedDate,
-                finishedDateFormatted: loan.finishedDate ? 
-                  new Date(loan.finishedDate).toLocaleDateString('es-ES', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                  }) : null,
-                loanType: loan.loantype?.name || 'N/A',
-                amountRequested,
-                totalAmountDue,
-                interestAmount: totalAmountDue - amountRequested,
-                commission,
-                totalPaid,
-                pendingDebt,
-                daysSinceSign,
-                status: loanStatus,
-                statusDescription,
-                wasRenewed,
-                weekDuration: loan.loantype?.weekDuration || 0,
-                rate: loan.loantype?.rate || 0,
-                leadName: loan.lead?.personalData?.fullName || 'N/A',
-                routeName: loan.lead?.routes?.name || 'N/A',
-                paymentsCount: detailedPayments.length,
-                payments: detailedPayments,
-                renewedFrom: loan.previousLoanId,
-                renewedTo: null, // Se calculará después
-                avalName: loan.avalName || null,
-                avalPhone: loan.avalPhone || null
-              };
-            };
-
-            // Procesar préstamos como cliente
-            const loansAsClient = filteredLoansAsClient.map(calculateLoanStats);
-
-            // Calcular relaciones renewedTo después de procesar todos los préstamos
-            loansAsClient.forEach(loan => {
-              const renewedLoan = loansAsClient.find(l => l.renewedFrom === loan.id);
-              if (renewedLoan) {
-                loan.renewedTo = renewedLoan.id;
-              }
-            });
-
-            // Procesar préstamos como aval
-            const loansAsCollateral = filteredLoansAsCollateral.map((loan: any) => ({
-              ...calculateLoanStats(loan),
-              clientName: loan.borrower?.personalData?.fullName || 'Sin nombre',
-              clientDui: 'N/A' // Campo no disponible en PersonalData
-            }));
-
-            // Calcular estadísticas generales
-            const totalLoansAsClient = loansAsClient.length;
-            const totalLoansAsCollateral = loansAsCollateral.length;
-            const activeLoansAsClient = loansAsClient.filter(loan => loan.status === 'ACTIVO').length;
-            const activeLoansAsCollateral = loansAsCollateral.filter(loan => loan.status === 'ACTIVO').length;
-            
-            const totalAmountRequestedAsClient = loansAsClient.reduce((sum, loan) => sum + loan.amountRequested, 0);
-            const totalAmountPaidAsClient = loansAsClient.reduce((sum, loan) => sum + loan.totalPaid, 0);
-            const currentPendingDebtAsClient = loansAsClient.reduce((sum, loan) => sum + (loan.status === 'ACTIVO' ? loan.pendingDebt : 0), 0);
-
-            return {
-              client: {
-                id: client.id,
-                fullName: client.fullName,
-                dui: 'N/A', // Campo no disponible en PersonalData
-                phones: client.phones.map((phone: any) => phone.number),
-                addresses: client.addresses.map((address: any) => ({
-                  street: address.street,
-                  city: address.city,
-                  location: address.location?.name,
-                  route: address.location?.route?.name
-                }))
-              },
-              summary: {
-                totalLoansAsClient,
-                totalLoansAsCollateral,
-                activeLoansAsClient,
-                activeLoansAsCollateral,
-                totalAmountRequestedAsClient,
-                totalAmountPaidAsClient,
-                currentPendingDebtAsClient,
-                hasBeenClient: totalLoansAsClient > 0,
-                hasBeenCollateral: totalLoansAsCollateral > 0
-              },
-              loansAsClient,
-              loansAsCollateral
-            };
-
-          } catch (error) {
-            console.error('Error en getClientHistory:', error);
-            throw new Error(`Error al obtener historial del cliente: ${error instanceof Error ? error.message : 'Unknown error'}`);
-          }
-        }
-      }),
-
-      // Autocomplete para búsqueda de clientes
-      searchClients: graphql.field({
-        type: graphql.nonNull(graphql.list(graphql.nonNull(graphql.JSON))),
-        args: {
-          searchTerm: graphql.arg({ type: graphql.nonNull(graphql.String) }),
-          routeId: graphql.arg({ type: graphql.String }),
-          locationId: graphql.arg({ type: graphql.String }),
-          limit: graphql.arg({ type: graphql.Int, defaultValue: 20 }),
-        },
-        resolve: async (root, { searchTerm, routeId, locationId, limit }, context: Context) => {
-          try {
-            console.log('🔍 Búsqueda de clientes:', { searchTerm, routeId, locationId, limit });
-            
-            const whereCondition: any = {
-              OR: [
-                {
-                  fullName: {
-                    contains: searchTerm,
-                    mode: 'insensitive'
-                  }
-                }
-              ]
-            };
-
-            console.log('📋 whereCondition inicial:', JSON.stringify(whereCondition, null, 2));
-
-            // Aplicar filtros de ruta/localidad si se especifican
-            if (locationId) {
-              console.log('🔧 Aplicando filtro de localidad:', { locationId });
-              whereCondition.addresses = {
-                some: {
-                  locationId: locationId
-                }
-              };
-              console.log('📍 Filtro por locationId aplicado:', locationId);
-            } else if (routeId) {
-              // Como Location no tiene routeId directo, buscaremos a través de empleados
-              // Por ahora, omitimos este filtro hasta implementar correctamente
-              console.log('⚠️ Filtro por ruta temporalmente deshabilitado - buscando sin filtro de ruta');
-            }
-
-            console.log('📋 whereCondition final:', JSON.stringify(whereCondition, null, 2));
-
-            // PRUEBA: Buscar sin filtros para verificar si hay datos
-            const testSearch = await context.prisma.personalData.findMany({
-              where: {
-                fullName: {
-                  contains: searchTerm,
-                  mode: 'insensitive'
-                }
-              },
-              take: 5,
-              select: {
-                id: true,
-                fullName: true
-              }
-            });
-            console.log('🧪 Prueba sin filtros - resultados:', testSearch);
-
-            // 🔍 Buscar préstamos donde aparece como aval
-            const loansAsCollateral = await context.prisma.loan.findMany({
-              where: {
-                avalName: {
-                  contains: searchTerm,
-                  mode: 'insensitive'
-                }
-              },
-              select: {
-                id: true,
-                avalName: true,
-                avalPhone: true,
-                signDate: true,
-                finishedDate: true,
-                amountGived: true,
-                status: true,
-                borrower: {
-                  include: {
-                    personalData: {
-                      select: {
-                        id: true,
-                        fullName: true
-                      }
-                    }
-                  }
-                }
-              }
-            });
-
-            console.log('🏦 Préstamos como aval encontrados:', loansAsCollateral.length);
-
-            const clients = await context.prisma.personalData.findMany({
-              where: whereCondition,
-              take: limit,
-              include: {
-                phones: true,
-                addresses: {
-                  include: {
-                    location: {
-                      include: {
-                        route: true
-                      }
-                    }
-                  }
-                },
-                borrower: {
-                  include: {
-                    loans: {
-                      select: {
-                        id: true,
-                        signDate: true,
-                        finishedDate: true,
-                        amountGived: true,
-                        status: true
-                      }
-                    }
-                  }
-                }
-              },
-              orderBy: [
-                { fullName: 'asc' }
-              ]
-            });
-
-            // Validar que clients sea un array
-            if (!Array.isArray(clients)) {
-              console.error('❌ clients no es un array:', typeof clients, clients);
-              return [];
-            }
-
-            console.log('✅ Clientes encontrados:', clients.length);
-
-            // 🔗 Combinar resultados: clientes como deudores + como avalistas
-            const combinedResults = new Map();
-
-            // Agregar clientes que aparecen como deudores principales
-            clients.forEach(client => {
-              const loans = client.borrower?.loans || [];
-              const activeLoans = loans.filter(loan => 
-                !loan.finishedDate && loan.status !== 'FINISHED'
-              );
-
-              // Buscar préstamos como aval para este cliente
-              const avalLoans = loansAsCollateral.filter(loan => 
-                client.fullName && loan.avalName && 
-                (client.fullName.toLowerCase().includes(loan.avalName.toLowerCase()) ||
-                 loan.avalName.toLowerCase().includes(client.fullName.toLowerCase()))
-              );
-
-              // Encontrar el préstamo más reciente (como cliente o como aval)
-              const allLoans = [...loans, ...avalLoans];
-              const latestLoan = allLoans.length > 0 
-                ? allLoans.reduce((latest, loan) => {
-                    const loanDate = new Date(loan.signDate);
-                    const latestDate = new Date(latest.signDate);
-                    return loanDate > latestDate ? loan : latest;
-                  })
-                : null;
-              
-              const latestLoanDate = latestLoan 
-                ? new Date(latestLoan.signDate).toLocaleDateString('es-ES', {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit'
-                  })
-                : null;
-
-              // Extraer localidad
-              const location = client.addresses[0]?.location?.name || 'Sin localidad';
-
-              combinedResults.set(client.id, {
-                id: client.id,
-                name: client.fullName || 'Sin nombre',
-                dui: 'N/A', // Campo no disponible en PersonalData
-                phone: client.phones[0]?.number || 'N/A',
-                address: client.addresses[0] ? `${client.addresses[0].location?.name || 'Sin localidad'}` : 'N/A',
-                route: client.addresses[0]?.location?.route?.name || 'N/A',
-                location: location,
-                latestLoanDate: latestLoanDate,
-                hasLoans: loans.length > 0,
-                hasBeenCollateral: avalLoans.length > 0,
-                totalLoans: loans.length,
-                activeLoans: activeLoans.length,
-                finishedLoans: loans.length - activeLoans.length,
-                collateralLoans: avalLoans.length
-              });
-            });
-
-            // Agregar clientes que aparecen solo como avalistas
-            loansAsCollateral.forEach(loan => {
-              const existingClient = Array.from(combinedResults.values()).find(c => 
-                c.name.toLowerCase().includes(loan.avalName.toLowerCase()) ||
-                loan.avalName.toLowerCase().includes(c.name.toLowerCase())
-              );
-
-              if (existingClient) {
-                // Cliente ya existe, actualizar información de aval
-                existingClient.hasBeenCollateral = true;
-                existingClient.collateralLoans += 1;
-              } else {
-                // Cliente aparece solo como aval, crear nueva entrada
-                const avalId = `aval_${loan.id}`;
-                
-                // Para clientes solo como aval, usar la fecha de este préstamo
-                const loanDate = new Date(loan.signDate).toLocaleDateString('es-ES', {
-                  year: 'numeric',
-                  month: '2-digit',
-                  day: '2-digit'
-                });
-                
-                combinedResults.set(avalId, {
-                  id: avalId,
-                  name: loan.avalName || 'Sin nombre',
-                  dui: 'N/A',
-                  phone: loan.avalPhone || 'N/A',
-                  address: 'N/A (Solo como aval)',
-                  route: 'N/A',
-                  location: 'N/A (Solo como aval)',
-                  latestLoanDate: loanDate,
-                  hasLoans: false,
-                  hasBeenCollateral: true,
-                  totalLoans: 0,
-                  activeLoans: 0,
-                  finishedLoans: 0,
-                  collateralLoans: 1
-                });
-              }
-            });
-
-            return Array.from(combinedResults.values());
-
-          } catch (error) {
-            console.error('❌ Error completo en searchClients:', error);
-            console.error('❌ Stack trace:', error instanceof Error ? error.stack : 'No stack');
-            console.error('❌ Mensaje:', error instanceof Error ? error.message : String(error));
-            throw new Error(`Error al buscar clientes: ${error instanceof Error ? error.message : 'Unknown error'}`);
-          }
-        }
       }),
     },
   };
