@@ -2628,17 +2628,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 !loan.finishedDate && loan.status !== 'FINISHED'
               );
 
-              // Buscar préstamos como aval para este cliente
-              const avalLoans = loansAsCollateral.filter(loan => 
-                client.fullName && loan.avalName && 
-                (client.fullName.toLowerCase().includes(loan.avalName.toLowerCase()) ||
-                loan.avalName.toLowerCase().includes(client.fullName.toLowerCase()))
-              );
-
-              // Encontrar el préstamo más reciente (como cliente o como aval)
-              const allLoans = [...loans, ...avalLoans];
-              const latestLoan = allLoans.length > 0 
-                ? allLoans.reduce((latest, loan) => {
+              // Encontrar el préstamo más reciente como cliente
+              const latestLoan = loans.length > 0 
+                ? loans.reduce((latest, loan) => {
                     const loanDate = new Date(loan.signDate);
                     const latestDate = new Date(latest.signDate);
                     return loanDate > latestDate ? loan : latest;
@@ -2666,27 +2658,44 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 location: location,
                 latestLoanDate: latestLoanDate,
                 hasLoans: loans.length > 0,
-                hasBeenCollateral: avalLoans.length > 0,
+                hasBeenCollateral: false, // Se actualizará si aparece como aval
                 totalLoans: loans.length,
                 activeLoans: activeLoans.length,
                 finishedLoans: loans.length - activeLoans.length,
-                collateralLoans: avalLoans.length
+                collateralLoans: 0
               });
             });
 
-            // Agregar clientes que aparecen solo como avalistas
+            // Agregar clientes que aparecen solo como avalistas (sin duplicar por ID)
             loansAsCollateral.forEach(loan => {
-              const existingClient = Array.from(combinedResults.values()).find(c => 
-                c.name.toLowerCase().includes(loan.avalName.toLowerCase()) ||
-                loan.avalName.toLowerCase().includes(c.name.toLowerCase())
+              // Buscar si ya existe un cliente con el mismo personalData.id
+              // Primero, intentar encontrar el personalData correspondiente al aval
+              const avalPersonalData = clients.find(client => 
+                client.fullName && loan.avalName && 
+                client.fullName.toLowerCase().trim() === loan.avalName.toLowerCase().trim()
               );
 
-              if (existingClient) {
-                // Cliente ya existe, actualizar información de aval
-                existingClient.hasBeenCollateral = true;
-                existingClient.collateralLoans += 1;
+              if (avalPersonalData) {
+                // El aval ya existe como cliente principal, actualizar información
+                const existingClient = combinedResults.get(avalPersonalData.id);
+                if (existingClient) {
+                  existingClient.hasBeenCollateral = true;
+                  existingClient.collateralLoans += 1;
+                  
+                  // Actualizar fecha del préstamo más reciente si este es más nuevo
+                  const loanDate = new Date(loan.signDate);
+                  const currentLatestDate = existingClient.latestLoanDate ? new Date(existingClient.latestLoanDate.split('/').reverse().join('-')) : new Date(0);
+                  
+                  if (loanDate > currentLatestDate) {
+                    existingClient.latestLoanDate = loanDate.toLocaleDateString('es-ES', {
+                      year: 'numeric',
+                      month: '2-digit',
+                      day: '2-digit'
+                    });
+                  }
+                }
               } else {
-                // Cliente aparece solo como aval, crear nueva entrada
+                // El aval no existe como cliente principal, crear nueva entrada
                 const avalId = `aval_${loan.id}`;
                 
                 // Para clientes solo como aval, usar la fecha de este préstamo
@@ -2715,7 +2724,19 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
             });
 
-            return Array.from(combinedResults.values());
+            // Ordenar por fecha del préstamo más reciente (descendente) y luego por nombre
+            const sortedResults = Array.from(combinedResults.values()).sort((a, b) => {
+              if (a.latestLoanDate && b.latestLoanDate) {
+                const dateA = new Date(a.latestLoanDate.split('/').reverse().join('-'));
+                const dateB = new Date(b.latestLoanDate.split('/').reverse().join('-'));
+                if (dateA.getTime() !== dateB.getTime()) {
+                  return dateB.getTime() - dateA.getTime(); // Más reciente primero
+                }
+              }
+              return a.name.localeCompare(b.name); // Luego por nombre alfabético
+            });
+
+            return sortedResults.slice(0, limit);
 
           } catch (error) {
             console.error('❌ Error completo en searchClients:', error);
