@@ -166,6 +166,9 @@ model Loan {
   snapshotRouteName      String              @default("")
   snapshotLocationId     String              @default("")
   snapshotLocationName   String              @default("")
+  snapshotLeadId         String?
+  snapshotLeadName       String?
+  snapshotLeadAssignedAt DateTime?
   from_Loan_previousLoan Loan[]              @relation("Loan_previousLoan")
 
   @@index([loantypeId])

@@ -316,6 +316,12 @@ export const Loan = list({
 
     transactions: relationship({ ref: 'Transaction.loan', many: true }),
     lead: relationship({ ref: 'Employee.LeadManagedLoans' }),
+    // Snapshot del líder que asignó el crédito (backup histórico)
+    snapshotLeadId: text({ db: { isNullable: true } }),
+    // Snapshot del nombre del líder original
+    snapshotLeadName: text({ db: { isNullable: true } }),
+    // Fecha cuando se asignó el líder original
+    snapshotLeadAssignedAt: timestamp({ validation: { isRequired: false } }),
     borrower: relationship({
       ref: 'Borrower.loans',
     }),
@@ -549,7 +555,12 @@ export const Loan = list({
               resolvedData.snapshotRouteName = leadData.routes.name;
             }
 
-            console.log(`📊 Snapshot capturado para loan ${operation}: Lead ${leadId} → Ruta ${resolvedData.snapshotRouteName}, Localidad ${resolvedData.snapshotLocationName}`);
+            // Capturar snapshot del líder
+            resolvedData.snapshotLeadId = leadId;
+            resolvedData.snapshotLeadName = leadData.personalData?.fullName || 'Sin nombre';
+            resolvedData.snapshotLeadAssignedAt = new Date();
+
+            console.log(`📊 Snapshot capturado para loan ${operation}: Lead ${leadId} (${resolvedData.snapshotLeadName}) → Ruta ${resolvedData.snapshotRouteName}, Localidad ${resolvedData.snapshotLocationName}`);
           }
         } catch (error) {
           console.error('Error capturing historical snapshot for loan:', error);
