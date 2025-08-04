@@ -50,10 +50,6 @@ console.log(`🚀 Starting Keystone in ${process.env.NODE_ENV || 'development'} 
 
 const app = express();
 
-// Agregar middleware para parsing de JSON
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
 // Initialize Prisma client with proper typing
 let prisma: PrismaClient;
 
@@ -84,6 +80,9 @@ export default withAuth(
     session,
     server: {
       extendExpressApp: (app) => {
+        // Agregar middleware para parsing de JSON
+        app.use(express.json({ limit: '10mb' }));
+        app.use(express.urlencoded({ extended: true, limit: '10mb' }));
                 (app as any).get('/generate-pdf', async (req: Request, res: Response) => {
           try {
             const { localityId, routeId, localityName, routeName, leaderName, leaderId } = req.query;
@@ -392,9 +391,9 @@ export default withAuth(
                    doc.text(payment[key], x + paddingLeft + subColumnWidth, currentY + verticalOffset, { width: subColumnWidth, align: 'center' });
                    doc.moveTo(x + subColumnWidth, currentY).lineTo(x + subColumnWidth, currentY + rowHeight).stroke();
                    doc.moveTo(x, currentY).lineTo(x, currentY + rowHeight).stroke();
-                 } else if (key !== 'name') {
-                   const value = payment[key];
-                   const textHeight = doc.heightOfString(value, { width });
+                                   } else if (key !== 'name') {
+                    const value = payment[key as keyof typeof payment];
+                    const textHeight = doc.heightOfString(value, { width });
                    const verticalOffset = (rowHeight - textHeight) / 2;
                    
                    if (key === 'aval') {
@@ -638,21 +637,20 @@ export default withAuth(
           }
         });
 
-        // Endpoint de prueba
-        (app as any).get('/test-pdf', async (req: Request, res: Response) => {
-          try {
-            console.log('🧪 Endpoint de prueba funcionando');
-            res.json({ message: 'Endpoint funcionando correctamente' });
-          } catch (error) {
-            console.error('Error en endpoint de prueba:', error);
-            res.status(500).json({ error: 'Error en endpoint de prueba' });
-          }
-        });
+
 
         // Endpoint para exportar historial del cliente a PDF
         (app as any).post('/export-client-history-pdf', async (req: Request, res: Response) => {
           try {
             console.log('📄 Iniciando generación de PDF del historial del cliente');
+            console.log('📋 req.body:', req.body);
+            console.log('📋 req.headers:', req.headers);
+            
+            // Verificar si req.body existe
+            if (!req.body) {
+              console.error('❌ Error: req.body es undefined');
+              return res.status(400).json({ error: 'req.body es undefined. Asegúrate de enviar Content-Type: application/json' });
+            }
             
             const {
               clientId,
@@ -673,13 +671,14 @@ export default withAuth(
 
             console.log('✅ Parámetros válidos, procediendo con la generación');
 
-            console.log('📄 Creando PDF document');
-            
-            // Crear PDF
-            const doc = new PDFDocument({ margin: 30 });
+            // Crear PDF simple y funcional
+            const doc = new PDFDocument({ 
+              margin: 30,
+              size: 'A4',
+              layout: 'portrait'
+            });
             const filename = `historial_${clientName.replace(/\s+/g, '_')}.pdf`;
              
-            console.log('📄 Configurando headers de respuesta');
             res.setHeader('Content-disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
             res.setHeader('Content-type', 'application/pdf');
             doc.pipe(res);
@@ -701,86 +700,123 @@ export default withAuth(
               });
             };
 
-            // Header con logo
-            doc.image('./solufacil.png', 450, 20, { width: 80 });
-            doc.fontSize(18).text('HISTORIAL DE CLIENTE', 0, 30, { align: 'center' });
-            doc.fontSize(12).text(`Generado el: ${new Date().toLocaleDateString('es-SV')}`, 0, 55, { align: 'center' });
+            // Header moderno y sobrio
+            const headerHeight = 100;
+            doc.rect(0, 0, doc.page.width, headerHeight).fill('#ffffff');
+            doc.rect(0, 0, doc.page.width, 2).fill('#e1e8ed');
+            
+            // Logo más discreto
+            doc.image('./solufacil.png', doc.page.width - 100, 15, { width: 60 });
+            
+            // Título principal con tipografía moderna
+            doc.fontSize(28).fillColor('#1a202c').text('HISTORIAL DE CLIENTE', 0, 25, { align: 'center' });
+            doc.fontSize(11).fillColor('#718096').text(`Generado el ${new Date().toLocaleDateString('es-SV')} a las ${new Date().toLocaleTimeString('es-SV')}`, 0, 60, { align: 'center' });
 
-            // Información del cliente
-            let y = 100;
-            doc.fontSize(14).text('INFORMACIÓN DEL CLIENTE', 30, y);
+            // Información del cliente con diseño moderno y compacto
+            let y = 130;
+            doc.fontSize(16).fillColor('#1a202c').text('INFORMACIÓN DEL CLIENTE', 0, y, { align: 'center' });
             y += 25;
             
-            doc.fontSize(12).text(`Nombre: ${clientName}`, 30, y);
-            y += 20;
-            doc.fontSize(12).text(`DUI: ${clientDui}`, 30, y);
-            y += 20;
+            // Contenedor centrado más compacto
+            const clientInfoWidth = 350;
+            const clientInfoX = (doc.page.width - clientInfoWidth) / 2;
+            
+            doc.rect(clientInfoX, y - 8, clientInfoWidth, 70).fill('#f7fafc').stroke('#e2e8f0');
+            
+            doc.fontSize(10).fillColor('#2d3748').text(`Nombre: ${clientName}`, clientInfoX + 15, y);
+            y += 15;
+            doc.fontSize(10).fillColor('#2d3748').text(`DUI: ${clientDui || 'N/A'}`, clientInfoX + 15, y);
+            y += 15;
             
             if (clientPhones && clientPhones.length > 0) {
-              doc.fontSize(12).text(`Teléfonos: ${clientPhones.join(', ')}`, 30, y);
-              y += 20;
+              doc.fontSize(10).fillColor('#2d3748').text(`Teléfonos: ${clientPhones.join(', ')}`, clientInfoX + 15, y);
+              y += 15;
             }
 
             if (clientAddresses && clientAddresses.length > 0) {
-              doc.fontSize(12).text('Direcciones:', 30, y);
-              y += 15;
+              doc.fontSize(10).fillColor('#2d3748').text('Direcciones:', clientInfoX + 15, y);
+              y += 12;
               clientAddresses.forEach((addr: any) => {
-                doc.fontSize(10).text(`${addr.street}, ${addr.city}, ${addr.location} (${addr.route})`, 50, y);
-                y += 15;
+                doc.fontSize(9).fillColor('#718096').text(`${addr.street}, ${addr.city}, ${addr.location} (${addr.route})`, clientInfoX + 30, y);
+                y += 12;
               });
             }
 
-            y += 20;
+            y += 30;
 
-            // Resumen estadístico
-            doc.fontSize(14).text('RESUMEN ESTADÍSTICO', 30, y);
-            y += 25;
-
-            const summaryItems = [
-              { label: 'Total préstamos como cliente', value: summary.totalLoansAsClient },
-              { label: 'Total préstamos como aval', value: summary.totalLoansAsCollateral },
-              { label: 'Préstamos activos como cliente', value: summary.activeLoansAsClient },
-              { label: 'Préstamos activos como aval', value: summary.activeLoansAsCollateral },
-              { label: 'Total prestado', value: formatCurrency(summary.totalAmountRequestedAsClient) },
-              { label: 'Total pagado', value: formatCurrency(summary.totalAmountPaidAsClient) },
-              { label: 'Deuda pendiente total', value: formatCurrency(summary.currentPendingDebtAsClient) }
-            ];
-
-            summaryItems.forEach(item => {
-              doc.fontSize(11).text(`${item.label}: ${item.value}`, 30, y);
-              y += 18;
-            });
-
-            y += 20;
-
-            // Préstamos como cliente
-            if (loansAsClient && loansAsClient.length > 0) {
-              doc.fontSize(14).text('PRÉSTAMOS COMO CLIENTE', 30, y);
+            // Resumen estadístico con diseño moderno y compacto
+            if (summary) {
+              doc.fontSize(16).fillColor('#1a202c').text('RESUMEN ESTADÍSTICO', 0, y, { align: 'center' });
               y += 25;
 
-              // Tabla de préstamos como cliente
-              const tableHeaders = ['Fecha', 'Tipo', 'Prestado', 'Total a Pagar', 'Pagado', 'Deuda Pendiente', 'Estado', 'Líder'];
-              const columnWidths = [60, 50, 60, 70, 60, 70, 50, 60];
-
-              // Dibujar encabezados
-              let x = 30;
-              doc.fontSize(9).fillColor('#ffffff');
-              doc.rect(x, y, columnWidths.reduce((a, b) => a + b, 0), 20).fill();
-              doc.fillColor('#000000');
+              // Contenedor centrado más compacto
+              const summaryWidth = 400;
+              const summaryX = (doc.page.width - summaryWidth) / 2;
+              const summaryHeight = 110;
               
-              tableHeaders.forEach((header, index) => {
-                doc.text(header, x, y + 5, { width: columnWidths[index], align: 'center' });
-                x += columnWidths[index];
+              doc.rect(summaryX, y - 8, summaryWidth, summaryHeight).fill('#f7fafc').stroke('#e2e8f0');
+
+              const summaryItems = [
+                { label: 'Total préstamos como cliente', value: summary.totalLoansAsClient || 0 },
+                { label: 'Total préstamos como aval', value: summary.totalLoansAsCollateral || 0 },
+                { label: 'Préstamos activos como cliente', value: summary.activeLoansAsClient || 0 },
+                { label: 'Préstamos activos como aval', value: summary.activeLoansAsCollateral || 0 },
+                { label: 'Total prestado', value: formatCurrency(summary.totalAmountRequestedAsClient || 0) },
+                { label: 'Total pagado', value: formatCurrency(summary.totalAmountPaidAsClient || 0) },
+                { label: 'Deuda pendiente total', value: formatCurrency(summary.currentPendingDebtAsClient || 0) }
+              ];
+
+              let summaryY = y;
+              summaryItems.forEach((item, index) => {
+                const rowY = summaryY + (index * 15);
+                doc.fontSize(10).fillColor('#2d3748').text(`${item.label}:`, summaryX + 15, rowY);
+                doc.fontSize(10).fillColor('#1a202c').text(`${item.value}`, summaryX + 220, rowY);
               });
 
-              y += 25;
+              y += summaryHeight + 25;
+            }
 
-              // Dibujar filas de datos
-              loansAsClient.forEach((loan: any) => {
-                if (y > doc.page.height - 100) {
+            // Préstamos como cliente con diseño moderno
+            if (loansAsClient && loansAsClient.length > 0) {
+              doc.fontSize(16).fillColor('#1a202c').text('PRÉSTAMOS COMO CLIENTE', 0, y, { align: 'center' });
+              y += 30;
+
+              // Tabla centrada con diseño moderno
+              const tableHeaders = ['Fecha', 'Tipo', 'Prestado', 'Total a Pagar', 'Pagado', 'Deuda Pendiente', 'Estado', 'Líder'];
+              const columnWidths = [70, 60, 70, 80, 70, 80, 60, 70];
+              const totalTableWidth = columnWidths.reduce((a, b) => a + b, 0);
+              const tableX = (doc.page.width - totalTableWidth) / 2;
+
+              // Encabezados con diseño sobrio
+              doc.rect(tableX, y, totalTableWidth, 30).fill('#f7fafc').stroke('#e2e8f0');
+              doc.fillColor('#1a202c').fontSize(10);
+              
+              tableHeaders.forEach((header, index) => {
+                const headerX = tableX + columnWidths.slice(0, index).reduce((a, b) => a + b, 0);
+                const headerWidth = columnWidths[index];
+                
+                // Manejar encabezados de dos líneas
+                if (header.includes(' ')) {
+                  const [firstLine, secondLine] = header.split(' ');
+                  doc.text(firstLine, headerX, y + 8, { width: headerWidth, align: 'center' });
+                  doc.text(secondLine, headerX, y + 18, { width: headerWidth, align: 'center' });
+                } else {
+                  doc.text(header, headerX, y + 12, { width: headerWidth, align: 'center' });
+                }
+              });
+
+              y += 35;
+
+              // Filas de datos con diseño moderno
+              loansAsClient.forEach((loan: any, index: number) => {
+                if (y > doc.page.height - 120) {
                   doc.addPage();
                   y = 30;
                 }
+
+                // Fondo alternado sutil
+                const rowColor = index % 2 === 0 ? '#ffffff' : '#f7fafc';
+                doc.rect(tableX, y - 3, totalTableWidth, 25).fill(rowColor).stroke('#e2e8f0');
 
                 const rowData = [
                   formatDate(loan.signDate),
@@ -793,46 +829,144 @@ export default withAuth(
                   loan.leadName
                 ];
 
-                x = 30;
-                rowData.forEach((cell, index) => {
-                  doc.fontSize(8).text(cell, x, y, { width: columnWidths[index], align: 'center' });
-                  x += columnWidths[index];
+                rowData.forEach((cell, cellIndex) => {
+                  const cellX = tableX + columnWidths.slice(0, cellIndex).reduce((a, b) => a + b, 0);
+                  const cellWidth = columnWidths[cellIndex];
+                  
+                  // Color del estado
+                  let textColor = '#2d3748';
+                  if (cellIndex === 6) { // Columna de estado
+                    textColor = loan.status === 'ACTIVO' ? '#38a169' : 
+                               loan.status === 'VENCIDO' ? '#e53e3e' : 
+                               loan.status === 'TERMINADO' ? '#3182ce' : '#718096';
+                  }
+                  
+                  doc.fontSize(9).fillColor(textColor).text(cell, cellX, y + 8, { width: cellWidth, align: 'center' });
                 });
 
-                y += 20;
+                y += 30;
               });
 
-              y += 20;
+              y += 40;
+
+                          // DETALLE DE PAGOS - VERSIÓN EXPANDIDA
+            doc.fontSize(16).fillColor('#2c3e50').text('DETALLE DE PAGOS - PRÉSTAMOS COMO CLIENTE', 30, y);
+            y += 30;
+
+
+
+              loansAsClient.forEach((loan: any, loanIndex: number) => {
+                // Verificar si necesitamos nueva página
+                if (y > doc.page.height - 150) {
+                  doc.addPage();
+                  y = 30;
+                }
+
+                // Encabezado del préstamo
+                doc.fontSize(14).fillColor('#3498db').text(`PRÉSTAMO ${loanIndex + 1}: ${loan.loanType}`, 30, y);
+                y += 20;
+                doc.fontSize(10).fillColor('#7f8c8d').text(`Fecha de inicio: ${formatDate(loan.signDate)} | Monto: ${formatCurrency(loan.amountRequested)} | Estado: ${loan.status}`, 30, y);
+                y += 20;
+
+                // Tabla de pagos del préstamo
+                if (loan.payments && loan.payments.length > 0) {
+                  const paymentHeaders = ['Fecha', 'Monto', 'Método', 'N° Pago', 'Balance Antes', 'Balance Después'];
+                  const paymentColumnWidths = [80, 70, 60, 50, 80, 80];
+
+                  // Encabezados de la tabla de pagos centrada
+                  const totalPaymentWidth = paymentColumnWidths.reduce((a, b) => a + b, 0);
+                  const paymentTableX = (doc.page.width - totalPaymentWidth) / 2;
+                  doc.fontSize(9).fillColor('#ffffff');
+                  doc.rect(paymentTableX, y, totalPaymentWidth, 20).fill('#2c3e50');
+                  doc.fillColor('#ffffff');
+                  
+                  paymentHeaders.forEach((header, index) => {
+                    const headerX = paymentTableX + paymentColumnWidths.slice(0, index).reduce((a, b) => a + b, 0);
+                    doc.text(header, headerX, y + 6, { width: paymentColumnWidths[index], align: 'center' });
+                  });
+
+                  y += 25;
+
+                  // Filas de pagos
+                  loan.payments.forEach((payment: any, paymentIndex: number) => {
+                    if (y > doc.page.height - 100) {
+                      doc.addPage();
+                      y = 30;
+                    }
+
+                    const paymentRowColor = paymentIndex % 2 === 0 ? '#f8f9fa' : '#ffffff';
+                    doc.rect(paymentTableX, y - 3, totalPaymentWidth, 16).fill(paymentRowColor);
+
+                    const paymentData = [
+                      formatDate(payment.receivedAt),
+                      formatCurrency(payment.amount),
+                      payment.paymentMethod || 'N/A',
+                      payment.paymentNumber?.toString() || 'N/A',
+                      formatCurrency(payment.balanceBeforePayment),
+                      formatCurrency(payment.balanceAfterPayment)
+                    ];
+
+                    paymentData.forEach((cell, cellIndex) => {
+                      const cellX = paymentTableX + paymentColumnWidths.slice(0, cellIndex).reduce((a, b) => a + b, 0);
+                      doc.fontSize(7).fillColor('#2c3e50').text(cell, cellX, y + 4, { width: paymentColumnWidths[cellIndex], align: 'center' });
+                    });
+
+                    y += 20;
+                  });
+
+                  // Resumen del préstamo
+                  y += 10;
+                  doc.fontSize(10).fillColor('#2c3e50').text(`Total pagado en este préstamo: ${formatCurrency(loan.totalPaid)}`, 30, y);
+                  y += 15;
+                  doc.fontSize(10).fillColor('#2c3e50').text(`Deuda pendiente: ${formatCurrency(loan.pendingDebt)}`, 30, y);
+                  y += 20;
+                } else {
+                  doc.fontSize(10).fillColor('#e74c3c').text('No hay pagos registrados para este préstamo', 30, y);
+                  y += 20;
+                }
+
+                // Separador entre préstamos
+                if (loanIndex < loansAsClient.length - 1) {
+                  doc.rect(30, y, doc.page.width - 60, 1).fill('#e9ecef');
+                  y += 20;
+                }
+              });
+
+              y += 30;
             }
 
-            // Préstamos como aval
+            // Préstamos como aval con diseño mejorado
             if (loansAsCollateral && loansAsCollateral.length > 0) {
-              doc.fontSize(14).text('PRÉSTAMOS COMO AVAL', 30, y);
-              y += 25;
+              doc.fontSize(16).fillColor('#2c3e50').text('PRÉSTAMOS COMO AVAL', 30, y);
+              y += 30;
 
-              // Tabla de préstamos como aval
+              // Tabla de préstamos como aval con diseño mejorado
               const collateralHeaders = ['Cliente', 'Fecha', 'Tipo', 'Prestado', 'Pagado', 'Deuda Pendiente', 'Estado', 'Líder'];
               const collateralColumnWidths = [80, 50, 50, 60, 60, 70, 50, 60];
 
-              // Dibujar encabezados
+              // Dibujar encabezados con fondo
               let x = 30;
-              doc.fontSize(9).fillColor('#ffffff');
-              doc.rect(x, y, collateralColumnWidths.reduce((a, b) => a + b, 0), 20).fill();
-              doc.fillColor('#000000');
+              doc.fontSize(10).fillColor('#ffffff');
+              doc.rect(x, y, collateralColumnWidths.reduce((a, b) => a + b, 0), 25).fill('#e74c3c');
+              doc.fillColor('#ffffff');
               
               collateralHeaders.forEach((header, index) => {
-                doc.text(header, x, y + 5, { width: collateralColumnWidths[index], align: 'center' });
+                doc.text(header, x, y + 8, { width: collateralColumnWidths[index], align: 'center' });
                 x += collateralColumnWidths[index];
               });
 
-              y += 25;
+              y += 30;
 
-              // Dibujar filas de datos
-              loansAsCollateral.forEach((loan: any) => {
+              // Dibujar filas de datos con diseño alternado
+              loansAsCollateral.forEach((loan: any, index: number) => {
                 if (y > doc.page.height - 100) {
                   doc.addPage();
                   y = 30;
                 }
+
+                // Fondo alternado para las filas
+                const rowColor = index % 2 === 0 ? '#f8f9fa' : '#ffffff';
+                doc.rect(30, y - 5, collateralColumnWidths.reduce((a, b) => a + b, 0), 20).fill(rowColor);
 
                 const rowData = [
                   loan.clientName || 'N/A',
@@ -846,19 +980,108 @@ export default withAuth(
                 ];
 
                 x = 30;
-                rowData.forEach((cell, index) => {
-                  doc.fontSize(8).text(cell, x, y, { width: collateralColumnWidths[index], align: 'center' });
-                  x += collateralColumnWidths[index];
+                rowData.forEach((cell, cellIndex) => {
+                  const statusColor = loan.status === 'ACTIVO' ? '#2ecc71' : 
+                                   loan.status === 'VENCIDO' ? '#e74c3c' : 
+                                   loan.status === 'TERMINADO' ? '#3498db' : '#7f8c8d';
+                  
+                  doc.fontSize(8).fillColor(cellIndex === 6 ? statusColor : '#2c3e50').text(cell, x, y + 5, { width: collateralColumnWidths[cellIndex], align: 'center' });
+                  x += collateralColumnWidths[cellIndex];
                 });
 
+                y += 25;
+              });
+
+              y += 30;
+
+              // DETALLE DE PAGOS - VERSIÓN EXPANDIDA PARA AVALES
+              doc.fontSize(16).fillColor('#2c3e50').text('DETALLE DE PAGOS - PRÉSTAMOS COMO AVAL', 30, y);
+              y += 30;
+
+              loansAsCollateral.forEach((loan: any, loanIndex: number) => {
+                // Verificar si necesitamos nueva página
+                if (y > doc.page.height - 150) {
+                  doc.addPage();
+                  y = 30;
+                }
+
+                // Encabezado del préstamo como aval
+                doc.fontSize(14).fillColor('#e74c3c').text(`PRÉSTAMO COMO AVAL ${loanIndex + 1}: ${loan.loanType}`, 30, y);
                 y += 20;
+                doc.fontSize(10).fillColor('#7f8c8d').text(`Cliente: ${loan.clientName} | Fecha: ${formatDate(loan.signDate)} | Monto: ${formatCurrency(loan.amountRequested)} | Estado: ${loan.status}`, 30, y);
+                y += 20;
+
+                // Tabla de pagos del préstamo como aval
+                if (loan.payments && loan.payments.length > 0) {
+                  const paymentHeaders = ['Fecha', 'Monto', 'Método', 'N° Pago', 'Balance Antes', 'Balance Después'];
+                  const paymentColumnWidths = [80, 70, 60, 50, 80, 80];
+
+                  // Encabezados de la tabla de pagos
+                  x = 30;
+                  doc.fontSize(9).fillColor('#ffffff');
+                  doc.rect(x, y, paymentColumnWidths.reduce((a, b) => a + b, 0), 20).fill('#e74c3c');
+                  doc.fillColor('#ffffff');
+                  
+                  paymentHeaders.forEach((header, index) => {
+                    doc.text(header, x, y + 6, { width: paymentColumnWidths[index], align: 'center' });
+                    x += paymentColumnWidths[index];
+                  });
+
+                  y += 25;
+
+                  // Filas de pagos
+                  loan.payments.forEach((payment: any, paymentIndex: number) => {
+                    if (y > doc.page.height - 100) {
+                      doc.addPage();
+                      y = 30;
+                    }
+
+                    const paymentRowColor = paymentIndex % 2 === 0 ? '#f8f9fa' : '#ffffff';
+                    doc.rect(30, y - 3, paymentColumnWidths.reduce((a, b) => a + b, 0), 16).fill(paymentRowColor);
+
+                    const paymentData = [
+                      formatDate(payment.receivedAt),
+                      formatCurrency(payment.amount),
+                      payment.paymentMethod || 'N/A',
+                      payment.paymentNumber?.toString() || 'N/A',
+                      formatCurrency(payment.balanceBeforePayment),
+                      formatCurrency(payment.balanceAfterPayment)
+                    ];
+
+                    x = 30;
+                    paymentData.forEach((cell, cellIndex) => {
+                      doc.fontSize(7).fillColor('#2c3e50').text(cell, x, y + 4, { width: paymentColumnWidths[cellIndex], align: 'center' });
+                      x += paymentColumnWidths[cellIndex];
+                    });
+
+                    y += 20;
+                  });
+
+                  // Resumen del préstamo como aval
+                  y += 10;
+                  doc.fontSize(10).fillColor('#2c3e50').text(`Total pagado en este préstamo: ${formatCurrency(loan.totalPaid)}`, 30, y);
+                  y += 15;
+                  doc.fontSize(10).fillColor('#2c3e50').text(`Deuda pendiente: ${formatCurrency(loan.pendingDebt)}`, 30, y);
+                  y += 20;
+                } else {
+                  doc.fontSize(10).fillColor('#e74c3c').text('No hay pagos registrados para este préstamo', 30, y);
+                  y += 20;
+                }
+
+                // Separador entre préstamos como aval
+                if (loanIndex < loansAsCollateral.length - 1) {
+                  doc.rect(30, y, doc.page.width - 60, 1).fill('#e9ecef');
+                  y += 20;
+                }
               });
             }
 
-            console.log('📄 Agregando pie de página');
+            // Pie de página con diseño mejorado
+            const footerY = doc.page.height - 60;
+            doc.rect(0, footerY, doc.page.width, 60).fill('#f8f9fa');
             
-            // Pie de página
-            doc.fontSize(10).text(`Documento generado el ${new Date().toLocaleDateString('es-SV')} a las ${new Date().toLocaleTimeString('es-SV')}`, 0, doc.page.height - 50, { align: 'center' });
+            doc.fontSize(10).fillColor('#7f8c8d').text(`Documento generado el ${new Date().toLocaleDateString('es-SV')} a las ${new Date().toLocaleTimeString('es-SV')}`, 0, footerY + 20, { align: 'center' });
+            doc.fontSize(8).fillColor('#95a5a6').text('Solufacil - Sistema de Gestión de Préstamos', 0, footerY + 40, { align: 'center' });
 
             console.log('📄 Finalizando PDF');
             doc.end();
@@ -866,7 +1089,8 @@ export default withAuth(
             console.log('✅ PDF generado exitosamente');
 
           } catch (error) {
-            console.error('Error generando PDF del historial:', error);
+            console.error('❌ Error generando PDF del historial:', error);
+            console.error('📋 Stack trace:', error instanceof Error ? error.stack : 'No stack trace available');
             res.status(500).json({ error: 'Error interno del servidor al generar PDF' });
           }
         });

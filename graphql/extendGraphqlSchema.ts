@@ -2487,7 +2487,244 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         },
       }),
+      // Autocomplete para búsqueda de clientes
+      searchClients: graphql.field({
+        type: graphql.nonNull(graphql.list(graphql.nonNull(graphql.JSON))),
+        args: {
+          searchTerm: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          routeId: graphql.arg({ type: graphql.String }),
+          locationId: graphql.arg({ type: graphql.String }),
+          limit: graphql.arg({ type: graphql.Int, defaultValue: 20 }),
+        },
+        resolve: async (root, { searchTerm, routeId, locationId, limit }, context: Context) => {
+          try {
+            console.log('🔍 Búsqueda de clientes:', { searchTerm, routeId, locationId, limit });
+            
+            const whereCondition: any = {
+              OR: [
+                {
+                  fullName: {
+                    contains: searchTerm,
+                    mode: 'insensitive'
+                  }
+                }
+              ]
+            };
 
+            console.log('📋 whereCondition inicial:', JSON.stringify(whereCondition, null, 2));
+
+            // Aplicar filtros de ruta/localidad si se especifican
+            if (locationId) {
+              console.log('🔧 Aplicando filtro de localidad:', { locationId });
+              whereCondition.addresses = {
+                some: {
+                  locationId: locationId
+                }
+              };
+              console.log('📍 Filtro por locationId aplicado:', locationId);
+            } else if (routeId) {
+              // Como Location no tiene routeId directo, buscaremos a través de empleados
+              // Por ahora, omitimos este filtro hasta implementar correctamente
+              console.log('⚠️ Filtro por ruta temporalmente deshabilitado - buscando sin filtro de ruta');
+            }
+
+            console.log('📋 whereCondition final:', JSON.stringify(whereCondition, null, 2));
+
+            // PRUEBA: Buscar sin filtros para verificar si hay datos
+            const testSearch = await context.prisma.personalData.findMany({
+              where: {
+                fullName: {
+                  contains: searchTerm,
+                  mode: 'insensitive'
+                }
+              },
+              take: 5,
+              select: {
+                id: true,
+                fullName: true
+              }
+            });
+            console.log('🧪 Prueba sin filtros - resultados:', testSearch);
+
+            // 🔍 Buscar préstamos donde aparece como aval
+            const loansAsCollateral = await context.prisma.loan.findMany({
+              where: {
+                avalName: {
+                  contains: searchTerm,
+                  mode: 'insensitive'
+                }
+              },
+              select: {
+                id: true,
+                avalName: true,
+                avalPhone: true,
+                signDate: true,
+                finishedDate: true,
+                amountGived: true,
+                status: true,
+                borrower: {
+                  include: {
+                    personalData: {
+                      select: {
+                        id: true,
+                        fullName: true
+                      }
+                    }
+                  }
+                }
+              }
+            });
+
+            console.log('🏦 Préstamos como aval encontrados:', loansAsCollateral.length);
+
+            const clients = await context.prisma.personalData.findMany({
+              where: whereCondition,
+              take: limit,
+              include: {
+                phones: true,
+                addresses: {
+                  include: {
+                    location: {
+                      include: {
+                        route: true
+                      }
+                    }
+                  }
+                },
+                borrower: {
+                  include: {
+                    loans: {
+                      select: {
+                        id: true,
+                        signDate: true,
+                        finishedDate: true,
+                        amountGived: true,
+                        status: true
+                      }
+                    }
+                  }
+                }
+              },
+              orderBy: [
+                { fullName: 'asc' }
+              ]
+            });
+
+            // Validar que clients sea un array
+            if (!Array.isArray(clients)) {
+              console.error('❌ clients no es un array:', typeof clients, clients);
+              return [];
+            }
+
+            console.log('✅ Clientes encontrados:', clients.length);
+
+            // 🔗 Combinar resultados: clientes como deudores + como avalistas
+            const combinedResults = new Map();
+
+            // Agregar clientes que aparecen como deudores principales
+            clients.forEach(client => {
+              const loans = client.borrower?.loans || [];
+              const activeLoans = loans.filter(loan => 
+                !loan.finishedDate && loan.status !== 'FINISHED'
+              );
+
+              // Buscar préstamos como aval para este cliente
+              const avalLoans = loansAsCollateral.filter(loan => 
+                client.fullName && loan.avalName && 
+                (client.fullName.toLowerCase().includes(loan.avalName.toLowerCase()) ||
+                loan.avalName.toLowerCase().includes(client.fullName.toLowerCase()))
+              );
+
+              // Encontrar el préstamo más reciente (como cliente o como aval)
+              const allLoans = [...loans, ...avalLoans];
+              const latestLoan = allLoans.length > 0 
+                ? allLoans.reduce((latest, loan) => {
+                    const loanDate = new Date(loan.signDate);
+                    const latestDate = new Date(latest.signDate);
+                    return loanDate > latestDate ? loan : latest;
+                  })
+                : null;
+              
+              const latestLoanDate = latestLoan 
+                ? new Date(latestLoan.signDate).toLocaleDateString('es-ES', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit'
+                  })
+                : null;
+
+              // Extraer localidad
+              const location = client.addresses[0]?.location?.name || 'Sin localidad';
+
+              combinedResults.set(client.id, {
+                id: client.id,
+                name: client.fullName || 'Sin nombre',
+                dui: 'N/A', // Campo no disponible en PersonalData
+                phone: client.phones[0]?.number || 'N/A',
+                address: client.addresses[0] ? `${client.addresses[0].location?.name || 'Sin localidad'}` : 'N/A',
+                route: client.addresses[0]?.location?.route?.name || 'N/A',
+                location: location,
+                latestLoanDate: latestLoanDate,
+                hasLoans: loans.length > 0,
+                hasBeenCollateral: avalLoans.length > 0,
+                totalLoans: loans.length,
+                activeLoans: activeLoans.length,
+                finishedLoans: loans.length - activeLoans.length,
+                collateralLoans: avalLoans.length
+              });
+            });
+
+            // Agregar clientes que aparecen solo como avalistas
+            loansAsCollateral.forEach(loan => {
+              const existingClient = Array.from(combinedResults.values()).find(c => 
+                c.name.toLowerCase().includes(loan.avalName.toLowerCase()) ||
+                loan.avalName.toLowerCase().includes(c.name.toLowerCase())
+              );
+
+              if (existingClient) {
+                // Cliente ya existe, actualizar información de aval
+                existingClient.hasBeenCollateral = true;
+                existingClient.collateralLoans += 1;
+              } else {
+                // Cliente aparece solo como aval, crear nueva entrada
+                const avalId = `aval_${loan.id}`;
+                
+                // Para clientes solo como aval, usar la fecha de este préstamo
+                const loanDate = new Date(loan.signDate).toLocaleDateString('es-ES', {
+                  year: 'numeric',
+                  month: '2-digit',
+                  day: '2-digit'
+                });
+                
+                combinedResults.set(avalId, {
+                  id: avalId,
+                  name: loan.avalName || 'Sin nombre',
+                  dui: 'N/A',
+                  phone: loan.avalPhone || 'N/A',
+                  address: 'N/A (Solo como aval)',
+                  route: 'N/A',
+                  location: 'N/A (Solo como aval)',
+                  latestLoanDate: loanDate,
+                  hasLoans: false,
+                  hasBeenCollateral: true,
+                  totalLoans: 0,
+                  activeLoans: 0,
+                  finishedLoans: 0,
+                  collateralLoans: 1
+                });
+              }
+            });
+
+            return Array.from(combinedResults.values());
+
+          } catch (error) {
+            console.error('❌ Error completo en searchClients:', error);
+            console.error('❌ Stack trace:', error instanceof Error ? error.stack : 'No stack');
+            console.error('❌ Mensaje:', error instanceof Error ? error.message : String(error));
+            throw new Error(`Error al buscar clientes: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        }
+      }),
       getClientHistory: graphql.field({
         type: graphql.nonNull(graphql.JSON),
         args: {
@@ -2787,245 +3024,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
           } catch (error) {
             console.error('Error en getClientHistory:', error);
             throw new Error(`Error al obtener historial del cliente: ${error instanceof Error ? error.message : 'Unknown error'}`);
-          }
-        }
-      }),
-
-      // Autocomplete para búsqueda de clientes
-      searchClients: graphql.field({
-        type: graphql.nonNull(graphql.list(graphql.nonNull(graphql.JSON))),
-        args: {
-          searchTerm: graphql.arg({ type: graphql.nonNull(graphql.String) }),
-          routeId: graphql.arg({ type: graphql.String }),
-          locationId: graphql.arg({ type: graphql.String }),
-          limit: graphql.arg({ type: graphql.Int, defaultValue: 20 }),
-        },
-        resolve: async (root, { searchTerm, routeId, locationId, limit }, context: Context) => {
-          try {
-            console.log('🔍 Búsqueda de clientes:', { searchTerm, routeId, locationId, limit });
-            
-            const whereCondition: any = {
-              OR: [
-                {
-                  fullName: {
-                    contains: searchTerm,
-                    mode: 'insensitive'
-                  }
-                }
-              ]
-            };
-
-            console.log('📋 whereCondition inicial:', JSON.stringify(whereCondition, null, 2));
-
-            // Aplicar filtros de ruta/localidad si se especifican
-            if (locationId) {
-              console.log('🔧 Aplicando filtro de localidad:', { locationId });
-              whereCondition.addresses = {
-                some: {
-                  locationId: locationId
-                }
-              };
-              console.log('📍 Filtro por locationId aplicado:', locationId);
-            } else if (routeId) {
-              // Como Location no tiene routeId directo, buscaremos a través de empleados
-              // Por ahora, omitimos este filtro hasta implementar correctamente
-              console.log('⚠️ Filtro por ruta temporalmente deshabilitado - buscando sin filtro de ruta');
-            }
-
-            console.log('📋 whereCondition final:', JSON.stringify(whereCondition, null, 2));
-
-            // PRUEBA: Buscar sin filtros para verificar si hay datos
-            const testSearch = await context.prisma.personalData.findMany({
-              where: {
-                fullName: {
-                  contains: searchTerm,
-                  mode: 'insensitive'
-                }
-              },
-              take: 5,
-              select: {
-                id: true,
-                fullName: true
-              }
-            });
-            console.log('🧪 Prueba sin filtros - resultados:', testSearch);
-
-            // 🔍 Buscar préstamos donde aparece como aval
-            const loansAsCollateral = await context.prisma.loan.findMany({
-              where: {
-                avalName: {
-                  contains: searchTerm,
-                  mode: 'insensitive'
-                }
-              },
-              select: {
-                id: true,
-                avalName: true,
-                avalPhone: true,
-                signDate: true,
-                finishedDate: true,
-                amountGived: true,
-                status: true,
-                borrower: {
-                  include: {
-                    personalData: {
-                      select: {
-                        id: true,
-                        fullName: true
-                      }
-                    }
-                  }
-                }
-              }
-            });
-
-            console.log('🏦 Préstamos como aval encontrados:', loansAsCollateral.length);
-
-            const clients = await context.prisma.personalData.findMany({
-              where: whereCondition,
-              take: limit,
-              include: {
-                phones: true,
-                addresses: {
-                  include: {
-                    location: {
-                      include: {
-                        route: true
-                      }
-                    }
-                  }
-                },
-                borrower: {
-                  include: {
-                    loans: {
-                      select: {
-                        id: true,
-                        signDate: true,
-                        finishedDate: true,
-                        amountGived: true,
-                        status: true
-                      }
-                    }
-                  }
-                }
-              },
-              orderBy: [
-                { fullName: 'asc' }
-              ]
-            });
-
-            // Validar que clients sea un array
-            if (!Array.isArray(clients)) {
-              console.error('❌ clients no es un array:', typeof clients, clients);
-              return [];
-            }
-
-            console.log('✅ Clientes encontrados:', clients.length);
-
-            // 🔗 Combinar resultados: clientes como deudores + como avalistas
-            const combinedResults = new Map();
-
-            // Agregar clientes que aparecen como deudores principales
-            clients.forEach(client => {
-              const loans = client.borrower?.loans || [];
-              const activeLoans = loans.filter(loan => 
-                !loan.finishedDate && loan.status !== 'FINISHED'
-              );
-
-              // Buscar préstamos como aval para este cliente
-              const avalLoans = loansAsCollateral.filter(loan => 
-                client.fullName && loan.avalName && 
-                (client.fullName.toLowerCase().includes(loan.avalName.toLowerCase()) ||
-                 loan.avalName.toLowerCase().includes(client.fullName.toLowerCase()))
-              );
-
-              // Encontrar el préstamo más reciente (como cliente o como aval)
-              const allLoans = [...loans, ...avalLoans];
-              const latestLoan = allLoans.length > 0 
-                ? allLoans.reduce((latest, loan) => {
-                    const loanDate = new Date(loan.signDate);
-                    const latestDate = new Date(latest.signDate);
-                    return loanDate > latestDate ? loan : latest;
-                  })
-                : null;
-              
-              const latestLoanDate = latestLoan 
-                ? new Date(latestLoan.signDate).toLocaleDateString('es-ES', {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit'
-                  })
-                : null;
-
-              // Extraer localidad
-              const location = client.addresses[0]?.location?.name || 'Sin localidad';
-
-              combinedResults.set(client.id, {
-                id: client.id,
-                name: client.fullName || 'Sin nombre',
-                dui: 'N/A', // Campo no disponible en PersonalData
-                phone: client.phones[0]?.number || 'N/A',
-                address: client.addresses[0] ? `${client.addresses[0].location?.name || 'Sin localidad'}` : 'N/A',
-                route: client.addresses[0]?.location?.route?.name || 'N/A',
-                location: location,
-                latestLoanDate: latestLoanDate,
-                hasLoans: loans.length > 0,
-                hasBeenCollateral: avalLoans.length > 0,
-                totalLoans: loans.length,
-                activeLoans: activeLoans.length,
-                finishedLoans: loans.length - activeLoans.length,
-                collateralLoans: avalLoans.length
-              });
-            });
-
-            // Agregar clientes que aparecen solo como avalistas
-            loansAsCollateral.forEach(loan => {
-              const existingClient = Array.from(combinedResults.values()).find(c => 
-                c.name.toLowerCase().includes(loan.avalName.toLowerCase()) ||
-                loan.avalName.toLowerCase().includes(c.name.toLowerCase())
-              );
-
-              if (existingClient) {
-                // Cliente ya existe, actualizar información de aval
-                existingClient.hasBeenCollateral = true;
-                existingClient.collateralLoans += 1;
-              } else {
-                // Cliente aparece solo como aval, crear nueva entrada
-                const avalId = `aval_${loan.id}`;
-                
-                // Para clientes solo como aval, usar la fecha de este préstamo
-                const loanDate = new Date(loan.signDate).toLocaleDateString('es-ES', {
-                  year: 'numeric',
-                  month: '2-digit',
-                  day: '2-digit'
-                });
-                
-                combinedResults.set(avalId, {
-                  id: avalId,
-                  name: loan.avalName || 'Sin nombre',
-                  dui: 'N/A',
-                  phone: loan.avalPhone || 'N/A',
-                  address: 'N/A (Solo como aval)',
-                  route: 'N/A',
-                  location: 'N/A (Solo como aval)',
-                  latestLoanDate: loanDate,
-                  hasLoans: false,
-                  hasBeenCollateral: true,
-                  totalLoans: 0,
-                  activeLoans: 0,
-                  finishedLoans: 0,
-                  collateralLoans: 1
-                });
-              }
-            });
-
-            return Array.from(combinedResults.values());
-
-          } catch (error) {
-            console.error('❌ Error completo en searchClients:', error);
-            console.error('❌ Stack trace:', error instanceof Error ? error.stack : 'No stack');
-            console.error('❌ Mensaje:', error instanceof Error ? error.message : String(error));
-            throw new Error(`Error al buscar clientes: ${error instanceof Error ? error.message : 'Unknown error'}`);
           }
         }
       }),
