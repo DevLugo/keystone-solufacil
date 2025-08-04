@@ -1,6 +1,6 @@
 import { graphql, list } from '@keystone-6/core';
 import { allowAll } from '@keystone-6/core/access';
-import { text, password, timestamp, relationship, decimal, integer, select, virtual } from '@keystone-6/core/fields';
+import { text, password, timestamp, relationship, decimal, integer, select, virtual, json } from '@keystone-6/core/fields';
 import { KeystoneContext } from '@keystone-6/core/types';
 import { prisma } from './keystone';
 import { calculateLoanProfitAmount, calculatePendingProfitAmount } from './utils/loan';
@@ -25,6 +25,160 @@ const parseAmount = (value: unknown): number => {
 interface ExtendedContext extends KeystoneContext {
   transactionsToDelete?: any[];
 }
+
+// Función utilitaria para crear logs de auditoría
+const createAuditLog = async (
+  context: KeystoneContext,
+  operation: 'CREATE' | 'UPDATE' | 'DELETE',
+  modelName: string,
+  recordId: string,
+  previousValues?: any,
+  newValues?: any,
+  changedFields?: string[],
+  description?: string,
+  metadata?: any
+) => {
+  try {
+    const session = context.session;
+    const user = session?.data;
+    
+    // Obtener información de la sesión
+    const sessionId = session?.id || 'unknown';
+    const ipAddress = (context.req as any)?.ip || (context.req as any)?.connection?.remoteAddress || 'unknown';
+    const userAgent = (context.req as any)?.headers?.['user-agent'] || 'unknown';
+    
+    // Crear el log de auditoría
+    await context.prisma.auditLog.create({
+      data: {
+        operation,
+        modelName,
+        recordId,
+        userName: user?.name || 'Usuario Desconocido',
+        userEmail: user?.email || 'unknown@example.com',
+        userRole: user?.role || 'NORMAL',
+        sessionId,
+        ipAddress,
+        userAgent,
+        previousValues: previousValues ? JSON.parse(JSON.stringify(previousValues)) : null,
+        newValues: newValues ? JSON.parse(JSON.stringify(newValues)) : null,
+        changedFields: changedFields ? JSON.parse(JSON.stringify(changedFields)) : null,
+        description: description || `${operation} en ${modelName} ${recordId}`,
+        metadata: metadata ? JSON.parse(JSON.stringify(metadata)) : null,
+        user: user?.id ? { connect: { id: user.id } } : undefined,
+      }
+    });
+    
+    console.log(`📊 Audit Log: ${operation} en ${modelName} ${recordId} por ${user?.name || 'Usuario Desconocido'}`);
+  } catch (error) {
+    console.error('❌ Error creando log de auditoría:', error);
+    // No fallar la operación principal si falla el log
+  }
+};
+
+// Hook global de auditoría que se puede aplicar a cualquier modelo
+const createAuditHook = (modelName: string, getDescription?: (item: any, operation: string) => string, getMetadata?: (item: any) => any) => {
+  return {
+    afterOperation: async ({ operation, item, context, originalItem }: { operation: string; item: any; context: KeystoneContext; originalItem?: any }) => {
+      // Evitar logs recursivos - no logear operaciones en AuditLog
+      if (modelName === 'AuditLog') {
+        return;
+      }
+
+      // Auditoría optimizada para operaciones críticas
+      const criticalOperations = ['createCustomLeadPaymentReceived', 'createCustomPayment'];
+      const isCriticalOperation = (context.req as any)?.body?.query?.includes('createCustomLeadPaymentReceived') || 
+                                 (context.req as any)?.body?.query?.includes('createCustomPayment');
+      
+      if (isCriticalOperation) {
+        // Para operaciones críticas, solo registrar información básica sin procesamiento complejo
+        setImmediate(async () => {
+          try {
+            if (operation === 'create' && item) {
+              await createAuditLog(
+                context,
+                'CREATE',
+                modelName,
+                item.id.toString(),
+                undefined,
+                { id: item.id, operation: 'CREATE' }, // Solo datos básicos
+                undefined,
+                `Creación rápida en ${modelName}`,
+                { isCriticalOperation: true }
+              );
+            }
+          } catch (error) {
+            console.error(`❌ Error en auditoría crítica para ${modelName}:`, error);
+          }
+        });
+        return;
+      }
+
+      // Ejecutar auditoría de forma asíncrona para no bloquear la transacción principal
+      setImmediate(async () => {
+        try {
+          if (operation === 'create' && item) {
+            const description = getDescription ? getDescription(item, 'CREATE') : `${operation} en ${modelName} ${item.id}`;
+            const metadata = getMetadata ? getMetadata(item) : { modelName, recordId: item.id };
+            
+            await createAuditLog(
+              context,
+              'CREATE',
+              modelName,
+              item.id.toString(),
+              undefined,
+              item,
+              undefined,
+              description,
+              metadata
+            );
+          } else if (operation === 'update' && item && originalItem) {
+            const itemData = item as any;
+            const originalItemData = originalItem as any;
+            
+            // Detectar campos que cambiaron
+            const changedFields = Object.keys(originalItemData).filter(key => 
+              originalItemData[key] !== itemData[key]
+            );
+            
+            const description = getDescription ? getDescription(item, 'UPDATE') : `${operation} en ${modelName} ${item.id}`;
+            const metadata = getMetadata ? getMetadata(item) : { modelName, recordId: item.id, changedFields };
+            
+            await createAuditLog(
+              context,
+              'UPDATE',
+              modelName,
+              item.id.toString(),
+              originalItem,
+              item,
+              changedFields,
+              description,
+              metadata
+            );
+          } else if (operation === 'delete' && originalItem) {
+            const originalItemData = originalItem as any;
+            
+            const description = getDescription ? getDescription(originalItem, 'DELETE') : `${operation} en ${modelName} ${originalItem.id}`;
+            const metadata = getMetadata ? getMetadata(originalItem) : { modelName, recordId: originalItem.id };
+            
+            await createAuditLog(
+              context,
+              'DELETE',
+              modelName,
+              originalItem.id.toString(),
+              originalItem,
+              undefined,
+              undefined,
+              description,
+              metadata
+            );
+          }
+        } catch (error) {
+          console.error(`❌ Error en auditoría para ${modelName}:`, error);
+        }
+      });
+    }
+  };
+};
 
 interface LoanType {
   rate: Decimal | null;
@@ -66,6 +220,62 @@ export const User = list({
       defaultValue: 'NORMAL',
     }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
+  },
+  hooks: createAuditHook('User', 
+    (item, operation) => `${operation} de usuario: ${item.name} (${item.email})`,
+    (item) => ({ userId: item.id, userName: item.name, userEmail: item.email })
+  )
+});
+
+export const AuditLog = list({
+  access: allowAll,
+  fields: {
+    // Información de la operación
+    operation: select({
+      options: [
+        { label: 'Creación', value: 'CREATE' },
+        { label: 'Actualización', value: 'UPDATE' },
+        { label: 'Eliminación', value: 'DELETE' },
+      ],
+      isIndexed: true,
+    }),
+    
+    // Información del modelo afectado
+    modelName: text({ isIndexed: true }), // 'Loan', 'Transaction', 'Employee', etc.
+    recordId: text({ isIndexed: true }), // ID del registro afectado
+    
+    // Información del usuario que realizó la operación
+    userName: text(),
+    userEmail: text(),
+    userRole: text(),
+    
+    // Información de la sesión
+    sessionId: text(),
+    ipAddress: text(),
+    userAgent: text(),
+    
+    // Detalles de la operación
+    previousValues: json(), // Valores anteriores (para UPDATE/DELETE)
+    newValues: json(), // Valores nuevos (para CREATE/UPDATE)
+    changedFields: json(), // Campos que cambiaron (para UPDATE)
+    
+    // Información adicional
+    description: text(), // Descripción legible de la operación
+    metadata: json(), // Datos adicionales específicos del modelo
+    
+    // Timestamps
+    createdAt: timestamp({ defaultValue: { kind: 'now' }, isIndexed: true }),
+    
+    // Relaciones opcionales para facilitar consultas
+    user: relationship({ ref: 'User', many: false }),
+  },
+  hooks: {
+    beforeOperation: async ({ operation, item, context, resolvedData }) => {
+      // Evitar logs recursivos - no logear operaciones en AuditLog
+      if (resolvedData?.modelName === 'AuditLog') {
+        return;
+      }
+    }
   }
 });
 
@@ -133,6 +343,23 @@ export const Employee = list({
       ],
     }),
   },
+  hooks: createAuditHook('Employee', 
+    (item: any, operation: string) => {
+      const employeeData = item as any;
+      const employeeName = employeeData.personalData?.fullName || 'Empleado';
+      const employeeType = employeeData.type || 'UNKNOWN';
+      const operationText = operation === 'CREATE' ? 'creado' : operation === 'UPDATE' ? 'actualizado' : 'eliminado';
+      return `Empleado ${operationText}: ${employeeName} (${employeeType})`;
+    },
+    (item: any) => {
+      const employeeData = item as any;
+      return {
+        type: employeeData.type,
+        employeeName: employeeData.personalData?.fullName,
+        oldId: employeeData.oldId
+      };
+    }
+  ),
 });
 
 /* export const Expense = list({
@@ -267,6 +494,23 @@ export const PersonalData = list({
     employee: relationship({ ref: 'Employee.personalData' }),
     borrower: relationship({ ref: 'Borrower.personalData' }),
   },
+  hooks: createAuditHook('PersonalData', 
+    (item: any, operation: string) => {
+      const personalData = item as any;
+      const fullName = personalData.fullName || 'Persona';
+      const operationText = operation === 'CREATE' ? 'creada' : operation === 'UPDATE' ? 'actualizada' : 'eliminada';
+      return `Datos personales ${operationText}: ${fullName}`;
+    },
+    (item: any) => {
+      const personalData = item as any;
+      return {
+        fullName: personalData.fullName,
+        birthDate: personalData.birthDate,
+        hasEmployee: !!personalData.employee,
+        hasBorrower: !!personalData.borrower
+      };
+    }
+  ),
 });
 
 export const Loan = list({
@@ -580,6 +824,28 @@ export const Loan = list({
       }
     },
     afterOperation: async ({ operation, item, context, originalItem }) => {
+      // Hook de auditoría global
+      const auditHook = createAuditHook('Loan', 
+        (item: any, operation: string) => {
+          const loanData = item as any;
+          const amount = loanData.requestedAmount || loanData.amountGived || 0;
+          const clientName = loanData.borrower?.personalData?.fullName || loanData.borrower?.fullName || 'Cliente';
+          const operationText = operation === 'CREATE' ? 'creado' : operation === 'UPDATE' ? 'actualizado' : 'eliminado';
+          return `Préstamo ${operationText}: $${amount} para ${clientName}`;
+        },
+        (item: any) => {
+          const loanData = item as any;
+          return {
+            loanType: loanData.loantype?.name,
+            leadName: loanData.lead?.personalData?.fullName,
+            clientName: loanData.borrower?.personalData?.fullName,
+            amount: loanData.requestedAmount || loanData.amountGived
+          };
+        }
+      );
+      
+      await auditHook.afterOperation({ operation, item, context, originalItem });
+
       if ((operation === 'create' || operation === 'update') && item) {
         const leadId: string = item.leadId as string;
         if (leadId === null || leadId === undefined) {
@@ -1065,6 +1331,29 @@ export const LoanPayment = list({
           throw error;
         }
       }
+      
+      // Hook de auditoría global para LoanPayment
+      const auditHook = createAuditHook('LoanPayment', 
+        (item: any, operation: string) => {
+          const paymentData = item as any;
+          const amount = paymentData.amount || 0;
+          const type = paymentData.type || 'UNKNOWN';
+          const method = paymentData.paymentMethod || 'UNKNOWN';
+          const operationText = operation === 'CREATE' ? 'creado' : operation === 'UPDATE' ? 'actualizado' : 'eliminado';
+          return `Pago de préstamo ${operationText}: $${amount} - ${type} (${method})`;
+        },
+        (item: any) => {
+          const paymentData = item as any;
+          return {
+            type: paymentData.type,
+            paymentMethod: paymentData.paymentMethod,
+            amount: paymentData.amount,
+            loanId: paymentData.loanId
+          };
+        }
+      );
+      
+      await auditHook.afterOperation({ operation, item, context, originalItem: args.originalItem });
     },
   },
 });
@@ -1444,6 +1733,29 @@ export const Transaction = list({
             });
           }
         }
+        
+        // Hook de auditoría global para Transaction
+        const auditHook = createAuditHook('Transaction', 
+          (item: any, operation: string) => {
+            const transactionData = item as any;
+            const amount = transactionData.amount || 0;
+            const type = transactionData.type || 'UNKNOWN';
+            const source = transactionData.incomeSource || transactionData.expenseSource || '';
+            const operationText = operation === 'CREATE' ? 'creada' : operation === 'UPDATE' ? 'actualizada' : 'eliminada';
+            return `Transacción ${operationText}: $${amount} - ${type} ${source}`;
+          },
+          (item: any) => {
+            const transactionData = item as any;
+            return {
+              type: transactionData.type,
+              source: transactionData.incomeSource || transactionData.expenseSource,
+              description: transactionData.description,
+              amount: transactionData.amount
+            };
+          }
+        );
+        
+        await auditHook.afterOperation({ operation, item, context, originalItem });
       } catch (error) {
         console.error('Error en afterOperation de Transaction:', error);
         throw error;
@@ -1622,4 +1934,5 @@ export const lists = {
   FalcoCompensatoryPayment,
   LeadPaymentReceived,
   Account,
+  AuditLog,
 };
