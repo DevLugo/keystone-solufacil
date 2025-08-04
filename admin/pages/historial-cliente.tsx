@@ -271,6 +271,45 @@ const HistorialClientePage: React.FC = () => {
     setShowClientHistory(false);
   };
 
+  const handleExportPDF = async (historyData: ClientHistoryData) => {
+    try {
+      const response = await fetch('/export-client-history-pdf', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          clientId: historyData.client.id,
+          clientName: historyData.client.fullName,
+          clientDui: historyData.client.dui,
+          clientPhones: historyData.client.phones,
+          clientAddresses: historyData.client.addresses,
+          summary: historyData.summary,
+          loansAsClient: historyData.loansAsClient,
+          loansAsCollateral: historyData.loansAsCollateral
+        }),
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `historial_${historyData.client.fullName.replace(/\s+/g, '_')}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      } else {
+        console.error('Error al generar PDF');
+        alert('Error al generar el PDF. Intente nuevamente.');
+      }
+    } catch (error) {
+      console.error('Error al exportar PDF:', error);
+      alert('Error al exportar el PDF. Intente nuevamente.');
+    }
+  };
+
   const historyResult: ClientHistoryData | null = historyData?.getClientHistory || null;
 
   return (
@@ -446,6 +485,22 @@ const HistorialClientePage: React.FC = () => {
             >
               🗑️ Limpiar
             </Button>
+
+            {showClientHistory && historyResult && (
+              <Button 
+                onClick={() => handleExportPDF(historyResult)}
+                style={{
+                  backgroundColor: '#38a169',
+                  color: 'white',
+                  padding: '10px 20px',
+                  border: 'none',
+                  borderRadius: '6px',
+                  marginLeft: '8px'
+                }}
+              >
+                📄 Exportar PDF
+              </Button>
+            )}
 
             {selectedClient && (
               <div style={{ fontSize: '14px', color: '#4a5568' }}>
