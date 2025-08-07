@@ -1784,39 +1784,39 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
             } else {
               // Modo "Mes Real": Todas las semanas que toquen el mes
-              const tempDate = new Date(monthStart);
+            const tempDate = new Date(monthStart);
+            
+            while (tempDate <= monthEnd) {
+              const weekNum = getWeekOfMonth(tempDate);
+              const weekKey = `SEMANA ${weekNum}`;
               
-              while (tempDate <= monthEnd) {
-                const weekNum = getWeekOfMonth(tempDate);
-                const weekKey = `SEMANA ${weekNum}`;
+              if (!weeks[weekKey]) {
+                // Calcular inicio de la semana (lunes)
+                const weekStart = new Date(tempDate);
+                const dayOfWeek = weekStart.getDay();
+                const diffToMonday = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
+                weekStart.setDate(weekStart.getDate() + diffToMonday);
+                weekStart.setHours(0, 0, 0, 0);
                 
-                if (!weeks[weekKey]) {
-                  // Calcular inicio de la semana (lunes)
-                  const weekStart = new Date(tempDate);
-                  const dayOfWeek = weekStart.getDay();
-                  const diffToMonday = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
-                  weekStart.setDate(weekStart.getDate() + diffToMonday);
-                  weekStart.setHours(0, 0, 0, 0);
-                  
-                  // Asegurar que no sea antes del mes
-                  if (weekStart < monthStart) {
-                    weekStart.setTime(monthStart.getTime());
-                  }
-                  
-                  // Calcular fin de la semana (domingo)
-                  const weekEnd = new Date(weekStart);
-                  weekEnd.setDate(weekEnd.getDate() + 6);
-                  weekEnd.setHours(23, 59, 59, 999);
-                  
-                  // Asegurar que no sea después del mes
-                  if (weekEnd > monthEnd) {
-                    weekEnd.setTime(monthEnd.getTime());
-                  }
-                  
-                  weeks[weekKey] = { start: weekStart, end: weekEnd };
+                // Asegurar que no sea antes del mes
+                if (weekStart < monthStart) {
+                  weekStart.setTime(monthStart.getTime());
                 }
                 
-                tempDate.setDate(tempDate.getDate() + 1);
+                // Calcular fin de la semana (domingo)
+                const weekEnd = new Date(weekStart);
+                weekEnd.setDate(weekEnd.getDate() + 6);
+                weekEnd.setHours(23, 59, 59, 999);
+                
+                // Asegurar que no sea después del mes
+                if (weekEnd > monthEnd) {
+                  weekEnd.setTime(monthEnd.getTime());
+                }
+                
+                weeks[weekKey] = { start: weekStart, end: weekEnd };
+              }
+              
+              tempDate.setDate(tempDate.getDate() + 1);
               }
             }
 
@@ -2205,6 +2205,45 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
             });
 
+            // Obtener cuentas de gasolina
+            const tokaAccount = await context.prisma.account.findFirst({
+              where: {
+                type: 'PREPAID_GAS'
+              }
+            });
+
+            const cashAccount = await context.prisma.account.findFirst({
+              where: {
+                type: 'OFFICE_CASH_FUND'
+              }
+            });
+
+            console.log(`⛽ getFinancialReport - Cuenta TOKA: ${tokaAccount?.id || 'No encontrada'}`);
+            console.log(`💵 getFinancialReport - Cuenta Efectivo: ${cashAccount?.id || 'No encontrada'}`);
+            
+            // Debug: Buscar todas las cuentas para ver qué hay
+            const allAccounts = await context.prisma.account.findMany({
+              select: { id: true, name: true }
+            });
+            console.log(`🏦 getFinancialReport - Todas las cuentas:`, allAccounts);
+            
+            // Debug: Buscar todas las transacciones de gasolina sin filtros
+            const allGasolinaTransactions = await context.prisma.transaction.findMany({
+              where: {
+                type: 'EXPENSE',
+                expenseSource: 'GASOLINE'
+              },
+              select: {
+                id: true,
+                amount: true,
+                sourceAccountId: true,
+                expenseSource: true,
+                date: true,
+                routeId: true
+              }
+            });
+            console.log(`⛽ getFinancialReport - Todas las transacciones de gasolina:`, allGasolinaTransactions);
+
             // Obtener TODOS los préstamos de la ruta (sin filtrar por signDate)
             const loans = await context.prisma.loan.findMany({
               where: {
@@ -2262,6 +2301,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   operationalCashUsed: 0, // Dinero usado en operación
                   // Campos para ROI real
                   totalInvestment: 0,    // Inversión total (préstamos + gastos operativos)
+                  // Campos para gasolina
+                  tokaGasolina: 0,       // Gasolina de cuenta TOKA
+                  cashGasolina: 0,       // Gasolina de cuenta efectivo (incluye OFFICE_CASH_FUND y EMPLOYEE_CASH_FUND)
+                  totalGasolina: 0,      // Total de gasolina
                   operationalExpenses: 0, // Solo gastos operativos (sin préstamos)
                   availableCash: 0       // Dinero disponible en cajas
                 };
@@ -2333,6 +2376,77 @@ export const extendGraphqlSchema = graphql.extend(base => {
               return acc;
             }, {} as { [month: string]: any });
 
+            // Calcular gasolina por mes
+            if (tokaAccount || cashAccount) {
+              for (let month = 1; month <= 12; month++) {
+                const monthKey = month.toString().padStart(2, '0');
+                const monthStart = new Date(year, month - 1, 1);
+                const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
+
+                                // Obtener transacciones de gasolina para este mes
+                const gasolinaTransactions = await context.prisma.transaction.findMany({
+                  where: {
+                    routeId: routeId,
+                    date: {
+                      gte: monthStart,
+                      lte: monthEnd,
+                    },
+                    OR: [
+                      // Gasolina de cuenta TOKA
+                      ...(tokaAccount ? [{
+                        sourceAccountId: tokaAccount.id,
+                        type: 'EXPENSE',
+                        expenseSource: 'GASOLINE'
+                      }] : []),
+                      // Gasolina de cuentas de efectivo (OFFICE_CASH_FUND y EMPLOYEE_CASH_FUND)
+                      {
+                        type: 'EXPENSE',
+                        expenseSource: 'GASOLINE',
+                        sourceAccount: {
+                          type: {
+                            in: ['OFFICE_CASH_FUND', 'EMPLOYEE_CASH_FUND']
+                          }
+                        }
+                      }
+                    ]
+                  }
+                });
+
+                console.log(`⛽ getFinancialReport - Mes ${monthKey}: Encontradas ${gasolinaTransactions.length} transacciones de gasolina`);
+                if (gasolinaTransactions.length > 0) {
+                  console.log(`⛽ getFinancialReport - Detalles de transacciones:`, gasolinaTransactions.map(t => ({
+                    id: t.id,
+                    amount: t.amount,
+                    sourceAccountId: t.sourceAccountId,
+                    expenseSource: t.expenseSource,
+                    date: t.date
+                  })));
+                }
+
+                let tokaGasolina = 0;
+                let cashGasolina = 0;
+
+                for (const transaction of gasolinaTransactions) {
+                  const amount = Number(transaction.amount || 0);
+                  
+                  if (transaction.sourceAccountId === tokaAccount?.id) {
+                    tokaGasolina += amount;
+                  } else {
+                    // Todo lo demás es efectivo (OFFICE_CASH_FUND y EMPLOYEE_CASH_FUND)
+                    cashGasolina += amount;
+                  }
+                }
+
+                if (monthlyData[monthKey]) {
+                  monthlyData[monthKey].tokaGasolina = tokaGasolina;
+                  monthlyData[monthKey].cashGasolina = cashGasolina;
+                  monthlyData[monthKey].totalGasolina = tokaGasolina + cashGasolina;
+                }
+
+                console.log(`⛽ getFinancialReport - Mes ${monthKey}: TOKA=${tokaGasolina}, Efectivo=${cashGasolina}, Total=${tokaGasolina + cashGasolina}`);
+              }
+            }
+
             // Calcular métricas adicionales para cada mes
             Object.keys(monthlyData).forEach(monthKey => {
               const data = monthlyData[monthKey];
@@ -2371,7 +2485,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   badDebtAmount: 0,      // Suma de préstamos marcados como badDebtDate en el mes
                   totalIncomingCash: 0, capitalReturn: 0, profitReturn: 0, 
                   operationalCashUsed: 0, totalInvestment: 0, operationalExpenses: 0, 
-                  availableCash: 0
+                  availableCash: 0,
+                  // Campos para gasolina
+                  tokaGasolina: 0, cashGasolina: 0, totalGasolina: 0
                 };
               }
 
@@ -2589,6 +2705,149 @@ export const extendGraphqlSchema = graphql.extend(base => {
           } catch (error) {
             console.error('Error in getFinancialReport:', error);
             throw new Error(`Error generating financial report: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        },
+      }),
+      // Query para obtener cartera por ruta
+      getCartera: graphql.field({
+        type: graphql.nonNull(graphql.JSON),
+        args: {
+          routeId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          weeksWithoutPayment: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
+        },
+        resolve: async (root, { routeId, weeksWithoutPayment }, context: Context) => {
+          try {
+            console.log(`🔍 getCartera - Procesando ruta ${routeId} con ${weeksWithoutPayment} semanas sin pago`);
+
+            // Obtener información de la ruta
+            const route = await context.prisma.route.findUnique({
+              where: { id: routeId }
+            });
+
+            if (!route) {
+              throw new Error('Ruta no encontrada');
+            }
+
+            // Obtener TODOS los préstamos de la ruta
+            const loans = await context.prisma.loan.findMany({
+              where: {
+                lead: {
+                  routes: {
+                    id: routeId
+                  }
+                }
+              },
+              include: {
+                borrower: {
+                  include: {
+                    personalData: true
+                  }
+                },
+                lead: {
+                  include: {
+                    personalData: true
+                  }
+                },
+                payments: {
+                  orderBy: {
+                    receivedAt: 'asc'
+                  }
+                }
+              }
+            });
+
+            console.log(`📊 getCartera - Encontrados ${loans.length} préstamos en la ruta`);
+
+            const today = new Date();
+            const processedLoans = [];
+            let activeLoans = 0;
+            let overdueLoans = 0;
+            let deadLoans = 0;
+
+            for (const loan of loans) {
+              // Calcular deuda total: amountGived * (1 + loanRate)
+              const amountGived = Number(loan.amountGived || 0);
+              const loanRate = Number(loan.loanRate || 0);
+              const totalDebt = amountGived * (1 + loanRate);
+
+              // Calcular total pagado
+              let totalPaid = 0;
+              let lastPaymentDate = null;
+              
+              for (const payment of loan.payments || []) {
+                totalPaid += Number(payment.amount || 0);
+                if (!lastPaymentDate || new Date(payment.receivedAt || payment.createdAt) > new Date(lastPaymentDate)) {
+                  lastPaymentDate = payment.receivedAt || payment.createdAt;
+                }
+              }
+
+              // Calcular deuda pendiente
+              const pendingDebt = Math.max(0, totalDebt - totalPaid);
+
+              // Calcular semanas sin pago
+              let weeksWithoutPayment = 0;
+              if (lastPaymentDate) {
+                const lastPayment = new Date(lastPaymentDate);
+                const diffTime = today.getTime() - lastPayment.getTime();
+                const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
+                weeksWithoutPayment = diffWeeks;
+              } else {
+                // Si no hay pagos, calcular desde la fecha de firma
+                const signDate = new Date(loan.signDate);
+                const diffTime = today.getTime() - signDate.getTime();
+                const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
+                weeksWithoutPayment = diffWeeks;
+              }
+
+              // Determinar estado
+              let status = 'ACTIVE';
+              if (loan.badDebtDate) {
+                status = 'DEAD';
+                deadLoans++;
+              } else if (loan.status === 'FINISHED') {
+                status = 'FINISHED';
+              } else if (weeksWithoutPayment >= weeksWithoutPayment) {
+                status = 'OVERDUE';
+                overdueLoans++;
+              } else {
+                activeLoans++;
+              }
+
+              processedLoans.push({
+                id: loan.id,
+                amountGived,
+                loanRate,
+                signDate: loan.signDate,
+                status: loan.status,
+                badDebtDate: loan.badDebtDate,
+                borrower: loan.borrower,
+                lead: loan.lead,
+                payments: loan.payments,
+                totalPaid,
+                totalDebt,
+                pendingDebt,
+                lastPaymentDate,
+                weeksWithoutPayment
+              });
+            }
+
+            console.log(`📊 getCartera - Resumen: ${activeLoans} activos, ${overdueLoans} vencidos, ${deadLoans} muertos`);
+
+            return {
+              route: {
+                id: route.id,
+                name: route.name
+              },
+              totalLoans: loans.length,
+              activeLoans,
+              overdueLoans,
+              deadLoans,
+              loans: processedLoans
+            };
+
+          } catch (error) {
+            console.error('Error in getCartera:', error);
+            throw new Error(`Error generating cartera report: ${error instanceof Error ? error.message : 'Unknown error'}`);
           }
         },
       }),

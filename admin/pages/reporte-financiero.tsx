@@ -62,6 +62,10 @@ interface FinancialReportData {
       totalInvestment: number;
       operationalExpenses: number;
       availableCash: number;
+      // Campos para gasolina
+      tokaGasolina: number;
+      cashGasolina: number;
+      totalGasolina: number;
     };
   };
 }
@@ -339,6 +343,54 @@ export default function ReporteFinancieroPage() {
                       return (
                         <td key={month} style={{ ...styles.td, backgroundColor: '#fef5e7', ...getValueColor(-data?.nomina || 0) }}>
                           {data?.nomina ? formatCurrency(data.nomina) : '-'}
+                        </td>
+                      );
+                    })}
+                  </tr>
+
+                  {/* Gasolina */}
+                  <tr style={{ backgroundColor: '#fef5e7' }}>
+                    <td style={{ ...styles.tdFirst, paddingLeft: '32px', backgroundColor: '#fef5e7' }}>
+                      ├─ Gasolina
+                    </td>
+                    {processedData.months.map((month, index) => {
+                      const monthKey = (index + 1).toString().padStart(2, '0');
+                      const data = processedData.data[monthKey];
+                      return (
+                        <td key={month} style={{ ...styles.td, backgroundColor: '#fef5e7', ...getValueColor(-data?.totalGasolina || 0) }}>
+                          {data?.totalGasolina ? formatCurrency(data.totalGasolina) : '-'}
+                        </td>
+                      );
+                    })}
+                  </tr>
+
+                  {/* Gasolina TOKA */}
+                  <tr style={{ backgroundColor: '#fef5e7' }}>
+                    <td style={{ ...styles.tdFirst, paddingLeft: '48px', backgroundColor: '#fef5e7' }}>
+                      ├─ TOKA
+                    </td>
+                    {processedData.months.map((month, index) => {
+                      const monthKey = (index + 1).toString().padStart(2, '0');
+                      const data = processedData.data[monthKey];
+                      return (
+                        <td key={month} style={{ ...styles.td, backgroundColor: '#fef5e7', ...getValueColor(-data?.tokaGasolina || 0) }}>
+                          {data?.tokaGasolina ? formatCurrency(data.tokaGasolina) : '-'}
+                        </td>
+                      );
+                    })}
+                  </tr>
+
+                  {/* Gasolina Efectivo */}
+                  <tr style={{ backgroundColor: '#fef5e7' }}>
+                    <td style={{ ...styles.tdFirst, paddingLeft: '48px', backgroundColor: '#fef5e7' }}>
+                      └─ Efectivo
+                    </td>
+                    {processedData.months.map((month, index) => {
+                      const monthKey = (index + 1).toString().padStart(2, '0');
+                      const data = processedData.data[monthKey];
+                      return (
+                        <td key={month} style={{ ...styles.td, backgroundColor: '#fef5e7', ...getValueColor(-data?.cashGasolina || 0) }}>
+                          {data?.cashGasolina ? formatCurrency(data.cashGasolina) : '-'}
                         </td>
                       );
                     })}

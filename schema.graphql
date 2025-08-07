@@ -2094,6 +2094,7 @@ type Query {
   getLoansReport(routeId: String!, year: Int!, month: Int!): JSON!
   getActiveLoansReport(routeId: String!, year: Int!, month: Int!, useActiveWeeks: Boolean!): JSON!
   getFinancialReport(routeId: String!, year: Int!): JSON!
+  getCartera(routeId: String!, weeksWithoutPayment: Int!): JSON!
   searchClients(searchTerm: String!, routeId: String, locationId: String, limit: Int = 20): [JSON!]!
   getClientHistory(clientId: String!, routeId: String, locationId: String): JSON!
 }
