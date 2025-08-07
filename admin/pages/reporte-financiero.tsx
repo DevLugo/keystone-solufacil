@@ -194,6 +194,27 @@ export default function ReporteFinancieroPage() {
     return styles.neutralValue;
   };
 
+  // Función para calcular totales anuales
+  const calculateAnnualTotals = () => {
+    if (!processedData) return {};
+    
+    const totals: any = {};
+    
+    // Calcular totales para cada campo
+    Object.keys(processedData.data).forEach(monthKey => {
+      const monthData = processedData.data[monthKey];
+      Object.keys(monthData).forEach(field => {
+        if (typeof monthData[field as keyof typeof monthData] === 'number') {
+          totals[field] = (totals[field] || 0) + (monthData[field as keyof typeof monthData] as number);
+        }
+      });
+    });
+    
+    return totals;
+  };
+
+  const annualTotals = calculateAnnualTotals();
+
   const routeOptions = routesData?.routes?.map((route: any) => ({
     label: route.name,
     value: route.id
@@ -269,6 +290,9 @@ export default function ReporteFinancieroPage() {
                         {month}
                       </th>
                     ))}
+                    <th style={{ ...styles.th, backgroundColor: '#1e40af', fontWeight: '700', fontSize: '12px' }}>
+                      TOTAL ANUAL
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -298,6 +322,17 @@ export default function ReporteFinancieroPage() {
                         </td>
                       );
                     })}
+                    <td style={{ 
+                      ...styles.td, 
+                      backgroundColor: '#fef2f2', 
+                      fontWeight: '700',
+                      fontSize: '12px',
+                      color: '#dc2626'
+                    }}>
+                      {annualTotals.totalExpenses && annualTotals.badDebtAmount 
+                        ? formatCurrency(annualTotals.totalExpenses + annualTotals.badDebtAmount) 
+                        : '-'}
+                    </td>
                   </tr>
 
                   {/* Gastos Operativos */}
@@ -442,11 +477,20 @@ export default function ReporteFinancieroPage() {
                         </td>
                       );
                     })}
+                    <td style={{ 
+                      ...styles.td, 
+                      backgroundColor: '#f0fdf4', 
+                      fontWeight: '700',
+                      fontSize: '12px',
+                      color: '#16a34a'
+                    }}>
+                      {annualTotals.incomes ? formatCurrency(annualTotals.incomes) : '-'}
+                    </td>
                   </tr>
 
                   {/* SECCIÓN: RESULTADOS FINANCIEROS */}
                   <tr style={{ backgroundColor: '#f3e5f5', fontWeight: '700' }}>
-                    <td colSpan={13} style={{
+                    <td colSpan={14} style={{
                       padding: '12px 16px',
                       textAlign: 'center',
                       color: '#4a148c',
@@ -485,6 +529,20 @@ export default function ReporteFinancieroPage() {
                         </td>
                       );
                     })}
+                    <td style={{ 
+                      ...styles.td, 
+                      backgroundColor: '#f8f9fa', 
+                      fontWeight: '700',
+                      fontSize: '12px',
+                      border: '2px solid #6c757d',
+                      color: '#16a34a'
+                    }}>
+                      {(() => {
+                        const gastosOperativosAnual = (annualTotals.operationalExpenses || 0) + (annualTotals.badDebtAmount || 0);
+                        const gananciasOperativasAnual = (annualTotals.incomes || 0) - gastosOperativosAnual;
+                        return gananciasOperativasAnual !== 0 ? formatCurrency(gananciasOperativasAnual) : '-';
+                      })()}
+                    </td>
                   </tr>
 
                   {/* % Ganancia Operativa */}
@@ -517,7 +575,7 @@ export default function ReporteFinancieroPage() {
 
                   {/* SECCIÓN: INVERSIÓN */}
                   <tr style={{ backgroundColor: '#e3f2fd', fontWeight: '700' }}>
-                    <td colSpan={13} style={{
+                    <td colSpan={14} style={{
                       padding: '12px 16px',
                       textAlign: 'center',
                       color: '#0d47a1',
@@ -570,11 +628,26 @@ export default function ReporteFinancieroPage() {
                         </td>
                       );
                     })}
+                    <td style={{ 
+                      ...styles.td, 
+                      backgroundColor: '#e8f5e8', 
+                      fontWeight: '700',
+                      fontSize: '12px',
+                      border: '2px solid #4caf50',
+                      color: '#16a34a'
+                    }}>
+                      {(() => {
+                        const gastosOperativosAnual = (annualTotals.operationalExpenses || 0) + (annualTotals.badDebtAmount || 0);
+                        const gananciasOperativasAnual = (annualTotals.incomes || 0) - gastosOperativosAnual;
+                        const resultadoFinalAnual = gananciasOperativasAnual - (annualTotals.loanDisbursements || 0);
+                        return resultadoFinalAnual !== 0 ? formatCurrency(resultadoFinalAnual) : '-';
+                      })()}
+                    </td>
                   </tr>
 
                   {/* SECCIÓN: PORTFOLIO */}
                   <tr style={{ backgroundColor: '#e8f5e8', fontWeight: '700' }}>
-                    <td colSpan={13} style={{
+                    <td colSpan={14} style={{
                       padding: '12px 16px',
                       textAlign: 'center',
                       color: '#2e7d32',

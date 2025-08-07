@@ -694,7 +694,7 @@ export const Loan = list({
         { label: 'ACTIVO', value: 'ACTIVE' },
         { label: 'FINALIZADO', value: 'FINISHED' },
         { label: 'RENOVADO', value: 'RENOVATED' },
-        { label: 'CANCELADO', value: 'CANCELED' },
+        { label: 'CANCELADO', value: 'CANCELLED' },
       ],
     }),
     isLastLoan: virtual({

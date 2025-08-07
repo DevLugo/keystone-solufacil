@@ -2714,8 +2714,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
         args: {
           routeId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
           weeksWithoutPayment: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
+          includeBadDebt: graphql.arg({ type: graphql.nonNull(graphql.Boolean) }),
+          analysisMonth: graphql.arg({ type: graphql.String }),
+          analysisYear: graphql.arg({ type: graphql.Int }),
+          includeOverdue: graphql.arg({ type: graphql.nonNull(graphql.Boolean) }),
+          includeOverdrawn: graphql.arg({ type: graphql.nonNull(graphql.Boolean) }),
         },
-        resolve: async (root, { routeId, weeksWithoutPayment }, context: Context) => {
+        resolve: async (root, { routeId, weeksWithoutPayment, includeBadDebt, analysisMonth, analysisYear, includeOverdue, includeOverdrawn }, context: Context) => {
           try {
             console.log(`🔍 getCartera - Procesando ruta ${routeId} con ${weeksWithoutPayment} semanas sin pago`);
 
@@ -2740,7 +2745,15 @@ export const extendGraphqlSchema = graphql.extend(base => {
               include: {
                 borrower: {
                   include: {
-                    personalData: true
+                    personalData: {
+                      include: {
+                        addresses: {
+                          include: {
+                            location: true
+                          }
+                        }
+                      }
+                    }
                   }
                 },
                 lead: {
@@ -2752,7 +2765,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   orderBy: {
                     receivedAt: 'asc'
                   }
-                }
+                },
+                loantype: true
               }
             });
 
@@ -2784,33 +2798,92 @@ export const extendGraphqlSchema = graphql.extend(base => {
               // Calcular deuda pendiente
               const pendingDebt = Math.max(0, totalDebt - totalPaid);
 
-              // Calcular semanas sin pago
+              // Determinar fecha de análisis (histórica o actual)
+              let analysisDate = new Date();
+              if (analysisMonth && analysisYear) {
+                const month = parseInt(analysisMonth) - 1; // Mes en JS es 0-indexed
+                const lastDay = new Date(analysisYear, month + 1, 0); // Último día del mes
+                const dayOfWeek = lastDay.getDay();
+                
+                // Si es domingo (0), retroceder al sábado (6)
+                // Si es sábado (6), mantener
+                // Si es otro día, retroceder al sábado anterior
+                if (dayOfWeek === 0) {
+                  lastDay.setDate(lastDay.getDate() - 1);
+                } else if (dayOfWeek !== 6) {
+                  lastDay.setDate(lastDay.getDate() - (dayOfWeek + 1));
+                }
+                
+                analysisDate = lastDay;
+              }
+
+              // Calcular semanas sin pago hasta la fecha de análisis
               let weeksWithoutPayment = 0;
               if (lastPaymentDate) {
                 const lastPayment = new Date(lastPaymentDate);
-                const diffTime = today.getTime() - lastPayment.getTime();
+                const diffTime = analysisDate.getTime() - lastPayment.getTime();
                 const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
-                weeksWithoutPayment = diffWeeks;
+                weeksWithoutPayment = Math.max(0, diffWeeks); // No permitir valores negativos
+                
+                // Debug log para valores negativos
+                if (diffWeeks < 0) {
+                  console.log(`⚠️ Préstamo ${loan.id}: Último pago (${lastPaymentDate}) es DESPUÉS de fecha análisis (${analysisDate.toISOString()}). Semanas: ${diffWeeks} -> ${weeksWithoutPayment}`);
+                }
               } else {
                 // Si no hay pagos, calcular desde la fecha de firma
                 const signDate = new Date(loan.signDate);
-                const diffTime = today.getTime() - signDate.getTime();
+                const diffTime = analysisDate.getTime() - signDate.getTime();
                 const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
-                weeksWithoutPayment = diffWeeks;
+                weeksWithoutPayment = Math.max(0, diffWeeks); // No permitir valores negativos
+                
+                // Debug log para valores negativos
+                if (diffWeeks < 0) {
+                  console.log(`⚠️ Préstamo ${loan.id}: Fecha firma (${loan.signDate}) es DESPUÉS de fecha análisis (${analysisDate.toISOString()}). Semanas: ${diffWeeks} -> ${weeksWithoutPayment}`);
+                }
               }
 
-              // Determinar estado
+              // Filtrar solo préstamos activos (no finalizados, renovados o cancelados)
+              const isFinishedStatus = ['FINISHED', 'RENOVATED', 'CANCELLED'].includes(loan.status);
+              if (isFinishedStatus) {
+                continue; // Saltar préstamos finalizados/renovados/cancelados
+              }
+
+              // Calcular si el préstamo está sobregirado (pasó de su plazo original)
+              const originalWeeksDuration = (loan as any).loantype?.weekDuration || 14;
+              const totalWeeksSinceSign = Math.floor((analysisDate.getTime() - new Date(loan.signDate).getTime()) / (1000 * 60 * 60 * 24 * 7));
+              const isOverdue = totalWeeksSinceSign > originalWeeksDuration;
+
+              // Determinar estado solo para préstamos activos
               let status = 'ACTIVE';
               if (loan.badDebtDate) {
                 status = 'DEAD';
                 deadLoans++;
-              } else if (loan.status === 'FINISHED') {
-                status = 'FINISHED';
               } else if (weeksWithoutPayment >= weeksWithoutPayment) {
                 status = 'OVERDUE';
                 overdueLoans++;
               } else {
                 activeLoans++;
+              }
+
+              // Filtrar por badDebtDate según el parámetro includeBadDebt
+              if (loan.badDebtDate && !includeBadDebt) {
+                continue; // Saltar préstamos marcados como badDebtDate si no se incluyen
+              }
+              if (!loan.badDebtDate && includeBadDebt) {
+                continue; // Saltar préstamos NO marcados como badDebtDate si solo se quieren los marcados
+              }
+
+              // Calcular si el préstamo está en sobregiro (pagó más de lo que debía)
+              const isOverdrawn = totalPaid > totalDebt;
+
+              // Filtrar por sobregirado si se solicita (DESPUÉS de verificar semanas sin pago)
+              if (includeOverdue && !isOverdue) {
+                continue; // Saltar préstamos que NO están sobregirados si solo se quieren los sobregirados
+              }
+
+              // Filtrar por sobregiro si se solicita
+              if (includeOverdrawn && !isOverdrawn) {
+                continue; // Saltar préstamos que NO están en sobregiro si solo se quieren los sobregirados
               }
 
               processedLoans.push({
@@ -2827,11 +2900,17 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 totalDebt,
                 pendingDebt,
                 lastPaymentDate,
-                weeksWithoutPayment
+                weeksWithoutPayment,
+                originalWeeksDuration,
+                isOverdue,
+                isOverdrawn
               });
             }
 
-            console.log(`📊 getCartera - Resumen: ${activeLoans} activos, ${overdueLoans} vencidos, ${deadLoans} muertos`);
+            // Calcular total de deuda pendiente
+            const totalPendingDebt = processedLoans.reduce((total, loan) => total + loan.pendingDebt, 0);
+
+            console.log(`📊 getCartera - Resumen: ${activeLoans} activos, ${overdueLoans} vencidos, ${deadLoans} muertos, deuda total: ${totalPendingDebt}`);
 
             return {
               route: {
@@ -2842,6 +2921,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               activeLoans,
               overdueLoans,
               deadLoans,
+              totalPendingDebt,
               loans: processedLoans
             };
 
