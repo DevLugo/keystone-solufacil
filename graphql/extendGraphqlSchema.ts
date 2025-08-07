@@ -2034,18 +2034,18 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   }
                 }
 
-                // Verificar si el préstamo tiene badDetDate y si estamos después de esa fecha
+                // Verificar si el préstamo tiene badDebtDate y si estamos después de esa fecha
                 let isBadDebtAfterDate = false;
-                if (loan.badDetDate) {
-                  const badDetDate = new Date(loan.badDetDate);
-                  if (weekEnd > badDetDate) {
+                if (loan.badDebtDate) {
+                  const badDebtDate = new Date(loan.badDebtDate);
+                  if (weekEnd > badDebtDate) {
                     isBadDebtAfterDate = true;
                   }
                 }
 
                 // Solo contar como CV si:
                 // 1. No recibió pagos en la semana
-                // 2. Y NO tiene badDetDate o estamos antes del badDetDate
+                // 2. Y NO tiene badDebtDate o estamos antes del badDebtDate
                 if (!hasPaymentInWeek && !isBadDebtAfterDate) {
                   data.cv++;
                   data.cvAmount += Number(loan.amountGived || 0);
@@ -2159,30 +2159,17 @@ export const extendGraphqlSchema = graphql.extend(base => {
           try {
             // Obtener información de la ruta
             const route = await context.prisma.route.findUnique({
-              where: { id: routeId },
-              include: { accounts: true }
+              where: { id: routeId }
             });
 
             if (!route) {
               throw new Error('Ruta no encontrada');
             }
 
-            // Obtener cuentas de efectivo y banco de la ruta
-            const cashAccount = route.accounts.find(acc => acc.type === 'EMPLOYEE_CASH_FUND');
-            const bankAccount = route.accounts.find(acc => acc.type === 'BANK');
-            const accounts = [cashAccount?.id, bankAccount?.id].filter(Boolean) as string[];
-
-            if (accounts.length === 0) {
-              throw new Error('No se encontraron cuentas para la ruta');
-            }
-
             // Obtener todas las transacciones del año para esta ruta
             const transactions = await context.prisma.transaction.findMany({
               where: {
-                OR: [
-                  { sourceAccountId: { in: accounts } },
-                  { destinationAccountId: { in: accounts } }
-                ],
+                routeId: routeId,
                 date: {
                   gte: new Date(`${year}-01-01`),
                   lte: new Date(`${year}-12-31`),
@@ -2218,17 +2205,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
             });
 
-            // Obtener préstamos del año para calcular cartera activa
+            // Obtener TODOS los préstamos de la ruta (sin filtrar por signDate)
             const loans = await context.prisma.loan.findMany({
               where: {
                 lead: {
                   routes: {
                     id: routeId
                   }
-                },
-                signDate: {
-                  gte: new Date(`${year}-01-01`),
-                  lte: new Date(`${year}-12-31`),
                 }
               },
               include: {
@@ -2248,6 +2231,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
               }
             });
+            //filter loans by badDebtDate = to january 2025
+            console.log('loans', loans.length);
+            const loansWithBadDebtDate = loans.filter(loan => loan.badDebtDate);
+            console.log('loansWithBadDebtDate', loansWithBadDebtDate.length);
 
             // Agrupar transacciones por mes
             const monthlyData = transactions.reduce((acc, transaction) => {
@@ -2266,7 +2253,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   loanDisbursements: 0,  // Préstamos otorgados (reinversión)
                   carteraActiva: 0,      // Créditos activos
                   carteraVencida: 0,     // Cartera vencida
-                  renovados: 0,          // Créditos renovados
+                  renovados: 0,
+                  badDebtAmount: 0,      // Suma de préstamos marcados como badDebtDate en el mes          // Créditos renovados
                   // Nuevos campos para flujo de efectivo
                   totalIncomingCash: 0,  // Total que entra por pagos (capital + ganancia)
                   capitalReturn: 0,      // Capital devuelto
@@ -2371,6 +2359,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
               const monthKey = month.toString().padStart(2, '0');
               const monthStart = new Date(year, month - 1, 1);
               const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
+              console.log('monthStart', monthStart);
+              console.log('monthEnd', monthEnd);
               
               if (!monthlyData[monthKey]) {
                 monthlyData[monthKey] = {
@@ -2378,6 +2368,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   incomes: 0, totalCash: 0, loanDisbursements: 0, balance: 0,
                   profitPercentage: 0, balanceWithReinvest: 0, carteraActiva: 0,
                   carteraVencida: 0, carteraMuerta: 0, renovados: 0,
+                  badDebtAmount: 0,      // Suma de préstamos marcados como badDebtDate en el mes
                   totalIncomingCash: 0, capitalReturn: 0, profitReturn: 0, 
                   operationalCashUsed: 0, totalInvestment: 0, operationalExpenses: 0, 
                   availableCash: 0
@@ -2397,6 +2388,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
               loans.forEach(loan => {
                 const signDate = new Date(loan.signDate);
+                /*   if(loan.badDebtDate) {
+                    console.log('badDebtDate', loan.badDebtDate);
+                  } */
                 
                 // Solo procesar préstamos firmados hasta este mes
                 if (signDate <= monthEnd) {
@@ -2416,13 +2410,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
                       }
                     }
                     
-                    if (!hasPaymentInMonth && loan.badDetDate && new Date(loan.badDetDate) <= monthEnd) {
+                    if (!hasPaymentInMonth && loan.badDebtDate && new Date(loan.badDebtDate) <= monthEnd) {
                       overdueLoans++;
                     }
                   }
                   
-                  // Contar cartera muerta (préstamos con badDetDate establecido al final del mes)
-                  if (loan.badDetDate && new Date(loan.badDetDate) <= monthEnd) {
+                  // Contar cartera muerta (préstamos con badDebtDate establecido al final del mes)
+                  if (loan.badDebtDate && new Date(loan.badDebtDate) <= monthEnd) {
                     deadLoans++;
                   }
                   
@@ -2437,6 +2431,117 @@ export const extendGraphqlSchema = graphql.extend(base => {
               monthlyData[monthKey].carteraVencida = overdueLoans;
               monthlyData[monthKey].carteraMuerta = deadLoans;
               monthlyData[monthKey].renovados = renewedLoans;
+              // Calcular suma de préstamos marcados como badDebtDate en este mes
+              // (sin importar cuándo fueron creados originalmente)
+              let badDebtAmount = 0;
+              console.log(`🔍 getFinancialReport - Procesando mes ${monthKey}: monthStart=${monthStart.toISOString()}, monthEnd=${monthEnd.toISOString()}`);
+              
+              // Buscar SOLO los préstamos que fueron marcados como badDebtDate EN ESTE MES específico
+              console.log(`🔍 getFinancialReport - Total de préstamos en la ruta: ${loans.length}`);
+              console.log(`🔍 getFinancialReport - Buscando préstamos marcados como badDebtDate EN ${monthKey}:`);
+              
+              const badDebtLoans = loans.filter(loan => {
+                if (!loan.badDebtDate) return false;
+                
+                const badDebtDate = new Date(loan.badDebtDate);
+                console.log(`📅 getFinancialReport - Loan ${loan.id}: badDebtDate=${badDebtDate.toISOString()}, original=${loan.badDebtDate}`);
+                
+                // Comparar solo por fecha (sin hora) para evitar problemas de zona horaria
+                const badDebtDateOnly = new Date(badDebtDate.getFullYear(), badDebtDate.getMonth(), badDebtDate.getDate());
+                const monthStartOnly = new Date(monthStart.getFullYear(), monthStart.getMonth(), monthStart.getDate());
+                const monthEndOnly = new Date(monthEnd.getFullYear(), monthEnd.getMonth(), monthEnd.getDate());
+                
+                console.log(`🔍 getFinancialReport - Comparando fechas: badDebtDateOnly=${badDebtDateOnly.toISOString()}, monthStartOnly=${monthStartOnly.toISOString()}, monthEndOnly=${monthEndOnly.toISOString()}`);
+                
+                // SOLO incluir si fue marcado EN ESTE MES específico
+                const isMarkedInThisMonth = badDebtDateOnly >= monthStartOnly && badDebtDateOnly <= monthEndOnly;
+                
+                if (isMarkedInThisMonth) {
+                  console.log(`✅ getFinancialReport - Loan ${loan.id} marcado como bad debt EN ${monthKey}`);
+                } else {
+                  console.log(`❌ getFinancialReport - Loan ${loan.id} NO fue marcado en ${monthKey} (fue marcado en ${badDebtDateOnly.getMonth() + 1}/${badDebtDateOnly.getFullYear()})`);
+                }
+                
+                return isMarkedInThisMonth;
+              });
+              
+              console.log(`📊 getFinancialReport - Encontrados ${badDebtLoans.length} préstamos marcados como bad debt en mes ${monthKey}`);
+              
+              // Calcular la deuda pendiente para cada préstamo marcado como bad debt
+              badDebtLoans.forEach(loan => {
+                const badDebtDate = new Date(loan.badDebtDate!);
+                
+                // Calcular deuda pendiente: monto prestado + ganancia - total pagado
+                const amountGived = Number(loan.amountGived || 0);
+                const profitAmount = Number(loan.profitAmount || 0);
+                const totalToPay = amountGived + profitAmount;
+                
+                // Calcular total pagado hasta la fecha de marcado como bad debt
+                let totalPaid = 0;
+                for (const payment of loan.payments || []) {
+                  const paymentDate = new Date(payment.receivedAt || payment.createdAt || new Date());
+                  if (paymentDate <= badDebtDate) {
+                    totalPaid += Number(payment.amount || 0);
+                  }
+                }
+                
+                // La deuda pendiente es lo que falta por pagar
+                const pendingDebt = totalToPay - totalPaid;
+                console.log(`💰 getFinancialReport - Loan ${loan.id}: amountGived=${amountGived}, profitAmount=${profitAmount}, totalToPay=${totalToPay}, totalPaid=${totalPaid}, pendingDebt=${pendingDebt}`);
+                
+                badDebtAmount += Math.max(0, pendingDebt);
+              });
+              
+              console.log(`�� getFinancialReport - Mes ${monthKey}: badDebtAmount total = ${badDebtAmount}`);
+              monthlyData[monthKey].badDebtAmount = badDebtAmount;
+              
+              // Calcular cartera muerta para este mes
+              let carteraMuertaTotal = 0;
+              console.log(`💀 getFinancialReport - Calculando cartera muerta para mes ${monthKey}:`);
+              
+              // Buscar préstamos marcados como badDebtDate hasta el final de este mes
+              deadLoans = loans.filter(loan => {
+                if (!loan.badDebtDate) return false;
+                const badDebtDate = new Date(loan.badDebtDate);
+                return badDebtDate <= monthEnd;
+              });
+              
+              console.log(`💀 getFinancialReport - Encontrados ${deadLoans.length} préstamos marcados como bad debt hasta ${monthKey}`);
+              
+              deadLoans.forEach(loan => {
+                // Calcular deuda pendiente
+                const amountGived = Number(loan.amountGived || 0);
+                const profitAmount = Number(loan.profitAmount || 0);
+                const totalToPay = amountGived + profitAmount;
+                
+                // Calcular total pagado hasta la fecha de marcado como bad debt
+                let totalPaid = 0;
+                let gananciaCobrada = 0;
+                for (const payment of loan.payments || []) {
+                  const paymentDate = new Date(payment.receivedAt || payment.createdAt || new Date());
+                  if (paymentDate <= new Date(loan.badDebtDate!)) {
+                    totalPaid += Number(payment.amount || 0);
+                    // La ganancia cobrada se calcula del profitAmount del pago
+                    gananciaCobrada += Number(payment.profitAmount || 0);
+                  }
+                }
+                
+                // Deuda pendiente
+                const deudaPendiente = totalToPay - totalPaid;
+                
+                // Ganancia pendiente por cobrar
+                const gananciaPendiente = profitAmount - gananciaCobrada;
+                
+                // Cartera muerta = Deuda pendiente - Ganancia pendiente por cobrar
+                const carteraMuerta = deudaPendiente - gananciaPendiente;
+                
+                console.log(`💀 getFinancialReport - Loan ${loan.id}: amountGived=${amountGived}, profitAmount=${profitAmount}, totalToPay=${totalToPay}, totalPaid=${totalPaid}, gananciaCobrada=${gananciaCobrada}, deudaPendiente=${deudaPendiente}, gananciaPendiente=${gananciaPendiente}, carteraMuerta=${carteraMuerta}`);
+                
+                carteraMuertaTotal += Math.max(0, carteraMuerta);
+              });
+              
+              console.log(`💀 getFinancialReport - Mes ${monthKey}: carteraMuertaTotal = ${carteraMuertaTotal}`);
+              monthlyData[monthKey].carteraMuerta = carteraMuertaTotal;
             }
 
             // Función helper para verificar si un préstamo está activo
@@ -2929,7 +3034,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               } else if (isPaidOff) {
                 loanStatus = 'PAGADO';
                 statusDescription = 'Monto completo pagado, pendiente de marcar como finalizado';
-              } else if (loan.badDetDate && new Date(loan.badDetDate) <= today) {
+              } else if (loan.badDebtDate && new Date(loan.badDebtDate) <= today) {
                 loanStatus = 'CARTERA MUERTA';
                 statusDescription = 'Marcado como cartera muerta - irrecuperable';
               } else {

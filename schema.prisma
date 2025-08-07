@@ -12,12 +12,13 @@ generator client {
 }
 
 model User {
-  id        String    @id @default(cuid())
-  name      String    @default("")
-  email     String    @unique @default("")
-  password  String?
-  role      String?   @default("NORMAL")
-  createdAt DateTime? @default(now())
+  id                 String     @id @default(cuid())
+  name               String     @default("")
+  email              String     @unique @default("")
+  password           String?
+  role               String?    @default("NORMAL")
+  createdAt          DateTime?  @default(now())
+  from_AuditLog_user AuditLog[] @relation("AuditLog_user")
 }
 
 model Employee {
@@ -39,11 +40,12 @@ model Employee {
 }
 
 model Route {
-  id         String     @id @default(cuid())
-  name       String     @default("")
-  employees  Employee[] @relation("Employee_routes")
-  localities Location[] @relation("Location_route")
-  accounts   Account[]  @relation("Account_route")
+  id           String        @id @default(cuid())
+  name         String        @default("")
+  employees    Employee[]    @relation("Employee_routes")
+  localities   Location[]    @relation("Location_route")
+  accounts     Account[]     @relation("Account_route")
+  transactions Transaction[] @relation("Transaction_route")
 }
 
 model Location {
@@ -152,6 +154,8 @@ model Loan {
   transactions           Transaction[]       @relation("Transaction_loan")
   lead                   Employee?           @relation("Loan_lead", fields: [leadId], references: [id])
   leadId                 String?             @map("lead")
+  snapshotLeadId         String?
+  snapshotLeadAssignedAt DateTime?
   borrower               Borrower?           @relation("Loan_borrower", fields: [borrowerId], references: [id])
   borrowerId             String?             @map("borrower")
   previousLoan           Loan?               @relation("Loan_previousLoan", fields: [previousLoanId], references: [id])
@@ -164,11 +168,6 @@ model Loan {
   status                 String?
   snapshotRouteId        String              @default("")
   snapshotRouteName      String              @default("")
-  snapshotLocationId     String              @default("")
-  snapshotLocationName   String              @default("")
-  snapshotLeadId         String?
-  snapshotLeadName       String?
-  snapshotLeadAssignedAt DateTime?
   from_Loan_previousLoan Loan[]              @relation("Loan_previousLoan")
 
   @@index([loantypeId])
@@ -206,8 +205,11 @@ model Transaction {
   incomeSource         String?
   expenseSource        String?
   description          String       @default("")
+  route                Route?       @relation("Transaction_route", fields: [routeId], references: [id])
+  routeId              String?      @map("route")
   lead                 Employee?    @relation("Transaction_lead", fields: [leadId], references: [id])
   leadId               String?      @map("lead")
+  snapshotLeadId       String       @default("")
   sourceAccount        Account?     @relation("Transaction_sourceAccount", fields: [sourceAccountId], references: [id])
   sourceAccountId      String?      @map("sourceAccount")
   destinationAccount   Account?     @relation("Transaction_destinationAccount", fields: [destinationAccountId], references: [id])
@@ -218,13 +220,10 @@ model Transaction {
   loanPaymentId        String?      @map("loanPayment")
   profitAmount         Decimal?     @default("0") @postgresql.Decimal(10, 2)
   returnToCapital      Decimal?     @default("0") @postgresql.Decimal(10, 2)
-  snapshotRouteId      String       @default("")
-  snapshotRouteName    String       @default("")
-  snapshotLocationId   String       @default("")
-  snapshotLocationName String       @default("")
   createdAt            DateTime?    @default(now())
   updatedAt            DateTime?
 
+  @@index([routeId])
   @@index([leadId])
   @@index([sourceAccountId])
   @@index([destinationAccountId])
@@ -294,4 +293,31 @@ model Account {
   createdAt            DateTime?     @default(now())
 
   @@index([routeId])
+}
+
+model AuditLog {
+  id             String    @id @default(cuid())
+  operation      String?
+  modelName      String    @default("")
+  recordId       String    @default("")
+  userName       String    @default("")
+  userEmail      String    @default("")
+  userRole       String    @default("")
+  sessionId      String    @default("")
+  ipAddress      String    @default("")
+  userAgent      String    @default("")
+  previousValues Json?
+  newValues      Json?
+  changedFields  Json?
+  description    String    @default("")
+  metadata       Json?
+  createdAt      DateTime? @default(now())
+  user           User?     @relation("AuditLog_user", fields: [userId], references: [id])
+  userId         String?   @map("user")
+
+  @@index([operation])
+  @@index([modelName])
+  @@index([recordId])
+  @@index([createdAt])
+  @@index([userId])
 }

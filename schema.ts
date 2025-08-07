@@ -285,7 +285,8 @@ export const Route = list({
     name: text(),
     employees: relationship({ ref: 'Employee.routes', many: true }),
     localities: relationship({ ref: 'Location.route', many: true }),
-    accounts: relationship({ ref: 'Account.route', many: true })
+    accounts: relationship({ ref: 'Account.route', many: true }),
+    transactions: relationship({ ref: 'Transaction.route', many: true }),
   }
 });
 
@@ -562,8 +563,6 @@ export const Loan = list({
     lead: relationship({ ref: 'Employee.LeadManagedLoans' }),
     // Snapshot del líder que asignó el crédito (backup histórico)
     snapshotLeadId: text({ db: { isNullable: true } }),
-    // Snapshot del nombre del líder original
-    snapshotLeadName: text({ db: { isNullable: true } }),
     // Fecha cuando se asignó el líder original
     snapshotLeadAssignedAt: timestamp({ validation: { isRequired: false } }),
     borrower: relationship({
@@ -735,22 +734,6 @@ export const Loan = list({
         itemView: { fieldMode: 'read' },
       }
     }),
-    snapshotLocationId: text({
-      label: 'Snapshot Location ID',
-      ui: {
-        description: 'ID de la localidad al momento de crear el préstamo (para reportes históricos)',
-        createView: { fieldMode: 'hidden' },
-        itemView: { fieldMode: 'read' },
-      }
-    }),
-    snapshotLocationName: text({
-      label: 'Snapshot Location Name',
-      ui: {
-        description: 'Nombre de la localidad al momento de crear el préstamo (para reportes históricos)',
-        createView: { fieldMode: 'hidden' },
-        itemView: { fieldMode: 'read' },
-      }
-    }),
   },
   hooks: {
     beforeOperation: async ({ operation, item, context, resolvedData }) => {
@@ -801,10 +784,9 @@ export const Loan = list({
 
             // Capturar snapshot del líder
             resolvedData.snapshotLeadId = leadId;
-            resolvedData.snapshotLeadName = leadData.personalData?.fullName || 'Sin nombre';
             resolvedData.snapshotLeadAssignedAt = new Date();
 
-            console.log(`📊 Snapshot capturado para loan ${operation}: Lead ${leadId} (${resolvedData.snapshotLeadName}) → Ruta ${resolvedData.snapshotRouteName}, Localidad ${resolvedData.snapshotLocationName}`);
+            console.log(`📊 Snapshot capturado para loan ${operation}: Lead ${leadId} → Ruta ${resolvedData.snapshotRouteName}, Localidad ${resolvedData.snapshotLocationName}`);
           }
         } catch (error) {
           console.error('Error capturing historical snapshot for loan:', error);
@@ -1393,7 +1375,9 @@ export const Transaction = list({
       ],
     }),
     description: text(),
+    route: relationship({ ref: 'Route.transactions' }),
     lead: relationship({ ref: 'Employee.transactions' }),
+    snapshotLeadId: text(),
     sourceAccount: relationship({ ref: 'Account.transactions' }),
     destinationAccount: relationship({ ref: 'Account.receivedTransactions' }),
     loan: relationship({ ref: 'Loan.transactions' }),
@@ -1407,39 +1391,6 @@ export const Transaction = list({
       precision: 10,
       scale: 2,
       defaultValue: "0",
-    }),
-    // Campos de tracking histórico para reportes precisos
-    snapshotRouteId: text({
-      label: 'Snapshot Route ID',
-      ui: {
-        description: 'ID de la ruta al momento de crear la transacción (para reportes históricos)',
-        createView: { fieldMode: 'hidden' },
-        itemView: { fieldMode: 'read' },
-      }
-    }),
-    snapshotRouteName: text({
-      label: 'Snapshot Route Name',
-      ui: {
-        description: 'Nombre de la ruta al momento de crear la transacción (para reportes históricos)',
-        createView: { fieldMode: 'hidden' },
-        itemView: { fieldMode: 'read' },
-      }
-    }),
-    snapshotLocationId: text({
-      label: 'Snapshot Location ID',
-      ui: {
-        description: 'ID de la localidad al momento de crear la transacción (para reportes históricos)',
-        createView: { fieldMode: 'hidden' },
-        itemView: { fieldMode: 'read' },
-      }
-    }),
-    snapshotLocationName: text({
-      label: 'Snapshot Location Name',
-      ui: {
-        description: 'Nombre de la localidad al momento de crear la transacción (para reportes históricos)',
-        createView: { fieldMode: 'hidden' },
-        itemView: { fieldMode: 'read' },
-      }
     }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),

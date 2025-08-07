@@ -8,7 +8,6 @@ import { useQuery } from '@apollo/client';
 import { LoadingDots } from '@keystone-ui/loading';
 import { Button } from '@keystone-ui/button';
 import { Select } from '@keystone-ui/fields';
-import { SidebarFilter } from '../components/SidebarFilter';
 import { GET_ROUTES_FOR_PDF, GET_ROUTE_LOCALITIES } from '../graphql/queries/pdf-reports';
 
 interface Route {
@@ -178,7 +177,6 @@ export default function GenerarPDFsPage() {
   if (routesLoading) {
     return (
       <PageContainer header={<Heading type="h1">Generar PDFs de Cobranza</Heading>}>
-        <SidebarFilter />
         <div css={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
           <LoadingDots label="Cargando rutas" size="large" tone="active" />
         </div>
@@ -189,7 +187,6 @@ export default function GenerarPDFsPage() {
   if (routesError) {
     return (
       <PageContainer header={<Heading type="h1">Generar PDFs de Cobranza</Heading>}>
-        <SidebarFilter />
         <div css={{ color: 'red', padding: '20px' }}>
           Error al cargar las rutas: {routesError.message}
         </div>
@@ -233,7 +230,6 @@ export default function GenerarPDFsPage() {
 
   return (
     <PageContainer header={<Heading type="h1">Generar PDFs de Cobranza</Heading>}>
-      <SidebarFilter />
       <div css={containerStyle}>
         
         {/* Sección de selección de ruta */}

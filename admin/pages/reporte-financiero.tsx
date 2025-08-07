@@ -52,6 +52,7 @@ interface FinancialReportData {
       carteraVencida: number;
       carteraMuerta: number;
       renovados: number;
+      badDebtAmount: number;
       // Campos de flujo de efectivo
       totalIncomingCash: number;
       capitalReturn: number;
@@ -286,9 +287,10 @@ export default function ReporteFinancieroPage() {
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
                       const data = processedData.data[monthKey];
+                      const gastosTotales = (data?.totalExpenses || 0) + (data?.badDebtAmount || 0);
                       return (
-                        <td key={month} style={{ ...styles.td, ...getValueColor(-data?.totalExpenses || 0), fontWeight: '600' }}>
-                          {data?.totalExpenses ? formatCurrency(data.totalExpenses) : '-'}
+                        <td key={month} style={{ ...styles.td, ...getValueColor(-gastosTotales), fontWeight: '600' }}>
+                          {gastosTotales > 0 ? formatCurrency(gastosTotales) : '-'}
                         </td>
                       );
                     })}
@@ -329,7 +331,7 @@ export default function ReporteFinancieroPage() {
                   {/* Nómina */}
                   <tr style={{ backgroundColor: '#fef5e7' }}>
                     <td style={{ ...styles.tdFirst, paddingLeft: '32px', backgroundColor: '#fef5e7' }}>
-                      └─ Nómina
+                      ├─ Nómina
                     </td>
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
@@ -337,6 +339,27 @@ export default function ReporteFinancieroPage() {
                       return (
                         <td key={month} style={{ ...styles.td, backgroundColor: '#fef5e7', ...getValueColor(-data?.nomina || 0) }}>
                           {data?.nomina ? formatCurrency(data.nomina) : '-'}
+                        </td>
+                      );
+                    })}
+                  </tr>
+
+                  {/* Deuda Mala */}
+                  <tr style={{ backgroundColor: '#fef5e7' }}>
+                    <td style={{ ...styles.tdFirst, paddingLeft: '32px', backgroundColor: '#fef5e7' }}>
+                      └─ Deuda Mala
+                    </td>
+                    {processedData.months.map((month, index) => {
+                      const monthKey = (index + 1).toString().padStart(2, '0');
+                      const data = processedData.data[monthKey];
+                      return (
+                        <td key={month} style={{ 
+                          ...styles.td, 
+                          backgroundColor: '#fef5e7', 
+                          ...getValueColor(-data?.badDebtAmount || 0),
+                          color: data?.badDebtAmount > 0 ? '#d32f2f' : '#666'
+                        }}>
+                          {data?.badDebtAmount ? formatCurrency(data.badDebtAmount) : '-'}
                         </td>
                       );
                     })}
@@ -395,8 +418,9 @@ export default function ReporteFinancieroPage() {
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
                       const data = processedData.data[monthKey];
-                      // Ganancias = Ingresos - Gastos Operativos (sin préstamos)
-                      const gananciasOperativas = (data?.incomes || 0) - (data?.operationalExpenses || 0);
+                      // Ganancias = Ingresos - Gastos Operativos (sin préstamos) - Deuda Mala
+                      const gastosOperativos = (data?.operationalExpenses || 0) + (data?.badDebtAmount || 0);
+                      const gananciasOperativas = (data?.incomes || 0) - gastosOperativos;
                       return (
                         <td key={month} style={{ 
                           ...styles.td, 
@@ -419,7 +443,8 @@ export default function ReporteFinancieroPage() {
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
                       const data = processedData.data[monthKey];
-                      const gananciasOperativas = (data?.incomes || 0) - (data?.operationalExpenses || 0);
+                      const gastosOperativos = (data?.operationalExpenses || 0) + (data?.badDebtAmount || 0);
+                      const gananciasOperativas = (data?.incomes || 0) - gastosOperativos;
                       const porcentajeOperativo = data?.incomes > 0 
                         ? (gananciasOperativas / data.incomes * 100) 
                         : 0;
@@ -435,6 +460,8 @@ export default function ReporteFinancieroPage() {
                       );
                     })}
                   </tr>
+
+
 
                   {/* SECCIÓN: INVERSIÓN */}
                   <tr style={{ backgroundColor: '#e3f2fd', fontWeight: '700' }}>
@@ -476,7 +503,8 @@ export default function ReporteFinancieroPage() {
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
                       const data = processedData.data[monthKey];
-                      const gananciasOperativas = (data?.incomes || 0) - (data?.operationalExpenses || 0);
+                      const gastosOperativos = (data?.operationalExpenses || 0) + (data?.badDebtAmount || 0);
+                      const gananciasOperativas = (data?.incomes || 0) - gastosOperativos;
                       const resultadoFinal = gananciasOperativas - (data?.loanDisbursements || 0);
                       return (
                         <td key={month} style={{ 
@@ -584,6 +612,27 @@ export default function ReporteFinancieroPage() {
                           color: '#1976d2'
                         }}>
                           {data?.renovados || 0}
+                        </td>
+                      );
+                    })}
+                  </tr>
+
+                  {/* Deuda Mala */}
+                  <tr style={{ backgroundColor: '#fff3e0' }}>
+                    <td style={{ ...styles.tdFirst, backgroundColor: '#fff3e0' }}>
+                      💀 DEUDA MALA
+                    </td>
+                    {processedData.months.map((month, index) => {
+                      const monthKey = (index + 1).toString().padStart(2, '0');
+                      const data = processedData.data[monthKey];
+                      return (
+                        <td key={month} style={{ 
+                          ...styles.td, 
+                          backgroundColor: '#fff3e0',
+                          fontWeight: '600',
+                          color: data?.badDebtAmount > 0 ? '#d32f2f' : '#666'
+                        }}>
+                          {data?.badDebtAmount ? formatCurrency(data.badDebtAmount) : '-'}
                         </td>
                       );
                     })}
