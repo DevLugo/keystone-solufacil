@@ -7,6 +7,8 @@ type User {
   email: String
   password: PasswordState
   role: String
+  portfolioCleanups(where: PortfolioCleanupWhereInput! = {}, orderBy: [PortfolioCleanupOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: PortfolioCleanupWhereUniqueInput): [PortfolioCleanup!]
+  portfolioCleanupsCount(where: PortfolioCleanupWhereInput! = {}): Int
   createdAt: DateTime
 }
 
@@ -30,6 +32,7 @@ input UserWhereInput {
   email: StringFilter
   password: PasswordFilter
   role: StringNullableFilter
+  portfolioCleanups: PortfolioCleanupManyRelationFilter
   createdAt: DateTimeNullableFilter
 }
 
@@ -97,6 +100,12 @@ input StringNullableFilter {
   not: StringNullableFilter
 }
 
+input PortfolioCleanupManyRelationFilter {
+  every: PortfolioCleanupWhereInput
+  some: PortfolioCleanupWhereInput
+  none: PortfolioCleanupWhereInput
+}
+
 input DateTimeNullableFilter {
   equals: DateTime
   in: [DateTime!]
@@ -126,7 +135,15 @@ input UserUpdateInput {
   email: String
   password: String
   role: String
+  portfolioCleanups: PortfolioCleanupRelateToManyForUpdateInput
   createdAt: DateTime
+}
+
+input PortfolioCleanupRelateToManyForUpdateInput {
+  disconnect: [PortfolioCleanupWhereUniqueInput!]
+  set: [PortfolioCleanupWhereUniqueInput!]
+  create: [PortfolioCleanupCreateInput!]
+  connect: [PortfolioCleanupWhereUniqueInput!]
 }
 
 input UserUpdateArgs {
@@ -139,7 +156,13 @@ input UserCreateInput {
   email: String
   password: String
   role: String
+  portfolioCleanups: PortfolioCleanupRelateToManyForCreateInput
   createdAt: DateTime
+}
+
+input PortfolioCleanupRelateToManyForCreateInput {
+  create: [PortfolioCleanupCreateInput!]
+  connect: [PortfolioCleanupWhereUniqueInput!]
 }
 
 type Employee {
@@ -326,6 +349,8 @@ type Route {
   accountsCount(where: AccountWhereInput! = {}): Int
   transactions(where: TransactionWhereInput! = {}, orderBy: [TransactionOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TransactionWhereUniqueInput): [Transaction!]
   transactionsCount(where: TransactionWhereInput! = {}): Int
+  portfolioCleanups(where: PortfolioCleanupWhereInput! = {}, orderBy: [PortfolioCleanupOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: PortfolioCleanupWhereUniqueInput): [PortfolioCleanup!]
+  portfolioCleanupsCount(where: PortfolioCleanupWhereInput! = {}): Int
 }
 
 input RouteWhereUniqueInput {
@@ -342,6 +367,7 @@ input RouteWhereInput {
   localities: LocationManyRelationFilter
   accounts: AccountManyRelationFilter
   transactions: TransactionManyRelationFilter
+  portfolioCleanups: PortfolioCleanupManyRelationFilter
 }
 
 input EmployeeManyRelationFilter {
@@ -373,6 +399,7 @@ input RouteUpdateInput {
   localities: LocationRelateToManyForUpdateInput
   accounts: AccountRelateToManyForUpdateInput
   transactions: TransactionRelateToManyForUpdateInput
+  portfolioCleanups: PortfolioCleanupRelateToManyForUpdateInput
 }
 
 input EmployeeRelateToManyForUpdateInput {
@@ -407,6 +434,7 @@ input RouteCreateInput {
   localities: LocationRelateToManyForCreateInput
   accounts: AccountRelateToManyForCreateInput
   transactions: TransactionRelateToManyForCreateInput
+  portfolioCleanups: PortfolioCleanupRelateToManyForCreateInput
 }
 
 input EmployeeRelateToManyForCreateInput {
@@ -1022,6 +1050,7 @@ type Loan {
   isLastLoan(where: Boolean): Boolean
   snapshotRouteId: String
   snapshotRouteName: String
+  excludedByCleanup: PortfolioCleanup
 }
 
 input LoanWhereUniqueInput {
@@ -1059,6 +1088,7 @@ input LoanWhereInput {
   status: StringNullableFilter
   snapshotRouteId: StringFilter
   snapshotRouteName: StringFilter
+  excludedByCleanup: PortfolioCleanupWhereInput
 }
 
 input LoanPaymentManyRelationFilter {
@@ -1136,6 +1166,7 @@ input LoanUpdateInput {
   status: String
   snapshotRouteId: String
   snapshotRouteName: String
+  excludedByCleanup: PortfolioCleanupRelateToOneForUpdateInput
 }
 
 input LoanPaymentRelateToManyForUpdateInput {
@@ -1154,6 +1185,12 @@ input LoantypeRelateToOneForUpdateInput {
 input LoanRelateToOneForUpdateInput {
   create: LoanCreateInput
   connect: LoanWhereUniqueInput
+  disconnect: Boolean
+}
+
+input PortfolioCleanupRelateToOneForUpdateInput {
+  create: PortfolioCleanupCreateInput
+  connect: PortfolioCleanupWhereUniqueInput
   disconnect: Boolean
 }
 
@@ -1188,6 +1225,7 @@ input LoanCreateInput {
   status: String
   snapshotRouteId: String
   snapshotRouteName: String
+  excludedByCleanup: PortfolioCleanupRelateToOneForCreateInput
 }
 
 input LoanPaymentRelateToManyForCreateInput {
@@ -1203,6 +1241,11 @@ input LoantypeRelateToOneForCreateInput {
 input LoanRelateToOneForCreateInput {
   create: LoanCreateInput
   connect: LoanWhereUniqueInput
+}
+
+input PortfolioCleanupRelateToOneForCreateInput {
+  create: PortfolioCleanupCreateInput
+  connect: PortfolioCleanupWhereUniqueInput
 }
 
 type LoanPayment {
@@ -1845,6 +1888,94 @@ input UserRelateToOneForCreateInput {
   connect: UserWhereUniqueInput
 }
 
+type PortfolioCleanup {
+  id: ID!
+  name: String
+  description: String
+  cleanupDate: DateTime
+  fromDate: DateTime
+  toDate: DateTime
+  excludedLoansCount: Int
+  excludedAmount: Decimal
+  route: Route
+  executedBy: User
+  loansExcluded(where: LoanWhereInput! = {}, orderBy: [LoanOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: LoanWhereUniqueInput): [Loan!]
+  loansExcludedCount(where: LoanWhereInput! = {}): Int
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input PortfolioCleanupWhereUniqueInput {
+  id: ID
+}
+
+input PortfolioCleanupWhereInput {
+  AND: [PortfolioCleanupWhereInput!]
+  OR: [PortfolioCleanupWhereInput!]
+  NOT: [PortfolioCleanupWhereInput!]
+  id: IDFilter
+  name: StringFilter
+  description: StringFilter
+  cleanupDate: DateTimeFilter
+  fromDate: DateTimeNullableFilter
+  toDate: DateTimeNullableFilter
+  excludedLoansCount: IntNullableFilter
+  excludedAmount: DecimalNullableFilter
+  route: RouteWhereInput
+  executedBy: UserWhereInput
+  loansExcluded: LoanManyRelationFilter
+  createdAt: DateTimeNullableFilter
+  updatedAt: DateTimeNullableFilter
+}
+
+input PortfolioCleanupOrderByInput {
+  id: OrderDirection
+  name: OrderDirection
+  description: OrderDirection
+  cleanupDate: OrderDirection
+  fromDate: OrderDirection
+  toDate: OrderDirection
+  excludedLoansCount: OrderDirection
+  excludedAmount: OrderDirection
+  createdAt: OrderDirection
+  updatedAt: OrderDirection
+}
+
+input PortfolioCleanupUpdateInput {
+  name: String
+  description: String
+  cleanupDate: DateTime
+  fromDate: DateTime
+  toDate: DateTime
+  excludedLoansCount: Int
+  excludedAmount: Decimal
+  route: RouteRelateToOneForUpdateInput
+  executedBy: UserRelateToOneForUpdateInput
+  loansExcluded: LoanRelateToManyForUpdateInput
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input PortfolioCleanupUpdateArgs {
+  where: PortfolioCleanupWhereUniqueInput!
+  data: PortfolioCleanupUpdateInput!
+}
+
+input PortfolioCleanupCreateInput {
+  name: String
+  description: String
+  cleanupDate: DateTime
+  fromDate: DateTime
+  toDate: DateTime
+  excludedLoansCount: Int
+  excludedAmount: Decimal
+  route: RouteRelateToOneForCreateInput
+  executedBy: UserRelateToOneForCreateInput
+  loansExcluded: LoanRelateToManyForCreateInput
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
 """
 The `JSON` scalar type represents JSON values as specified by [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf).
 """
@@ -1971,11 +2102,19 @@ type Mutation {
   updateAuditLogs(data: [AuditLogUpdateArgs!]!): [AuditLog]
   deleteAuditLog(where: AuditLogWhereUniqueInput!): AuditLog
   deleteAuditLogs(where: [AuditLogWhereUniqueInput!]!): [AuditLog]
+  createPortfolioCleanup(data: PortfolioCleanupCreateInput!): PortfolioCleanup
+  createPortfolioCleanups(data: [PortfolioCleanupCreateInput!]!): [PortfolioCleanup]
+  updatePortfolioCleanup(where: PortfolioCleanupWhereUniqueInput!, data: PortfolioCleanupUpdateInput!): PortfolioCleanup
+  updatePortfolioCleanups(data: [PortfolioCleanupUpdateArgs!]!): [PortfolioCleanup]
+  deletePortfolioCleanup(where: PortfolioCleanupWhereUniqueInput!): PortfolioCleanup
+  deletePortfolioCleanups(where: [PortfolioCleanupWhereUniqueInput!]!): [PortfolioCleanup]
   endSession: Boolean!
   authenticateUserWithPassword(email: String!, password: String!): UserAuthenticationWithPasswordResult
   createInitialUser(data: CreateInitialUserInput!): UserAuthenticationWithPasswordSuccess!
   createCustomLeadPaymentReceived(expectedAmount: Float!, cashPaidAmount: Float, bankPaidAmount: Float, falcoAmount: Float, agentId: ID!, leadId: ID!, paymentDate: String!, payments: [PaymentInput!]!): CustomLeadPaymentReceived!
   updateCustomLeadPaymentReceived(id: ID!, expectedAmount: Float!, cashPaidAmount: Float, bankPaidAmount: Float, falcoAmount: Float, paymentDate: String!, payments: [PaymentInput!]!): CustomLeadPaymentReceived!
+  createPortfolioCleanupAndExcludeLoans(name: String!, description: String, cleanupDate: String!, fromDate: String, toDate: String, routeId: String!, excludedLoanIds: [String!]): JSON!
+  createBulkPortfolioCleanup(name: String!, description: String, cleanupDate: String!, routeId: String!, fromDate: String!, toDate: String!, weeksWithoutPaymentThreshold: Int): JSON!
 }
 
 type CustomLeadPaymentReceived {
@@ -2087,16 +2226,21 @@ type Query {
   auditLog(where: AuditLogWhereUniqueInput!): AuditLog
   auditLogs(where: AuditLogWhereInput! = {}, orderBy: [AuditLogOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: AuditLogWhereUniqueInput): [AuditLog!]
   auditLogsCount(where: AuditLogWhereInput! = {}): Int
+  portfolioCleanup(where: PortfolioCleanupWhereUniqueInput!): PortfolioCleanup
+  portfolioCleanups(where: PortfolioCleanupWhereInput! = {}, orderBy: [PortfolioCleanupOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: PortfolioCleanupWhereUniqueInput): [PortfolioCleanup!]
+  portfolioCleanupsCount(where: PortfolioCleanupWhereInput! = {}): Int
   keystone: KeystoneMeta!
   authenticatedItem: AuthenticatedItem
   getTransactionsSummary(startDate: String!, endDate: String!): [TransactionSummary!]!
   getMonthlyResume(routeId: String!, year: Int!): JSON!
   getLoansReport(routeId: String!, year: Int!, month: Int!): JSON!
-  getActiveLoansReport(routeId: String!, year: Int!, month: Int!, useActiveWeeks: Boolean!): JSON!
+  getActiveLoansReport(routeId: String!, year: Int!, month: Int!, useActiveWeeks: Boolean!, excludeCVAfterMonth: Int, excludeCVAfterYear: Int): JSON!
   getFinancialReport(routeId: String!, year: Int!): JSON!
   getCartera(routeId: String!, weeksWithoutPayment: Int!, includeBadDebt: Boolean!, analysisMonth: String, analysisYear: Int, includeOverdue: Boolean!, includeOverdrawn: Boolean!): JSON!
   searchClients(searchTerm: String!, routeId: String, locationId: String, limit: Int = 20): [JSON!]!
   getClientHistory(clientId: String!, routeId: String, locationId: String): JSON!
+  getPortfolioCleanups(routeId: String!, year: Int!, month: Int!): JSON!
+  previewBulkPortfolioCleanup(routeId: String!, fromDate: String!, toDate: String!, weeksWithoutPaymentThreshold: Int): JSON!
 }
 
 type TransactionSummary {

@@ -491,6 +491,160 @@ export const extendGraphqlSchema = graphql.extend(base => {
           });
         },
       }),
+      createPortfolioCleanupAndExcludeLoans: graphql.field({
+        type: graphql.nonNull(graphql.JSON),
+        args: {
+          name: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          description: graphql.arg({ type: graphql.String }),
+          cleanupDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          fromDate: graphql.arg({ type: graphql.String }),
+          toDate: graphql.arg({ type: graphql.String }),
+          routeId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          excludedLoanIds: graphql.arg({ type: graphql.list(graphql.nonNull(graphql.String)) }),
+        },
+        resolve: async (root, { name, description, cleanupDate, routeId, fromDate, toDate, excludedLoanIds }, context: Context) => {
+          try {
+            const session = context.session as any;
+            const userId = session?.itemId || session?.data?.id;
+            if (!userId) {
+              throw new Error('Usuario no autenticado');
+            }
+
+            // Crear el registro de limpieza
+            const portfolioCleanup = await (context.prisma as any).portfolioCleanup.create({
+              data: {
+                name,
+                description: description || '',
+                cleanupDate: new Date(cleanupDate),
+                fromDate: fromDate ? new Date(fromDate) : null,
+                toDate: toDate ? new Date(toDate) : null,
+                route: { connect: { id: routeId } },
+                executedBy: { connect: { id: userId } },
+              }
+            });
+
+            // Actualizar los préstamos excluidos
+            if (excludedLoanIds && excludedLoanIds.length > 0) {
+              await (context.prisma as any).loan.updateMany({
+                where: {
+                  id: { in: excludedLoanIds }
+                },
+                data: ({ excludedByCleanupId: portfolioCleanup.id } as any)
+              });
+
+              console.log(`📊 ${excludedLoanIds.length} préstamos marcados como excluidos por limpieza de cartera`);
+            }
+
+            console.log(`📊 Portfolio Cleanup creado: ${name} por usuario ${userId}`);
+
+            return {
+              success: true,
+              id: portfolioCleanup.id,
+              message: `Limpieza de cartera registrada exitosamente`
+            };
+
+          } catch (error) {
+            console.error('Error en createPortfolioCleanupAndExcludeLoans:', error);
+            throw new Error(`Error al crear registro de limpieza de cartera: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        }
+      }),
+      createBulkPortfolioCleanup: graphql.field({
+        type: graphql.nonNull(graphql.JSON),
+        args: {
+          name: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          description: graphql.arg({ type: graphql.String }),
+          cleanupDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          routeId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          fromDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          toDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          weeksWithoutPaymentThreshold: graphql.arg({ type: graphql.Int }),
+        },
+        resolve: async (root, { name, description, cleanupDate, routeId, fromDate, toDate, weeksWithoutPaymentThreshold = 0 }, context: Context) => {
+          try {
+            const session = context.session as any;
+            const userId = session?.itemId || session?.data?.id;
+            if (!userId) {
+              throw new Error('Usuario no autenticado');
+            }
+
+            const start = new Date(fromDate);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(toDate);
+            end.setHours(23, 59, 59, 999);
+
+            // Buscar préstamos activos por fecha de firma
+            const candidateLoans = await (context.prisma as any).loan.findMany({
+              where: {
+                lead: { routes: { id: routeId } },
+                signDate: { gte: start, lte: end },
+                excludedByCleanup: { is: null },
+                finishedDate: null,
+                status: 'ACTIVE'
+              },
+              include: {
+                payments: { orderBy: { receivedAt: 'asc' } }
+              }
+            });
+
+            const applyCV = typeof weeksWithoutPaymentThreshold === 'number' && weeksWithoutPaymentThreshold > 0;
+            let loansToExclude = candidateLoans as any[];
+
+            if (applyCV) {
+              const now = new Date();
+              loansToExclude = candidateLoans.filter((loan: any) => {
+                const lastPaymentDate = loan.payments?.length > 0
+                  ? new Date(loan.payments[loan.payments.length - 1].receivedAt)
+                  : new Date(loan.signDate);
+                const diffMs = now.getTime() - lastPaymentDate.getTime();
+                const weeks = Math.floor(diffMs / (1000 * 60 * 60 * 24 * 7));
+                return weeks >= weeksWithoutPaymentThreshold;
+              });
+            }
+
+            if (loansToExclude.length === 0) {
+              return {
+                success: false,
+                message: 'No se encontraron préstamos activos dentro del rango indicado'
+              };
+            }
+
+            // Crear el registro de limpieza
+            const portfolioCleanup = await (context.prisma as any).portfolioCleanup.create({
+              data: {
+                name,
+                description: description || '',
+                cleanupDate: new Date(cleanupDate),
+                fromDate: start,
+                toDate: end,
+                route: { connect: { id: routeId } },
+                executedBy: { connect: { id: userId } },
+              }
+            });
+
+            // Actualizar todos los préstamos encontrados
+            const loanIds = loansToExclude.map((loan: any) => loan.id);
+            await (context.prisma as any).loan.updateMany({
+              where: { id: { in: loanIds } },
+              data: ({ excludedByCleanupId: portfolioCleanup.id } as any)
+            });
+
+            const totalAmount = loansToExclude.reduce((sum: number, loan: any) => sum + Number(loan.amountGived || 0), 0);
+
+            return {
+              success: true,
+              id: portfolioCleanup.id,
+              excludedLoansCount: loansToExclude.length,
+              excludedAmount: totalAmount,
+              message: `Limpieza masiva registrada. ${loansToExclude.length} préstamos excluidos.`
+            };
+
+          } catch (error) {
+            console.error('Error en createBulkPortfolioCleanup:', error);
+            throw new Error(`Error al crear limpieza masiva de cartera: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        }
+      }),
     },
     query: {
       getTransactionsSummary: graphql.field({
@@ -1717,8 +1871,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
           year: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
           month: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
           useActiveWeeks: graphql.arg({ type: graphql.nonNull(graphql.Boolean) }),
+          excludeCVAfterMonth: graphql.arg({ type: graphql.Int }),
+          excludeCVAfterYear: graphql.arg({ type: graphql.Int }),
         },
-        resolve: async (root, { routeId, year, month, useActiveWeeks }, context: Context) => {
+        resolve: async (root, { routeId, year, month, useActiveWeeks, excludeCVAfterMonth, excludeCVAfterYear }, context: Context) => {
           try {
             // Calcular inicio y fin del mes
             const monthStart = new Date(year, month - 1, 1);
@@ -1821,13 +1977,15 @@ export const extendGraphqlSchema = graphql.extend(base => {
             }
 
             // Obtener TODOS los préstamos relevantes para la ruta (no solo del mes)
-            const allLoans = await context.prisma.loan.findMany({
+            // EXCLUYENDO los marcados por limpieza de cartera
+            const allLoans = await (context.prisma as any).loan.findMany({
               where: {
                 lead: {
                   routes: {
                     id: routeId
                   }
-                }
+                },
+                excludedByCleanup: { is: null }
               },
               include: {
                 borrower: {
@@ -1862,9 +2020,38 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   orderBy: {
                     receivedAt: 'asc'
                   }
+                },
+                excludedByCleanup: {
+                  include: {
+                    executedBy: true
+                  }
                 }
               }
             });
+
+            // Ya se excluyeron en la consulta (where: excludedByCleanup: { is: null })
+            let filteredLoans = allLoans;
+            if (excludeCVAfterMonth && excludeCVAfterYear) {
+              const excludeDate = new Date(excludeCVAfterYear, excludeCVAfterMonth - 1, 1);
+              excludeDate.setMonth(excludeDate.getMonth() + 1);
+              excludeDate.setDate(0); // Último día del mes
+              excludeDate.setHours(23, 59, 59, 999);
+              
+              filteredLoans = filteredLoans.filter((loan: any) => {
+                // Excluir préstamos marcados como excluidos por limpieza de cartera (ya filtrados arriba)
+                // Si el préstamo tiene finishedDate después de la fecha de exclusión, lo excluimos
+                if (loan.finishedDate && new Date(loan.finishedDate) > excludeDate) {
+                  return false;
+                }
+                
+                // Si el préstamo fue otorgado después de la fecha de exclusión, lo excluimos
+                if (new Date(loan.signDate) > excludeDate) {
+                  return false;
+                }
+                
+                return true;
+              });
+            }
 
             // Función para determinar si un préstamo está activo en una fecha específica
             const isLoanActiveOnDate = (loan: any, date: Date) => {
@@ -1915,7 +2102,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               const localitiesData: { [locality: string]: any } = {};
               const isFirstWeek = weekKey === weekOrder[0];
 
-              allLoans.forEach(loan => {
+              filteredLoans.forEach(loan => {
                 const locality = loan.borrower?.personalData?.addresses?.[0]?.location?.name ||
                                 loan.lead?.personalData?.addresses?.[0]?.location?.name ||
                                 'Sin localidad';
@@ -2000,7 +2187,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   data.activeAtStart = previousWeekActiveAtEnd[locality] || 0;
                   // Calcular totalAmountAtStart basándose en préstamos activos al inicio
                   data.totalAmountAtStart = 0;
-                  allLoans.forEach(loan => {
+                  filteredLoans.forEach(loan => {
                     const loanLocality = loan.borrower?.personalData?.addresses?.[0]?.location?.name ||
                                         loan.lead?.personalData?.addresses?.[0]?.location?.name ||
                                         'Sin localidad';
@@ -2012,7 +2199,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
 
               // Calcular CV (Créditos Vencidos) - préstamos activos sin pagos en la semana
-              allLoans.forEach(loan => {
+              filteredLoans.forEach(loan => {
                 const locality = loan.borrower?.personalData?.addresses?.[0]?.location?.name ||
                                 loan.lead?.personalData?.addresses?.[0]?.location?.name ||
                                 'Sin localidad';
@@ -2733,8 +2920,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
               throw new Error('Ruta no encontrada');
             }
 
-            // Obtener TODOS los préstamos de la ruta
-            const loans = await context.prisma.loan.findMany({
+            // Obtener TODOS los préstamos de la ruta (incluyendo info de limpieza de cartera)
+            const loans = await (context.prisma as any).loan.findMany({
               where: {
                 lead: {
                   routes: {
@@ -2766,7 +2953,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     receivedAt: 'asc'
                   }
                 },
-                loantype: true
+                loantype: true,
+                excludedByCleanup: true
               }
             });
 
@@ -2815,6 +3003,15 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
                 
                 analysisDate = lastDay;
+              }
+
+              // Si el préstamo fue marcado como excluido por limpieza y la fecha de limpieza
+              // es anterior o igual a la fecha de análisis, no lo incluimos en la cartera
+              if (loan.excludedByCleanup?.cleanupDate) {
+                const cleanupAt = new Date(loan.excludedByCleanup.cleanupDate as any);
+                if (cleanupAt <= analysisDate) {
+                  continue;
+                }
               }
 
               // Calcular semanas sin pago hasta la fecha de análisis
@@ -2917,7 +3114,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 id: route.id,
                 name: route.name
               },
-              totalLoans: loans.length,
+              totalLoans: processedLoans.length,
               activeLoans,
               overdueLoans,
               deadLoans,
@@ -3489,6 +3686,129 @@ export const extendGraphqlSchema = graphql.extend(base => {
           } catch (error) {
             console.error('Error en getClientHistory:', error);
             throw new Error(`Error al obtener historial del cliente: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        }
+      }),
+
+      // Query para obtener registros de limpieza de cartera
+      getPortfolioCleanups: graphql.field({
+        type: graphql.nonNull(graphql.JSON),
+        args: {
+          routeId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          year: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
+          month: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
+        },
+        resolve: async (root, { routeId, year, month }, context: Context) => {
+          try {
+            const monthStart = new Date(year, month - 1, 1);
+            const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
+ 
+            const cleanups = await (context.prisma as any).portfolioCleanup.findMany({
+              where: {
+                routeId: routeId,
+                cleanupDate: {
+                  gte: monthStart,
+                  lte: monthEnd
+                }
+              },
+              include: {
+                route: true,
+                executedBy: true
+              },
+              orderBy: {
+                cleanupDate: 'desc'
+              }
+            });
+ 
+            return {
+              cleanups: cleanups.map((cleanup: any) => ({
+                id: cleanup.id,
+                name: cleanup.name,
+                description: cleanup.description,
+                cleanupDate: cleanup.cleanupDate,
+                fromDate: cleanup.fromDate,
+                toDate: cleanup.toDate,
+                routeName: cleanup.route?.name,
+                executedByName: cleanup.executedBy?.name
+              }))
+            };
+ 
+          } catch (error) {
+            console.error('Error en getPortfolioCleanups:', error);
+            throw new Error(`Error al obtener registros de limpieza de cartera: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        }
+      }),
+
+      previewBulkPortfolioCleanup: graphql.field({
+        type: graphql.nonNull(graphql.JSON),
+        args: {
+          routeId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          fromDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          toDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          weeksWithoutPaymentThreshold: graphql.arg({ type: graphql.Int })
+        },
+        resolve: async (root, { routeId, fromDate, toDate, weeksWithoutPaymentThreshold = 0 }, context: Context) => {
+          try {
+            const start = new Date(fromDate);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(toDate);
+            end.setHours(23, 59, 59, 999);
+ 
+            const candidateLoans = await (context.prisma as any).loan.findMany({
+              where: {
+                lead: { routes: { id: routeId } },
+                signDate: { gte: start, lte: end },
+                excludedByCleanup: { is: null },
+                finishedDate: null,
+                status: 'ACTIVE'
+              },
+              include: {
+                borrower: { include: { personalData: true } },
+                lead: { 
+                  include: { 
+                    personalData: { 
+                      include: { 
+                        addresses: { include: { location: true } }
+                      }
+                    }
+                  }
+                },
+                payments: { orderBy: { receivedAt: 'asc' } }
+              }
+            });
+ 
+            const applyCV = typeof weeksWithoutPaymentThreshold === 'number' && weeksWithoutPaymentThreshold > 0;
+            const filtered = applyCV
+              ? candidateLoans.filter((loan: any) => {
+                  const lastPaymentDate = loan.payments?.length > 0
+                    ? new Date(loan.payments[loan.payments.length - 1].receivedAt)
+                    : new Date(loan.signDate);
+                  const diffMs = Date.now() - lastPaymentDate.getTime();
+                  const weeks = Math.floor(diffMs / (1000 * 60 * 60 * 24 * 7));
+                  return weeks >= weeksWithoutPaymentThreshold;
+                })
+              : candidateLoans;
+ 
+            const count = filtered.length;
+            const totalAmount = filtered.reduce((sum: number, loan: any) => sum + Number(loan.amountGived || 0), 0);
+ 
+            return {
+              success: true,
+              count,
+              totalAmount,
+              loans: filtered.map((loan: any) => ({
+                id: loan.id,
+                clientName: loan.borrower?.personalData?.fullName || 'N/A',
+                leaderName: loan.lead?.personalData?.fullName || 'N/A',
+                leaderLocality: loan.lead?.personalData?.addresses?.[0]?.location?.name || 'Sin localidad',
+                amountGived: Number(loan.amountGived || 0),
+                signDate: loan.signDate,
+              }))
+            };
+          } catch (error) {
+            console.error('Error en previewBulkPortfolioCleanup:', error);
+            return { success: false, count: 0, totalAmount: 0, loans: [], message: 'Error al previsualizar limpieza' };
           }
         }
       }),

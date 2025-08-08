@@ -219,6 +219,7 @@ export const User = list({
       ],
       defaultValue: 'NORMAL',
     }),
+    portfolioCleanups: relationship({ ref: 'PortfolioCleanup.executedBy', many: true }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
   },
   hooks: createAuditHook('User', 
@@ -287,6 +288,7 @@ export const Route = list({
     localities: relationship({ ref: 'Location.route', many: true }),
     accounts: relationship({ ref: 'Account.route', many: true }),
     transactions: relationship({ ref: 'Transaction.route', many: true }),
+    portfolioCleanups: relationship({ ref: 'PortfolioCleanup.route', many: true }),
   }
 });
 
@@ -730,6 +732,16 @@ export const Loan = list({
       label: 'Snapshot Route Name',
       ui: {
         description: 'Nombre de la ruta al momento de crear el préstamo (para reportes históricos)',
+        createView: { fieldMode: 'hidden' },
+        itemView: { fieldMode: 'read' },
+      }
+    }),
+    // Campo para marcar préstamos excluidos por limpieza de cartera
+    excludedByCleanup: relationship({ 
+      ref: 'PortfolioCleanup.loansExcluded',
+      many: false,
+      ui: {
+        description: 'Limpieza de cartera que excluyó este préstamo',
         createView: { fieldMode: 'hidden' },
         itemView: { fieldMode: 'read' },
       }
@@ -1780,6 +1792,53 @@ export const LeadPaymentReceived = list({
   },
 });
 
+export const PortfolioCleanup = list({
+  access: allowAll,
+  fields: {
+    name: text({ validation: { isRequired: true } }),
+    description: text(),
+    cleanupDate: timestamp({ validation: { isRequired: true } }),
+    fromDate: timestamp(),
+    toDate: timestamp(),
+    excludedLoansCount: integer(),
+    excludedAmount: decimal(),
+    route: relationship({ ref: 'Route.portfolioCleanups' }),
+    executedBy: relationship({ ref: 'User.portfolioCleanups' }),
+    loansExcluded: relationship({ 
+      ref: 'Loan.excludedByCleanup', 
+      many: true,
+      ui: {
+        description: 'Préstamos excluidos por esta limpieza de cartera',
+        displayMode: 'count'
+      }
+    }),
+    createdAt: timestamp({ defaultValue: { kind: 'now' } }),
+    updatedAt: timestamp(),
+  },
+  ui: {
+    listView: {
+      initialColumns: ['name', 'cleanupDate', 'fromDate', 'toDate', 'route', 'executedBy'],
+      initialSort: {
+        field: 'cleanupDate',
+        direction: 'DESC',
+      },
+    },
+  },
+  hooks: {
+    afterOperation: async ({ operation, item, context, originalItem }) => {
+      const auditHook = createAuditHook('PortfolioCleanup', 
+        (item, operation) => `Limpieza de cartera: ${item.name} - ${operation}`,
+        (item) => ({
+          fromDate: item.fromDate,
+          toDate: item.toDate
+        })
+      );
+      
+      await auditHook.afterOperation({ operation, item, context, originalItem });
+    }
+  }
+});
+
 export const Account = list({
   access: allowAll,
   fields: {
@@ -1886,4 +1945,5 @@ export const lists = {
   LeadPaymentReceived,
   Account,
   AuditLog,
+  PortfolioCleanup,
 };

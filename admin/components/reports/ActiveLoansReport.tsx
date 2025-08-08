@@ -14,8 +14,15 @@ import { ExportButton } from './ExportButton';
 
 // Query para obtener el reporte
 const GET_ACTIVE_LOANS_REPORT = gql`
-  query GetActiveLoansReport($routeId: String!, $year: Int!, $month: Int!, $useActiveWeeks: Boolean!) {
-    getActiveLoansReport(routeId: $routeId, year: $year, month: $month, useActiveWeeks: $useActiveWeeks)
+  query GetActiveLoansReport($routeId: String!, $year: Int!, $month: Int!, $useActiveWeeks: Boolean!, $excludeCVAfterMonth: Int, $excludeCVAfterYear: Int) {
+    getActiveLoansReport(routeId: $routeId, year: $year, month: $month, useActiveWeeks: $useActiveWeeks, excludeCVAfterMonth: $excludeCVAfterMonth, excludeCVAfterYear: $excludeCVAfterYear)
+  }
+`;
+
+// Query para obtener registros de limpieza de cartera
+const GET_PORTFOLIO_CLEANUPS = gql`
+  query GetPortfolioCleanups($routeId: String!, $year: Int!, $month: Int!) {
+    getPortfolioCleanups(routeId: $routeId, year: $year, month: $month)
   }
 `;
 
@@ -399,6 +406,11 @@ export default function ActiveLoansReport() {
   const [viewMode, setViewMode] = useState<'table' | 'chart'>('table');
   const [useActiveWeeks, setUseActiveWeeks] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
+  
+  // Estados para filtro de CV
+  const [excludeCVAfterMonth, setExcludeCVAfterMonth] = useState<number | null>(null);
+  const [excludeCVAfterYear, setExcludeCVAfterYear] = useState<number | null>(null);
+  const [useCVFilter, setUseCVFilter] = useState(false);
 
   // Query para obtener rutas
   const { data: routesData, loading: routesLoading } = useQuery(GET_ROUTES);
@@ -415,6 +427,21 @@ export default function ActiveLoansReport() {
       year: selectedYear,
       month: selectedMonth,
       useActiveWeeks: useActiveWeeks,
+      excludeCVAfterMonth: useCVFilter ? excludeCVAfterMonth : null,
+      excludeCVAfterYear: useCVFilter ? excludeCVAfterYear : null,
+    },
+    skip: !selectedRoute,
+  });
+
+  // Query para obtener registros de limpieza de cartera
+  const { 
+    data: cleanupsData, 
+    loading: cleanupsLoading 
+  } = useQuery(GET_PORTFOLIO_CLEANUPS, {
+    variables: {
+      routeId: selectedRoute?.id || '',
+      year: selectedYear,
+      month: selectedMonth,
     },
     skip: !selectedRoute,
   });
@@ -883,6 +910,70 @@ export default function ActiveLoansReport() {
             </Button>
           </div>
         </div>
+
+        {/* Filtros de CV */}
+        <div style={styles.filtersRow}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <input
+              type="checkbox"
+              id="useCVFilter"
+              checked={useCVFilter}
+              onChange={(e) => {
+                setUseCVFilter(e.target.checked);
+                if (!e.target.checked) {
+                  setExcludeCVAfterMonth(null);
+                  setExcludeCVAfterYear(null);
+                } else {
+                  // Por defecto, 6 meses hacia atrás
+                  const defaultDate = new Date();
+                  defaultDate.setMonth(defaultDate.getMonth() - 6);
+                  setExcludeCVAfterMonth(defaultDate.getMonth() + 1);
+                  setExcludeCVAfterYear(defaultDate.getFullYear());
+                }
+              }}
+              style={{ margin: 0 }}
+            />
+            <label 
+              htmlFor="useCVFilter" 
+              style={{ 
+                fontSize: '14px', 
+                fontWeight: '500',
+                cursor: 'pointer',
+                userSelect: 'none' as const
+              }}
+            >
+              Excluir CV después de:
+            </label>
+          </div>
+
+          {useCVFilter && (
+            <>
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', fontSize: '12px' }}>
+                  Mes
+                </label>
+                <Select
+                  value={monthOptions.find(opt => opt.value === excludeCVAfterMonth) || null}
+                  options={monthOptions}
+                  onChange={(option) => setExcludeCVAfterMonth(option?.value || null)}
+                  placeholder="Seleccionar mes..."
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', fontSize: '12px' }}>
+                  Año
+                </label>
+                <Select
+                  value={yearOptions.find(opt => opt.value === excludeCVAfterYear) || null}
+                  options={yearOptions}
+                  onChange={(option) => setExcludeCVAfterYear(option?.value || null)}
+                  placeholder="Seleccionar año..."
+                />
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Resumen de KPIs */}
@@ -956,6 +1047,136 @@ export default function ActiveLoansReport() {
               <div style={styles.summaryLabel}>% Crecimiento</div>
             </div>
           </div>
+
+          {/* Sección de Limpiezas de Cartera */}
+          {cleanupsData?.getPortfolioCleanups?.cleanups?.length > 0 && (
+            <div style={{
+              backgroundColor: '#fef3c7',
+              border: '1px solid #f59e0b',
+              borderRadius: '12px',
+              padding: '20px',
+              marginTop: '24px',
+              marginBottom: '24px'
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginBottom: '16px',
+                fontSize: '16px',
+                fontWeight: '600',
+                color: '#92400e'
+              }}>
+                🧹 Limpiezas de Cartera Registradas
+              </div>
+              
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+                gap: '16px'
+              }}>
+                {cleanupsData.getPortfolioCleanups.cleanups.map((cleanup: any, index: number) => (
+                  <div key={cleanup.id} style={{
+                    backgroundColor: 'white',
+                    borderRadius: '8px',
+                    padding: '16px',
+                    border: '1px solid #fbbf24'
+                  }}>
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start',
+                      marginBottom: '8px'
+                    }}>
+                      <div style={{
+                        fontWeight: '600',
+                        fontSize: '14px',
+                        color: '#92400e'
+                      }}>
+                        {cleanup.name}
+                      </div>
+                      <div style={{
+                        fontSize: '12px',
+                        color: '#a16207',
+                        backgroundColor: '#fef3c7',
+                        padding: '4px 8px',
+                        borderRadius: '4px'
+                      }}>
+                        {new Date(cleanup.cleanupDate).toLocaleDateString('es-ES', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric'
+                        })}
+                      </div>
+                    </div>
+                    
+                    {cleanup.description && (
+                      <div style={{
+                        fontSize: '13px',
+                        color: '#78716c',
+                        marginBottom: '12px',
+                        fontStyle: 'italic'
+                      }}>
+                        {cleanup.description}
+                      </div>
+                    )}
+                    
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 1fr',
+                      gap: '8px',
+                      fontSize: '12px'
+                    }}>
+                      <div>
+                        <span style={{ fontWeight: '500', color: '#92400e' }}>Préstamos excluidos:</span>
+                        <div style={{ color: '#dc2626', fontWeight: '600' }}>
+                          {formatNumber(cleanup.excludedLoansCount)}
+                        </div>
+                      </div>
+                      <div>
+                        <span style={{ fontWeight: '500', color: '#92400e' }}>Monto excluido:</span>
+                        <div style={{ color: '#dc2626', fontWeight: '600' }}>
+                          {formatCurrency(cleanup.excludedAmount)}
+                        </div>
+                      </div>
+                      <div>
+                        <span style={{ fontWeight: '500', color: '#92400e' }}>Desde:</span>
+                        <div style={{ color: '#78716c' }}>
+                          {cleanup.excludedFromMonth}/{cleanup.excludedFromYear}
+                        </div>
+                      </div>
+                      <div>
+                        <span style={{ fontWeight: '500', color: '#92400e' }}>Ejecutado por:</span>
+                        <div style={{ color: '#78716c' }}>
+                          {cleanup.executedByName || 'N/A'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              
+              <div style={{
+                marginTop: '16px',
+                padding: '12px',
+                backgroundColor: '#fef3c7',
+                borderRadius: '6px',
+                fontSize: '13px',
+                color: '#92400e',
+                textAlign: 'center'
+              }}>
+                <strong>Total excluido en el mes:</strong> {formatNumber(
+                  cleanupsData.getPortfolioCleanups.cleanups.reduce((sum: number, cleanup: any) => 
+                    sum + cleanup.excludedLoansCount, 0
+                  )
+                )} préstamos por {formatCurrency(
+                  cleanupsData.getPortfolioCleanups.cleanups.reduce((sum: number, cleanup: any) => 
+                    sum + cleanup.excludedAmount, 0
+                  )
+                )}
+              </div>
+            </div>
+          )}
         </React.Fragment>
       )}
 
