@@ -9,7 +9,7 @@ import { Select, TextInput } from '@keystone-ui/fields';
 import { LoadingDots } from '@keystone-ui/loading';
 import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
 import { gql } from '@apollo/client';
-import { FaDownload, FaSync, FaChartLine, FaTable, FaFilter } from 'react-icons/fa';
+import { FaDownload, FaSync, FaChartLine, FaTable, FaFilter, FaInfoCircle } from 'react-icons/fa';
 import { ExportButton } from './ExportButton';
 
 // Query para obtener el reporte
@@ -262,6 +262,123 @@ if (typeof document !== 'undefined') {
   styleElement.textContent = calendarStyles;
   document.head.appendChild(styleElement);
 }
+
+// Componente pequeño para mostrar un hover-card con detalles de préstamos finalizados
+const InfoHoverCard = ({ items, title = 'Detalle' }: { items: Array<{ id: string; fullName?: string; amountGived?: number; finishedDate?: string | Date; previousFinishedDate?: string | Date; date?: string | Date }>; title?: string }) => {
+  const hasItems = Array.isArray(items) && items.length > 0;
+  const [open, setOpen] = React.useState(false);
+  const closeTimerRef = React.useRef<number | null>(null);
+  const hasPrevColumn = hasItems && items.some(i => !!(i as any).previousFinishedDate);
+  const hasStartColumn = hasItems && items.some(i => !!(i as any).startDate || !!(i as any).date);
+  const mainDateLabel = /finalizados/i.test(title) ? 'Fecha fin' : 'Fecha firma';
+
+  const formatMoney = (num: number) => new Intl.NumberFormat('es-MX', {
+    style: 'currency', currency: 'MXN', minimumFractionDigits: 0, maximumFractionDigits: 0
+  }).format(Number(num || 0));
+
+  const clearCloseTimer = () => {
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+
+  const delayedClose = () => {
+    clearCloseTimer();
+    closeTimerRef.current = window.setTimeout(() => setOpen(false), 180) as unknown as number;
+  };
+
+  return (
+    <span
+      style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', marginLeft: 8 }}
+      onMouseEnter={() => { clearCloseTimer(); setOpen(true); }}
+      onMouseLeave={delayedClose}
+    >
+      <FaInfoCircle color={hasItems ? '#0ea5e9' : '#cbd5e1'} />
+
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            marginTop: 8,
+            zIndex: 9999,
+            minWidth: 320,
+            maxWidth: 420,
+            background: 'white',
+            border: '1px solid #e5e7eb',
+            borderRadius: 8,
+            boxShadow: '0 10px 20px rgba(0,0,0,0.12)',
+            padding: 12
+          }}
+          onMouseEnter={() => { clearCloseTimer(); setOpen(true); }}
+          onMouseLeave={delayedClose}
+        >
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>{title}</div>
+          {hasItems ? (
+            <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+              {/* Encabezados */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: hasPrevColumn
+                  ? (hasStartColumn ? '1fr 2fr 1fr 1fr 1fr 1fr' : '1fr 2fr 1fr 1fr 1fr')
+                  : (hasStartColumn ? '1fr 2fr 1fr 1fr 1fr' : '1fr 2fr 1fr 1fr'),
+                gap: 8,
+                fontSize: 10,
+                fontWeight: 700,
+                padding: '4px 4px',
+                color: '#475569',
+                borderBottom: '1px solid #e2e8f0',
+                background: '#f8fafc',
+                position: 'sticky',
+                top: 0,
+                zIndex: 1
+              }}>
+                <div>ID</div>
+                <div>Nombre</div>
+                <div style={{ textAlign: 'right' }}>Monto</div>
+                <div style={{ textAlign: 'right' }}>{mainDateLabel}</div>
+                {hasStartColumn && <div style={{ textAlign: 'right' }}>{/finalizados/i.test(title) ? 'Fecha inicio' : 'Fecha fin'}</div>}
+                {hasPrevColumn && <div style={{ textAlign: 'right' }}>Fin anterior</div>}
+              </div>
+              {items.map((l, idx) => {
+                const mainDate = (/finalizados/i.test(title) ? l.finishedDate : (l.date || l.finishedDate));
+                const d = mainDate ? new Date(mainDate as any) : null;
+                const dateStr = d && !isNaN(d.getTime()) ? d.toLocaleDateString('es-MX') : '';
+                const startDateVal = (/finalizados/i.test(title) ? (l.startDate || l.date) : l.finishedDate);
+                const startStr = startDateVal ? new Date(startDateVal as any).toLocaleDateString('es-MX') : '';
+                const prevStr = l.previousFinishedDate ? new Date(l.previousFinishedDate as any).toLocaleDateString('es-MX') : '';
+                return (
+                  <div key={`${l.id}-${idx}`} style={{
+                    display: 'grid',
+                    gridTemplateColumns: hasPrevColumn
+                      ? (hasStartColumn ? '1fr 2fr 1fr 1fr 1fr 1fr' : '1fr 2fr 1fr 1fr 1fr')
+                      : (hasStartColumn ? '1fr 2fr 1fr 1fr 1fr' : '1fr 2fr 1fr 1fr'),
+                    gap: 8,
+                    fontSize: 11,
+                    padding: '6px 4px',
+                    borderBottom: '1px dashed #e5e7eb'
+                  }}>
+                    <div style={{ color: '#334155' }}>{l.id}</div>
+                    <div style={{ color: '#334155' }}>{l.fullName || ''}</div>
+                    <div style={{ color: '#334155', textAlign: 'right' }}>{formatMoney(Number(l.amountGived || 0))}</div>
+                    <div style={{ color: '#64748b', textAlign: 'right' }}>{dateStr}</div>
+                    {hasStartColumn && <div style={{ color: '#64748b', textAlign: 'right' }}>{startStr || '-'}</div>}
+                    {hasPrevColumn && <div style={{ color: '#64748b', textAlign: 'right' }}>{prevStr || '-'}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ fontSize: 11, color: '#64748b' }}>Sin préstamos finalizados esta semana</div>
+          )}
+        </div>
+      )}
+    </span>
+  );
+};
 
 // Función para verificar si una fecha está en una semana activa
 const isDateInActiveWeek = (date: Date, activeWeeks: Array<{start: Date, end: Date, weekNumber: number}>) => {
@@ -548,14 +665,14 @@ export default function ActiveLoansReport() {
     while (currentDate <= lastDayOfMonth) {
       const weekStart = new Date(currentDate);
       const weekEnd = new Date(currentDate);
-      weekEnd.setDate(weekEnd.getDate() + 5); // Lunes a sábado (6 días)
+      weekEnd.setDate(weekEnd.getDate() + 6); // Lunes a domingo
       weekEnd.setHours(23, 59, 59, 999);
       
-      // Contar días de trabajo (lunes-sábado) que pertenecen al mes
+      // Contar días de trabajo (lunes-viernes) que pertenecen al mes
       let workDaysInMonth = 0;
       let tempDate = new Date(weekStart);
       
-      for (let i = 0; i < 6; i++) { // 6 días de trabajo
+      for (let i = 0; i < 5; i++) { // Lunes a Viernes
         if (tempDate.getMonth() === month - 1) {
           workDaysInMonth++;
         }
@@ -634,7 +751,7 @@ export default function ActiveLoansReport() {
     weeksInfo.push('');
     
     // Crear calendario visual
-    const daysOfWeek = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    const daysOfWeek = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
     weeksInfo.push('📋 Calendario de Semanas Activas:');
     weeksInfo.push('');
     
@@ -652,11 +769,11 @@ export default function ActiveLoansReport() {
       let weekDays = '';
       let tempDate = new Date(week.start);
       
-      for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 7; i++) {
         const dayStr = tempDate.getDate().toString().padStart(2, '0');
         const isInMonth = tempDate.getMonth() === month - 1;
         weekDays += `${daysOfWeek[i]} ${dayStr}${isInMonth ? '' : '*'}`;
-        if (i < 5) weekDays += ' | ';
+        if (i < 6) weekDays += ' | ';
         tempDate.setDate(tempDate.getDate() + 1);
       }
       
@@ -1237,7 +1354,8 @@ export default function ActiveLoansReport() {
                         );
                       }
 
-                      const change = weekData.activeAtEnd - weekData.activeAtStart;
+                      // Cambio basado en stock de activos (fin - inicio), debe concordar con "Activos: A → B"
+                      const change = (weekData.activeAtEnd || 0) - (weekData.activeAtStart || 0);
                       
                       return (
                         <td key={week} style={{ ...styles.td, textAlign: 'center' }}>
@@ -1268,22 +1386,50 @@ export default function ActiveLoansReport() {
                               <div style={styles.statRow}>
                                 <span style={styles.statLabel}>Otorgados:</span>
                                 <span style={styles.statValue}>{weekData.granted}</span>
+                                <InfoHoverCard title="Préstamos otorgados en la semana" items={(() => {
+                                  const list = (weekData as any).grantedLoans || [];
+                                  return list.map((l: any) => ({
+                                    id: l.id,
+                                    fullName: l.fullName,
+                                    amountGived: l.amountGived,
+                                    finishedDate: l.date
+                                  }));
+                                })()} />
                               </div>
                               <div style={styles.statRow}>
                                 <span style={{ ...styles.statLabel, paddingLeft: '8px', fontSize: '10px' }}>• Nuevos:</span>
                                 <span style={{ ...styles.statValue, color: '#38a169', fontSize: '10px' }}>
                                   {weekData.grantedNew || 0}
                                 </span>
+                                <InfoHoverCard title="Préstamos nuevos en la semana" items={(() => {
+                                  const list = (weekData as any).grantedLoansNew || [];
+                                  return list.map((l: any) => ({
+                                    id: l.id,
+                                    fullName: l.fullName,
+                                    amountGived: l.amountGived,
+                                    finishedDate: l.date
+                                  }));
+                                })()} />
                               </div>
                               <div style={styles.statRow}>
                                 <span style={{ ...styles.statLabel, paddingLeft: '8px', fontSize: '10px' }}>• Renovados:</span>
                                 <span style={{ ...styles.statValue, color: '#3182ce', fontSize: '10px' }}>
                                   {weekData.grantedRenewed || 0}
                                 </span>
+                                <InfoHoverCard title="Préstamos renovados en la semana" items={(() => {
+                                  const list = (weekData as any).grantedLoansRenewed || [];
+                                  return list.map((l: any) => ({
+                                    id: l.id,
+                                    fullName: l.fullName,
+                                    amountGived: l.amountGived,
+                                    finishedDate: l.date
+                                  }));
+                                })()} />
                               </div>
                               <div style={styles.statRow}>
                                 <span style={styles.statLabel}>Finalizados:</span>
                                 <span style={styles.statValue}>{weekData.finished}</span>
+                                <InfoHoverCard title="Préstamos finalizados en la semana" items={(weekData as any).finishedLoans || []} />
                               </div>
                             </div>
 
@@ -1298,6 +1444,7 @@ export default function ActiveLoansReport() {
                                 }}>
                                   {weekData.cv}
                                 </span>
+                                {/* tooltip nativo removido; card se muestra en Movimientos */}
                               </div>
                               <div style={styles.statRow}>
                                 <span style={styles.statLabel}>% Paga:</span>
@@ -1558,8 +1705,8 @@ export default function ActiveLoansReport() {
                     const weekTotal = processedData.weeklyTotals[week];
                     const change = weekTotal.netChange;
                     
-                    return (
-                      <td key={week} style={{ ...styles.td, textAlign: 'center', color: 'white' }}>
+                      return (
+                        <td key={week} style={{ ...styles.td, textAlign: 'center', color: 'white' }}>
                         <div style={styles.weekStats}>
                           {/* Grupo de cartera semanal */}
                           <div style={styles.statGroup}>
@@ -1614,6 +1761,7 @@ export default function ActiveLoansReport() {
                             <div style={styles.statRow}>
                               <span>Finalizados:</span>
                               <span>{weekTotal.finished}</span>
+                              <InfoHoverCard items={(weekTotal as any).finishedLoans || []} />
                             </div>
                           </div>
 
