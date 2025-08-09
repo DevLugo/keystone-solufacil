@@ -2342,6 +2342,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 grantedRenewed: 0,
                 finished: 0,
                   finishedLoans: [],
+                finishedByCleanup: 0,
                 cv: 0, // Créditos Vencidos
                 totalAmountAtStart: 0,
                 totalAmountAtEnd: 0,
@@ -2360,6 +2361,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 weeklyTotals[weekKey].grantedRenewed += localityData.grantedRenewed;
                 weeklyTotals[weekKey].finished += localityData.finished;
                 weeklyTotals[weekKey].finishedLoans.push(...(localityData.finishedLoans || []));
+                weeklyTotals[weekKey].finishedByCleanup += (localityData.finishedLoans || []).filter((f: any) => f.reason === 'PORTFOLIO_CLEANUP').length;
                 weeklyTotals[weekKey].cv += localityData.cv; // Sumar CV
                 weeklyTotals[weekKey].totalAmountAtStart += localityData.totalAmountAtStart;
                 weeklyTotals[weekKey].totalAmountAtEnd += localityData.totalAmountAtEnd;
@@ -2394,7 +2396,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
             } catch (_) {}
 
-            return {
+              // Calcular conteos de cleanup acumulados hasta fin de mes
+              const cleanupToDateCount = allLoans.filter((loan: any) => {
+                const cd = loan.excludedByCleanup?.cleanupDate ? new Date(loan.excludedByCleanup.cleanupDate as any) : null;
+                return !!cd && cd <= monthEnd;
+              }).length;
+
+              return {
               route: {
                 id: route?.id || '',
                 name: route?.name || ''
@@ -2412,6 +2420,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 totalActiveAtMonthEnd: weekOrder.length > 0 ? weeklyTotals[weekOrder[weekOrder.length - 1]].activeAtEnd : 0,
                 totalGrantedInMonth: Object.values(weeklyTotals).reduce((sum: number, week: any) => sum + week.granted, 0),
                 totalFinishedInMonth: Object.values(weeklyTotals).reduce((sum: number, week: any) => sum + week.finished, 0),
+                  totalFinishedByCleanupInMonth: Object.values(weeklyTotals).reduce((sum: number, week: any) => sum + (week.finishedByCleanup || 0), 0),
+                  totalFinishedByCleanupToDate: cleanupToDateCount,
                 netChangeInMonth: weekOrder.length > 0 ? weeklyTotals[weekOrder[weekOrder.length - 1]].activeAtEnd - weeklyTotals[weekOrder[0]].activeAtStart : 0
               }
             };

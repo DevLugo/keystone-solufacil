@@ -92,35 +92,36 @@ const styles = {
   summaryCards: {
     display: 'grid',
     gridTemplateColumns: 'repeat(3, 1fr)',
-    gap: '20px',
-    marginBottom: '32px',
+    gap: '16px',
+    marginBottom: '24px',
   },
   summaryCard: {
     backgroundColor: 'white',
     borderRadius: '12px',
-    padding: '24px',
-    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+    padding: '20px',
+    boxShadow: '0 1px 2px rgba(16,24,40,.06)',
     border: '1px solid #e2e8f0',
     textAlign: 'center' as const,
-    transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+    transition: 'transform .18s ease, box-shadow .18s ease, border-color .18s ease',
     ':hover': {
       transform: 'translateY(-2px)',
-      boxShadow: '0 8px 15px rgba(0, 0, 0, 0.1)',
+      boxShadow: '0 8px 20px rgba(2,6,23,.08)',
+      borderColor: '#cbd5e1'
     }
   },
   summaryValue: {
-    fontSize: '28px',
+    fontSize: '26px',
     fontWeight: '700',
-    color: '#2d3748',
-    marginBottom: '8px',
-    lineHeight: '1.2',
+    color: '#111827',
+    marginBottom: '4px',
+    lineHeight: 1.1,
   },
   summaryLabel: {
-    fontSize: '13px',
-    color: '#718096',
-    fontWeight: '500',
+    fontSize: '11px',
+    color: '#6b7280',
+    fontWeight: 600,
     textTransform: 'uppercase' as const,
-    letterSpacing: '0.5px',
+    letterSpacing: '.06em',
   },
   summaryChange: {
     fontSize: '14px',
@@ -374,6 +375,31 @@ const InfoHoverCard = ({ items, title = 'Detalle' }: { items: Array<{ id: string
           ) : (
             <div style={{ fontSize: 11, color: '#64748b' }}>Sin préstamos finalizados esta semana</div>
           )}
+        </div>
+      )}
+    </span>
+  );
+};
+
+// Tooltip simple para valores resumidos
+const SimpleHoverInfo = ({ title, lines }: { title: string; lines: string[] }) => {
+  const [open, setOpen] = React.useState(false);
+  const timerRef = React.useRef<number | null>(null);
+  const clear = () => { if (timerRef.current) { window.clearTimeout(timerRef.current); timerRef.current = null; } };
+  const delayedClose = () => { clear(); timerRef.current = window.setTimeout(() => setOpen(false), 150) as unknown as number; };
+  return (
+    <span style={{ position: 'relative', display: 'inline-flex', marginLeft: 6 }} onMouseEnter={() => { clear(); setOpen(true); }} onMouseLeave={delayedClose}>
+      <FaInfoCircle color="#94a3b8" size={14} />
+      {open && (
+        <div
+          onMouseEnter={() => { clear(); setOpen(true); }}
+          onMouseLeave={delayedClose}
+          style={{ position: 'absolute', top: '100%', right: 0, marginTop: 8, background: 'white', border: '1px solid #e5e7eb', borderRadius: 8, boxShadow: '0 10px 20px rgba(0,0,0,0.12)', padding: 12, zIndex: 9999, minWidth: 260 }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>{title}</div>
+          {lines.map((ln, i) => (
+            <div key={i} style={{ fontSize: 12, color: '#334155', padding: '2px 0' }}>{ln}</div>
+          ))}
         </div>
       )}
     </span>
@@ -1096,8 +1122,9 @@ export default function ActiveLoansReport() {
       {/* Resumen de KPIs */}
       {processedData && (
         <React.Fragment>
-          {/* Primera fila - Métricas básicas */}
-          <div style={styles.summaryCards}>
+          {/* Cartera */}
+          <div style={{ fontWeight: 700, color: '#475569', margin: '8px 4px' }}>Cartera</div>
+          <div style={{ ...styles.summaryCards, gridTemplateColumns: 'repeat(4, 1fr)' }}>
             <div style={styles.summaryCard}>
               <div style={styles.summaryValue}>
                 {formatNumber(processedData.summary.totalActiveAtMonthStart)}
@@ -1108,6 +1135,10 @@ export default function ActiveLoansReport() {
             <div style={styles.summaryCard}>
               <div style={styles.summaryValue}>
                 {formatNumber(processedData.summary.totalActiveAtMonthEnd)}
+                <SimpleHoverInfo
+                  title="Detalle descartes por cleanup"
+                  lines={[`Acumulado: ${formatNumber(processedData.summary.totalFinishedByCleanupToDate || 0)}`, `En mes: ${formatNumber(processedData.summary.totalFinishedByCleanupInMonth || 0)}`]}
+                />
               </div>
               <div style={styles.summaryLabel}>Créditos Final Mes</div>
             </div>
@@ -1118,10 +1149,13 @@ export default function ActiveLoansReport() {
               </div>
               <div style={styles.summaryLabel}>Otorgados en Mes</div>
             </div>
+
+            
           </div>
 
-          {/* Segunda fila - Métricas de análisis */}
-          <div style={styles.summaryCards}>
+          {/* Movimientos e indicadores */}
+          <div style={{ fontWeight: 700, color: '#475569', margin: '16px 4px 8px' }}>Movimientos e Indicadores</div>
+          <div style={{ ...styles.summaryCards, gridTemplateColumns: 'repeat(4, 1fr)' }}>
             <div style={styles.summaryCard}>
               <div style={styles.summaryValue}>
                 {formatNumber(processedData.summary.totalFinishedInMonth)}
@@ -1162,6 +1196,44 @@ export default function ActiveLoansReport() {
                 })()}
               </div>
               <div style={styles.summaryLabel}>% Crecimiento</div>
+            </div>
+            <div style={styles.summaryCard}>
+              <div style={styles.summaryValue}>
+                {(() => {
+                  const weeks = processedData.weeks || [];
+                  if (weeks.length === 0) return '0%';
+                  let sum = 0; let count = 0;
+                  weeks.forEach((w: string) => {
+                    const wt = processedData.weeklyTotals[w];
+                    const totalActive = wt?.activeAtEnd || 0;
+                    const cv = wt?.cv || 0;
+                    if (totalActive > 0) { sum += (cv / totalActive) * 100; count++; }
+                  });
+                  const val = count > 0 ? (sum / count) : 0;
+                  return val.toFixed(1) + '%';
+                })()}
+              </div>
+              <div style={styles.summaryLabel}>CV Promedio Mes</div>
+            </div>
+            <div style={styles.summaryCard}>
+              <div style={styles.summaryValue}>
+                {(() => {
+                  const weeks = processedData.weeks || [];
+                  if (weeks.length === 0) return '0%';
+                  let sum = 0; let count = 0;
+                  weeks.forEach((w: string) => {
+                    const wt = processedData.weeklyTotals[w];
+                    const totalActive = wt?.activeAtEnd || 0;
+                    const cv = wt?.cv || 0;
+                    const paying = totalActive - cv;
+                    const pct = totalActive > 0 ? (paying / totalActive) * 100 : 0;
+                    sum += pct; count++;
+                  });
+                  const val = count > 0 ? (sum / count) : 0;
+                  return val.toFixed(1) + '%';
+                })()}
+              </div>
+              <div style={styles.summaryLabel}>% Paga Promedio Mes</div>
             </div>
           </div>
 
