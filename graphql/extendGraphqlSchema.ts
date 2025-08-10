@@ -2483,6 +2483,25 @@ export const extendGraphqlSchema = graphql.extend(base => {
               const closedWithoutRenewalInMonth = weekOrder.reduce((sum, wk) => sum + (weeklyClosedWithoutRenewal[wk] || 0), 0);
               const weeklyClosedWithoutRenewalSeries = weekOrder.map(wk => weeklyClosedWithoutRenewal[wk] || 0);
 
+              // Renovaciones con aumento (signDate dentro del mes actual y con previousLoan)
+              let renewalsInMonth = 0;
+              let renewalsIncreasedCount = 0;
+              let renewalsIncreasePercentSum = 0;
+              filteredLoans.forEach((loan: any) => {
+                const sd = new Date(loan.signDate);
+                if (sd >= monthStart && sd <= monthEnd && loan.previousLoanId) {
+                  renewalsInMonth++;
+                  const prevAmount = Number(loan.previousLoan?.amountGived || 0);
+                  const currAmount = Number(loan.amountGived || 0);
+                  if (prevAmount > 0 && currAmount > prevAmount) {
+                    renewalsIncreasedCount++;
+                    const incPct = ((currAmount - prevAmount) / prevAmount) * 100;
+                    renewalsIncreasePercentSum += incPct;
+                  }
+                }
+              });
+              const renewalsAvgIncreasePercent = renewalsIncreasedCount > 0 ? (renewalsIncreasePercentSum / renewalsIncreasedCount) : 0;
+
               // Deltas inicio vs fin
               const activeStart = weekOrder.length ? Number(weeklyTotals[weekOrder[0]].activeAtStart || 0) : 0;
               const activeEnd = weekOrder.length ? Number(weeklyTotals[weekOrder[weekOrder.length - 1]].activeAtEnd || 0) : 0;
@@ -2506,6 +2525,70 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     return sum + Math.max(0, act - cv);
                   }, 0) / weekOrder.length)
                 : 0;
+
+              // CV promedio mes anterior (usando mismas semanas activas del mes anterior aprox: promediamos por semanas del mes anterior según semana del último día)
+              let cvMonthlyAvgPrev = 0;
+              try {
+                const prev = new Date(year, month - 2, 1);
+                const monthStartPrev = new Date(prev.getFullYear(), prev.getMonth(), 1, 0, 0, 0, 0);
+                const monthEndPrev = new Date(prev.getFullYear(), prev.getMonth() + 1, 0, 23, 59, 59, 999);
+
+                // Generar semanas L-D completas dentro del mes previo (semanas activas aproximadas)
+                const weeksPrev: Array<{ start: Date; end: Date }> = [];
+                let cursor = new Date(monthStartPrev);
+                // mover a lunes
+                const d = cursor.getDay();
+                const offset = (d + 6) % 7; // 0 lunes
+                cursor.setDate(cursor.getDate() - offset);
+                cursor.setHours(0,0,0,0);
+                while (cursor <= monthEndPrev) {
+                  const start = new Date(cursor);
+                  const end = new Date(start);
+                  end.setDate(end.getDate() + 6);
+                  end.setHours(23,59,59,999);
+                  // semana que toca parcialmente el mes, la consideramos si la mayoría de días laborables (lun-vie) caen dentro del mes
+                  let weekdaysInMonth = 0;
+                  for (let i = 0; i < 7; i++) {
+                    const day = new Date(start);
+                    day.setDate(start.getDate() + i);
+                    const isWeekday = day.getDay() >= 1 && day.getDay() <= 5;
+                    if (isWeekday && day >= monthStartPrev && day <= monthEndPrev) weekdaysInMonth++;
+                  }
+                  if (weekdaysInMonth >= 3) weeksPrev.push({ start, end });
+                  cursor.setDate(cursor.getDate() + 7);
+                }
+
+                const cvPrevList: number[] = [];
+                for (const w of weeksPrev) {
+                  let cvWeek = 0;
+                  filteredLoans.forEach((loan: any) => {
+                    const isActive = isLoanConsideredOnDate(loan, w.start) || isLoanConsideredOnDate(loan, w.end);
+                    if (!isActive) return;
+                    // excluir firmas dentro de la semana
+                    const sd = new Date(loan.signDate);
+                    if (sd >= w.start && sd <= w.end) return;
+                    let weeklyPaid = 0;
+                    for (const p of loan.payments || []) {
+                      const pd = new Date(p.receivedAt || p.createdAt);
+                      if (pd >= w.start && pd <= w.end) weeklyPaid += Number(p.amount || 0);
+                    }
+                    let expected = 0;
+                    try {
+                      const rate = parseFloat(loan.loantype?.rate?.toString() || '0');
+                      const dur = Number(loan.loantype?.weekDuration || 0);
+                      const requested = parseFloat(loan.requestedAmount?.toString?.() || `${loan.requestedAmount || 0}`);
+                      if (dur > 0) expected = (requested * (1 + rate)) / dur;
+                    } catch {}
+                    if (weeklyPaid === 0) cvWeek += 1; else if (expected > 0) {
+                      if (weeklyPaid < 0.5 * expected) cvWeek += 1; else if (weeklyPaid < expected) cvWeek += 0.5;
+                    }
+                  });
+                  cvPrevList.push(cvWeek);
+                }
+                if (cvPrevList.length > 0) {
+                  cvMonthlyAvgPrev = cvPrevList.reduce((a, b) => a + b, 0) / cvPrevList.length;
+                }
+              } catch {}
 
               // Clientes pagando al cierre del mes actual (activos al final - CV de la última semana)
               const payingClientsEndOfMonth = (weekOrder.length > 0)
@@ -2612,6 +2695,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   totalFinishedByCleanupToDate: cleanupToDateCount,
                 netChangeInMonth: weekOrder.length > 0 ? weeklyTotals[weekOrder[weekOrder.length - 1]].activeAtEnd - weeklyTotals[weekOrder[0]].activeAtStart : 0,
                 cvMonthlyAvg,
+                cvMonthlyAvgPrev,
                 payingPercentMonthlyAvg,
                 closedWithoutRenewalInMonth,
                 totalClosedNonCleanupInMonth,
@@ -2622,6 +2706,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 closedWithoutRenewalPrevMonth,
                 payingClientsWeeklyAvg,
                 payingClientsWeeklyAvgPrev: payingClientsPrevMonth,
+                renewalsInMonth,
+                renewalsIncreasedCount,
+                renewalsAvgIncreasePercent,
                 weeklyClosedWithoutRenewalSeries,
                 kpis: {
                   active: { start: activeStart, end: activeEnd, delta: activeDelta },

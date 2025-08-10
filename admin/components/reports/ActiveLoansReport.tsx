@@ -294,7 +294,8 @@ const ApexMiniChart = ({
   series,
   color = '#3b82f6',
   height = 96,
-}: { type: 'line' | 'bar' | 'area' | 'radialBar' | 'donut'; series: number[]; color?: string; height?: number }) => {
+  labels,
+}: { type: 'line' | 'bar' | 'area' | 'radialBar' | 'donut'; series: number[]; color?: string; height?: number; labels?: string[] }) => {
   const ref = React.useRef<HTMLDivElement | null>(null);
   const chartRef = React.useRef<any>(null);
 
@@ -319,7 +320,7 @@ const ApexMiniChart = ({
           chart: { type, height, sparkline: { enabled: true }, animations: { enabled: false }, toolbar: { show: false } },
           series: safeSeries,
           colors: [color, '#94a3b8'],
-          labels: ['Fin', 'Inicio'],
+          labels: (labels && labels.length === safeSeries.length) ? labels : ['Fin', 'Inicio'],
           dataLabels: { enabled: false },
           legend: { show: false },
           tooltip: {
@@ -1219,14 +1220,15 @@ export default function ActiveLoansReport() {
               {(() => {
                 const start = Number(processedData.summary.kpis?.cv.start || 0);
                 const end = Number(processedData.summary.kpis?.cv.end || 0);
-                const delta = end - start;
                 const avgNum = Number(processedData.summary.cvMonthlyAvg || 0);
+                const prevAvg = Number(processedData.summary.cvMonthlyAvgPrev || 0);
+                const deltaAvg = avgNum - prevAvg;
                 const avg = avgNum.toFixed(2);
-                const color = '#0f172a';
-                const hint = `Inicio: ${start} | Fin: ${end} | Promedio: ${avg}`;
+                const color = deltaAvg > 0 ? '#ef4444' : deltaAvg < 0 ? '#16a34a' : '#0f172a';
+                const hint = `Inicio: ${start} | Fin: ${end} | Promedio: ${avg} | Mes anterior (prom): ${prevAvg.toFixed ? prevAvg.toFixed(2) : prevAvg}`;
                 return (
                   <div title={hint} style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color, textAlign: 'center' }}>
-                    {avg}
+                    {avg} ({deltaAvg >= 0 ? '+' : ''}{deltaAvg.toFixed ? deltaAvg.toFixed(2) : deltaAvg})
                   </div>
                 );
               })()}
@@ -1282,6 +1284,29 @@ export default function ActiveLoansReport() {
                 return (
                   <div title={title} style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color: '#0f172a', textAlign: 'center' }}>
                     {Math.round(avg)} ({delta >= 0 ? '+' : ''}{Math.round(delta)})
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Renovaciones con aumento */}
+            <div style={styles.miniChartCard}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#334155', marginBottom: 8 }}>Renovaciones con aumento</div>
+              <ApexMiniChart
+                type="donut"
+                color="#f97316"
+                series={[Number(processedData.summary.renewalsIncreasedCount || 0), Math.max(0, Number(processedData.summary.renewalsInMonth || 0) - Number(processedData.summary.renewalsIncreasedCount || 0))]}
+                labels={["Con aumento", "Sin aumento"]}
+              />
+              {(() => {
+                const count = Number(processedData.summary.renewalsIncreasedCount || 0);
+                const avgPct = Number(processedData.summary.renewalsAvgIncreasePercent || 0);
+                const totalRen = Number(processedData.summary.renewalsInMonth || 0);
+                const share = totalRen > 0 ? (count / totalRen) * 100 : 0;
+                const title = `Renovaciones: ${totalRen} | Con aumento: ${count} (${share.toFixed(1)}%) | Aumento promedio entre las que subieron: ${avgPct.toFixed ? avgPct.toFixed(1) : avgPct}%`;
+                return (
+                  <div title={title} style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color: '#0f172a', textAlign: 'center' }}>
+                    {count} ({share.toFixed(1)}%)
                   </div>
                 );
               })()}
