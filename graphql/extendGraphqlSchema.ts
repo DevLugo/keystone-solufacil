@@ -2278,29 +2278,47 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   }
                 } catch (_) {}
 
-                // Aplicar reglas de contribución
+                // Calcular excedente previo a la semana (pagos acumulados menos lo esperado hasta antes de esta semana)
+                let paidBeforeWeek = 0;
+                for (const payment of loan.payments || []) {
+                  const paymentDate = new Date(payment.receivedAt || payment.createdAt);
+                  if (paymentDate < weekStart) paidBeforeWeek += Number(payment.amount || 0);
+                }
+                let surplusBefore = 0;
+                try {
+                  const sign = new Date(loan.signDate);
+                  const weeksElapsed = Math.floor((weekStart.getTime() - sign.getTime()) / (7 * 24 * 60 * 60 * 1000));
+                  const expectedBefore = Math.max(0, weeksElapsed - 1) * (expectedWeekly || 0); // primera semana no paga
+                  surplusBefore = paidBeforeWeek - expectedBefore;
+                } catch {}
+
+                // Aplicar reglas de contribución (considerando excedente previo)
                 if (weeklyPaid === 0) {
-                  data.cv += 1;
-                  data.cvAmount += Number(loan.amountGived || 0);
-                  // Guardar para hover: solo los que NO pagaron
-                  (data.cvClients as any[]).push({
-                    id: loan.id,
-                    fullName: loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A',
-                    amountGived: Number(loan.amountGived || 0),
-                    date: loan.signDate
-                  });
+                  if (surplusBefore >= (expectedWeekly || 0)) {
+                    // Excedente cubre la semana completa => no CV
+                  } else {
+                    data.cv += 1;
+                    data.cvAmount += Number(loan.amountGived || 0);
+                    // Guardar para hover: solo los que NO pagaron
+                    (data.cvClients as any[]).push({
+                      id: loan.id,
+                      fullName: loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A',
+                      amountGived: Number(loan.amountGived || 0),
+                      date: loan.signDate
+                    });
+                  }
                 } else if (expectedWeekly > 0) {
-                  if (weeklyPaid < 0.5 * expectedWeekly) {
+                  if (weeklyPaid >= expectedWeekly) {
+                    // Cumplió la semana con pagos de la misma semana
+                  } else if (surplusBefore >= expectedWeekly) {
+                    // Traía excedente suficiente para cubrir esta semana
+                  } else if (weeklyPaid < 0.5 * expectedWeekly) {
                     // Pagó menos del 50% => cuenta como 1
                     data.cv += 1;
                     data.cvAmount += Number(loan.amountGived || 0);
-                    // Nota: Hover solo requiere los que no pagaron; no agregamos parciales
-                  } else if (weeklyPaid < expectedWeekly) {
-                    // Entre 50% y 100% => cuenta como 0.5
-                    data.cv += 0.5;
-                    // Monto asociado opcional: no sumamos a cvAmount para evitar confusión
                   } else {
-                    // Pagó al 100% o más => 0
+                    // Entre 50% y 100% sin excedente => 0.5
+                    data.cv += 0.5;
                   }
                 }
               });
