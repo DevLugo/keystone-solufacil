@@ -53,6 +53,19 @@ interface ReportData {
     totalGrantedInMonth: number;
     totalFinishedInMonth: number;
     netChangeInMonth: number;
+    totalFinishedByCleanupInMonth?: number;
+    totalFinishedByCleanupToDate?: number;
+    cvMonthlyAvg?: number;
+    payingPercentMonthlyAvg?: number;
+    closedWithoutRenewalInMonth?: number;
+    weeklyClosedWithoutRenewalSeries?: number[];
+    kpis?: {
+      active: { start: number; end: number; delta: number };
+      cv: { start: number; end: number; delta: number; average: number };
+      payingPercent: { start: number; end: number; delta: number; average: number };
+      granted: { total: number; startWeek: number; endWeek: number; delta: number };
+      closedWithoutRenewal: { total: number; startWeek: number; endWeek: number; delta: number };
+    };
   };
 }
 
@@ -78,6 +91,38 @@ const styles = {
     color: '#1a202c',
     marginBottom: '8px',
   },
+  miniChartRow: {
+    display: 'flex',
+    flexWrap: 'wrap' as const,
+    gap: '16px',
+    marginTop: '8px',
+    marginBottom: '16px'
+  },
+  miniChartCard: {
+    background: 'white',
+    border: '1px solid #e2e8f0',
+    borderRadius: 12,
+    padding: 12,
+    minWidth: 260,
+    flex: '1 1 280px'
+  },
+  sparkline: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6
+  },
+  sparklineBar: (height: number, color: string) => ({
+    width: 6,
+    height,
+    background: color,
+    borderRadius: 2
+  }),
+  sparklineDot: (size: number, color: string) => ({
+    width: size,
+    height: size,
+    borderRadius: '50%',
+    background: color
+  }),
   subtitle: {
     fontSize: '14px',
     color: '#718096',
@@ -228,6 +273,95 @@ const styles = {
   },
 };
 
+// Cargador ligero de ApexCharts vía CDN para evitar dependencias
+let apexLoaderPromise: Promise<void> | null = null;
+const loadApex = (): Promise<void> => {
+  if (typeof window === 'undefined') return Promise.resolve();
+  if ((window as any).ApexCharts) return Promise.resolve();
+  if (apexLoaderPromise) return apexLoaderPromise;
+  apexLoaderPromise = new Promise<void>((resolve) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/apexcharts';
+    s.async = true;
+    s.onload = () => resolve();
+    document.body.appendChild(s);
+  });
+  return apexLoaderPromise;
+};
+
+const ApexMiniChart = ({
+  type,
+  series,
+  color = '#3b82f6',
+  height = 96,
+}: { type: 'line' | 'bar' | 'area' | 'radialBar' | 'donut'; series: number[]; color?: string; height?: number }) => {
+  const ref = React.useRef<HTMLDivElement | null>(null);
+  const chartRef = React.useRef<any>(null);
+
+  React.useEffect(() => {
+    let canceled = false;
+    loadApex().then(() => {
+      if (canceled || !ref.current || !(window as any).ApexCharts) return;
+      const Apex = (window as any).ApexCharts;
+      let opts: any;
+      if (type === 'radialBar') {
+        opts = {
+          chart: { type, height, sparkline: { enabled: true }, animations: { enabled: false }, toolbar: { show: false } },
+          series: series.length ? [Number(series[0] || 0)] : [0],
+          colors: [color],
+          plotOptions: { radialBar: { hollow: { size: '58%' }, track: { background: '#e2e8f0' }, dataLabels: { show: false } } },
+          labels: ['']
+        };
+      } else if (type === 'donut') {
+        const total = (series || []).reduce((a: number, b: number) => a + (Number(b) || 0), 0);
+        const safeSeries = total > 0 ? series : [0.0001, 0];
+        opts = {
+          chart: { type, height, sparkline: { enabled: true }, animations: { enabled: false }, toolbar: { show: false } },
+          series: safeSeries,
+          colors: [color, '#94a3b8'],
+          labels: ['Fin', 'Inicio'],
+          dataLabels: { enabled: false },
+          legend: { show: false },
+          tooltip: {
+            enabled: true,
+            y: {
+              formatter: (val: number, opts: any) => {
+                const label = opts?.w?.globals?.labels?.[opts?.seriesIndex] || '';
+                return `${label}: ${val}`;
+              }
+            }
+          }
+        };
+      } else {
+        opts = {
+          chart: {
+            type,
+            height,
+            sparkline: { enabled: true },
+            animations: { enabled: false },
+            toolbar: { show: false },
+            zoom: { enabled: false },
+          },
+          series: [{ name: 'v', data: series }],
+          stroke: { curve: 'smooth', width: type === 'bar' ? 0 : 2 },
+          fill: { opacity: type === 'area' ? 0.25 : 1, type: 'solid' },
+          colors: [color],
+          dataLabels: { enabled: false },
+          tooltip: { enabled: true },
+        };
+      }
+      chartRef.current = new Apex(ref.current, opts);
+      chartRef.current.render();
+    });
+    return () => {
+      canceled = true;
+      try { chartRef.current && chartRef.current.destroy(); } catch {}
+    };
+  }, [type, color, height, JSON.stringify(series)]);
+
+  return <div ref={ref} />;
+};
+
 // Estilos CSS personalizados para el calendario
 const calendarStyles = `
   .react-calendar {
@@ -265,7 +399,7 @@ if (typeof document !== 'undefined') {
 }
 
 // Componente pequeño para mostrar un hover-card con detalles de préstamos finalizados
-const InfoHoverCard = ({ items, title = 'Detalle' }: { items: Array<{ id: string; fullName?: string; amountGived?: number; finishedDate?: string | Date; previousFinishedDate?: string | Date; date?: string | Date }>; title?: string }) => {
+const InfoHoverCard = ({ items, title = 'Detalle' }: { items: Array<{ id: string; fullName?: string; amountGived?: number; finishedDate?: string | Date; previousFinishedDate?: string | Date; date?: string | Date; startDate?: string | Date }>; title?: string }) => {
   const hasItems = Array.isArray(items) && items.length > 0;
   const [open, setOpen] = React.useState(false);
   const closeTimerRef = React.useRef<number | null>(null);
@@ -1001,6 +1135,8 @@ export default function ActiveLoansReport() {
             />
           </div>
 
+          {/* KPIs mensuales (Inicio vs Fin) – se renderizan debajo de los selectores */}
+
           <div>
             <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
               Año
@@ -1053,6 +1189,124 @@ export default function ActiveLoansReport() {
             </Button>
           </div>
         </div>
+
+        {/* KPIs mensuales (Inicio vs Fin) – solo gráficas */}
+        {processedData && (
+          <div style={styles.miniChartRow}>
+            {/* Activos */}
+            <div style={styles.miniChartCard}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#334155', marginBottom: 8 }}>Activos</div>
+              <ApexMiniChart type="donut" color="#3b82f6" series={[Number(processedData.summary.kpis?.active.end || 0), Number(processedData.summary.kpis?.active.start || 0)]} />
+              {(() => {
+                const start = Number(processedData.summary.kpis?.active.start || 0);
+                const end = Number(processedData.summary.kpis?.active.end || 0);
+                const delta = end - start;
+                const color = delta > 0 ? '#16a34a' : delta < 0 ? '#ef4444' : '#64748b';
+                const label = `${end} (${delta >= 0 ? '+' : ''}${delta})`;
+                const hint = `Inicio: ${start} | Fin: ${end}`;
+                return (
+                  <div title={hint} style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color, textAlign: 'center' }}>
+                    {label}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* CV */}
+            <div style={styles.miniChartCard}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#334155', marginBottom: 8 }}>CV (promedio)</div>
+              <ApexMiniChart type="donut" color="#ef4444" series={[Number(processedData.summary.kpis?.cv.end || 0), Number(processedData.summary.kpis?.cv.start || 0)]} />
+              {(() => {
+                const start = Number(processedData.summary.kpis?.cv.start || 0);
+                const end = Number(processedData.summary.kpis?.cv.end || 0);
+                const delta = end - start;
+                const avgNum = Number(processedData.summary.cvMonthlyAvg || 0);
+                const avg = avgNum.toFixed(2);
+                const color = '#0f172a';
+                const hint = `Inicio: ${start} | Fin: ${end} | Promedio: ${avg}`;
+                return (
+                  <div title={hint} style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color, textAlign: 'center' }}>
+                    {avg}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* % pagando */}
+            <div style={styles.miniChartCard}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#334155', marginBottom: 8 }}>% pagando</div>
+              <ApexMiniChart type="donut" color="#10b981" series={[Number(processedData.summary.kpis?.payingPercent.end || 0), Number(processedData.summary.kpis?.payingPercent.start || 0)]} />
+              {(() => {
+                const start = Number(processedData.summary.kpis?.payingPercent.start || 0);
+                const end = Number(processedData.summary.kpis?.payingPercent.end || 0);
+                const delta = end - start;
+                const color = delta > 0 ? '#16a34a' : delta < 0 ? '#ef4444' : '#64748b';
+                const label = `${end.toFixed(1)}% (${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%)`;
+                const avg = Number(processedData.summary.payingPercentMonthlyAvg || 0).toFixed(1) + '%';
+                const hint = `Inicio: ${start.toFixed(1)}% | Fin: ${end.toFixed(1)}% | Promedio: ${avg}`;
+                return (
+                  <div title={hint} style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color, textAlign: 'center' }}>
+                    {label}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Otorgados del mes */}
+            <div style={styles.miniChartCard}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#334155', marginBottom: 8 }}>Otorgados</div>
+              <ApexMiniChart type="donut" color="#06b6d4" series={[Number(processedData.summary.kpis?.granted.total || 0), Number(processedData.summary.grantedPrevMonth || 0)]} />
+              {(() => {
+                const curr = Number(processedData.summary.kpis?.granted.total || 0);
+                const prev = Number(processedData.summary.grantedPrevMonth || 0);
+                const delta = curr - prev;
+                const color = delta > 0 ? '#16a34a' : delta < 0 ? '#ef4444' : '#0f172a';
+                const title = `Mes anterior: ${prev}`;
+                return (
+                  <div title={title} style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color, textAlign: 'center' }}>
+                    {curr} ({delta >= 0 ? '+' : ''}{delta})
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Clientes pagando */}
+            <div style={styles.miniChartCard}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#334155', marginBottom: 8 }}>Clientes pagando (promedio)</div>
+              <ApexMiniChart type="donut" color="#16a34a" series={[Number(processedData.summary.payingClientsWeeklyAvg || 0), Number(processedData.summary.payingClientsWeeklyAvgPrev || 0)]} />
+              {(() => {
+                const avg = Number(processedData.summary.payingClientsWeeklyAvg || 0);
+                const prevAvg = Number(processedData.summary.payingClientsWeeklyAvgPrev || 0);
+                const delta = avg - prevAvg;
+                const title = `Mes actual (prom): ${Math.round(avg)} | Mes anterior (prom): ${Math.round(prevAvg)} (Δ ${delta >= 0 ? '+' : ''}${Math.round(delta)})`;
+                return (
+                  <div title={title} style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color: '#0f172a', textAlign: 'center' }}>
+                    {Math.round(avg)} ({delta >= 0 ? '+' : ''}{Math.round(delta)})
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Cerrados sin renovar */}
+            <div style={styles.miniChartCard}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#334155', marginBottom: 8 }}>Cerrados sin renovar</div>
+              <ApexMiniChart type="donut" color="#9333ea" series={[Number(processedData.summary.closedWithoutRenewalInMonth || 0), Number(processedData.summary.closedWithoutRenewalPrevMonth || 0)]} />
+              {(() => {
+                const totalClosed = Number(processedData.summary.totalClosedNonCleanupInMonth || 0);
+                const closedNoRenew = Number(processedData.summary.closedWithoutRenewalInMonth || 0);
+                const renewed = Math.max(0, Number(processedData.summary.closedWithRenewalInMonth || 0));
+                const prev = Number(processedData.summary.closedWithoutRenewalPrevMonth || 0);
+                const delta = closedNoRenew - prev;
+                const title = `Cerrados: ${totalClosed} · No renovaron: ${closedNoRenew} · Renovaron: ${renewed} | Mes anterior (no renovaron): ${prev}`;
+                return (
+                  <div style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color: '#0f172a', textAlign: 'center' }} title={title}>
+                    {closedNoRenew} ({delta >= 0 ? '+' : ''}{delta})
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        )}
 
         {/* Filtros de CV */}
         <div style={styles.filtersRow}>
@@ -1197,20 +1451,11 @@ export default function ActiveLoansReport() {
               </div>
               <div style={styles.summaryLabel}>% Crecimiento</div>
             </div>
-            <div style={styles.summaryCard}>
+              <div style={styles.summaryCard}>
               <div style={styles.summaryValue}>
                 {(() => {
-                  const weeks = processedData.weeks || [];
-                  if (weeks.length === 0) return '0%';
-                  let sum = 0; let count = 0;
-                  weeks.forEach((w: string) => {
-                    const wt = processedData.weeklyTotals[w];
-                    const totalActive = wt?.activeAtEnd || 0;
-                    const cv = wt?.cv || 0;
-                    if (totalActive > 0) { sum += (cv / totalActive) * 100; count++; }
-                  });
-                  const val = count > 0 ? (sum / count) : 0;
-                  return val.toFixed(1) + '%';
+                  const val = Number(processedData?.summary?.cvMonthlyAvg || 0);
+                  return val.toFixed ? val.toFixed(2) : Number(val).toFixed(2);
                 })()}
               </div>
               <div style={styles.summaryLabel}>CV Promedio Mes</div>
@@ -1516,7 +1761,15 @@ export default function ActiveLoansReport() {
                                 }}>
                                   {weekData.cv}
                                 </span>
-                                {/* tooltip nativo removido; card se muestra en Movimientos */}
+                                <InfoHoverCard title="Clientes con CV en la semana" items={(() => {
+                                  const list = (weekData as any).cvClients || [];
+                                  return list.map((l: any) => ({
+                                    id: l.id,
+                                    fullName: l.fullName,
+                                    amountGived: l.amountGived,
+                                    date: l.date
+                                  }));
+                                })()} />
                               </div>
                               <div style={styles.statRow}>
                                 <span style={styles.statLabel}>% Paga:</span>
@@ -1845,6 +2098,15 @@ export default function ActiveLoansReport() {
                               <span style={{ color: weekTotal.cv > 0 ? '#ff6b6b' : 'white' }}>
                                 {weekTotal.cv}
                               </span>
+                            <InfoHoverCard title="Clientes con CV en la semana (total)" items={(() => {
+                              const list = (weekTotal as any).cvClients || [];
+                              return list.map((l: any) => ({
+                                id: l.id,
+                                fullName: l.fullName,
+                                amountGived: l.amountGived,
+                                date: l.date
+                              }));
+                            })()} />
                             </div>
                             <div style={styles.statRow}>
                               <span style={{ fontSize: '11px' }}>% Paga:</span>

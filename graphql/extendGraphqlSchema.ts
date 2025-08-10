@@ -2092,7 +2092,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
               // (Lógica simplificada solicitada) No neutralizamos renovaciones; los conteos N (granted) y Y (finished) se usan tal cual
 
-              filteredLoans.forEach(loan => {
+              filteredLoans.forEach((loan: any) => {
                 const locality = loan.borrower?.personalData?.addresses?.[0]?.location?.name ||
                                 loan.lead?.personalData?.addresses?.[0]?.location?.name ||
                                 'Sin localidad';
@@ -2109,6 +2109,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     grantedLoansRenewed: [],
                     finished: 0,
                     finishedLoans: [],
+                    cvClients: [],
                     cv: 0, // Créditos Vencidos (activos sin pago en la semana)
                     totalAmountAtStart: 0,
                     totalAmountAtEnd: 0,
@@ -2229,7 +2230,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
               // Eliminado el arrastre por previousWeekActiveAtEnd; el inicio se calcula siempre por condición en el corte del domingo
 
-              // Calcular CV (Créditos Vencidos) - préstamos activos sin pagos en la semana
+              // Calcular CV (Créditos Vencidos) basado en conteo de pagos por semana
+              // Reglas:
+              // - 0 pagos en la semana => +1
+              // - pagos < 50% del pago semanal esperado => +1
+              // - pagos >= 50% y < 100% del pago semanal esperado => +0.5
+              // - pagos >= 100% del pago semanal esperado => +0
+              // Nota: Ignoramos badDebt para este reporte; los préstamos excluidos por cleanup ya no están aquí
               filteredLoans.forEach((loan: any) => {
                 const locality = loan.borrower?.personalData?.addresses?.[0]?.location?.name ||
                                 loan.lead?.personalData?.addresses?.[0]?.location?.name ||
@@ -2242,31 +2249,59 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 const isActiveInWeek = isLoanConsideredOnDate(loan, weekStart) || isLoanConsideredOnDate(loan, weekEnd);
                 if (!isActiveInWeek) return;
 
-                // Verificar si recibió algún pago durante esta semana
-                let hasPaymentInWeek = false;
-                for (const payment of loan.payments) {
+                // Si el préstamo se firmó dentro de esta semana, no se espera pago en esta misma semana
+                try {
+                  const signDate = new Date(loan.signDate);
+                  if (signDate >= weekStart && signDate <= weekEnd) {
+                    return; // excluir de CV esta semana
+                  }
+                } catch (_) {}
+
+                // Sumar pagos de la semana
+                let weeklyPaid = 0;
+                for (const payment of loan.payments || []) {
                   const paymentDate = new Date(payment.receivedAt || payment.createdAt);
                   if (paymentDate >= weekStart && paymentDate <= weekEnd) {
-                    hasPaymentInWeek = true;
-                    break;
+                    weeklyPaid += Number(payment.amount || 0);
                   }
                 }
 
-                // Verificar si el préstamo tiene badDebtDate y si estamos después de esa fecha
-                let isBadDebtAfterDate = false;
-                if (loan.badDebtDate) {
-                  const badDebtDate = new Date(loan.badDebtDate);
-                  if (weekEnd > badDebtDate) {
-                    isBadDebtAfterDate = true;
+                // Calcular pago semanal esperado
+                let expectedWeekly = 0;
+                try {
+                  const rate = parseFloat(loan.loantype?.rate?.toString() || '0');
+                  const duration = Number(loan.loantype?.weekDuration || 0);
+                  const requested = parseFloat(loan.requestedAmount?.toString?.() || `${loan.requestedAmount || 0}`);
+                  if (duration > 0) {
+                    const totalAmountToPay = requested * (1 + rate);
+                    expectedWeekly = totalAmountToPay / duration;
                   }
-                }
+                } catch (_) {}
 
-                // Solo contar como CV si:
-                // 1. No recibió pagos en la semana
-                // 2. Y NO tiene badDebtDate o estamos antes del badDebtDate
-                if (!hasPaymentInWeek && !isBadDebtAfterDate) {
-                  data.cv++;
+                // Aplicar reglas de contribución
+                if (weeklyPaid === 0) {
+                  data.cv += 1;
                   data.cvAmount += Number(loan.amountGived || 0);
+                  // Guardar para hover: solo los que NO pagaron
+                  (data.cvClients as any[]).push({
+                    id: loan.id,
+                    fullName: loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A',
+                    amountGived: Number(loan.amountGived || 0),
+                    date: loan.signDate
+                  });
+                } else if (expectedWeekly > 0) {
+                  if (weeklyPaid < 0.5 * expectedWeekly) {
+                    // Pagó menos del 50% => cuenta como 1
+                    data.cv += 1;
+                    data.cvAmount += Number(loan.amountGived || 0);
+                    // Nota: Hover solo requiere los que no pagaron; no agregamos parciales
+                  } else if (weeklyPaid < expectedWeekly) {
+                    // Entre 50% y 100% => cuenta como 0.5
+                    data.cv += 0.5;
+                    // Monto asociado opcional: no sumamos a cvAmount para evitar confusión
+                  } else {
+                    // Pagó al 100% o más => 0
+                  }
                 }
               });
 
@@ -2341,9 +2376,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 grantedNew: 0,
                 grantedRenewed: 0,
                 finished: 0,
-                  finishedLoans: [],
+                finishedLoans: [],
                 finishedByCleanup: 0,
                 cv: 0, // Créditos Vencidos
+                cvClients: [],
                 totalAmountAtStart: 0,
                 totalAmountAtEnd: 0,
                 grantedAmount: 0,
@@ -2363,6 +2399,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 weeklyTotals[weekKey].finishedLoans.push(...(localityData.finishedLoans || []));
                 weeklyTotals[weekKey].finishedByCleanup += (localityData.finishedLoans || []).filter((f: any) => f.reason === 'PORTFOLIO_CLEANUP').length;
                 weeklyTotals[weekKey].cv += localityData.cv; // Sumar CV
+                weeklyTotals[weekKey].cvClients.push(...(localityData.cvClients || []));
                 weeklyTotals[weekKey].totalAmountAtStart += localityData.totalAmountAtStart;
                 weeklyTotals[weekKey].totalAmountAtEnd += localityData.totalAmountAtEnd;
                 weeklyTotals[weekKey].grantedAmount += localityData.grantedAmount;
@@ -2402,6 +2439,157 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 return !!cd && cd <= monthEnd;
               }).length;
 
+              // Calcular CV mensual promedio (promedio simple de CV semanal)
+              const cvMonthlyAvg = weekOrder.length > 0
+                ? (weekOrder.reduce((acc, wk) => acc + (weeklyTotals[wk]?.cv || 0), 0) / weekOrder.length)
+                : 0;
+
+              // KPI auxiliares por semana
+              const weeklyCv = weekOrder.map(wk => Number(weeklyTotals[wk]?.cv || 0));
+              const weeklyPayingPct = weekOrder.map(wk => {
+                const act = Number(weeklyTotals[wk]?.activeAtEnd || 0);
+                const cv = Number(weeklyTotals[wk]?.cv || 0);
+                return act > 0 ? (1 - (cv / act)) * 100 : 0;
+              });
+
+              // Cerrados sin renovar por semana (renovación dentro del mismo mes)
+              const isRenewedInMonth = (finishedId: string) => {
+                return allLoans.some((ln: any) => {
+                  if (!ln.previousLoanId) return false;
+                  if (ln.previousLoanId !== finishedId) return false;
+                  const sd = new Date(ln.signDate);
+                  return sd >= monthStart && sd <= monthEnd;
+                });
+              };
+
+              const weeklyClosedWithoutRenewal: { [week: string]: number } = {};
+              weekOrder.forEach(wk => {
+                const total = Object.values(reportData[wk] || {}).reduce((acc: number, loc: any) => {
+                  const fins = (loc.finishedLoans || []).filter((f: any) => f?.reason !== 'PORTFOLIO_CLEANUP');
+                  let count = 0;
+                  for (const f of fins) {
+                    if (!isRenewedInMonth(f.id)) count++;
+                  }
+                  return acc + count;
+                }, 0);
+                weeklyClosedWithoutRenewal[wk] = total;
+              });
+
+              // Totales de mes
+              const grantedInMonth = Object.values(weeklyTotals).reduce((sum: number, w: any) => sum + (w.granted || 0), 0);
+              const finishedInMonth = Object.values(weeklyTotals).reduce((sum: number, w: any) => sum + (w.finished || 0), 0);
+              const finishedByCleanupInMonth = Object.values(weeklyTotals).reduce((sum: number, w: any) => sum + (w.finishedByCleanup || 0), 0);
+              const totalClosedNonCleanupInMonth = finishedInMonth - finishedByCleanupInMonth;
+              const closedWithoutRenewalInMonth = weekOrder.reduce((sum, wk) => sum + (weeklyClosedWithoutRenewal[wk] || 0), 0);
+              const weeklyClosedWithoutRenewalSeries = weekOrder.map(wk => weeklyClosedWithoutRenewal[wk] || 0);
+
+              // Deltas inicio vs fin
+              const activeStart = weekOrder.length ? Number(weeklyTotals[weekOrder[0]].activeAtStart || 0) : 0;
+              const activeEnd = weekOrder.length ? Number(weeklyTotals[weekOrder[weekOrder.length - 1]].activeAtEnd || 0) : 0;
+              const activeDelta = activeEnd - activeStart;
+
+              const cvStart = weekOrder.length ? weeklyCv[0] : 0;
+              const cvEnd = weekOrder.length ? weeklyCv[weeklyCv.length - 1] : 0;
+              const cvDelta = cvEnd - cvStart;
+
+              const payStart = weekOrder.length ? weeklyPayingPct[0] : 0;
+              const payEnd = weekOrder.length ? weeklyPayingPct[weeklyPayingPct.length - 1] : 0;
+              const payDelta = payEnd - payStart;
+
+              // Totales/Promedios
+              const payingPercentMonthlyAvg = weeklyPayingPct.length ? (weeklyPayingPct.reduce((a, b) => a + b, 0) / weeklyPayingPct.length) : 0;
+              const payingClientsWeeklyAvg = weekOrder.length > 0
+                ? (weekOrder.reduce((sum, wk) => {
+                    const wt: any = weeklyTotals[wk] || {};
+                    const act = Number(wt.activeAtEnd || 0);
+                    const cv = Number(wt.cv || 0);
+                    return sum + Math.max(0, act - cv);
+                  }, 0) / weekOrder.length)
+                : 0;
+
+              // Clientes pagando al cierre del mes actual (activos al final - CV de la última semana)
+              const payingClientsEndOfMonth = (weekOrder.length > 0)
+                ? Math.max(0, Number(weeklyTotals[weekOrder[weekOrder.length - 1]].activeAtEnd || 0) - Number(weeklyTotals[weekOrder[weekOrder.length - 1]].cv || 0))
+                : 0;
+
+              // Clientes pagando del mes anterior (aprox usando la última semana activa del mes anterior)
+              let payingClientsPrevMonth = 0;
+              let grantedPrevMonth = 0;
+              let closedWithoutRenewalPrevMonth = 0;
+              try {
+                const prev = new Date(year, month - 2, 1);
+                const monthStartPrev = new Date(prev.getFullYear(), prev.getMonth(), 1, 0, 0, 0, 0);
+                const monthEndPrev = new Date(prev.getFullYear(), prev.getMonth() + 1, 0, 23, 59, 59, 999);
+                // Calcular semana (Lunes a Domingo) que contiene el último día del mes anterior
+                const dow = monthEndPrev.getDay(); // 0 Dom .. 6 Sab
+                const mondayOffset = ((dow + 6) % 7);
+                const weekStartPrev = new Date(monthEndPrev);
+                weekStartPrev.setDate(weekStartPrev.getDate() - mondayOffset);
+                weekStartPrev.setHours(0, 0, 0, 0);
+                const weekEndPrev = new Date(weekStartPrev);
+                weekEndPrev.setDate(weekEndPrev.getDate() + 6);
+                weekEndPrev.setHours(23, 59, 59, 999);
+
+                // Conteos previos
+                let activePrevEnd = 0;
+                let cvPrev = 0;
+                filteredLoans.forEach((loan: any) => {
+                  const isActive = isLoanConsideredOnDate(loan, weekStartPrev) || isLoanConsideredOnDate(loan, weekEndPrev);
+                  if (!isActive) return;
+                  // activo al cierre
+                  if (isLoanConsideredOnDate(loan, weekEndPrev)) activePrevEnd++;
+
+                  // Excluir firmas dentro de la misma semana para CV
+                  const sd = new Date(loan.signDate);
+                  if (sd >= weekStartPrev && sd <= weekEndPrev) return;
+
+                  // Sumar pagos en la semana
+                  let weeklyPaid = 0;
+                  for (const p of loan.payments || []) {
+                    const pd = new Date(p.receivedAt || p.createdAt);
+                    if (pd >= weekStartPrev && pd <= weekEndPrev) weeklyPaid += Number(p.amount || 0);
+                  }
+                  // Esperado semanal
+                  let expectedWeekly = 0;
+                  try {
+                    const rate = parseFloat(loan.loantype?.rate?.toString() || '0');
+                    const duration = Number(loan.loantype?.weekDuration || 0);
+                    const requested = parseFloat(loan.requestedAmount?.toString?.() || `${loan.requestedAmount || 0}`);
+                    if (duration > 0) expectedWeekly = (requested * (1 + rate)) / duration;
+                  } catch {}
+                  if (weeklyPaid === 0) cvPrev += 1;
+                  else if (expectedWeekly > 0) {
+                    if (weeklyPaid < 0.5 * expectedWeekly) cvPrev += 1;
+                    else if (weeklyPaid < expectedWeekly) cvPrev += 0.5;
+                  }
+                });
+                payingClientsPrevMonth = Math.max(0, activePrevEnd - cvPrev);
+
+                // Otorgados prev mes (signDate en mes previo)
+                grantedPrevMonth = filteredLoans.reduce((acc: number, loan: any) => {
+                  const sd = new Date(loan.signDate);
+                  return acc + ((sd >= monthStartPrev && sd <= monthEndPrev) ? 1 : 0);
+                }, 0);
+
+                // Cerrados sin renovar prev mes (finishedDate en mes previo y sin nueva renovación en mes previo)
+                const isRenewedInPrevMonth = (finishedId: string) => {
+                  return filteredLoans.some((ln: any) => {
+                    if (!ln.previousLoanId) return false;
+                    if (ln.previousLoanId !== finishedId) return false;
+                    const sd = new Date(ln.signDate);
+                    return sd >= monthStartPrev && sd <= monthEndPrev;
+                  });
+                };
+                closedWithoutRenewalPrevMonth = filteredLoans.reduce((acc: number, loan: any) => {
+                  const fd = loan.finishedDate ? new Date(loan.finishedDate as any) : null;
+                  if (!fd) return acc;
+                  if (fd >= monthStartPrev && fd <= monthEndPrev) {
+                    return acc + (isRenewedInPrevMonth(loan.id) ? 0 : 1);
+                  }
+                  return acc;
+                }, 0);
+              } catch {}
+
               return {
               route: {
                 id: route?.id || '',
@@ -2418,11 +2606,30 @@ export const extendGraphqlSchema = graphql.extend(base => {
               summary: {
                 totalActiveAtMonthStart: weekOrder.length > 0 ? weeklyTotals[weekOrder[0]].activeAtStart : 0,
                 totalActiveAtMonthEnd: weekOrder.length > 0 ? weeklyTotals[weekOrder[weekOrder.length - 1]].activeAtEnd : 0,
-                totalGrantedInMonth: Object.values(weeklyTotals).reduce((sum: number, week: any) => sum + week.granted, 0),
-                totalFinishedInMonth: Object.values(weeklyTotals).reduce((sum: number, week: any) => sum + week.finished, 0),
-                  totalFinishedByCleanupInMonth: Object.values(weeklyTotals).reduce((sum: number, week: any) => sum + (week.finishedByCleanup || 0), 0),
+                totalGrantedInMonth: grantedInMonth,
+                totalFinishedInMonth: finishedInMonth,
+                  totalFinishedByCleanupInMonth: finishedByCleanupInMonth,
                   totalFinishedByCleanupToDate: cleanupToDateCount,
-                netChangeInMonth: weekOrder.length > 0 ? weeklyTotals[weekOrder[weekOrder.length - 1]].activeAtEnd - weeklyTotals[weekOrder[0]].activeAtStart : 0
+                netChangeInMonth: weekOrder.length > 0 ? weeklyTotals[weekOrder[weekOrder.length - 1]].activeAtEnd - weeklyTotals[weekOrder[0]].activeAtStart : 0,
+                cvMonthlyAvg,
+                payingPercentMonthlyAvg,
+                closedWithoutRenewalInMonth,
+                totalClosedNonCleanupInMonth,
+                closedWithRenewalInMonth: Math.max(0, totalClosedNonCleanupInMonth - closedWithoutRenewalInMonth),
+                payingClientsEndOfMonth,
+                payingClientsPrevMonth,
+                grantedPrevMonth,
+                closedWithoutRenewalPrevMonth,
+                payingClientsWeeklyAvg,
+                payingClientsWeeklyAvgPrev: payingClientsPrevMonth,
+                weeklyClosedWithoutRenewalSeries,
+                kpis: {
+                  active: { start: activeStart, end: activeEnd, delta: activeDelta },
+                  cv: { start: cvStart, end: cvEnd, delta: cvDelta, average: cvMonthlyAvg },
+                  payingPercent: { start: payStart, end: payEnd, delta: payDelta, average: payingPercentMonthlyAvg },
+                  granted: { total: grantedInMonth, startWeek: weekOrder.length ? weeklyTotals[weekOrder[0]].granted : 0, endWeek: weekOrder.length ? weeklyTotals[weekOrder[weekOrder.length - 1]].granted : 0, delta: weekOrder.length ? (weeklyTotals[weekOrder[weekOrder.length - 1]].granted - weeklyTotals[weekOrder[0]].granted) : 0 },
+                  closedWithoutRenewal: { total: closedWithoutRenewalInMonth, startWeek: weekOrder.length ? (weeklyClosedWithoutRenewal[weekOrder[0]] || 0) : 0, endWeek: weekOrder.length ? (weeklyClosedWithoutRenewal[weekOrder[weekOrder.length - 1]] || 0) : 0, delta: weekOrder.length ? ((weeklyClosedWithoutRenewal[weekOrder[weekOrder.length - 1]] || 0) - (weeklyClosedWithoutRenewal[weekOrder[0]] || 0)) : 0 }
+                }
               }
             };
 
