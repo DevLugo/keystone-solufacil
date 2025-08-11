@@ -96,6 +96,16 @@ export const GET_LEADS_SIMPLE = gql`
       type
       personalData {
         fullName
+        addresses {
+          location {
+            name
+            municipality {
+              state {
+                name
+              }
+            }
+          }
+        }
       }
     }
   }

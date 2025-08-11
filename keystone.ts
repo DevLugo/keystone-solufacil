@@ -142,7 +142,10 @@ export default withAuth(
               orderBy: {
                 signDate: 'asc'
               }
-            });
+            }) as any[];
+
+            // Excluir préstamos ya limpiados (tienen excludedByCleanupId asignado)
+            const filteredActiveLoans = activeLoans.filter((loan: any) => !loan.excludedByCleanupId);
 
             // Procesar datos para el PDF
             const formatCurrency = (amount: number | string) => {
@@ -174,7 +177,7 @@ export default withAuth(
             };
 
             // Generar registros de pago
-            const payments = activeLoans.map((loan: any) => {
+            const payments = filteredActiveLoans.map((loan: any) => {
               const phone = loan.borrower?.personalData?.phones?.[0]?.number || '';
                
               let weeklyPaymentAmount = 0;
@@ -197,13 +200,13 @@ export default withAuth(
                 abonoParcial: '$0',
                 fInicio: formatDate(loan.signDate),
                 nSemana: weekNumber.toString(),
-                aval: loan.avalName || ''
+                aval: [loan.avalName, loan.avalPhone].filter(Boolean).join(', ')
               };
             });
 
             // Calcular estadísticas
             const totalClientes = payments.length;
-            const totalCobranzaEsperada = activeLoans.reduce((sum, loan) => {
+            const totalCobranzaEsperada = filteredActiveLoans.reduce((sum: number, loan: any) => {
               let weeklyPaymentAmount = 0;
               if (loan.loantype && loan.loantype.weekDuration && loan.loantype.weekDuration > 0) {
                 const rate = loan.loantype.rate ? parseFloat(loan.loantype.rate.toString()) : 0;

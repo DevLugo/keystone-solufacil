@@ -17,6 +17,11 @@ type Lead = {
   id: string;
   personalData: {
     fullName: string;
+    addresses?: Array<{
+      location: {
+        name: string;
+      } | null;
+    }> | null;
   };
   type: string;
 };
@@ -283,11 +288,16 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
     data: route
   }));
 
-  const leadOptions = leads.map((lead: Lead) => ({
-    label: lead.personalData?.fullName || 'Sin nombre',
-    value: lead.id,
-    data: lead
-  }));
+  const leadOptions = leads.map((lead: Lead) => {
+    const locality = lead.personalData?.addresses?.[0]?.location?.name || '';
+    const state = (lead.personalData as any)?.addresses?.[0]?.location?.municipality?.state?.name || '';
+    const label = locality && state ? `${locality} · ${state}` : locality || lead.personalData?.fullName || 'Sin nombre';
+    return {
+      label,
+      value: lead.id,
+      data: lead
+    };
+  });
 
   // OPTIMIZADO: Eliminar refetch innecesario
   const handleRouteChange = (option: any) => {
@@ -345,7 +355,7 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
   return (
     <Box css={styles.container}>
       <Box css={styles.header}>
-        <h2 css={styles.title}>Selección de Ruta y Líder</h2>
+        <h2 css={styles.title}>Selección de Ruta y Localidad</h2>
       </Box>
 
       <Box css={styles.content}>
@@ -363,13 +373,13 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
           </Box>
 
           <Box css={styles.selector}>
-            <div css={styles.selectorLabel}>Líder</div>
+            <div css={styles.selectorLabel}>Localidad</div>
             <Box css={styles.selectContainer}>
               <Select
                 value={leadOptions.find(option => option.value === selectedLead?.id) || null}
                 options={leadOptions}
                 onChange={handleLeadChange}
-                placeholder="Seleccionar líder"
+                placeholder="Seleccionar localidad"
                 isLoading={leadsLoading}
                 isDisabled={!selectedRoute}
                 data-testid="lead-selector"
@@ -378,7 +388,7 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
                 <button
                   css={styles.clearButton}
                   onClick={() => onLeadSelect(null)}
-                  title="Limpiar líder seleccionado"
+                  title="Limpiar localidad seleccionada"
                 >
                   <FaTimes />
                 </button>

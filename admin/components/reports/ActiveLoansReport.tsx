@@ -1398,116 +1398,7 @@ export default function ActiveLoansReport() {
         </div>
       </div>
 
-      {/* Resumen de KPIs */}
-      {processedData && (
-        <React.Fragment>
-          {/* Cartera */}
-          <div style={{ fontWeight: 700, color: '#475569', margin: '8px 4px' }}>Cartera</div>
-          <div style={{ ...styles.summaryCards, gridTemplateColumns: 'repeat(4, 1fr)' }}>
-            <div style={styles.summaryCard}>
-              <div style={styles.summaryValue}>
-                {formatNumber(processedData.summary.totalActiveAtMonthStart)}
-              </div>
-              <div style={styles.summaryLabel}>Créditos Inicio Mes</div>
-            </div>
-
-            <div style={styles.summaryCard}>
-              <div style={styles.summaryValue}>
-                {formatNumber(processedData.summary.totalActiveAtMonthEnd)}
-                <SimpleHoverInfo
-                  title="Detalle descartes por cleanup"
-                  lines={[`Acumulado: ${formatNumber(processedData.summary.totalFinishedByCleanupToDate || 0)}`, `En mes: ${formatNumber(processedData.summary.totalFinishedByCleanupInMonth || 0)}`]}
-                />
-              </div>
-              <div style={styles.summaryLabel}>Créditos Final Mes</div>
-            </div>
-
-            <div style={styles.summaryCard}>
-              <div style={styles.summaryValue}>
-                {formatNumber(processedData.summary.totalGrantedInMonth)}
-              </div>
-              <div style={styles.summaryLabel}>Otorgados en Mes</div>
-            </div>
-
-            
-          </div>
-
-          {/* Movimientos e indicadores */}
-          <div style={{ fontWeight: 700, color: '#475569', margin: '16px 4px 8px' }}>Movimientos e Indicadores</div>
-          <div style={{ ...styles.summaryCards, gridTemplateColumns: 'repeat(4, 1fr)' }}>
-            <div style={styles.summaryCard}>
-              <div style={styles.summaryValue}>
-                {formatNumber(processedData.summary.totalFinishedInMonth)}
-              </div>
-              <div style={styles.summaryLabel}>Finalizados en Mes</div>
-            </div>
-
-            <div style={styles.summaryCard}>
-              <div 
-                style={{
-                  ...styles.summaryValue,
-                  ...getChangeColor(processedData.summary.netChangeInMonth)
-                }}
-              >
-                {processedData.summary.netChangeInMonth > 0 ? '+' : ''}
-                {formatNumber(processedData.summary.netChangeInMonth)}
-              </div>
-              <div style={styles.summaryLabel}>Cambio Neto</div>
-            </div>
-
-            <div style={styles.summaryCard}>
-              <div 
-                style={{
-                  ...styles.summaryValue,
-                  ...getChangeColor((() => {
-                    const growthPercent = processedData.summary.totalActiveAtMonthStart > 0 
-                      ? ((processedData.summary.netChangeInMonth / processedData.summary.totalActiveAtMonthStart) * 100)
-                      : 0;
-                    return growthPercent;
-                  })())
-                }}
-              >
-                {(() => {
-                  const growthPercent = processedData.summary.totalActiveAtMonthStart > 0 
-                    ? ((processedData.summary.netChangeInMonth / processedData.summary.totalActiveAtMonthStart) * 100)
-                    : 0;
-                  return (growthPercent > 0 ? '+' : '') + growthPercent.toFixed(1) + '%';
-                })()}
-              </div>
-              <div style={styles.summaryLabel}>% Crecimiento</div>
-            </div>
-              <div style={styles.summaryCard}>
-              <div style={styles.summaryValue}>
-                {(() => {
-                  const val = Number(processedData?.summary?.cvMonthlyAvg || 0);
-                  return val.toFixed ? val.toFixed(2) : Number(val).toFixed(2);
-                })()}
-              </div>
-              <div style={styles.summaryLabel}>CV Promedio Mes</div>
-            </div>
-            <div style={styles.summaryCard}>
-              <div style={styles.summaryValue}>
-                {(() => {
-                  const weeks = processedData.weeks || [];
-                  if (weeks.length === 0) return '0%';
-                  let sum = 0; let count = 0;
-                  weeks.forEach((w: string) => {
-                    const wt = processedData.weeklyTotals[w];
-                    const totalActive = wt?.activeAtEnd || 0;
-                    const cv = wt?.cv || 0;
-                    const paying = totalActive - cv;
-                    const pct = totalActive > 0 ? (paying / totalActive) * 100 : 0;
-                    sum += pct; count++;
-                  });
-                  const val = count > 0 ? (sum / count) : 0;
-                  return val.toFixed(1) + '%';
-                })()}
-              </div>
-              <div style={styles.summaryLabel}>% Paga Promedio Mes</div>
-            </div>
-          </div>
-
-          {/* Sección de Limpiezas de Cartera */}
+      {/* Sección de Limpiezas de Cartera */}
           {cleanupsData?.getPortfolioCleanups?.cleanups?.length > 0 && (
             <div style={{
               backgroundColor: '#fef3c7',
@@ -1636,8 +1527,6 @@ export default function ActiveLoansReport() {
               </div>
             </div>
           )}
-        </React.Fragment>
-      )}
 
       {/* Tabla de datos */}
       {processedData && (
