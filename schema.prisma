@@ -163,6 +163,10 @@ model Loan {
   previousLoan           Loan?               @relation("Loan_previousLoan", fields: [previousLoanId], references: [id])
   previousLoanId         String?             @map("previousLoan")
   commissionPayment      CommissionPayment[] @relation("CommissionPayment_loan")
+  totalDebtAcquired      Decimal?            @postgresql.Decimal(12, 2)
+  expectedWeeklyPayment  Decimal?            @postgresql.Decimal(12, 2)
+  totalPaid              Decimal?            @postgresql.Decimal(12, 2)
+  pendingAmountStored    Decimal?            @postgresql.Decimal(12, 2)
   comissionAmount        Decimal?            @postgresql.Decimal(18, 4)
   finishedDate           DateTime?
   updatedAt              DateTime?

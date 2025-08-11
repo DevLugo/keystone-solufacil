@@ -212,6 +212,52 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 await tx.transaction.createMany({ data: transactionData });
               }
 
+              // Recalcular métricas para cada préstamo afectado
+              const affectedLoanIds2 = Array.from(new Set(createdPaymentRecords.map((p: any) => p.loanId)));
+              for (const loanId of affectedLoanIds2) {
+                const loan = await tx.loan.findUnique({ where: { id: loanId }, include: { loantype: true, payments: true } });
+                if (!loan) continue;
+                const rate = parseFloat(loan.loantype?.rate?.toString() || '0');
+                const requested = parseFloat(loan.requestedAmount.toString());
+                const weekDuration = Number(loan.loantype?.weekDuration || 0);
+                const totalDebt = requested * (1 + rate);
+                const expectedWeekly = weekDuration > 0 ? (totalDebt / weekDuration) : 0;
+                const totalPaid = (loan.payments || []).reduce((s: number, p: any) => s + parseFloat((p.amount || 0).toString()), 0);
+                const pending = Math.max(0, totalDebt - totalPaid);
+                await tx.loan.update({
+                  where: { id: loanId },
+                  data: {
+                    totalDebtAcquired: totalDebt.toFixed(2),
+                    expectedWeeklyPayment: expectedWeekly.toFixed(2),
+                    totalPaid: totalPaid.toFixed(2),
+                    pendingAmountStored: pending.toFixed(2),
+                  }
+                });
+              }
+
+              // Actualizar métricas del préstamo para cada loan afectado
+              const affectedLoanIds = Array.from(new Set(createdPaymentRecords.map(p => p.loanId)));
+              for (const loanId of affectedLoanIds) {
+                const loan = await tx.loan.findUnique({ where: { id: loanId }, include: { loantype: true, payments: true } });
+                if (!loan) continue;
+                const rate = parseFloat(loan.loantype?.rate?.toString() || '0');
+                const requested = parseFloat(loan.requestedAmount.toString());
+                const weekDuration = Number(loan.loantype?.weekDuration || 0);
+                const totalDebt = requested * (1 + rate);
+                const expectedWeekly = weekDuration > 0 ? (totalDebt / weekDuration) : 0;
+                const totalPaid = (loan.payments || []).reduce((s: number, p: any) => s + parseFloat((p.amount || 0).toString()), 0);
+                const pending = Math.max(0, totalDebt - totalPaid);
+                await tx.loan.update({
+                  where: { id: loanId },
+                  data: {
+                    totalDebtAcquired: totalDebt.toFixed(2),
+                    expectedWeeklyPayment: expectedWeekly.toFixed(2),
+                    totalPaid: totalPaid.toFixed(2),
+                    pendingAmountStored: pending.toFixed(2),
+                  }
+                });
+              }
+
               // Actualizar balances de cuentas si hay cambios
               if (cashAmountChange > 0) {
                 const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
@@ -1897,13 +1943,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
               // pero las ventanas semanales abarcan de lunes a domingo para el conteo de eventos
               const firstDayOfMonth = new Date(year, month - 1, 1);
               const lastDayOfMonth = new Date(year, month, 0);
-
+              
               let currentDate = new Date(firstDayOfMonth);
               // Retroceder hasta el primer lunes previo/al inicio del mes
               while (currentDate.getDay() !== 1) { // 1 = lunes
                 currentDate.setDate(currentDate.getDate() - 1);
               }
-
+              
               let weekNumber = 1;
               while (currentDate <= lastDayOfMonth) {
                 const weekStart = new Date(currentDate);
@@ -1911,7 +1957,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 // ventana de conteo: lunes-domingo
                 weekEnd.setDate(weekEnd.getDate() + 6);
                 weekEnd.setHours(23, 59, 59, 999);
-
+                
                 // contar mayoría en L-V para decidir pertenencia al mes
                 let workDaysInMonth = 0;
                 let tempDate = new Date(weekStart);
@@ -1919,13 +1965,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   if (tempDate.getMonth() === month - 1) workDaysInMonth++;
                   tempDate.setDate(tempDate.getDate() + 1);
                 }
-
+                
                 if (workDaysInMonth >= 3) { // mayoría de 5 días
                   const weekKey = `SEMANA ${weekNumber}`;
                   weeks[weekKey] = { start: new Date(weekStart), end: weekEnd };
                   weekNumber++;
                 }
-
+                
                 currentDate.setDate(currentDate.getDate() + 7);
               }
             } else {
@@ -2047,7 +2093,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
             const isLoanConsideredOnDate = (loan: any, date: Date) => {
               const signDate = new Date(loan.signDate);
               if (signDate > date) return false;
-
+              
               // Solo los marcados como ACTIVE o RENOVATED en la DB
               const isActiveByStatus = ['ACTIVE'].includes(loan.status || '');
               if (!isActiveByStatus) return false;
@@ -2298,7 +2344,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     // Excedente cubre la semana completa => no CV
                   } else {
                     data.cv += 1;
-                    data.cvAmount += Number(loan.amountGived || 0);
+                  data.cvAmount += Number(loan.amountGived || 0);
                     // Guardar para hover: solo los que NO pagaron
                     (data.cvClients as any[]).push({
                       id: loan.id,
@@ -2691,7 +2737,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }, 0);
               } catch {}
 
-              return {
+            return {
               route: {
                 id: route?.id || '',
                 name: route?.name || ''

@@ -573,6 +573,12 @@ export const Loan = list({
     previousLoan: relationship({ ref: 'Loan' }), // Agrego esta línea
     commissionPayment: relationship({ ref: 'CommissionPayment.loan', many: true }),
 
+    // Campos persistentes para métricas
+    totalDebtAcquired: decimal({ precision: 12, scale: 2, db: { isNullable: true } }),
+    expectedWeeklyPayment: decimal({ precision: 12, scale: 2, db: { isNullable: true } }),
+    totalPaid: decimal({ precision: 12, scale: 2, db: { isNullable: true } }),
+    pendingAmountStored: decimal({ precision: 12, scale: 2, db: { isNullable: true } }),
+
     comissionAmount: decimal(),
     finishedDate: timestamp({ validation: { isRequired: false } }),
     updatedAt: timestamp(),
@@ -930,6 +936,29 @@ export const Loan = list({
             });
           }
 
+          // Recalcular métricas persistentes del préstamo recien creado/actualizado
+          try {
+            const loanMetrics = await context.prisma.loan.findUnique({ where: { id: item.id.toString() }, include: { loantype: true, payments: true } });
+            if (loanMetrics) {
+              const rate = parseFloat(loanMetrics.loantype?.rate?.toString() || '0');
+              const requested = parseFloat(loanMetrics.requestedAmount.toString());
+              const weekDuration = Number(loanMetrics.loantype?.weekDuration || 0);
+              const totalDebt = requested * (1 + rate);
+              const expectedWeekly = weekDuration > 0 ? (totalDebt / weekDuration) : 0;
+              const totalPaid = (loanMetrics.payments || []).reduce((s: number, p: any) => s + parseFloat((p.amount || 0).toString()), 0);
+              const pending = Math.max(0, totalDebt - totalPaid);
+              await context.prisma.loan.update({
+                where: { id: item.id.toString() },
+                data: {
+                  totalDebtAcquired: totalDebt.toFixed(2),
+                  expectedWeeklyPayment: expectedWeekly.toFixed(2),
+                  totalPaid: totalPaid.toFixed(2),
+                  pendingAmountStored: pending.toFixed(2),
+                }
+              });
+            }
+          } catch (e) { console.error('Error recomputing loan metrics (create):', e); }
+
         } else if (operation === 'update') {
           // OPTIMIZADO: Obtener transacciones y calcular profit en paralelo
           const [existingTransactions, totalProfitAmount] = await Promise.all([
@@ -1004,6 +1033,29 @@ export const Loan = list({
 
           // OPTIMIZADO: Ejecutar todas las actualizaciones en paralelo
           await Promise.all(updateOperations);
+
+          // Recalcular métricas persistentes del préstamo tras update
+          try {
+            const loanMetrics = await context.prisma.loan.findUnique({ where: { id: item.id.toString() }, include: { loantype: true, payments: true } });
+            if (loanMetrics) {
+              const rate = parseFloat(loanMetrics.loantype?.rate?.toString() || '0');
+              const requested = parseFloat(loanMetrics.requestedAmount.toString());
+              const weekDuration = Number(loanMetrics.loantype?.weekDuration || 0);
+              const totalDebt = requested * (1 + rate);
+              const expectedWeekly = weekDuration > 0 ? (totalDebt / weekDuration) : 0;
+              const totalPaid = (loanMetrics.payments || []).reduce((s: number, p: any) => s + parseFloat((p.amount || 0).toString()), 0);
+              const pending = Math.max(0, totalDebt - totalPaid);
+              await context.prisma.loan.update({
+                where: { id: item.id.toString() },
+                data: {
+                  totalDebtAcquired: totalDebt.toFixed(2),
+                  expectedWeeklyPayment: expectedWeekly.toFixed(2),
+                  totalPaid: totalPaid.toFixed(2),
+                  pendingAmountStored: pending.toFixed(2),
+                }
+              });
+            }
+          } catch (e) { console.error('Error recomputing loan metrics (update):', e); }
         }
 
         if (originalItem && originalItem.loantypeId !== item.loantypeId) {
@@ -1326,6 +1378,42 @@ export const LoanPayment = list({
         }
       }
       
+      // Recalcular campos persistentes en Loan asociado
+      const recomputeLoanMetrics = async (loanId: string) => {
+        try {
+          const loan = await context.prisma.loan.findUnique({ where: { id: loanId }, include: { loantype: true, payments: true } });
+          if (!loan) return;
+          const rate = parseFloat(loan.loantype?.rate?.toString() || '0');
+          const requested = parseFloat(loan.requestedAmount.toString());
+          const weekDuration = Number(loan.loantype?.weekDuration || 0);
+          const totalDebt = requested * (1 + rate);
+          const expectedWeekly = weekDuration > 0 ? (totalDebt / weekDuration) : 0;
+          const totalPaid = (loan.payments || []).reduce((s: number, p: any) => s + parseFloat((p.amount || 0).toString()), 0);
+          const pending = Math.max(0, totalDebt - totalPaid);
+          await context.prisma.loan.update({
+            where: { id: loanId },
+            data: {
+              totalDebtAcquired: totalDebt.toFixed(2),
+              expectedWeeklyPayment: expectedWeekly.toFixed(2),
+              totalPaid: totalPaid.toFixed(2),
+              pendingAmountStored: pending.toFixed(2),
+            }
+          });
+        } catch (e) {
+          console.error('Error recomputing loan metrics:', e);
+        }
+      };
+
+      try {
+        if (operation === 'create' && item?.loanId) {
+          await recomputeLoanMetrics(item.loanId as string);
+        } else if (operation === 'update' && item?.loanId) {
+          await recomputeLoanMetrics(item.loanId as string);
+        } else if (operation === 'delete' && (args as any).originalItem?.loanId) {
+          await recomputeLoanMetrics((args as any).originalItem.loanId as string);
+        }
+      } catch {}
+
       // Hook de auditoría global para LoanPayment
       const auditHook = createAuditHook('LoanPayment', 
         (item: any, operation: string) => {

@@ -1036,6 +1036,10 @@ type Loan {
   previousLoan: Loan
   commissionPayment(where: CommissionPaymentWhereInput! = {}, orderBy: [CommissionPaymentOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: CommissionPaymentWhereUniqueInput): [CommissionPayment!]
   commissionPaymentCount(where: CommissionPaymentWhereInput! = {}): Int
+  totalDebtAcquired: Decimal
+  expectedWeeklyPayment: Decimal
+  totalPaid: Decimal
+  pendingAmountStored: Decimal
   comissionAmount: Decimal
   finishedDate: DateTime
   updatedAt: DateTime
@@ -1081,6 +1085,10 @@ input LoanWhereInput {
   borrower: BorrowerWhereInput
   previousLoan: LoanWhereInput
   commissionPayment: CommissionPaymentManyRelationFilter
+  totalDebtAcquired: DecimalNullableFilter
+  expectedWeeklyPayment: DecimalNullableFilter
+  totalPaid: DecimalNullableFilter
+  pendingAmountStored: DecimalNullableFilter
   comissionAmount: DecimalNullableFilter
   finishedDate: DateTimeNullableFilter
   updatedAt: DateTimeNullableFilter
@@ -1131,6 +1139,10 @@ input LoanOrderByInput {
   avalPhone: OrderDirection
   snapshotLeadId: OrderDirection
   snapshotLeadAssignedAt: OrderDirection
+  totalDebtAcquired: OrderDirection
+  expectedWeeklyPayment: OrderDirection
+  totalPaid: OrderDirection
+  pendingAmountStored: OrderDirection
   comissionAmount: OrderDirection
   finishedDate: OrderDirection
   updatedAt: OrderDirection
@@ -1159,6 +1171,10 @@ input LoanUpdateInput {
   borrower: BorrowerRelateToOneForUpdateInput
   previousLoan: LoanRelateToOneForUpdateInput
   commissionPayment: CommissionPaymentRelateToManyForUpdateInput
+  totalDebtAcquired: Decimal
+  expectedWeeklyPayment: Decimal
+  totalPaid: Decimal
+  pendingAmountStored: Decimal
   comissionAmount: Decimal
   finishedDate: DateTime
   updatedAt: DateTime
@@ -1218,6 +1234,10 @@ input LoanCreateInput {
   borrower: BorrowerRelateToOneForCreateInput
   previousLoan: LoanRelateToOneForCreateInput
   commissionPayment: CommissionPaymentRelateToManyForCreateInput
+  totalDebtAcquired: Decimal
+  expectedWeeklyPayment: Decimal
+  totalPaid: Decimal
+  pendingAmountStored: Decimal
   comissionAmount: Decimal
   finishedDate: DateTime
   updatedAt: DateTime
