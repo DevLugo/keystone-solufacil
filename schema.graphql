@@ -667,7 +667,7 @@ input LoantypeWhereInput {
   id: IDFilter
   name: StringFilter
   weekDuration: IntNullableFilter
-  rate: DecimalNullableFilter
+  rate: DecimalFilter
   createdAt: DateTimeNullableFilter
   updatedAt: DateTimeNullableFilter
   loan: LoanManyRelationFilter
@@ -684,7 +684,7 @@ input IntNullableFilter {
   not: IntNullableFilter
 }
 
-input DecimalNullableFilter {
+input DecimalFilter {
   equals: Decimal
   in: [Decimal!]
   notIn: [Decimal!]
@@ -692,7 +692,7 @@ input DecimalNullableFilter {
   lte: Decimal
   gt: Decimal
   gte: Decimal
-  not: DecimalNullableFilter
+  not: DecimalFilter
 }
 
 input LoantypeOrderByInput {
@@ -908,6 +908,7 @@ input BorrowerCreateInput {
 type PersonalData {
   id: ID!
   fullName: String
+  clientCode: String
   phones(where: PhoneWhereInput! = {}, orderBy: [PhoneOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: PhoneWhereUniqueInput): [Phone!]
   phonesCount(where: PhoneWhereInput! = {}): Int
   addresses(where: AddressWhereInput! = {}, orderBy: [AddressOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: AddressWhereUniqueInput): [Address!]
@@ -921,6 +922,7 @@ type PersonalData {
 
 input PersonalDataWhereUniqueInput {
   id: ID
+  clientCode: String
 }
 
 input PersonalDataWhereInput {
@@ -929,6 +931,7 @@ input PersonalDataWhereInput {
   NOT: [PersonalDataWhereInput!]
   id: IDFilter
   fullName: StringFilter
+  clientCode: StringNullableFilter
   phones: PhoneManyRelationFilter
   addresses: AddressManyRelationFilter
   birthDate: DateTimeNullableFilter
@@ -947,6 +950,7 @@ input PhoneManyRelationFilter {
 input PersonalDataOrderByInput {
   id: OrderDirection
   fullName: OrderDirection
+  clientCode: OrderDirection
   birthDate: OrderDirection
   createdAt: OrderDirection
   updatedAt: OrderDirection
@@ -954,6 +958,7 @@ input PersonalDataOrderByInput {
 
 input PersonalDataUpdateInput {
   fullName: String
+  clientCode: String
   phones: PhoneRelateToManyForUpdateInput
   addresses: AddressRelateToManyForUpdateInput
   birthDate: DateTime
@@ -989,6 +994,7 @@ input PersonalDataUpdateArgs {
 
 input PersonalDataCreateInput {
   fullName: String
+  clientCode: String
   phones: PhoneRelateToManyForCreateInput
   addresses: AddressRelateToManyForCreateInput
   birthDate: DateTime
@@ -1105,17 +1111,6 @@ input LoanPaymentManyRelationFilter {
   none: LoanPaymentWhereInput
 }
 
-input DecimalFilter {
-  equals: Decimal
-  in: [Decimal!]
-  notIn: [Decimal!]
-  lt: Decimal
-  lte: Decimal
-  gt: Decimal
-  gte: Decimal
-  not: DecimalFilter
-}
-
 input DateTimeFilter {
   equals: DateTime
   in: [DateTime!]
@@ -1125,6 +1120,17 @@ input DateTimeFilter {
   gt: DateTime
   gte: DateTime
   not: DateTimeFilter
+}
+
+input DecimalNullableFilter {
+  equals: Decimal
+  in: [Decimal!]
+  notIn: [Decimal!]
+  lt: Decimal
+  lte: Decimal
+  gt: Decimal
+  gte: Decimal
+  not: DecimalNullableFilter
 }
 
 input LoanOrderByInput {

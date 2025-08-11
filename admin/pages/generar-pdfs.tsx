@@ -1,5 +1,6 @@
 /** @jsxRuntime classic */
 /** @jsx jsx */
+/** @jsxFrag React.Fragment */
 
 import React, { useState, useEffect } from 'react';
 import { jsx, Heading } from '@keystone-ui/core';
@@ -44,6 +45,7 @@ export default function GenerarPDFsPage() {
   const [selectedRouteId, setSelectedRouteId] = useState<string>('');
   const [selectedLocalities, setSelectedLocalities] = useState<Set<string>>(new Set());
   const [isGenerating, setIsGenerating] = useState(false);
+  const [weekMode, setWeekMode] = useState<'current' | 'next'>('next');
 
   // Consulta para obtener todas las rutas
   const { data: routesData, loading: routesLoading, error: routesError } = useQuery(GET_ROUTES_FOR_PDF);
@@ -103,7 +105,8 @@ export default function GenerarPDFsPage() {
           localityName: locality.name,
           routeName: localitiesData?.route?.name || '',
           leaderName: locality.leaderName,
-          leaderId: locality.leaderId
+          leaderId: locality.leaderId,
+          weekMode
         });
 
         // Abrir cada PDF en una nueva pestaña
@@ -228,6 +231,10 @@ export default function GenerarPDFsPage() {
   const selectedRoute = localitiesData?.route;
   const localities = selectedRoute ? extractLocalitiesFromRoute(selectedRoute) : [];
 
+  const handleRouteSelect = (option: { value: string; label: string } | null) => {
+    handleRouteChange(option?.value || '');
+  };
+
   return (
     <PageContainer header={<Heading type="h1">Generar PDFs de Cobranza</Heading>}>
       <div css={containerStyle}>
@@ -237,8 +244,8 @@ export default function GenerarPDFsPage() {
           <Heading type="h3">1. Seleccionar Ruta</Heading>
           <div css={{ marginTop: '16px' }}>
             <Select
-              value={routeOptions.find(option => option.value === selectedRouteId) || null}
-              onChange={(option) => handleRouteChange(option?.value || '')}
+              value={routeOptions.find((option: { value: string; label: string }) => option.value === selectedRouteId) || null}
+              onChange={handleRouteSelect}
               options={routeOptions}
               placeholder="Selecciona una ruta..."
               isClearable={false}
@@ -328,6 +335,21 @@ export default function GenerarPDFsPage() {
                 : `Se generarán ${selectedLocalities.size} PDF${selectedLocalities.size === 1 ? '' : 's'} de cobranza`
               }
             </p>
+
+            <div css={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+              <label style={{ fontSize: 14 }}>Semana objetivo:</label>
+              <select
+                value={weekMode}
+                onChange={(e) => setWeekMode((e.target.value as 'current' | 'next') || 'next')}
+                style={{ padding: '6px 10px', border: '1px solid #e1e5e9', borderRadius: 4 }}
+              >
+                <option value="current">En curso</option>
+                <option value="next">Siguiente</option>
+              </select>
+              <span style={{ fontSize: 12, color: '#666' }}>
+                Por defecto: Siguiente semana
+              </span>
+            </div>
             
             <button
               css={generateButtonStyle}

@@ -395,7 +395,14 @@ export const Loantype = list({
   fields: {
     name: text(),
     weekDuration: integer(),
-    rate: decimal(),  // Decimal type used for percentage, adjust precision as necessary
+    rate: decimal(  // Decimal type used for percentage, adjust precision as necessary
+      {
+        precision: 10,
+        scale: 2,
+        validation: {
+          isRequired: true,
+        }
+      }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),
     loan: relationship({
@@ -489,6 +496,12 @@ export const PersonalData = list({
   },
   fields: {
     fullName: text(),
+    // ID corto único para la clienta (código que se entrega a la clienta)
+    clientCode: text({
+      isIndexed: 'unique',
+      db: { isNullable: true },
+      ui: { description: 'ID corto de clienta (alfanumérico)' }
+    }),
     phones: relationship({ ref: 'Phone.personalData', many: true }),
     addresses: relationship({ ref: 'Address.personalData', many: true }),
     birthDate: timestamp(),
@@ -497,23 +510,30 @@ export const PersonalData = list({
     employee: relationship({ ref: 'Employee.personalData' }),
     borrower: relationship({ ref: 'Borrower.personalData' }),
   },
-  hooks: createAuditHook('PersonalData', 
-    (item: any, operation: string) => {
-      const personalData = item as any;
-      const fullName = personalData.fullName || 'Persona';
-      const operationText = operation === 'CREATE' ? 'creada' : operation === 'UPDATE' ? 'actualizada' : 'eliminada';
-      return `Datos personales ${operationText}: ${fullName}`;
-    },
-    (item: any) => {
-      const personalData = item as any;
-      return {
-        fullName: personalData.fullName,
-        birthDate: personalData.birthDate,
-        hasEmployee: !!personalData.employee,
-        hasBorrower: !!personalData.borrower
-      };
+  hooks: {
+    afterOperation: async (args) => {
+      const { operation, item, context } = args as any;
+      // Generar clientCode solo al crear, si no existe
+      if (operation === 'create' && item && !item.clientCode) {
+        const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        const length = 6;
+        const generate = () => Array.from({ length }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('');
+        let attempts = 0;
+        let code = generate();
+        try {
+          while (attempts < 5) {
+            const existing = await (context.prisma as any).personalData.findUnique({ where: { clientCode: code } });
+            if (!existing) break;
+            code = generate();
+            attempts++;
+          }
+          await (context.prisma as any).personalData.update({ where: { id: item.id }, data: { clientCode: code } });
+        } catch (e) {
+          console.error('Error generating clientCode:', e);
+        }
+      }
     }
-  ),
+  },
 });
 
 export const Loan = list({
