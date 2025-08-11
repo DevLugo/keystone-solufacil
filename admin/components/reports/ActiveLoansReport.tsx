@@ -14,8 +14,8 @@ import { ExportButton } from './ExportButton';
 
 // Query para obtener el reporte
 const GET_ACTIVE_LOANS_REPORT = gql`
-  query GetActiveLoansReport($routeId: String!, $year: Int!, $month: Int!, $useActiveWeeks: Boolean!, $excludeCVAfterMonth: Int, $excludeCVAfterYear: Int) {
-    getActiveLoansReport(routeId: $routeId, year: $year, month: $month, useActiveWeeks: $useActiveWeeks, excludeCVAfterMonth: $excludeCVAfterMonth, excludeCVAfterYear: $excludeCVAfterYear)
+  query GetActiveLoansReport($routeId: String!, $year: Int!, $month: Int!, $useActiveWeeks: Boolean!) {
+    getActiveLoansReport(routeId: $routeId, year: $year, month: $month, useActiveWeeks: $useActiveWeeks)
   }
 `;
 
@@ -65,6 +65,7 @@ interface ReportData {
       payingPercent: { start: number; end: number; delta: number; average: number };
       granted: { total: number; startWeek: number; endWeek: number; delta: number };
       closedWithoutRenewal: { total: number; startWeek: number; endWeek: number; delta: number };
+      gasoline?: { current: number; previous: number };
     };
   };
 }
@@ -685,10 +686,7 @@ export default function ActiveLoansReport() {
   const [useActiveWeeks, setUseActiveWeeks] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
   
-  // Estados para filtro de CV
-  const [excludeCVAfterMonth, setExcludeCVAfterMonth] = useState<number | null>(null);
-  const [excludeCVAfterYear, setExcludeCVAfterYear] = useState<number | null>(null);
-  const [useCVFilter, setUseCVFilter] = useState(false);
+  // Eliminado filtro de CV (cbfilter)
 
   // Query para obtener rutas
   const { data: routesData, loading: routesLoading } = useQuery(GET_ROUTES);
@@ -705,8 +703,6 @@ export default function ActiveLoansReport() {
       year: selectedYear,
       month: selectedMonth,
       useActiveWeeks: useActiveWeeks,
-      excludeCVAfterMonth: useCVFilter ? excludeCVAfterMonth : null,
-      excludeCVAfterYear: useCVFilter ? excludeCVAfterYear : null,
     },
     skip: !selectedRoute,
   });
@@ -1278,13 +1274,34 @@ export default function ActiveLoansReport() {
               <ApexMiniChart type="donut" color="#16a34a" series={[Number(processedData.summary.payingClientsWeeklyAvg || 0), Number(processedData.summary.payingClientsWeeklyAvgPrev || 0)]} />
               {(() => {
                 const avg = Number(processedData.summary.payingClientsWeeklyAvg || 0);
-                const prevAvg = Number(processedData.summary.payingClientsWeeklyAvgPrev || 0);
-                const delta = avg - prevAvg;
-                const title = `Mes actual (prom): ${Math.round(avg)} | Mes anterior (prom): ${Math.round(prevAvg)} (Δ ${delta >= 0 ? '+' : ''}${Math.round(delta)})`;
+                const prev = Number(processedData.summary.payingClientsWeeklyAvgPrev || 0);
+                const delta = avg - prev;
+                const color = delta > 0 ? '#16a34a' : delta < 0 ? '#ef4444' : '#0f172a';
+                const title = `Mes anterior: ${prev.toFixed ? prev.toFixed(0) : prev}`;
                 return (
-                  <div title={title} style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color: '#0f172a', textAlign: 'center' }}>
-                    {Math.round(avg)} ({delta >= 0 ? '+' : ''}{Math.round(delta)})
+                  <div title={title} style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color, textAlign: 'center' }}>
+                    {avg.toFixed ? avg.toFixed(0) : avg} ({delta >= 0 ? '+' : ''}{delta.toFixed ? delta.toFixed(0) : delta})
                   </div>
+                );
+              })()}
+            </div>
+
+            {/* Gasolina */}
+            <div style={styles.miniChartCard}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#334155', marginBottom: 8 }}>Gasolina</div>
+              {(() => {
+                const curr = Number(processedData.summary.kpis?.gasoline?.current || 0);
+                const prev = Number(processedData.summary.kpis?.gasoline?.previous || 0);
+                const delta = curr - prev;
+                const pct = prev > 0 ? (delta / prev) * 100 : (curr > 0 ? 100 : 0);
+                const color = delta > 0 ? '#ef4444' : delta < 0 ? '#16a34a' : '#0f172a';
+                return (
+                  <>
+                    <ApexMiniChart type="donut" color="#f59e0b" series={[curr, prev]} />
+                    <div title={`Mes anterior: ${formatCurrency(prev)}`} style={{ marginTop: 8, fontSize: 18, fontWeight: 800, color, textAlign: 'center' }}>
+                      Mes actual {formatCurrency(curr)} ({delta >= 0 ? '+' : ''}{pct.toFixed(0)}%)
+                    </div>
+                  </>
                 );
               })()}
             </div>
@@ -1333,69 +1350,7 @@ export default function ActiveLoansReport() {
           </div>
         )}
 
-        {/* Filtros de CV */}
-        <div style={styles.filtersRow}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <input
-              type="checkbox"
-              id="useCVFilter"
-              checked={useCVFilter}
-              onChange={(e) => {
-                setUseCVFilter(e.target.checked);
-                if (!e.target.checked) {
-                  setExcludeCVAfterMonth(null);
-                  setExcludeCVAfterYear(null);
-                } else {
-                  // Por defecto, 6 meses hacia atrás
-                  const defaultDate = new Date();
-                  defaultDate.setMonth(defaultDate.getMonth() - 6);
-                  setExcludeCVAfterMonth(defaultDate.getMonth() + 1);
-                  setExcludeCVAfterYear(defaultDate.getFullYear());
-                }
-              }}
-              style={{ margin: 0 }}
-            />
-            <label 
-              htmlFor="useCVFilter" 
-              style={{ 
-                fontSize: '14px', 
-                fontWeight: '500',
-                cursor: 'pointer',
-                userSelect: 'none' as const
-              }}
-            >
-              Excluir CV después de:
-            </label>
-          </div>
-
-          {useCVFilter && (
-            <>
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', fontSize: '12px' }}>
-                  Mes
-                </label>
-                <Select
-                  value={monthOptions.find(opt => opt.value === excludeCVAfterMonth) || null}
-                  options={monthOptions}
-                  onChange={(option) => setExcludeCVAfterMonth(option?.value || null)}
-                  placeholder="Seleccionar mes..."
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', fontSize: '12px' }}>
-                  Año
-                </label>
-                <Select
-                  value={yearOptions.find(opt => opt.value === excludeCVAfterYear) || null}
-                  options={yearOptions}
-                  onChange={(option) => setExcludeCVAfterYear(option?.value || null)}
-                  placeholder="Seleccionar año..."
-                />
-              </div>
-            </>
-          )}
-        </div>
+        {/* Filtro de CV eliminado */}
       </div>
 
       {/* Sección de Limpiezas de Cartera */}

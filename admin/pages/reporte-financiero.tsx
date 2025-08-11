@@ -501,7 +501,7 @@ export default function ReporteFinancieroPage() {
                     </td>
                   </tr>
 
-                  {/* Ganancias Operativas (sin préstamos) */}
+                  {/* Ganancias Operativas (calculadas en API) */}
                   <tr style={{ backgroundColor: '#f8f9fa', border: '2px solid #6c757d' }}>
                     <td style={{ 
                       ...styles.tdFirst, 
@@ -514,9 +514,7 @@ export default function ReporteFinancieroPage() {
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
                       const data = processedData.data[monthKey];
-                      // Ganancias = Ingresos - Gastos Operativos (sin préstamos) - Deuda Mala
-                      const gastosOperativos = (data?.operationalExpenses || 0) + (data?.badDebtAmount || 0);
-                      const gananciasOperativas = (data?.incomes || 0) - gastosOperativos;
+                      const gananciasOperativas = Number((data as any)?.operationalProfit || 0);
                       return (
                         <td key={month} style={{ 
                           ...styles.td, 
@@ -537,15 +535,13 @@ export default function ReporteFinancieroPage() {
                       border: '2px solid #6c757d',
                       color: '#16a34a'
                     }}>
-                      {(() => {
-                        const gastosOperativosAnual = (annualTotals.operationalExpenses || 0) + (annualTotals.badDebtAmount || 0);
-                        const gananciasOperativasAnual = (annualTotals.incomes || 0) - gastosOperativosAnual;
-                        return gananciasOperativasAnual !== 0 ? formatCurrency(gananciasOperativasAnual) : '-';
-                      })()}
+                      {annualTotals.operationalProfit 
+                        ? formatCurrency(annualTotals.operationalProfit) 
+                        : '-'}
                     </td>
                   </tr>
 
-                  {/* % Ganancia Operativa */}
+                  {/* % Ganancia Operativa (desde API) */}
                   <tr style={{ backgroundColor: '#fff3cd' }}>
                     <td style={{ ...styles.tdFirst, backgroundColor: '#fff3cd' }}>
                       📊 % GANANCIA OPERATIVA
@@ -553,11 +549,7 @@ export default function ReporteFinancieroPage() {
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
                       const data = processedData.data[monthKey];
-                      const gastosOperativos = (data?.operationalExpenses || 0) + (data?.badDebtAmount || 0);
-                      const gananciasOperativas = (data?.incomes || 0) - gastosOperativos;
-                      const porcentajeOperativo = data?.incomes > 0 
-                        ? (gananciasOperativas / data.incomes * 100) 
-                        : 0;
+                      const porcentajeOperativo = Number((data as any)?.profitPercentage || 0);
                       return (
                         <td key={month} style={{ 
                           ...styles.td, 
@@ -569,6 +561,48 @@ export default function ReporteFinancieroPage() {
                         </td>
                       );
                     })}
+                  </tr>
+
+                  {/* Ganancia por pago recibido */}
+                  <tr style={{ backgroundColor: '#ecfeff' }}>
+                    <td style={{ ...styles.tdFirst, backgroundColor: '#ecfeff' }}>
+                      💵 GANANCIA POR PAGO RECIBIDO
+                    </td>
+                    {processedData.months.map((month, index) => {
+                      const monthKey = (index + 1).toString().padStart(2, '0');
+                      const data: any = processedData.data[monthKey] as any;
+                      const gainPerPayment = Number(data?.gainPerPayment || 0);
+                      return (
+                        <td key={month} style={{ 
+                          ...styles.td, 
+                          backgroundColor: '#ecfeff',
+                          fontWeight: '600',
+                          color: gainPerPayment > 0 ? '#0f766e' : '#64748b'
+                        }}>
+                          {gainPerPayment > 0 ? formatCurrency(gainPerPayment) : '$0.00'}
+                        </td>
+                      );
+                    })}
+                    <td style={{ 
+                      ...styles.td, 
+                      backgroundColor: '#ecfeff', 
+                      fontWeight: '700',
+                      fontSize: '12px',
+                      color: '#0f766e'
+                    }}>
+                      {(() => {
+                        // Promedio anual ponderado por cantidad de pagos
+                        const months = processedData.months.map((_, index) => (index + 1).toString().padStart(2, '0'));
+                        let totalProfit = 0; let totalPayments = 0;
+                        months.forEach(mk => {
+                          const d: any = (processedData as any).data[mk] || {};
+                          totalProfit += Number(d?.profitReturn || 0);
+                          totalPayments += Number(d?.paymentsCount || 0);
+                        });
+                        const val = totalPayments > 0 ? totalProfit / totalPayments : 0;
+                        return formatCurrency(val);
+                      })()}
+                    </td>
                   </tr>
 
 

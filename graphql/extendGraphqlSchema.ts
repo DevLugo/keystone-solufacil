@@ -1917,10 +1917,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
           year: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
           month: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
           useActiveWeeks: graphql.arg({ type: graphql.nonNull(graphql.Boolean) }),
-          excludeCVAfterMonth: graphql.arg({ type: graphql.Int }),
-          excludeCVAfterYear: graphql.arg({ type: graphql.Int }),
         },
-        resolve: async (root, { routeId, year, month, useActiveWeeks, excludeCVAfterMonth, excludeCVAfterYear }, context: Context) => {
+        resolve: async (root, { routeId, year, month, useActiveWeeks }, context: Context) => {
           try {
             // Calcular inicio y fin del mes
             const monthStart = new Date(year, month - 1, 1);
@@ -2067,27 +2065,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
             // Ya se excluyeron en la consulta (where: excludedByCleanup: { is: null })
             let filteredLoans = allLoans;
-            if (excludeCVAfterMonth && excludeCVAfterYear) {
-              const excludeDate = new Date(excludeCVAfterYear, excludeCVAfterMonth - 1, 1);
-              excludeDate.setMonth(excludeDate.getMonth() + 1);
-              excludeDate.setDate(0); // Último día del mes
-              excludeDate.setHours(23, 59, 59, 999);
-              
-              filteredLoans = filteredLoans.filter((loan: any) => {
-                // Excluir préstamos marcados como excluidos por limpieza de cartera (ya filtrados arriba)
-                // Si el préstamo tiene finishedDate después de la fecha de exclusión, lo excluimos
-                if (loan.finishedDate && new Date(loan.finishedDate) > excludeDate) {
-                  return false;
-                }
-                
-                // Si el préstamo fue otorgado después de la fecha de exclusión, lo excluimos
-                if (new Date(loan.signDate) > excludeDate) {
-                  return false;
-                }
-                
-                return true;
-              });
-            }
 
             // Determina si el préstamo se considera ACTIVO en la fecha dada según las reglas solicitadas
             const isLoanConsideredOnDate = (loan: any, date: Date) => {
@@ -2737,6 +2714,38 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }, 0);
               } catch {}
 
+            // KPI Gasolina (mes actual vs mes anterior)
+            let gasolineCurrent = 0;
+            let gasolinePrevious = 0;
+            try {
+              const thisMonthStart = new Date(year, month - 1, 1, 0, 0, 0, 0);
+              const thisMonthEnd = new Date(year, month, 0, 23, 59, 59, 999);
+              const prevBase = new Date(year, month - 2, 1, 0, 0, 0, 0);
+              const prevMonthStart = new Date(prevBase.getFullYear(), prevBase.getMonth(), 1, 0, 0, 0, 0);
+              const prevMonthEnd = new Date(prevBase.getFullYear(), prevBase.getMonth() + 1, 0, 23, 59, 59, 999);
+
+              const aggCurr: any = await context.prisma.transaction.aggregate({
+                _sum: { amount: true },
+                where: {
+                  routeId,
+                  type: 'EXPENSE',
+                  expenseSource: 'GASOLINE',
+                  date: { gte: thisMonthStart, lte: thisMonthEnd }
+                }
+              } as any);
+              const aggPrev: any = await context.prisma.transaction.aggregate({
+                _sum: { amount: true },
+                where: {
+                  routeId,
+                  type: 'EXPENSE',
+                  expenseSource: 'GASOLINE',
+                  date: { gte: prevMonthStart, lte: prevMonthEnd }
+                }
+              } as any);
+              gasolineCurrent = Number(aggCurr?._sum?.amount || 0);
+              gasolinePrevious = Number(aggPrev?._sum?.amount || 0);
+            } catch (_) {}
+
             return {
               route: {
                 id: route?.id || '',
@@ -2779,7 +2788,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   cv: { start: cvStart, end: cvEnd, delta: cvDelta, average: cvMonthlyAvg },
                   payingPercent: { start: payStart, end: payEnd, delta: payDelta, average: payingPercentMonthlyAvg },
                   granted: { total: grantedInMonth, startWeek: weekOrder.length ? weeklyTotals[weekOrder[0]].granted : 0, endWeek: weekOrder.length ? weeklyTotals[weekOrder[weekOrder.length - 1]].granted : 0, delta: weekOrder.length ? (weeklyTotals[weekOrder[weekOrder.length - 1]].granted - weeklyTotals[weekOrder[0]].granted) : 0 },
-                  closedWithoutRenewal: { total: closedWithoutRenewalInMonth, startWeek: weekOrder.length ? (weeklyClosedWithoutRenewal[weekOrder[0]] || 0) : 0, endWeek: weekOrder.length ? (weeklyClosedWithoutRenewal[weekOrder[weekOrder.length - 1]] || 0) : 0, delta: weekOrder.length ? ((weeklyClosedWithoutRenewal[weekOrder[weekOrder.length - 1]] || 0) - (weeklyClosedWithoutRenewal[weekOrder[0]] || 0)) : 0 }
+                  closedWithoutRenewal: { total: closedWithoutRenewalInMonth, startWeek: weekOrder.length ? (weeklyClosedWithoutRenewal[weekOrder[0]] || 0) : 0, endWeek: weekOrder.length ? (weeklyClosedWithoutRenewal[weekOrder[weekOrder.length - 1]] || 0) : 0, delta: weekOrder.length ? ((weeklyClosedWithoutRenewal[weekOrder[weekOrder.length - 1]] || 0) - (weeklyClosedWithoutRenewal[weekOrder[0]] || 0)) : 0 },
+                  gasoline: { current: gasolineCurrent, previous: gasolinePrevious, delta: gasolineCurrent - gasolinePrevious }
                 }
               }
             };
@@ -2923,7 +2933,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               const month = transactionDate.getMonth() + 1; // 1-12
               const monthKey = month.toString().padStart(2, '0');
 
-              if (!acc[monthKey]) {
+                if (!acc[monthKey]) {
                 acc[monthKey] = {
                   totalExpenses: 0,      // Gastos operativos totales
                   generalExpenses: 0,    // Gastos generales (sin nómina/comisiones)
@@ -2948,7 +2958,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   cashGasolina: 0,       // Gasolina de cuenta efectivo (incluye OFFICE_CASH_FUND y EMPLOYEE_CASH_FUND)
                   totalGasolina: 0,      // Total de gasolina
                   operationalExpenses: 0, // Solo gastos operativos (sin préstamos)
-                  availableCash: 0       // Dinero disponible en cajas
+                    availableCash: 0,      // Dinero disponible en cajas
+                    // Métricas de pagos
+                    paymentsCount: 0,
+                    gainPerPayment: 0
                 };
               }
 
@@ -3006,6 +3019,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   monthData.capitalReturn += capitalReturned;
                   
                   monthData.totalCash += amount; // El total incluye capital + ganancia
+                  // Contador de pagos
+                  monthData.paymentsCount += 1;
                 } else {
                   // Otros ingresos
                   monthData.incomes += amount;
@@ -3097,14 +3112,20 @@ export const extendGraphqlSchema = graphql.extend(base => {
               const operationalExpenses = data.generalExpenses + data.nomina + data.comissions;
               data.totalExpenses = operationalExpenses;
               
-              // Ganancia neta = ingresos - gastos operativos
+              // Ganancia operativa = ingresos - gastos operativos
               data.balance = data.incomes - operationalExpenses;
+              data.operationalProfit = data.balance;
               
               // Porcentaje de ganancia
               data.profitPercentage = data.incomes > 0 ? ((data.balance / data.incomes) * 100) : 0;
               
               // Balance considerando reinversión
               data.balanceWithReinvest = data.balance - data.loanDisbursements;
+              
+              // Ganancia por pago recibido basada en ganancia operativa (evitar división por 0)
+              const payments = Number(data.paymentsCount || 0);
+              const operationalProfit = Number(data.operationalProfit || 0);
+              data.gainPerPayment = payments > 0 ? operationalProfit / payments : 0;
             });
 
             // Calcular cartera activa y vencida por mes
