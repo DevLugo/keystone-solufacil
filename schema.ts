@@ -1957,6 +1957,7 @@ export const Account = list({
         { label: 'OFFICE_CASH_FUND', value: 'OFFICE_CASH_FUND' },
         { label: 'EMPLOYEE_CASH_FUND', value: 'EMPLOYEE_CASH_FUND' },
         { label: 'PREPAID_GAS', value: 'PREPAID_GAS' },
+        { label: 'TRAVEL_EXPENSES', value: 'TRAVEL_EXPENSES' },
       ],
     }),
     amount: decimal(),

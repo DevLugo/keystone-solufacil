@@ -2933,7 +2933,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               const month = transactionDate.getMonth() + 1; // 1-12
               const monthKey = month.toString().padStart(2, '0');
 
-                if (!acc[monthKey]) {
+              if (!acc[monthKey]) {
                 acc[monthKey] = {
                   totalExpenses: 0,      // Gastos operativos totales
                   generalExpenses: 0,    // Gastos generales (sin nómina/comisiones)
@@ -2959,6 +2959,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   totalGasolina: 0,      // Total de gasolina
                   operationalExpenses: 0, // Solo gastos operativos (sin préstamos)
                     availableCash: 0,      // Dinero disponible en cajas
+                  // Travel expenses (cuenta TRAVEL_EXPENSES)
+                  travelExpenses: 0,
                     // Métricas de pagos
                     paymentsCount: 0,
                     gainPerPayment: 0
@@ -2974,6 +2976,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   case 'NOMINA_SALARY':
                   case 'EXTERNAL_SALARY':
                     monthData.nomina += amount;
+                    monthData.operationalCashUsed += amount;
+                    monthData.operationalExpenses += amount;
+                    monthData.totalInvestment += amount;
+                    break;
+                  case 'TRAVEL_EXPENSES':
+                    // Gastos de viaje asociados a la ruta (cuenta TRAVEL_EXPENSES)
+                    monthData.travelExpenses += amount;
                     monthData.operationalCashUsed += amount;
                     monthData.operationalExpenses += amount;
                     monthData.totalInvestment += amount;
@@ -3112,12 +3121,15 @@ export const extendGraphqlSchema = graphql.extend(base => {
               const operationalExpenses = data.generalExpenses + data.nomina + data.comissions;
               data.totalExpenses = operationalExpenses;
               
-              // Ganancia operativa = ingresos - gastos operativos
-              data.balance = data.incomes - operationalExpenses;
-              data.operationalProfit = data.balance;
+              // Ganancia operativa = (solo la ganancia de los cobros) - gastos operativos
+              // Usamos profitReturn (ganancia de pagos + otros ingresos considerados 100% ganancia)
+              data.balance = data.incomes - operationalExpenses; // referencia histórica
+              data.operationalProfit = Number(data.profitReturn || 0) - operationalExpenses;
               
-              // Porcentaje de ganancia
-              data.profitPercentage = data.incomes > 0 ? ((data.balance / data.incomes) * 100) : 0;
+              // Porcentaje de ganancia operativa vs. ganancia generada
+              data.profitPercentage = Number(data.profitReturn || 0) > 0
+                ? ((data.operationalProfit / Number(data.profitReturn)) * 100)
+                : 0;
               
               // Balance considerando reinversión
               data.balanceWithReinvest = data.balance - data.loanDisbursements;
@@ -3321,6 +3333,20 @@ export const extendGraphqlSchema = graphql.extend(base => {
               
               console.log(`💀 getFinancialReport - Mes ${monthKey}: carteraMuertaTotal = ${carteraMuertaTotal}`);
               monthlyData[monthKey].carteraMuerta = carteraMuertaTotal;
+
+              // Recalcular métricas dependientes incluyendo deuda mala como gasto operativo
+              const opExpensesBase = (Number(monthlyData[monthKey].generalExpenses || 0) + Number(monthlyData[monthKey].nomina || 0) + Number(monthlyData[monthKey].comissions || 0));
+              const uiExpensesTotal = opExpensesBase + Number(monthlyData[monthKey].badDebtAmount || 0) + Number(monthlyData[monthKey].travelExpenses || 0);
+              const uiGainsTotal = Number(monthlyData[monthKey].incomes || 0);
+              monthlyData[monthKey].uiExpensesTotal = uiExpensesTotal;
+              monthlyData[monthKey].uiGainsTotal = uiGainsTotal;
+              // Ganancia operativa final: total ganancias (UI) - total gastos (UI)
+              monthlyData[monthKey].operationalProfit = uiGainsTotal - uiExpensesTotal;
+              // % de ganancia operativa respecto a las ganancias totales de UI
+              monthlyData[monthKey].profitPercentage = uiGainsTotal > 0 ? ((monthlyData[monthKey].operationalProfit / uiGainsTotal) * 100) : 0;
+              // Ganancia por pago con nueva operativa
+              const paymentsCnt = Number(monthlyData[monthKey].paymentsCount || 0);
+              monthlyData[monthKey].gainPerPayment = paymentsCnt > 0 ? (monthlyData[monthKey].operationalProfit / paymentsCnt) : 0;
             }
 
             // Función helper para verificar si un préstamo está activo

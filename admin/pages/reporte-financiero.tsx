@@ -314,8 +314,9 @@ export default function ReporteFinancieroPage() {
                     <td style={styles.tdFirst}>GASTOS TOTALES</td>
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
-                      const data = processedData.data[monthKey];
-                      const gastosTotales = (data?.totalExpenses || 0) + (data?.badDebtAmount || 0);
+                      const d: any = processedData.data[monthKey] as any;
+                      const gastosOperativos = Number(d?.generalExpenses || 0) + Number(d?.comissions || 0) + Number(d?.nomina || 0) + Number(d?.travelExpenses || 0);
+                      const gastosTotales = gastosOperativos + Number(d?.badDebtAmount || 0);
                       return (
                         <td key={month} style={{ ...styles.td, ...getValueColor(-gastosTotales), fontWeight: '600' }}>
                           {gastosTotales > 0 ? formatCurrency(gastosTotales) : '-'}
@@ -329,9 +330,11 @@ export default function ReporteFinancieroPage() {
                       fontSize: '12px',
                       color: '#dc2626'
                     }}>
-                      {annualTotals.totalExpenses && annualTotals.badDebtAmount 
-                        ? formatCurrency(annualTotals.totalExpenses + annualTotals.badDebtAmount) 
-                        : '-'}
+                      {(() => {
+                        const gastosOperativosAnual = Number(annualTotals.generalExpenses || 0) + Number(annualTotals.comissions || 0) + Number(annualTotals.nomina || 0) + Number(annualTotals.travelExpenses || 0);
+                        const totalAnual = gastosOperativosAnual + Number(annualTotals.badDebtAmount || 0);
+                        return totalAnual > 0 ? formatCurrency(totalAnual) : '-';
+                      })()}
                     </td>
                   </tr>
 
@@ -378,6 +381,22 @@ export default function ReporteFinancieroPage() {
                       return (
                         <td key={month} style={{ ...styles.td, backgroundColor: '#fef5e7', ...getValueColor(-data?.nomina || 0) }}>
                           {data?.nomina ? formatCurrency(data.nomina) : '-'}
+                        </td>
+                      );
+                    })}
+                  </tr>
+
+                  {/* CONNECT (TRAVEL_EXPENSES) */}
+                  <tr style={{ backgroundColor: '#fef5e7' }}>
+                    <td style={{ ...styles.tdFirst, paddingLeft: '32px', backgroundColor: '#fef5e7' }}>
+                      ├─ CONNECT
+                    </td>
+                    {processedData.months.map((month, index) => {
+                      const monthKey = (index + 1).toString().padStart(2, '0');
+                      const data: any = processedData.data[monthKey];
+                      return (
+                        <td key={month} style={{ ...styles.td, backgroundColor: '#fef5e7', ...getValueColor(-Number(data?.travelExpenses || 0)) }}>
+                          {Number(data?.travelExpenses || 0) ? formatCurrency(Number(data.travelExpenses)) : '-'}
                         </td>
                       );
                     })}
@@ -514,6 +533,7 @@ export default function ReporteFinancieroPage() {
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
                       const data = processedData.data[monthKey];
+                      // Mostramos lo calculado en la API: operationalProfit = profitReturn - operationalExpenses
                       const gananciasOperativas = Number((data as any)?.operationalProfit || 0);
                       return (
                         <td key={month} style={{ 
