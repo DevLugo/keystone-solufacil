@@ -22,6 +22,13 @@ const GET_ROUTES = gql`
   }
 `;
 
+  // Mutación para ajustar balance de cuenta
+  const ADJUST_ACCOUNT_BALANCE = gql`
+    mutation AdjustAccountBalance($accountId: String!, $targetAmount: Float!, $counterAccountId: String, $description: String) {
+      adjustAccountBalance(accountId: $accountId, targetAmount: $targetAmount, counterAccountId: $counterAccountId, description: $description)
+    }
+  `;
+
 // Query para obtener el reporte financiero
 const GET_FINANCIAL_REPORT = gql`
   query GetFinancialReport($routeId: String!, $year: Int!) {

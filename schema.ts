@@ -6,6 +6,7 @@ import { prisma } from './keystone';
 import { calculateLoanProfitAmount, calculatePendingProfitAmount } from './utils/loan';
 import { calculatePaymentProfitAmount } from './utils/loanPayment';
 import { Decimal } from '@prisma/client/runtime/library';
+import * as AdjustBalanceField from './admin/components/accounts/AdjustBalance';
 
 // Función para manejar decimales con precisión
 const parseAmount = (value: unknown): number => {
@@ -140,6 +141,8 @@ const createAuditHook = (modelName: string, getDescription?: (item: any, operati
               originalItemData[key] !== itemData[key]
             );
             
+/* PrepaidCard definition moved below, at top-level scope */
+
             const description = getDescription ? getDescription(item, 'UPDATE') : `${operation} en ${modelName} ${item.id}`;
             const metadata = getMetadata ? getMetadata(item) : { modelName, recordId: item.id, changedFields };
             
@@ -221,6 +224,15 @@ export const User = list({
     }),
     portfolioCleanups: relationship({ ref: 'PortfolioCleanup.executedBy', many: true }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
+    adjustBalance: virtual({
+      ui: {
+        views: './admin/components/accounts/AdjustBalance',
+      },
+      field: graphql.field({
+        type: graphql.JSON,
+        resolve: (item: any) => item,
+      })
+    })
   },
   hooks: createAuditHook('User', 
     (item, operation) => `${operation} de usuario: ${item.name} (${item.email})`,
@@ -291,6 +303,8 @@ export const Route = list({
     portfolioCleanups: relationship({ ref: 'PortfolioCleanup.route', many: true }),
   }
 });
+
+// Sin entidad PrepaidCard; mapeo por tarjeta se maneja en FE al importar
 
 export const Location = list({
   access: allowAll,
@@ -2012,21 +2026,29 @@ export const Account = list({
       ref: 'Transaction.sourceAccount', 
       many: true,
       ui: {
-        createView: { fieldMode: 'hidden' },
-        itemView: { fieldMode: 'hidden' }
+        createView: { fieldMode: 'hidden' as const },
+        itemView: { fieldMode: 'hidden' as const }
       }
     }),
     receivedTransactions: relationship({ 
       ref: 'Transaction.destinationAccount', 
       many: true,
       ui: {
-        createView: { fieldMode: 'hidden' },
-        itemView: { fieldMode: 'hidden' }
+        createView: { fieldMode: 'hidden' as const },
+        itemView: { fieldMode: 'hidden' as const }
       }
     }),
     route: relationship({ ref: 'Route.accounts' }),
     updatedAt: timestamp(),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
+  },
+  ui: {
+    itemView: {
+      defaultFieldMode: 'edit',
+    },
+    listView: {
+      initialColumns: ['name', 'type', 'amount', 'accountBalance', 'route'],
+    },
   },
 });
 

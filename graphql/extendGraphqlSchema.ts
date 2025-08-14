@@ -93,6 +93,116 @@ const CustomLeadPaymentReceivedType = graphql.object<LeadPaymentReceivedResponse
 export const extendGraphqlSchema = graphql.extend(base => {
   return {
     mutation: {
+      importTokaXml: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        args: {
+          xml: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          month: graphql.arg({ type: graphql.nonNull(graphql.String) }), // YYYY-MM
+          assignments: graphql.arg({ type: graphql.list(graphql.nonNull(graphql.inputObject({
+            name: 'TokaAssignmentInput',
+            fields: {
+              cardNumber: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+              routeId: graphql.arg({ type: graphql.nonNull(graphql.ID) }),
+            }
+          }))) }),
+        },
+        resolve: async (root, { xml, month, assignments = [] }, context: Context) => {
+          // Parseo rápido de XML simple (usaremos fast-xml-parser disponible en deps)
+          const { XMLParser } = require('fast-xml-parser');
+          const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '' });
+          const data = parser.parse(xml);
+
+          const conceptos = data?.['cfdi:Comprobante']?.['cfdi:Complemento']?.['ecc12:EstadoDeCuentaCombustible']?.['ecc12:Conceptos']?.['ecc12:ConceptoEstadoDeCuentaCombustible'];
+          if (!conceptos) {
+            throw new Error('XML inválido o sin conceptos de combustible');
+          }
+
+          const records = Array.isArray(conceptos) ? conceptos : [conceptos];
+
+          // Extraer año y mes
+          const [yearStr, monthStr] = month.split('-');
+          const year = Number(yearStr);
+          const monthNum = Number(monthStr);
+          const fromDate = new Date(Date.UTC(year, monthNum - 1, 1, 0, 0, 0));
+          const toDate = new Date(Date.UTC(year, monthNum, 1, 0, 0, 0));
+
+          // Agrupar por tarjeta (Identificador)
+          const byCard: Record<string, { date: Date; amount: number }[]> = {};
+          for (const r of records) {
+            const ident = (r?.Identificador || '').toString();
+            const fecha = new Date(r?.Fecha);
+            if (!(fecha >= fromDate && fecha < toDate)) continue;
+            const importe = Number(r?.Importe || 0);
+            if (!byCard[ident]) byCard[ident] = [];
+            byCard[ident].push({ date: fecha, amount: importe });
+          }
+
+          // Transacción atómica: por cada tarjeta, borrar y re-crear gastos del mes
+          // Ya no usamos entidad PrepaidCard: solo continuamos
+
+          // Mapeo tarjeta→ruta desde assignments
+          const numberToRoute: Record<string, string | null> = {};
+          for (const a of assignments as Array<{ cardNumber: string; routeId: string }>) {
+            numberToRoute[a.cardNumber] = a.routeId;
+          }
+
+          await context.prisma.$transaction(async (tx) => {
+            for (const [cardNumberKey, entries] of Object.entries(byCard)) {
+              const effectiveRouteId = (numberToRoute[cardNumberKey] || null) as string | null;
+
+              // Borrar transacciones EXPENSE GASOLINE del mes para la ruta asignada (cuentas PREPAID_GAS)
+              const existing = effectiveRouteId ? await tx.transaction.findMany({
+                where: ({
+                  type: 'EXPENSE',
+                  expenseSource: 'GASOLINE',
+                  date: { gte: fromDate, lt: toDate },
+                  // Solo transacciones que salieron de la cuenta TOKA (PREPAID_GAS)
+                  sourceAccount: { is: { type: 'PREPAID_GAS', routeId: effectiveRouteId } },
+                } as any)
+              }) : [];
+              if (existing && existing.length > 0) {
+                await tx.transaction.deleteMany({ where: { id: { in: existing.map(e => e.id) } } });
+              }
+
+              // Determinar cuenta origen: si la ruta de la tarjeta tiene cuenta PREPAID_GAS preferentemente
+              let sourceAccountId: string | null = null;
+              
+              if (!effectiveRouteId) {
+                console.log('no hay ruta asignada para la tarjeta', cardNumberKey);
+                // Sin ruta asignada desde UI: no crear gastos para esta tarjeta
+                continue;
+              }
+              const accounts = await tx.account.findMany({ where: { routeId: effectiveRouteId } });
+              const prepaid = accounts.find((a: any) => a.type === 'PREPAID_GAS');
+              if (prepaid) sourceAccountId = prepaid.id;
+              
+              if(!sourceAccountId) {
+                console.log('no hay cuenta de gasolina para la ruta', effectiveRouteId);
+                // Si la ruta no tiene cuenta PREPAID_GAS, omitimos crear gastos de esta tarjeta
+                continue;
+              }
+              console.log('insergando', sourceAccountId);  
+              // Crear transacciones por cada movimiento
+              for (const e of entries) {
+                await tx.transaction.create({
+                  data: ({
+                    amount: e.amount.toFixed(2),
+                    date: e.date,
+                    type: 'EXPENSE',
+                    expenseSource: 'GASOLINE',
+                    description: 'Gasto gasolina TOKA',
+                    route: effectiveRouteId,
+                    ...(effectiveRouteId ? { route: { connect: { id: effectiveRouteId } } } : {}),
+                    ...(sourceAccountId ? { sourceAccount: { connect: { id: sourceAccountId } } } : {}),
+                  } as any)
+                });
+              }
+            }
+          });
+
+          return 'OK';
+        }
+      }),
       createCustomLeadPaymentReceived: graphql.field({
         type: graphql.nonNull(CustomLeadPaymentReceivedType),
         args: {
@@ -688,6 +798,77 @@ export const extendGraphqlSchema = graphql.extend(base => {
           } catch (error) {
             console.error('Error en createBulkPortfolioCleanup:', error);
             throw new Error(`Error al crear limpieza masiva de cartera: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        }
+      }),
+
+      adjustAccountBalance: graphql.field({
+        type: graphql.nonNull(graphql.JSON),
+        args: {
+          accountId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          targetAmount: graphql.arg({ type: graphql.nonNull(graphql.Float) }),
+          counterAccountId: graphql.arg({ type: graphql.String }),
+          description: graphql.arg({ type: graphql.String })
+        },
+        resolve: async (root, { accountId, targetAmount, counterAccountId, description }, context: Context) => {
+          try {
+            const account = await context.prisma.account.findUnique({
+              where: { id: accountId },
+              include: { route: true }
+            });
+            if (!account) {
+              return { success: false, message: 'Cuenta no encontrada' } as any;
+            }
+
+            const current = Number(account.amount || 0);
+            const deltaRaw = Number(targetAmount) - current;
+            const delta = parseFloat(deltaRaw.toFixed(2));
+            if (Math.abs(delta) < 0.01) {
+              return { success: true, message: 'La cuenta ya tiene el balance deseado', delta: 0, transactionId: null, newAmount: current } as any;
+            }
+
+            let counter = counterAccountId || null;
+            if (!counter) {
+              const fallback = await context.prisma.account.findFirst({
+                where: {
+                  id: { not: account.id },
+                  OR: [
+                    { routeId: account.routeId || undefined },
+                    { routeId: null }
+                  ],
+                  type: 'OFFICE_CASH_FUND'
+                }
+              });
+              if (fallback) counter = fallback.id;
+              if (!counter) {
+                const anyOther = await context.prisma.account.findFirst({ where: { id: { not: account.id } } });
+                if (anyOther) counter = anyOther.id;
+              }
+            }
+
+            if (!counter) {
+              return { success: false, message: 'No hay cuenta contraparte disponible para transferir fondos' } as any;
+            }
+
+            const amountStr = Math.abs(delta).toFixed(2);
+            const isIncrease = delta > 0;
+
+            const tx = await (context as any).db.Transaction.createOne({
+              data: {
+                amount: amountStr,
+                type: 'TRANSFER',
+                description: description || `Ajuste de balance a ${targetAmount.toFixed ? targetAmount.toFixed(2) : targetAmount}`,
+                route: account.routeId ? { connect: { id: account.routeId } } : undefined,
+                sourceAccount: { connect: { id: isIncrease ? counter : account.id } },
+                destinationAccount: { connect: { id: isIncrease ? account.id : counter } },
+              }
+            });
+
+            const updated = await context.prisma.account.findUnique({ where: { id: account.id } });
+            return { success: true, message: 'Ajuste realizado', transactionId: tx?.id || null, delta, newAmount: Number(updated?.amount || 0) } as any;
+          } catch (err) {
+            console.error('adjustAccountBalance error:', err);
+            return { success: false, message: err instanceof Error ? err.message : 'Error desconocido' } as any;
           }
         }
       }),
@@ -3629,6 +3810,82 @@ export const extendGraphqlSchema = graphql.extend(base => {
             throw new Error(`Error generating cartera report: ${error instanceof Error ? error.message : 'Unknown error'}`);
           }
         },
+      }),
+
+      adjustAccountBalance: graphql.field({
+        type: graphql.nonNull(graphql.JSON),
+        args: {
+          accountId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          targetAmount: graphql.arg({ type: graphql.nonNull(graphql.Float) }),
+          counterAccountId: graphql.arg({ type: graphql.String }),
+          description: graphql.arg({ type: graphql.String })
+        },
+        resolve: async (root, { accountId, targetAmount, counterAccountId, description }, context: Context) => {
+          try {
+            const account = await context.prisma.account.findUnique({
+              where: { id: accountId },
+              include: { route: true }
+            });
+            if (!account) {
+              return { success: false, message: 'Cuenta no encontrada' } as any;
+            }
+
+            const current = Number(account.amount || 0);
+            const deltaRaw = Number(targetAmount) - current;
+            const delta = parseFloat(deltaRaw.toFixed(2));
+            if (Math.abs(delta) < 0.01) {
+              return { success: true, message: 'La cuenta ya tiene el balance deseado', delta: 0, transactionId: null, newAmount: current } as any;
+            }
+
+            let counter = counterAccountId || null;
+            if (!counter) {
+              // Buscar cuenta de respaldo en la misma ruta: OFFICE_CASH_FUND; si no, cualquier otra distinta
+              const fallback = await context.prisma.account.findFirst({
+                where: {
+                  id: { not: account.id },
+                  OR: [
+                    { routeId: account.routeId || undefined },
+                    { routeId: null }
+                  ],
+                  type: 'OFFICE_CASH_FUND'
+                }
+              });
+              if (fallback) counter = fallback.id;
+              if (!counter) {
+                const anyOther = await context.prisma.account.findFirst({
+                  where: { id: { not: account.id } },
+                });
+                if (anyOther) counter = anyOther.id;
+              }
+            }
+
+            if (!counter) {
+              return { success: false, message: 'No hay cuenta contraparte disponible para transferir fondos' } as any;
+            }
+
+            const amountStr = Math.abs(delta).toFixed(2);
+            const isIncrease = delta > 0;
+
+            // Crear transacción de transferencia usando API de listas para disparar hooks
+            const tx = await (context as any).db.Transaction.createOne({
+              data: {
+                amount: amountStr,
+                type: 'TRANSFER',
+                description: description || `Ajuste de balance a ${targetAmount.toFixed ? targetAmount.toFixed(2) : targetAmount}`,
+                route: account.routeId ? { connect: { id: account.routeId } } : undefined,
+                sourceAccount: { connect: { id: isIncrease ? counter : account.id } },
+                destinationAccount: { connect: { id: isIncrease ? account.id : counter } },
+              }
+            });
+
+            // Leer monto actualizado
+            const updated = await context.prisma.account.findUnique({ where: { id: account.id } });
+            return { success: true, message: 'Ajuste realizado', transactionId: tx?.id || null, delta, newAmount: Number(updated?.amount || 0) } as any;
+          } catch (err) {
+            console.error('adjustAccountBalance error:', err);
+            return { success: false, message: err instanceof Error ? err.message : 'Error desconocido' } as any;
+          }
+        }
       }),
       // Autocomplete para búsqueda de clientes
       searchClients: graphql.field({

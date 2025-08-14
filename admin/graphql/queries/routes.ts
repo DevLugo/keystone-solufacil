@@ -19,6 +19,15 @@ export const GET_ROUTES = gql`
   }
 `;
 
+export const GET_ALL_ROUTES_SIMPLE = gql`
+  query RoutesAll {
+    routes(where: {}) {
+      id
+      name
+    }
+  }
+`;
+
 export const GET_ROUTE = gql`
   query Route($where: RouteWhereUniqueInput!) {
     route(where: $where) {

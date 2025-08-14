@@ -10,6 +10,7 @@ type User {
   portfolioCleanups(where: PortfolioCleanupWhereInput! = {}, orderBy: [PortfolioCleanupOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: PortfolioCleanupWhereUniqueInput): [PortfolioCleanup!]
   portfolioCleanupsCount(where: PortfolioCleanupWhereInput! = {}): Int
   createdAt: DateTime
+  adjustBalance: JSON
 }
 
 type PasswordState {
@@ -2137,10 +2138,17 @@ type Mutation {
   endSession: Boolean!
   authenticateUserWithPassword(email: String!, password: String!): UserAuthenticationWithPasswordResult
   createInitialUser(data: CreateInitialUserInput!): UserAuthenticationWithPasswordSuccess!
+  importTokaXml(xml: String!, month: String!, assignments: [TokaAssignmentInput!]): String!
   createCustomLeadPaymentReceived(expectedAmount: Float!, cashPaidAmount: Float, bankPaidAmount: Float, falcoAmount: Float, agentId: ID!, leadId: ID!, paymentDate: String!, payments: [PaymentInput!]!): CustomLeadPaymentReceived!
   updateCustomLeadPaymentReceived(id: ID!, expectedAmount: Float!, cashPaidAmount: Float, bankPaidAmount: Float, falcoAmount: Float, paymentDate: String!, payments: [PaymentInput!]!): CustomLeadPaymentReceived!
   createPortfolioCleanupAndExcludeLoans(name: String!, description: String, cleanupDate: String!, fromDate: String, toDate: String, routeId: String!, excludedLoanIds: [String!]): JSON!
   createBulkPortfolioCleanup(name: String!, description: String, cleanupDate: String!, routeId: String!, fromDate: String!, toDate: String!, weeksWithoutPaymentThreshold: Int): JSON!
+  adjustAccountBalance(accountId: String!, targetAmount: Float!, counterAccountId: String, description: String): JSON!
+}
+
+input TokaAssignmentInput {
+  cardNumber: String!
+  routeId: ID!
 }
 
 type CustomLeadPaymentReceived {
@@ -2263,6 +2271,7 @@ type Query {
   getActiveLoansReport(routeId: String!, year: Int!, month: Int!, useActiveWeeks: Boolean!): JSON!
   getFinancialReport(routeId: String!, year: Int!): JSON!
   getCartera(routeId: String!, weeksWithoutPayment: Int!, includeBadDebt: Boolean!, analysisMonth: String, analysisYear: Int, includeOverdue: Boolean!, includeOverdrawn: Boolean!): JSON!
+  adjustAccountBalance(accountId: String!, targetAmount: Float!, counterAccountId: String, description: String): JSON!
   searchClients(searchTerm: String!, routeId: String, locationId: String, limit: Int = 20): [JSON!]!
   getClientHistory(clientId: String!, routeId: String, locationId: String): JSON!
   getPortfolioCleanups(routeId: String!, year: Int!, month: Int!): JSON!
