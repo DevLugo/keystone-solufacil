@@ -295,10 +295,20 @@ export const extendGraphqlSchema = graphql.extend(base => {
               let cashAmountChange = 0;
               let bankAmountChange = 0;
 
+              console.log('🔍 DEBUG - Procesando pagos:', createdPaymentRecords.length);
+
               for (const payment of createdPaymentRecords) {
                 const paymentAmount = parseFloat((payment.amount || 0).toString());
+                const comissionAmount = parseFloat((payment.comission || 0).toString());
                 
-                // Preparar datos de transacción
+                console.log('🔍 DEBUG - Payment:', {
+                  id: payment.id,
+                  amount: payment.amount,
+                  comission: payment.comission,
+                  comissionAmount,
+                });
+                
+                // Preparar datos de transacción para el PAGO (INCOME)
                 transactionData.push({
                   amount: (payment.amount || 0).toString(),
                   date: new Date(paymentDate),
@@ -306,8 +316,35 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   incomeSource: payment.paymentMethod === 'CASH' ? 'CASH_LOAN_PAYMENT' : 'BANK_LOAN_PAYMENT',
                   loanPaymentId: payment.id,
                   loanId: payment.loanId,
-                  leadId: leadId, // Aquí está el leadId que estaba faltando!
+                  leadId: leadId,
                 });
+
+                // Preparar datos de transacción para la COMISIÓN (EXPENSE)
+                if (comissionAmount > 0) {
+                  console.log('🔍 DEBUG - Creando transacción de comisión:', {
+                    amount: comissionAmount.toString(),
+                    date: new Date(paymentDate),
+                    type: 'EXPENSE',
+                    expenseSource: 'LOAN_PAYMENT_COMISSION',
+                    sourceAccountId: cashAccount.id,
+                    loanPaymentId: payment.id,
+                    loanId: payment.loanId,
+                    leadId: leadId,
+                    description: `Comisión por pago de préstamo - ${payment.id}`,
+                  });
+                  
+                  transactionData.push({
+                    amount: comissionAmount.toString(),
+                    date: new Date(paymentDate),
+                    type: 'EXPENSE',
+                    expenseSource: 'LOAN_PAYMENT_COMISSION',
+                    sourceAccountId: cashAccount.id,
+                    loanPaymentId: payment.id,
+                    loanId: payment.loanId,
+                    leadId: leadId,
+                    description: `Comisión por pago de préstamo - ${payment.id}`,
+                  });
+                }
 
                 // Acumular cambios en balances
                 if (payment.paymentMethod === 'CASH') {
@@ -315,12 +352,31 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 } else {
                   bankAmountChange += paymentAmount;
                 }
+
+                // ✅ AGREGAR: Descontar comisiones de los balances
+              if (comissionAmount > 0) {
+                if (payment.paymentMethod === 'CASH') {
+                  cashAmountChange -= comissionAmount; // Descontar de efectivo
+                } else {
+                  bankAmountChange -= comissionAmount; // Descontar de banco
+                }
               }
+              }
+
+              console.log('🔍 DEBUG - Total transacciones a crear:', transactionData.length);
+              console.log('🔍 DEBUG - Transacciones de comisiones:', transactionData.filter(t => t.type === 'EXPENSE' && t.expenseSource === 'LOAN_PAYMENT_COMISSION').length);
 
               // Crear todas las transacciones de una vez
               if (transactionData.length > 0) {
-                await tx.transaction.createMany({ data: transactionData });
+                try {
+                  await tx.transaction.createMany({ data: transactionData });
+                  console.log('✅ Transacciones creadas exitosamente');
+                } catch (error) {
+                  console.error('❌ Error creando transacciones:', error);
+                  throw error;
+                }
               }
+              
 
               // Recalcular métricas para cada préstamo afectado
               const affectedLoanIds2 = Array.from(new Set(createdPaymentRecords.map((p: any) => p.loanId)));

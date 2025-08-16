@@ -291,7 +291,7 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
   const leadOptions = leads.map((lead: Lead) => {
     const locality = lead.personalData?.addresses?.[0]?.location?.name || '';
     const state = (lead.personalData as any)?.addresses?.[0]?.location?.municipality?.state?.name || '';
-    const label = locality && state ? `${locality} · ${state}` : locality || lead.personalData?.fullName || 'Sin nombre';
+    const label = locality && state ? `${locality} · ${state} · (${lead.personalData?.fullName})` : locality || lead.personalData?.fullName || 'Sin nombre';
     return {
       label,
       value: lead.id,

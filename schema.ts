@@ -821,22 +821,22 @@ export const Loan = list({
 
             if (leadData?.personalData?.addresses?.[0]?.location) {
               const location = leadData.personalData.addresses[0].location;
-              resolvedData.snapshotLocationId = location.id;
-              resolvedData.snapshotLocationName = location.name;
+              /* resolvedData.snapshotLocationId = location.id;
+              resolvedData.snapshotLocationName = location.name; */
               
               if (location.route) {
-                resolvedData.snapshotRouteId = location.route.id;
-                resolvedData.snapshotRouteName = location.route.name;
+                /* resolvedData.snapshotRouteId = location.route.id;
+                resolvedData.snapshotRouteName = location.route.name; */
               }
             } else if (leadData?.routes) {
               // Fallback: usar la ruta del empleado directamente
-              resolvedData.snapshotRouteId = leadData.routes.id;
-              resolvedData.snapshotRouteName = leadData.routes.name;
+              /* resolvedData.snapshotRouteId = leadData.routes.id;
+              resolvedData.snapshotRouteName = leadData.routes.name; */
             }
 
             // Capturar snapshot del líder
-            resolvedData.snapshotLeadId = leadId;
-            resolvedData.snapshotLeadAssignedAt = new Date();
+            /* resolvedData.snapshotLeadId = leadId;
+            resolvedData.snapshotLeadAssignedAt = new Date(); */
 
             console.log(`📊 Snapshot capturado para loan ${operation}: Lead ${leadId} → Ruta ${resolvedData.snapshotRouteName}, Localidad ${resolvedData.snapshotLocationName}`);
           }
@@ -1506,12 +1506,14 @@ export const Transaction = list({
         { label: 'LOAN_PAYMENT_COMISSION', value: 'LOAN_PAYMENT_COMISSION' },
         { label: 'LOAN_GRANTED_COMISSION', value: 'LOAN_GRANTED_COMISSION' },
         { label: 'LEAD_COMISSION', value: 'LEAD_COMISSION' },
+        { label: 'LEAD_EXPENSE', value: 'LEAD_EXPENSE' },
       ],
     }),
     description: text(),
     route: relationship({ ref: 'Route.transactions' }),
     lead: relationship({ ref: 'Employee.transactions' }),
     snapshotLeadId: text(),
+    // Nota: los campos de snapshotLocation/Route se desactivan para evitar errores de Prisma
     sourceAccount: relationship({ ref: 'Account.transactions' }),
     destinationAccount: relationship({ ref: 'Account.receivedTransactions' }),
     loan: relationship({ ref: 'Loan.transactions' }),
@@ -1561,20 +1563,7 @@ export const Transaction = list({
               }
             });
 
-            if (leadData?.personalData?.addresses?.[0]?.location) {
-              const location = leadData.personalData.addresses[0].location;
-              resolvedData.snapshotLocationId = location.id;
-              resolvedData.snapshotLocationName = location.name;
-              
-              if (location.route) {
-                resolvedData.snapshotRouteId = location.route.id;
-                resolvedData.snapshotRouteName = location.route.name;
-              }
-            } else if (leadData?.routes) {
-              // Fallback: usar la ruta del empleado directamente
-              resolvedData.snapshotRouteId = leadData.routes.id;
-              resolvedData.snapshotRouteName = leadData.routes.name;
-            }
+            // Desactivado: no escribir campos de snapshot inexistentes en Prisma
 
             console.log(`📊 Snapshot capturado para ${operation}: Lead ${leadId} → Ruta ${resolvedData.snapshotRouteName}, Localidad ${resolvedData.snapshotLocationName}`);
           }
