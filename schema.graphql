@@ -2154,6 +2154,7 @@ type Mutation {
   createPortfolioCleanupAndExcludeLoans(name: String!, description: String, cleanupDate: String!, fromDate: String, toDate: String, routeId: String!, excludedLoanIds: [String!]): JSON!
   createBulkPortfolioCleanup(name: String!, description: String, cleanupDate: String!, routeId: String!, fromDate: String!, toDate: String!, weeksWithoutPaymentThreshold: Int): JSON!
   adjustAccountBalance(accountId: String!, targetAmount: Float!, counterAccountId: String, description: String): JSON!
+  createMultipleLoans(loans: [MultipleLoanInput!]!): [JSON!]!
 }
 
 input TokaAssignmentInput {
@@ -2190,6 +2191,24 @@ input PaymentInput {
   loanId: String!
   type: String!
   paymentMethod: String!
+}
+
+input MultipleLoanInput {
+  requestedAmount: String!
+  amountGived: String!
+  signDate: String!
+  avalName: String
+  avalPhone: String
+  comissionAmount: String
+  leadId: ID!
+  loantypeId: ID!
+  previousLoanId: ID
+  borrowerData: MultipleBorrowerDataInput
+}
+
+input MultipleBorrowerDataInput {
+  fullName: String!
+  phone: String
 }
 
 union UserAuthenticationWithPasswordResult = UserAuthenticationWithPasswordSuccess | UserAuthenticationWithPasswordFailure

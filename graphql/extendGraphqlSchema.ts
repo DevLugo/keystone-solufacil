@@ -928,6 +928,149 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         }
       }),
+
+      createMultipleLoans: graphql.field({
+        type: graphql.nonNull(graphql.list(graphql.nonNull(graphql.JSON))),
+        args: {
+          loans: graphql.arg({ 
+            type: graphql.nonNull(graphql.list(graphql.nonNull(graphql.inputObject({
+              name: 'MultipleLoanInput',
+              fields: {
+                requestedAmount: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+                amountGived: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+                signDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+                avalName: graphql.arg({ type: graphql.String }),
+                avalPhone: graphql.arg({ type: graphql.String }),
+                comissionAmount: graphql.arg({ type: graphql.String }),
+                leadId: graphql.arg({ type: graphql.nonNull(graphql.ID) }),
+                loantypeId: graphql.arg({ type: graphql.nonNull(graphql.ID) }),
+                previousLoanId: graphql.arg({ type: graphql.ID }),
+                borrowerData: graphql.arg({ 
+                  type: graphql.inputObject({
+                    name: 'MultipleBorrowerDataInput',
+                    fields: {
+                      fullName: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+                      phone: graphql.arg({ type: graphql.String }),
+                    }
+                  })
+                }),
+              }
+            }))))
+          })
+        },
+        resolve: async (root, { loans }, context: Context) => {
+          try {
+            const createdLoans: any[] = [];
+            
+            // Usar transacción para garantizar atomicidad
+            await context.prisma.$transaction(async (tx) => {
+              for (const loanData of loans) {
+                // Crear o conectar el borrower
+                let borrowerId: string;
+                
+                if (loanData.previousLoanId) {
+                  // Si hay préstamo previo, usar el mismo borrower
+                  const previousLoan = await tx.loan.findUnique({
+                    where: { id: loanData.previousLoanId },
+                    include: { borrower: true }
+                  });
+                  
+                  if (!previousLoan?.borrower) {
+                    throw new Error(`Préstamo previo ${loanData.previousLoanId} no encontrado o sin borrower`);
+                  }
+                  
+                  borrowerId = previousLoan.borrower.id;
+                } else {
+                  // Crear nuevo borrower
+                  const borrower = await tx.borrower.create({
+                    data: {
+                      personalData: {
+                        create: {
+                          fullName: loanData.borrowerData?.fullName || '',
+                          phones: loanData.borrowerData?.phone ? {
+                            create: [{ number: loanData.borrowerData.phone }]
+                          } : undefined
+                        }
+                      }
+                    }
+                  });
+                  
+                  borrowerId = borrower.id;
+                }
+
+                // Crear el préstamo
+                const loan = await tx.loan.create({
+                  data: {
+                    requestedAmount: parseFloat(loanData.requestedAmount).toFixed(2),
+                    amountGived: parseFloat(loanData.amountGived).toFixed(2),
+                    signDate: new Date(loanData.signDate),
+                    avalName: loanData.avalName || '',
+                    avalPhone: loanData.avalPhone || '',
+                    comissionAmount: (parseFloat(loanData.comissionAmount || '0')).toFixed(2),
+                    lead: { connect: { id: loanData.leadId } },
+                    loantype: { connect: { id: loanData.loantypeId } },
+                    borrower: { connect: { id: borrowerId } },
+                    ...(loanData.previousLoanId ? { previousLoan: { connect: { id: loanData.previousLoanId } } } : {}),
+                    status: 'ACTIVE'
+                  },
+                  include: {
+                    borrower: {
+                      include: {
+                        personalData: {
+                          include: {
+                            phones: true
+                          }
+                        }
+                      }
+                    },
+                    loantype: true,
+                    lead: {
+                      include: {
+                        personalData: true
+                      }
+                    }
+                  }
+                });
+
+                createdLoans.push({
+                  id: loan.id,
+                  requestedAmount: loan.requestedAmount,
+                  amountGived: loan.amountGived,
+                  signDate: loan.signDate,
+                  avalName: loan.avalName,
+                  avalPhone: loan.avalPhone,
+                  comissionAmount: loan.comissionAmount,
+                  borrower: loan.borrower ? {
+                    id: loan.borrower.id,
+                    personalData: loan.borrower.personalData ? {
+                      id: loan.borrower.personalData.id,
+                      fullName: loan.borrower.personalData.fullName,
+                      phones: loan.borrower.personalData.phones?.map((p: any) => ({ id: p.id, number: p.number })) || []
+                    } : null
+                  } : null,
+                  loantype: loan.loantype ? {
+                    id: loan.loantype.id,
+                    name: loan.loantype.name,
+                    rate: loan.loantype.rate,
+                    weekDuration: loan.loantype.weekDuration
+                  } : null,
+                  lead: loan.lead ? {
+                    id: loan.lead.id,
+                    personalData: loan.lead.personalData ? {
+                      fullName: loan.lead.personalData.fullName
+                    } : null
+                  } : null
+                });
+              }
+            });
+
+            return createdLoans;
+          } catch (error) {
+            console.error('Error en createMultipleLoans:', error);
+            throw new Error(`Error al crear múltiples préstamos: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        }
+      }),
     },
     query: {
       getTransactionsSummary: graphql.field({

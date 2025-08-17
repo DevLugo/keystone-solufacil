@@ -14,6 +14,7 @@ import { useQuery, useMutation } from '@apollo/client';
 import { gql } from '@apollo/client';
 import { calculateLoanAmounts } from '../../utils/loanCalculations';
 import { GET_ROUTE } from '../../graphql/queries/routes';
+import { CREATE_LOANS_BULK } from '../../graphql/mutations/loans';
 
 // Import types
 import type { Loan } from '../../types/loan';
@@ -365,6 +366,10 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     previousLoan: undefined,
     __typename: 'Loan'
   });
+
+  // Nuevo estado para manejar múltiples préstamos
+  const [pendingLoans, setPendingLoans] = useState<Partial<Loan>[]>([]);
+  const [isBulkMode, setIsBulkMode] = useState(false);
   const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
 
   const [newLoanId, setNewLoanId] = useState<string | null>(null);
@@ -621,36 +626,12 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
 
   const handleAddLoan = () => {
     setIsAddingNew(true);
-    setNewLoan({
-      requestedAmount: '0',
-      amountGived: '',
-      amountToPay: '',
-      pendingAmount: '0',
-      signDate: selectedDate?.toISOString() || '',
-      finishedDate: '',
-      createdAt: '',
-      updatedAt: '',
-      comissionAmount: '0',
-      avalName: '',
-      avalPhone: '',
-      loantype: { id: '', name: '', rate: '0', weekDuration: '0', __typename: 'LoanType' },
-      lead: { id: selectedLead?.id || '', personalData: { fullName: '', __typename: 'PersonalData' }, __typename: 'Lead' },
-      borrower: {
-        id: '',
-        personalData: {
-          id: '',
-          fullName: '',
-          phones: [{ number: '', __typename: 'Phone' }],
-          __typename: 'PersonalData'
-        },
-        __typename: 'Borrower'
-      },
-      previousLoan: undefined,
-      __typename: 'Loan'
-    });
+    setIsBulkMode(true);
+    // No limpiar el formulario, permitir agregar múltiples préstamos
   };
 
   const [createLoan] = useMutation(CREATE_LOAN);
+  const [createMultipleLoans] = useMutation(CREATE_LOANS_BULK);
   const [updateLoan] = useMutation(UPDATE_LOAN);
   const [deleteLoan] = useMutation(DELETE_LOAN);
 
@@ -725,6 +706,116 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
 
   const handleCancelNew = () => {
     setIsAddingNew(false);
+    setIsBulkMode(false);
+    setPendingLoans([]);
+  };
+
+  const handleAddToPendingList = () => {
+    // Validar que el préstamo tenga los campos requeridos
+    if (!newLoan.borrower?.personalData?.fullName || 
+        !newLoan.loantype?.id || 
+        !newLoan.requestedAmount || 
+        parseFloat(newLoan.requestedAmount) <= 0) {
+      alert('Por favor completa todos los campos requeridos antes de agregar el préstamo');
+      return;
+    }
+
+    // Agregar el préstamo actual a la lista de pendientes
+    const loanToAdd = { ...newLoan };
+    setPendingLoans(prev => [...prev, loanToAdd]);
+
+    // Limpiar el formulario para el siguiente préstamo
+    setNewLoan({
+      requestedAmount: '0',
+      amountGived: '',
+      amountToPay: '',
+      pendingAmount: '0',
+      signDate: selectedDate?.toISOString() || '',
+      finishedDate: '',
+      createdAt: '',
+      updatedAt: '',
+      comissionAmount: '0',
+      avalName: '',
+      avalPhone: '',
+      loantype: { id: '', name: '', rate: '0', weekDuration: '0', __typename: 'LoanType' },
+      lead: { id: selectedLead?.id || '', personalData: { fullName: '', __typename: 'PersonalData' }, __typename: 'Lead' },
+      borrower: {
+        id: '',
+        personalData: {
+          id: '',
+          fullName: '',
+          phones: [{ number: '', __typename: 'Phone' }],
+          __typename: 'PersonalData'
+        },
+        __typename: 'Borrower'
+      },
+      previousLoan: undefined,
+      __typename: 'Loan'
+    });
+
+    console.log(`✅ Préstamo agregado a la lista de pendientes. Total: ${pendingLoans.length + 1}`);
+  };
+
+  const handleSaveAllNewLoans = async () => {
+    try {
+      setIsCreating(true);
+      
+      if (pendingLoans.length === 0) {
+        alert('No hay préstamos pendientes para guardar');
+        return;
+      }
+
+      // Preparar los datos para la mutación bulk
+      const loansData = pendingLoans.map(loan => ({
+        requestedAmount: (loan.requestedAmount || '0').toString(),
+        amountGived: (loan.amountGived || '0').toString(),
+        signDate: loan.signDate || selectedDate?.toISOString() || '',
+        avalName: loan.avalName || '',
+        avalPhone: loan.avalPhone || '',
+        comissionAmount: (loan.comissionAmount || '0').toString(),
+        leadId: selectedLead?.id || '',
+        loantypeId: loan.loantype?.id || '',
+        previousLoanId: loan.previousLoan?.id || undefined,
+        borrowerData: {
+          fullName: loan.borrower?.personalData?.fullName || '',
+          phone: loan.borrower?.personalData?.phones?.[0]?.number || ''
+        }
+      }));
+
+      // Llamar a la mutación bulk
+      const { data } = await createMultipleLoans({ 
+        variables: { 
+          loans: loansData 
+        } 
+      });
+      
+      if (data?.createMultipleLoans) {
+        console.log(`✅ ${data.createMultipleLoans.length} préstamos creados exitosamente`);
+        
+        // Limpiar la lista de pendientes
+        setPendingLoans([]);
+        setIsAddingNew(false);
+        setIsBulkMode(false);
+        
+        // Recargar los datos
+        await Promise.all([
+          refetchRoute(),
+          refetchLoans()
+        ]);
+        
+        // Actualizar el balance local
+        if (onBalanceUpdate) {
+          const totalAmount = data.createMultipleLoans.reduce((sum: number, loan: any) => 
+            sum + parseFloat(loan.amountGived || '0'), 0);
+          onBalanceUpdate(-totalAmount);
+        }
+      }
+    } catch (error) {
+      console.error('Error al crear los préstamos en bulk:', error);
+      alert('Error al crear los préstamos. Por favor, inténtalo de nuevo.');
+    } finally {
+      setIsCreating(false);
+    }
   };
 
 
@@ -1631,7 +1722,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                     </td>
                     <td style={{
                       ...tableCellStyle,
-                      width: '100px',
+                      width: '120px',
                     }}>
                       <Box style={{ display: 'flex', gap: '4px' }}>
                         {isCreating ? (
@@ -1647,9 +1738,9 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                         ) : (
                           <>
                             <Button
-                              tone="positive"
+                              tone="active"
                               size="small"
-                              onClick={handleSaveNewLoan}
+                              onClick={handleAddToPendingList}
                               style={{
                                 padding: '6px',
                                 width: '32px',
@@ -1658,9 +1749,9 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                 alignItems: 'center',
                                 justifyContent: 'center',
                               }}
-                              title="Guardar"
+                              title="Agregar a la lista"
                             >
-                              <FaCheck size={14} />
+                              <FaPlus size={14} />
                             </Button>
                             <Button
                               tone="negative"
@@ -1689,6 +1780,262 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
           </div>
         </Box>
       </Box>
+
+      {/* Tabla de Préstamos Pendientes */}
+      {pendingLoans.length > 0 && (
+        <Box
+          style={{
+            backgroundColor: '#F0F9FF',
+            borderRadius: '8px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+            marginTop: '16px',
+            position: 'relative',
+          }}
+        >
+          <div style={{
+            padding: '16px',
+            borderBottom: '1px solid #E0F2FE',
+          }}>
+            <h3 style={{
+              margin: 0,
+              fontSize: '16px',
+              fontWeight: '600',
+              color: '#0277BD',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <span>📋</span>
+              Préstamos Pendientes ({pendingLoans.length})
+            </h3>
+          </div>
+          
+          <div style={{
+            padding: '12px',
+          }}>
+            <table style={{ 
+              width: '100%', 
+              borderCollapse: 'collapse',
+              fontSize: '13px',
+            }}>
+              <thead>
+                <tr style={{ 
+                  backgroundColor: '#E0F2FE',
+                  borderBottom: '1px solid #B3E5FC' 
+                }}>
+                  <th style={tableHeaderStyle}>Tipo</th>
+                  <th style={tableHeaderStyle}>Nombre</th>
+                  <th style={tableHeaderStyle}>Teléfono</th>
+                  <th style={tableHeaderStyle}>Monto Solicitado</th>
+                  <th style={tableHeaderStyle}>Monto Entregado</th>
+                  <th style={tableHeaderStyle}>Comisión</th>
+                  <th style={tableHeaderStyle}>Aval</th>
+                  <th style={{
+                    ...tableHeaderStyle,
+                    width: '80px',
+                  }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingLoans.map((loan, index) => (
+                  <tr 
+                    key={index}
+                    style={{
+                      borderBottom: '1px solid #E0F2FE',
+                      backgroundColor: 'white',
+                    }}
+                  >
+                    <td style={tableCellStyle}>
+                      {loan.previousLoan ? (
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '4px 8px',
+                          backgroundColor: '#F0F9FF',
+                          color: '#0052CC',
+                          borderRadius: '4px',
+                          fontSize: '12px',
+                          fontWeight: '500',
+                        }}>
+                          Renovado
+                        </span>
+                      ) : (
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '4px 8px',
+                          backgroundColor: '#F0FDF4',
+                          color: '#059669',
+                          borderRadius: '4px',
+                          fontSize: '12px',
+                          fontWeight: '500',
+                        }}>
+                          Nuevo
+                        </span>
+                      )}
+                    </td>
+                    <td style={tableCellStyle}>
+                      {loan.borrower?.personalData?.fullName || 'Sin nombre'}
+                    </td>
+                    <td style={tableCellStyle}>
+                      {loan.borrower?.personalData?.phones?.[0]?.number || '-'}
+                    </td>
+                    <td style={tableCellStyle}>
+                      ${loan.requestedAmount || '0'}
+                    </td>
+                    <td style={tableCellStyle}>
+                      ${loan.amountGived || '0'}
+                    </td>
+                    <td style={tableCellStyle}>
+                      ${loan.comissionAmount || '0'}
+                    </td>
+                    <td style={tableCellStyle}>
+                      {loan.avalName || '-'}
+                    </td>
+                    <td style={{
+                      ...tableCellStyle,
+                      width: '80px',
+                    }}>
+                      <Button
+                        tone="negative"
+                        size="small"
+                        onClick={() => {
+                          setPendingLoans(prev => prev.filter((_, i) => i !== index));
+                        }}
+                        style={{
+                          padding: '6px',
+                          width: '32px',
+                          height: '32px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                        title="Eliminar de la lista"
+                      >
+                        <FaTrash size={14} />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Box>
+      )}
+
+      {/* Botón de Guardado Masivo */}
+      {isAddingNew && (
+        <Box
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginTop: '24px',
+            padding: '16px',
+            backgroundColor: '#f9fafb',
+            borderRadius: '8px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+          }}
+        >
+          {/* Información de préstamos pendientes */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+          }}>
+            {pendingLoans.length > 0 && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 16px',
+                backgroundColor: '#E0F2FE',
+                color: '#0277BD',
+                borderRadius: '20px',
+                fontSize: '14px',
+                fontWeight: '500',
+                border: '1px solid #B3E5FC'
+              }}>
+                <span>📝</span>
+                <span>{pendingLoans.length} préstamo{pendingLoans.length !== 1 ? 's' : ''} pendiente{pendingLoans.length !== 1 ? 's' : ''} de guardar</span>
+              </div>
+            )}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 16px',
+              backgroundColor: '#FFF3E0',
+              color: '#E65100',
+              borderRadius: '20px',
+              fontSize: '14px',
+              fontWeight: '500',
+              border: '1px solid #FFCC02'
+            }}>
+              <span>✏️</span>
+              <span>Modo bulk activo</span>
+            </div>
+          </div>
+
+          {/* Botones de acción */}
+          <div style={{
+            display: 'flex',
+            gap: '16px',
+          }}>
+            <Button
+              tone="negative"
+              weight="bold"
+              onClick={() => {
+                setIsAddingNew(false);
+                setIsBulkMode(false);
+                setPendingLoans([]);
+              }}
+              style={{ padding: '8px 24px', minWidth: '150px' }}
+            >
+              Cancelar Todo
+            </Button>
+            <Button
+              tone="positive"
+              weight="bold"
+              onClick={handleSaveAllNewLoans}
+              isLoading={isCreating}
+              disabled={pendingLoans.length === 0}
+              style={{ padding: '8px 24px', minWidth: '150px' }}
+            >
+              {isCreating ? (
+                <>
+                  <span style={{ marginRight: '8px' }}>⏳</span>
+                  Guardando...
+                  <span style={{
+                    marginLeft: '8px',
+                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                    padding: '2px 8px',
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    fontWeight: '500'
+                  }}>
+                    {pendingLoans.length}
+                  </span>
+                </>
+              ) : (
+                <>
+                  Guardar {pendingLoans.length} Préstamo{pendingLoans.length !== 1 ? 's' : ''}
+                  <span style={{
+                    marginLeft: '8px',
+                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                    padding: '2px 8px',
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    fontWeight: '500'
+                  }}>
+                    {pendingLoans.length}
+                  </span>
+                </>
+              )}
+            </Button>
+          </div>
+        </Box>
+      )}
 
       {/* Global Dropdown Container */}
       <DropdownPortal isOpen={activeMenu !== null}>

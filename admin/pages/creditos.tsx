@@ -26,7 +26,7 @@ import { LoanListView } from '../components/loans/LoanListView';
 
 // Import GraphQL queries and mutations
 import { GET_LOAN_TYPES } from '../graphql/queries/loantypes';
-import { CREATE_LOAN as CREATE_LOAN_MUTATION, UPDATE_PERSONAL_DATA as UPDATE_PERSONAL_DATA_MUTATION } from '../graphql/mutations/loans';
+import { CREATE_LOAN as CREATE_LOAN_MUTATION, CREATE_LOANS_BULK, UPDATE_PERSONAL_DATA as UPDATE_PERSONAL_DATA_MUTATION } from '../graphql/mutations/loans';
 
 import './creditos.css';
 
@@ -289,6 +289,7 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
 
   const [updatePersonalData] = useMutation(UPDATE_PERSONAL_DATA_MUTATION);
   const [createLoan, { error: loanError, loading: loanLoading }] = useMutation(CREATE_LOAN_MUTATION);
+  const [createLoansBulk, { error: bulkLoanError, loading: bulkLoanLoading }] = useMutation(CREATE_LOANS_BULK);
   const [updateLoan, { loading: updateLoading }] = useMutation(UPDATE_LOAN_MUTATION);
   const router = useRouter();
 
@@ -311,6 +312,7 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
       finishedDate: '',
       createdAt: '',
       updatedAt: '',
+      comissionAmount: '0.00',
       loantype: defaultLoanType,
       lead: selectedLead ? { connect: { id: selectedLead.id }} : undefined,
       borrower: {
@@ -451,10 +453,11 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
 
       if (field === 'borrowerName' || field === 'borrowerPhone') {
         // Actualizar datos personales del prestatario
-        const phoneId = loan.borrower?.personalData?.phones?.[0]?.id;
-        if (!phoneId) {
+        const phone = loan.borrower?.personalData?.phones?.[0];
+        if (!phone || !('id' in phone)) {
           throw new Error('No se encontró el ID del teléfono');
         }
+        const phoneId = phone.id;
 
         updateData = {
           borrower: {
@@ -473,7 +476,7 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
               phones: {
                 update: {
                   where: { id: phoneId },
-                  data: { number: field === 'borrowerPhone' ? value : loan.borrower.personalData.phones[0].number }
+                  data: { number: field === 'borrowerPhone' ? value : phone.number }
                 }
               }
             }
@@ -525,8 +528,21 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
       return;
     }
 
+    // Confirmar si hay muchos préstamos para evitar guardados accidentales
+    const totalChanges = newLoans.length + Object.keys(editedLoans).length;
+    if (totalChanges > 5) {
+      const confirmed = confirm(
+        `¿Estás seguro de que quieres guardar ${totalChanges} cambios? ` +
+        `Esto incluye ${newLoans.length} préstamos nuevos y ${Object.keys(editedLoans).length} préstamos actualizados.`
+      );
+      if (!confirmed) return;
+    }
+
     try {
-      // Crear nuevos préstamos
+      // Preparar datos para bulk insert de nuevos préstamos
+      const loansToCreate: LoanCreateInput[] = [];
+      const personalDataUpdates: Array<{ id: string; data: any }> = [];
+
       for (const loan of newLoans) {
         if (!loan.loantype) {
           alert('Please select a loan type for all loans');
@@ -570,23 +586,47 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
             loan.borrower.personalData.fullName !== previousLoan.borrower.personalData.fullName ||
             loan.borrower.personalData.phones[0]?.number !== previousLoan.borrower.personalData.phones[0]?.number
           ) {
-            await updatePersonalData({
-              variables: {
-                where: { id: loan.borrower.personalData.id },
-                data: {
-                  fullName: loan.borrower.personalData.fullName,
-                  phones: {
-                    create: loan.borrower.personalData.phones.map(phone => ({
-                      number: phone.number,
-                    })),
-                  },
+            personalDataUpdates.push({
+              id: loan.borrower.personalData.id,
+              data: {
+                fullName: loan.borrower.personalData.fullName,
+                phones: {
+                  create: loan.borrower.personalData.phones.map(phone => ({
+                    number: phone.number,
+                  })),
                 },
               },
             });
           }
         }
 
-        await createLoan({ variables: { data: loanData } });
+        loansToCreate.push(loanData);
+      }
+
+      // Actualizar datos personales en bulk (si es necesario)
+      for (const update of personalDataUpdates) {
+        await updatePersonalData({
+          variables: {
+            where: { id: update.id },
+            data: update.data,
+          },
+        });
+      }
+
+      // Crear todos los préstamos de una vez usando bulk insert
+      if (loansToCreate.length > 0) {
+        console.log(`🚀 Iniciando creación masiva de ${loansToCreate.length} préstamos...`);
+        
+        const result = await createLoansBulk({ 
+          variables: { data: loansToCreate } 
+        });
+        
+        const createdCount = result.data?.createLoans?.length || 0;
+        console.log(`✅ ${createdCount} préstamos creados exitosamente en una sola operación`);
+        
+        if (createdCount !== loansToCreate.length) {
+          console.warn(`⚠️ Se esperaban ${loansToCreate.length} préstamos pero se crearon ${createdCount}`);
+        }
       }
 
       // Actualizar préstamos existentes
@@ -610,9 +650,23 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
         });
       }
 
-      // Mostrar mensaje de éxito
-      updateState({ successMessage: 'Cambios guardados exitosamente' });
-      setTimeout(() => updateState({ successMessage: null }), 2000);
+      // Mostrar mensaje de éxito con detalles
+      const newLoansCount = loansToCreate.length;
+      const updatedLoansCount = Object.keys(editedLoans).length;
+      
+      let successMessage = '';
+      if (newLoansCount > 0 && updatedLoansCount > 0) {
+        successMessage = `🚀 ${newLoansCount} préstamos creados y ${updatedLoansCount} actualizados exitosamente en una sola operación`;
+      } else if (newLoansCount > 0) {
+        successMessage = `🚀 ${newLoansCount} préstamos creados exitosamente en una sola operación`;
+      } else if (updatedLoansCount > 0) {
+        successMessage = `✏️ ${updatedLoansCount} préstamos actualizados exitosamente`;
+      } else {
+        successMessage = '✅ Cambios guardados exitosamente';
+      }
+      
+      updateState({ successMessage });
+      setTimeout(() => updateState({ successMessage: null }), 7000);
 
       // Limpiar el estado
       updateState({ newLoans: [], editedLoans: {} });
@@ -632,11 +686,13 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
 
   if (loansError) return <GraphQLErrorNotice errors={loansError?.graphQLErrors || []} networkError={loansError?.networkError} />;
   if (loanTypesError) return <GraphQLErrorNotice errors={loanTypesError?.graphQLErrors || []} networkError={loanTypesError?.networkError} />;
+  if (bulkLoanError) return <GraphQLErrorNotice errors={bulkLoanError?.graphQLErrors || []} networkError={bulkLoanError?.networkError} />;
 
   return (
     <Box paddingTop="xlarge">
       {error && (
         <GraphQLErrorNotice
+          errors={[]}
           networkError={error}
         />
       )}
@@ -654,6 +710,27 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
           {successMessage}
         </Box>
       )}
+      {/* Información sobre el nuevo comportamiento */}
+      <Box
+        marginBottom="large"
+        padding="medium"
+        style={{
+          backgroundColor: '#F3F4F6',
+          border: '1px solid #E5E7EB',
+          borderRadius: '8px',
+          borderLeft: '4px solid #3B82F6'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+          <span style={{ fontSize: '16px' }}>💡</span>
+          <span style={{ fontWeight: '600', color: '#374151' }}>Nuevo comportamiento de guardado</span>
+        </div>
+        <p style={{ margin: 0, fontSize: '14px', color: '#6B7280', lineHeight: '1.5' }}>
+          Ahora puedes agregar múltiples préstamos sin necesidad de guardar cada uno individualmente. 
+          Todos los préstamos se guardarán de una vez cuando hagas clic en "Guardar Cambios" al final.
+        </p>
+      </Box>
+
       <Box marginBottom="large" paddingX="none">
         <Box style={{ display: 'flex', gap: '2px', alignItems: 'flex-start' }}>
           <Box style={{ flex: 0.5 }}>
@@ -692,6 +769,40 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
           >
             Agregar Prestamo
           </Button>
+          {newLoans.length > 0 && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '6px 12px',
+              backgroundColor: '#E0F2FE',
+              color: '#0277BD',
+              borderRadius: '16px',
+              fontSize: '12px',
+              fontWeight: '500',
+              border: '1px solid #B3E5FC'
+            }}>
+              <span>📝</span>
+              <span>{newLoans.length} préstamo{newLoans.length !== 1 ? 's' : ''} pendiente{newLoans.length !== 1 ? 's' : ''} de guardar</span>
+            </div>
+          )}
+          {Object.keys(editedLoans).length > 0 && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '6px 12px',
+              backgroundColor: '#FFF3E0',
+              color: '#E65100',
+              borderRadius: '16px',
+              fontSize: '12px',
+              fontWeight: '500',
+              border: '1px solid #FFCC02'
+            }}>
+              <span>✏️</span>
+              <span>{Object.keys(editedLoans).length} préstamo{Object.keys(editedLoans).length !== 1 ? 's' : ''} con cambios pendientes</span>
+            </div>
+          )}
         </Box>
         <Box style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold' }}>Total: ${totalAmount.toFixed(2)}</h3>
@@ -738,7 +849,6 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
                 <LoanListView
                   loans={[]}
                   existingLoans={loans}
-                  editedLoans={editedLoans}
                   loanTypes={loanTypesData?.loantypes || []}
                   loanTypeOptions={loanTypeOptions}
                   previousLoanOptions={previousLoanOptions}
@@ -777,7 +887,6 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
                 <LoanListView
                   loans={newLoans}
                   existingLoans={[]}
-                  editedLoans={{}}
                   loanTypes={loanTypesData?.loantypes || []}
                   loanTypeOptions={loanTypeOptions}
                   previousLoanOptions={previousLoanOptions}
@@ -820,10 +929,41 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
             tone="positive"
             weight="bold"
             onClick={handleSubmit}
-            isLoading={loanLoading}
+            isLoading={loanLoading || bulkLoanLoading}
             style={{ padding: '8px 24px', minWidth: '150px' }}
           >
-            Guardar Cambios
+            {bulkLoanLoading ? (
+              <>
+                <span style={{ marginRight: '8px' }}>⏳</span>
+                Guardando...
+                <span style={{
+                  marginLeft: '8px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  fontSize: '12px',
+                  fontWeight: '500'
+                }}>
+                  {newLoans.length + Object.keys(editedLoans).length}
+                </span>
+              </>
+            ) : (
+              <>
+                Guardar Cambios
+                {(newLoans.length > 0 || Object.keys(editedLoans).length > 0) && (
+                  <span style={{
+                    marginLeft: '8px',
+                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                    padding: '2px 8px',
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    fontWeight: '500'
+                  }}>
+                    {newLoans.length + Object.keys(editedLoans).length}
+                  </span>
+                )}
+              </>
+            )}
           </Button>
         </Box>
       )}
