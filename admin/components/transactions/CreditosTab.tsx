@@ -244,6 +244,8 @@ const DELETE_LOAN = gql`
   }
 `;
 
+
+
 const GET_LOAN_TYPES = gql`
   query GetLoanTypes {
     loantypes {
@@ -251,6 +253,8 @@ const GET_LOAN_TYPES = gql`
       name
       rate
       weekDuration
+      loanPaymentComission
+      loanGrantedComission
       __typename
     }
   }
@@ -376,7 +380,8 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
 
-  const { data: routeData, loading: routeLoading, error: routeError, refetch: refetchRoute } = useQuery<{ route: Route }>(GET_ROUTE, {
+
+  const { data: routeData, loading: routeLoading, error: routeError, refetch: refetchRoute } = useQuery<{ route: any }>(GET_ROUTE, {
     variables: { 
       where: { id: selectedRoute }
     },
@@ -526,6 +531,15 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
           pendingAmount,
           amountToPay: newLoanAmountToPay
         };
+        
+        // Si ya hay un tipo de préstamo seleccionado, cargar la comisión automáticamente
+        if (updatedLoan.loantype?.id) {
+          const selectedType = loanTypesData?.loantypes?.find((type: any) => type.id === updatedLoan.loantype?.id);
+          if (selectedType?.loanGrantedComission && parseFloat(selectedType.loanGrantedComission.toString()) > 0) {
+            updatedLoan.comissionAmount = selectedType.loanGrantedComission.toString();
+          }
+        }
+        
         return updatedLoan;
       });
     }
@@ -640,6 +654,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   const [updateLoan] = useMutation(UPDATE_LOAN);
   const [deleteLoan] = useMutation(DELETE_LOAN);
 
+
   const handleSaveNewLoan = async () => {
     try {
       setIsCreating(true);
@@ -711,6 +726,8 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   const handleCancelNew = () => {
     setIsAddingNew(false);
   };
+
+
 
   const handleEditLoan = (loan: Loan) => {
     // Calcular amountToPay si no existe
@@ -1116,6 +1133,8 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
             </div>
           </div>
 
+
+
           {/* Add Loan Button */}
           <Button
             tone="active"
@@ -1430,11 +1449,11 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                           options={loanTypeOptions}
                           onChange={value => {
                             if (value) {
-                              const selectedType = loanTypesData?.loantypes?.find(type => type.id === value.value);
+                              const selectedType = loanTypesData?.loantypes?.find((type: any) => type.id === value.value);
                               if (selectedType) {
                                 const { amountGived, amountToPay } = calculateLoanAmounts({
-                                  requestedAmount: newLoan.requestedAmount,
-                                  pendingAmount: newLoan.pendingAmount,
+                                  requestedAmount: newLoan.requestedAmount || '0',
+                                  pendingAmount: newLoan.pendingAmount || '0',
                                   rate: selectedType.rate
                                 });
 
@@ -1445,17 +1464,23 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                   formula: `${newLoan.requestedAmount} * (1 + (${selectedType.rate} * 100))`
                                 });
 
+                                // Cargar automáticamente la comisión configurada
+                                const defaultCommission = selectedType.loanGrantedComission || 0;
+                                const commissionAmount = defaultCommission && parseFloat(defaultCommission.toString()) > 0 ? 
+                                  defaultCommission.toString() : 
+                                  newLoan.comissionAmount || '0';
+
                                 setNewLoan({
                                   ...newLoan,
                                   loantype: { 
                                     id: value.value, 
                                     name: value.label.split('(')[0].trim(),
                                     rate: selectedType.rate,
-                                    weekDuration: selectedType.weekDuration,
-                                    __typename: 'LoanType'
+                                    weekDuration: selectedType.weekDuration
                                   },
                                   amountGived,
-                                  amountToPay
+                                  amountToPay,
+                                  comissionAmount: commissionAmount
                                 });
                               }
                             }
@@ -1857,7 +1882,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                     options={loanTypeOptions}
                     onChange={value => {
                       if (value) {
-                        const selectedType = loanTypesData?.loantypes?.find(type => type.id === value.value);
+                        const selectedType = loanTypesData?.loantypes?.find((type: any) => type.id === value.value);
                         if (selectedType) {
                           const { amountGived, amountToPay } = calculateLoanAmounts({
                             requestedAmount: editingLoan.requestedAmount,
@@ -1865,17 +1890,23 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                             rate: selectedType.rate
                           });
 
+                          // Cargar automáticamente la comisión configurada
+                          const defaultCommission = selectedType.loanGrantedComission || 0;
+                          const commissionAmount = defaultCommission && parseFloat(defaultCommission.toString()) > 0 ? 
+                            defaultCommission.toString() : 
+                            editingLoan.comissionAmount || '0';
+
                           setEditingLoan({
                             ...editingLoan,
                             loantype: {
                               id: value.value,
                               name: value.label.split('(')[0].trim(),
                               rate: selectedType.rate,
-                              weekDuration: selectedType.weekDuration,
-                              __typename: 'LoanType'
+                              weekDuration: selectedType.weekDuration
                             },
                             amountGived,
-                            amountToPay
+                            amountToPay,
+                            comissionAmount: commissionAmount
                           });
                         }
                       }

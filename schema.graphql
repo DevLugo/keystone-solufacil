@@ -649,6 +649,8 @@ type Loantype {
   name: String
   weekDuration: Int
   rate: Decimal
+  loanPaymentComission: Decimal
+  loanGrantedComission: Decimal
   createdAt: DateTime
   updatedAt: DateTime
   loan(where: LoanWhereInput! = {}, orderBy: [LoanOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: LoanWhereUniqueInput): [Loan!]
@@ -669,6 +671,8 @@ input LoantypeWhereInput {
   name: StringFilter
   weekDuration: IntNullableFilter
   rate: DecimalFilter
+  loanPaymentComission: DecimalNullableFilter
+  loanGrantedComission: DecimalNullableFilter
   createdAt: DateTimeNullableFilter
   updatedAt: DateTimeNullableFilter
   loan: LoanManyRelationFilter
@@ -696,11 +700,24 @@ input DecimalFilter {
   not: DecimalFilter
 }
 
+input DecimalNullableFilter {
+  equals: Decimal
+  in: [Decimal!]
+  notIn: [Decimal!]
+  lt: Decimal
+  lte: Decimal
+  gt: Decimal
+  gte: Decimal
+  not: DecimalNullableFilter
+}
+
 input LoantypeOrderByInput {
   id: OrderDirection
   name: OrderDirection
   weekDuration: OrderDirection
   rate: OrderDirection
+  loanPaymentComission: OrderDirection
+  loanGrantedComission: OrderDirection
   createdAt: OrderDirection
   updatedAt: OrderDirection
 }
@@ -709,6 +726,8 @@ input LoantypeUpdateInput {
   name: String
   weekDuration: Int
   rate: Decimal
+  loanPaymentComission: Decimal
+  loanGrantedComission: Decimal
   createdAt: DateTime
   updatedAt: DateTime
   loan: LoanRelateToManyForUpdateInput
@@ -723,6 +742,8 @@ input LoantypeCreateInput {
   name: String
   weekDuration: Int
   rate: Decimal
+  loanPaymentComission: Decimal
+  loanGrantedComission: Decimal
   createdAt: DateTime
   updatedAt: DateTime
   loan: LoanRelateToManyForCreateInput
@@ -1121,17 +1142,6 @@ input DateTimeFilter {
   gt: DateTime
   gte: DateTime
   not: DateTimeFilter
-}
-
-input DecimalNullableFilter {
-  equals: Decimal
-  in: [Decimal!]
-  notIn: [Decimal!]
-  lt: Decimal
-  lte: Decimal
-  gt: Decimal
-  gte: Decimal
-  not: DecimalNullableFilter
 }
 
 input LoanOrderByInput {

@@ -417,6 +417,24 @@ export const Loantype = list({
           isRequired: true,
         }
       }),
+    loanPaymentComission: decimal({
+      precision: 10,
+      scale: 2,
+      defaultValue: "0",
+      validation: {
+        isRequired: false,
+      },
+      db: { isNullable: true }
+    }),
+    loanGrantedComission: decimal({
+      precision: 10,
+      scale: 2,
+      defaultValue: "0",
+      validation: {
+        isRequired: false,
+      },
+      db: { isNullable: true }
+    }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),
     loan: relationship({

@@ -27,6 +27,67 @@ const GET_LEADS = gql`
   }
 `;
 
+// Consulta alternativa para obtener préstamos con pagos
+const GET_LOANS_WITH_PAYMENTS = gql`
+  query GetLoansWithPayments($date: DateTime!, $nextDate: DateTime!, $leadId: ID!) {
+    loans(where: {
+      AND: [
+        { signDate: { gte: $date, lt: $nextDate } },
+        { lead: { id: { equals: $leadId } } },
+        { finishedDate: { equals: null } }
+      ]
+    }, orderBy: { signDate: asc }) {
+      id
+      signDate
+      weeklyPaymentAmount
+      loantype {
+        id
+        name
+        rate
+        weekDuration
+        loanPaymentComission
+        loanGrantedComission
+      }
+      borrower {
+        personalData {
+          fullName
+        }
+      }
+      payments(where: {
+        receivedAt: { gte: $date, lt: $nextDate }
+      }) {
+        id
+        amount
+        comission
+        type
+        paymentMethod
+        receivedAt
+        leadPaymentReceived {
+          id
+          expectedAmount
+          paidAmount
+          cashPaidAmount
+          bankPaidAmount
+          falcoAmount
+          paymentStatus
+          createdAt
+          agent {
+            personalData {
+              fullName
+            }
+          }
+          lead {
+            id
+            personalData {
+              fullName
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 const CREATE_LEAD_PAYMENT_RECEIVED = gql`
   mutation CreateCustomLeadPaymentReceived($expectedAmount: Float!, $agentId: ID!, $leadId: ID!, $payments: [PaymentInput!]!, $cashPaidAmount: Float, $bankPaidAmount: Float, $paymentDate: String!) {
     createCustomLeadPaymentReceived(expectedAmount: $expectedAmount, agentId: $agentId, leadId: $leadId, payments: $payments, cashPaidAmount: $cashPaidAmount, bankPaidAmount: $bankPaidAmount, paymentDate: $paymentDate) {
@@ -64,6 +125,15 @@ const GET_LOANS_BY_LEAD = gql`
     loans(where: $where) {
       id
       weeklyPaymentAmount
+      signDate
+      loantype {
+        id
+        name
+        rate
+        weekDuration
+        loanPaymentComission
+        loanGrantedComission
+      }
       borrower {
         personalData{
           fullName
@@ -89,6 +159,7 @@ const GET_LEAD_PAYMENTS = gql`
       receivedAt
       loan {
         id
+        signDate
         borrower {
           personalData {
             fullName
@@ -195,6 +266,15 @@ type Lead = {
 type Loan = {
   id: string;
   weeklyPaymentAmount: string;
+  signDate: string;
+  loantype: {
+    id: string;
+    name: string;
+    rate: string;
+    weekDuration: number;
+    loanPaymentComission: string;
+    loanGrantedComission: string;
+  };
   borrower:  {
     personalData: {
       fullName: string;
@@ -264,7 +344,7 @@ const LeadSelector = React.memo(({ routeId, onLeadSelect, value }: { routeId: st
   const leadOptions = useMemo(() => 
     leadsData?.employees?.map(lead => ({
       value: lead.id,
-      label: lead.personalData.fullName,
+      label: lead.personalData?.fullName,
     })) || [], 
     [leadsData]
   );
@@ -329,7 +409,7 @@ export const CreatePaymentForm = ({
     }>;
   }>({
     payments: [],
-    comission: 8,
+    comission: 0, // Cambiado de 8 a 0 para usar comisiones por defecto del loanType
     isModalOpen: false,
     loadPaymentDistribution: {
       cashPaidAmount: 0,
@@ -341,6 +421,10 @@ export const CreatePaymentForm = ({
     editedPayments: {},
     isEditing: false,
   });
+
+  // Estado para comisión global
+  const [globalCommission, setGlobalCommission] = useState<string>('0');
+  const [isApplyingGlobalCommission, setIsApplyingGlobalCommission] = useState(false);
 
   const { 
     payments, comission, isModalOpen, loadPaymentDistribution,
@@ -354,7 +438,7 @@ export const CreatePaymentForm = ({
     setState(prev => ({ ...prev, ...updates }));
   };
 
-  const { data: paymentsData, loading: paymentsLoading, refetch: refetchPayments } = useQuery(GET_LEAD_PAYMENTS, {
+  const { data: paymentsData, loading: paymentsLoading, refetch: refetchPayments } = useQuery(GET_LOANS_WITH_PAYMENTS, {
     variables: {
       date: selectedDate ? new Date(new Date(selectedDate).setHours(0, 0, 0, 0)).toISOString() : new Date().toISOString(),
       nextDate: selectedDate ? new Date(new Date(selectedDate).setHours(23, 59, 59, 999)).toISOString() : new Date().toISOString(),
@@ -362,9 +446,63 @@ export const CreatePaymentForm = ({
     },
     skip: !selectedDate || !selectedLead,
     onCompleted: (data) => {
-      console.log('Payments data received:', data);
-      if (data?.loanPayments) {
-        updateState({ existingPayments: data.loanPayments });
+      console.log('Loans with payments data received:', data);
+      if (data?.loans) {
+        // Transformar los datos de préstamos con pagos a la estructura esperada
+        const allPayments = data.loans.flatMap(loan => 
+          loan.payments.map(payment => ({
+            ...payment,
+            loan: {
+              id: loan.id,
+              signDate: loan.signDate,
+              borrower: loan.borrower,
+              loantype: loan.loantype // Incluir el loanType para acceder a la comisión por defecto
+            }
+          }))
+        );
+        
+        console.log('=== DEBUG ORDENAMIENTO ===');
+        console.log('Préstamos originales ordenados por signDate:');
+        data.loans.forEach((loan, index) => {
+          console.log(`Préstamo ${index + 1}: ${loan.signDate} - ${loan.borrower?.personalData?.fullName}`);
+        });
+        
+        console.log('Pagos antes de ordenar:');
+        allPayments.forEach((payment, index) => {
+          console.log(`Pago ${index + 1}: ${payment.loan?.signDate} - ${payment.loan?.borrower?.personalData?.fullName}`);
+          console.log(`  Comisión en BD: ${payment.comission}, LoanType: ${payment.loan?.loantype?.name}, Comisión por defecto: ${payment.loan?.loantype?.loanPaymentComission}`);
+        });
+        
+        // Ordenar explícitamente por signDate del préstamo para asegurar el orden correcto
+        const sortedPayments = allPayments.sort((a, b) => {
+          const dateA = new Date(a.loan?.signDate || 0);
+          const dateB = new Date(b.loan?.signDate || 0);
+          console.log(`Comparando: ${dateA.toISOString()} vs ${dateB.toISOString()} = ${dateA.getTime() - dateB.getTime()}`);
+          return dateA.getTime() - dateB.getTime(); // Ascendente: más viejo primero
+        });
+        
+        console.log('Pagos DESPUÉS de ordenar:');
+        sortedPayments.forEach((payment, index) => {
+          console.log(`Pago ${index + 1}: ${payment.loan?.signDate} - ${payment.loan?.borrower?.personalData?.fullName}`);
+          console.log(`  Comisión en BD: ${payment.comission}, LoanType: ${payment.loan?.loantype?.name}, Comisión por defecto: ${payment.loan?.loantype?.loanPaymentComission}`);
+        });
+        
+        console.log('=== FIN DEBUG ORDENAMIENTO ===');
+        
+        console.log('Estado final que se va a guardar:');
+        console.log('existingPayments:', sortedPayments);
+        
+        // Verificar que las comisiones se hayan cargado correctamente
+        console.log('=== VERIFICACIÓN DE COMISIONES ===');
+        sortedPayments.forEach((payment, index) => {
+          console.log(`Pago ${index + 1}: ${payment.loan?.borrower?.personalData?.fullName}`);
+          console.log(`  Comisión en BD: ${payment.comission}`);
+          console.log(`  LoanType: ${payment.loan?.loantype?.name}`);
+          console.log(`  Comisión por defecto del tipo: ${payment.loan?.loantype?.loanPaymentComission}`);
+          console.log(`  ---`);
+        });
+        
+        updateState({ existingPayments: sortedPayments });
       }
     }
   });
@@ -395,10 +533,22 @@ export const CreatePaymentForm = ({
     const payment = existingPayments.find(p => p.id === paymentId);
     if (!payment) return;
 
-    const updatedPayment = {
+    let updatedPayment = {
       ...payment,
       [field]: value
     };
+
+    // Si se está editando la comisión y no hay valor previo, pre-cargar la comisión por defecto del loanType
+    if (field === 'comission' && (!value || value === '0' || value === 0)) {
+      const loanType = payment.loan?.loantype;
+      if (loanType && loanType.loanPaymentComission && parseFloat(loanType.loanPaymentComission) > 0) {
+        console.log('Pre-cargando comisión por defecto del loanType:', loanType.loanPaymentComission);
+        updatedPayment = {
+          ...updatedPayment,
+          comission: parseFloat(loanType.loanPaymentComission)
+        };
+      }
+    }
 
     setState(prev => ({
       ...prev,
@@ -579,22 +729,29 @@ export const CreatePaymentForm = ({
     if (loansData?.loans && existingPayments.length === 0) {
       const newPayments = loansData.loans.map(loan => ({
         amount: loan.weeklyPaymentAmount,
-        comission: comission,
+        comission: loan.loantype?.loanPaymentComission ? parseFloat(loan.loantype.loanPaymentComission) : 0, // Usar comisión del loanType
         loanId: loan.id,
         type: 'PAYMENT',
         paymentMethod: 'CASH',
         isNew: true, // Marcar como nuevo pago
         loan: {
           id: loan.id,
-          borrower: loan.borrower
+          borrower: loan.borrower,
+          loantype: loan.loantype // Incluir loanType para acceder a la comisión
         }
       }));
+      
+      console.log('Pagos semanales creados con comisiones del loanType:');
+      newPayments.forEach((payment, index) => {
+        console.log(`Pago ${index + 1}: ${payment.loan?.borrower?.personalData?.fullName} - Comisión: ${payment.comission} (del loanType: ${payment.loan?.loantype?.name})`);
+      });
+      
       updateState({ payments: newPayments });
     } else if (existingPayments.length > 0) {
       // Si hay pagos existentes, limpiar los pagos nuevos
       updateState({ payments: [] });
     }
-  }, [loansData, comission, existingPayments.length]);
+  }, [loansData, existingPayments.length]); // Removido comission de las dependencias
 
   const handleAddPayment = () => {
     updateState({
@@ -604,7 +761,7 @@ export const CreatePaymentForm = ({
           amount: '',
           loanId: '',
           type: 'PAYMENT',
-          comission: comission,
+          comission: 0, // Inicializar en 0, se detectará automáticamente al seleccionar el préstamo
           paymentMethod: 'CASH',
         }
       ]
@@ -631,10 +788,68 @@ export const CreatePaymentForm = ({
     updateState({ payments: newPayments });
   };
 
+  const handleApplyGlobalCommission = async () => {
+    if (!payments.length) return;
+    
+    const commissionValue = parseFloat(globalCommission);
+    if (isNaN(commissionValue)) return;
+
+    setIsApplyingGlobalCommission(true);
+
+    try {
+      // Aplicar la comisión global a TODOS los pagos visibles en la UI
+      const updatedPayments = payments.map(payment => {
+        console.log(`Aplicando comisión global ${commissionValue} al pago: ${payment.loan?.borrower?.personalData?.fullName || 'Sin préstamo'}`);
+        
+        return {
+          ...payment,
+          comission: commissionValue
+        };
+      });
+
+      updateState({ payments: updatedPayments });
+      
+      // Mostrar mensaje de éxito
+      const appliedCount = updatedPayments.length;
+      alert(`✅ Comisión global de ${commissionValue} aplicada exitosamente a ${appliedCount} pagos`);
+      
+      console.log('Comisiones actualizadas:', updatedPayments.map(p => ({
+        cliente: p.loan?.borrower?.personalData?.fullName,
+        comision: p.comission
+      })));
+      
+    } catch (error) {
+      console.error('Error al aplicar comisión global:', error);
+      alert('Error al aplicar la comisión global. Revisa la consola para más detalles.');
+    } finally {
+      setIsApplyingGlobalCommission(false);
+    }
+  };
+
   const handleChange = (index: number, field: keyof LoanPayment, value: any) => {
     const newPayments = [...payments];
     if (field === 'loanId') {
       newPayments[index][field] = value;
+      
+      // Si se seleccionó un préstamo, cargar la comisión por defecto
+      if (value && loansData?.loans) {
+        const selectedLoan = loansData.loans.find((loan: any) => loan.id === value);
+        if (selectedLoan && selectedLoan.loantype) {
+          // Cargar la comisión por defecto del tipo de préstamo
+          const defaultCommission = selectedLoan.loantype.loanPaymentComission;
+          console.log('LoanType detectado:', selectedLoan.loantype.name, 'Comisión configurada:', defaultCommission);
+          
+          if (defaultCommission && parseFloat(defaultCommission) > 0) {
+            newPayments[index].comission = parseFloat(defaultCommission);
+            console.log('✅ Comisión por defecto cargada automáticamente:', defaultCommission);
+          } else {
+            console.log('⚠️ No hay comisión por defecto configurada para este loanType');
+            newPayments[index].comission = 0;
+          }
+        } else {
+          console.log('⚠️ No se pudo detectar el loanType del préstamo');
+        }
+      }
     } else if (field === 'comission') {
       (newPayments[index][field] as unknown as string) = value;
     } else {
@@ -926,6 +1141,71 @@ export const CreatePaymentForm = ({
           </div>
         </div>
 
+        {/* Global Commission Input */}
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+          minWidth: '200px',
+        }}>
+          <label style={{
+            fontSize: '12px',
+            fontWeight: '500',
+            color: '#6B7280',
+            marginBottom: '4px',
+          }}>
+            COMISIÓN GLOBAL
+          </label>
+          <div style={{
+            display: 'flex',
+            gap: '8px',
+            alignItems: 'center',
+          }}>
+            <input
+              type="number"
+              value={globalCommission}
+              onChange={(e) => setGlobalCommission(e.target.value)}
+              placeholder="0.00"
+              style={{
+                padding: '8px 12px',
+                fontSize: '13px',
+                border: '1px solid #E5E7EB',
+                borderRadius: '6px',
+                outline: 'none',
+                width: '80px',
+                height: '36px',
+              }}
+            />
+            <Button
+              tone="passive"
+              size="small"
+              onClick={handleApplyGlobalCommission}
+              disabled={isApplyingGlobalCommission}
+              style={{
+                padding: '6px 12px',
+                fontSize: '12px',
+                borderRadius: '6px',
+                height: '36px',
+                whiteSpace: 'nowrap',
+                opacity: isApplyingGlobalCommission ? 0.7 : 1,
+              }}
+            >
+              {isApplyingGlobalCommission ? (
+                <LoadingDots label="Aplicando" size="small" />
+              ) : (
+                'Aplicar'
+              )}
+            </Button>
+          </div>
+          <div style={{
+            fontSize: '11px',
+            color: '#9CA3AF',
+            fontStyle: 'italic',
+          }}>
+            Sobrescribe TODAS las comisiones visibles en la UI
+          </div>
+        </div>
+
         {/* Add Payment Button */}
         <Button
           tone="active"
@@ -1006,9 +1286,53 @@ export const CreatePaymentForm = ({
           >
             <Box padding="large">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ margin: 0, fontSize: '18px', color: '#333' }}>Pagos Registrados</h3>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '18px', color: '#333' }}>Pagos Registrados</h3>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#6B7280', fontStyle: 'italic' }}>
+                    Ordenados por fecha de otorgamiento del crédito (más antiguo primero)
+                  </p>
+                </div>
                 {isEditing ? (
                   <div style={{ display: 'flex', gap: '8px' }}>
+                    <Button
+                      tone="passive"
+                      weight="bold"
+                      onClick={() => {
+                        // Aplicar comisiones por defecto a todos los pagos que no tengan comisión
+                        const updatedEditedPayments = { ...editedPayments };
+                        let appliedCount = 0;
+                        
+                        existingPayments.forEach(payment => {
+                          if (!deletedPaymentIds.includes(payment.id)) {
+                            const loanType = payment.loan?.loantype;
+                            if (loanType && loanType.loanPaymentComission && parseFloat(loanType.loanPaymentComission) > 0) {
+                              // Solo aplicar si no hay comisión o es 0
+                              const currentCommission = editedPayments[payment.id]?.comission || payment.comission;
+                              if (!currentCommission || parseFloat(currentCommission) === 0) {
+                                updatedEditedPayments[payment.id] = {
+                                  ...(updatedEditedPayments[payment.id] || payment),
+                                  comission: parseFloat(loanType.loanPaymentComission)
+                                };
+                                appliedCount++;
+                              }
+                            }
+                          }
+                        });
+                        
+                        setState(prev => ({ 
+                          ...prev, 
+                          editedPayments: updatedEditedPayments 
+                        }));
+                        
+                        if (appliedCount > 0) {
+                          alert(`Se aplicaron comisiones por defecto a ${appliedCount} pagos`);
+                        } else {
+                          alert('No hay pagos que requieran comisión por defecto');
+                        }
+                      }}
+                    >
+                      💡 Aplicar Comisiones por Defecto
+                    </Button>
                     <Button
                       tone="negative"
                       weight="bold"
@@ -1043,6 +1367,20 @@ export const CreatePaymentForm = ({
                 <thead>
                   <tr>
                     <th>Cliente</th>
+                    <th style={{ 
+                      position: 'relative',
+                      cursor: 'help'
+                    }} title="Ordenados por esta fecha (más antiguo primero)">
+                      Fecha Crédito
+                      <span style={{
+                        fontSize: '10px',
+                        color: '#6B7280',
+                        marginLeft: '4px',
+                        fontWeight: 'normal'
+                      }}>
+                        ↓
+                      </span>
+                    </th>
                     <th>Monto</th>
                     <th>Comisión</th>
                     <th>Tipo</th>
@@ -1051,13 +1389,30 @@ export const CreatePaymentForm = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {existingPayments
-                    .filter(payment => !deletedPaymentIds.includes(payment.id))
-                    .map((payment) => {
+                  {(() => {
+                    const filteredPayments = existingPayments.filter(payment => !deletedPaymentIds.includes(payment.id));
+                    console.log('=== RENDERIZANDO PAGOS ===');
+                    console.log('existingPayments en estado:', existingPayments);
+                    console.log('Pagos filtrados para renderizar:', filteredPayments);
+                    filteredPayments.forEach((payment, index) => {
+                      console.log(`Renderizando pago ${index + 1}: ${payment.loan?.signDate} - ${payment.loan?.borrower?.personalData?.fullName}`);
+                    });
+                    
+                    return filteredPayments.map((payment) => {
                     const editedPayment = editedPayments[payment.id] || payment;
                     return (
                       <tr key={payment.id}>
                         <td>{payment.loan?.borrower?.personalData?.fullName}</td>
+                        <td>
+                          {payment.loan?.signDate ? 
+                            new Date(payment.loan.signDate).toLocaleDateString('es-MX', {
+                              year: 'numeric',
+                              month: '2-digit',
+                              day: '2-digit'
+                            }) : 
+                            '-'
+                          }
+                        </td>
                         <td>
                           {isEditing ? (
                             <TextInput
@@ -1071,13 +1426,49 @@ export const CreatePaymentForm = ({
                         </td>
                         <td>
                           {isEditing ? (
-                            <TextInput
-                              type="number"
-                              value={editedPayment.comission}
-                              onChange={e => handleEditExistingPayment(payment.id, 'comission', e.target.value)}
-                            />
+                            <div style={{ position: 'relative' }}>
+                              <TextInput
+                                type="number"
+                                value={editedPayment.comission}
+                                onChange={e => handleEditExistingPayment(payment.id, 'comission', e.target.value)}
+                              />
+                              {payment.loan?.loantype?.loanPaymentComission && 
+                               parseFloat(payment.loan.loantype.loanPaymentComission) > 0 && (
+                                <div style={{
+                                  position: 'absolute',
+                                  top: '-20px',
+                                  right: '0',
+                                  fontSize: '10px',
+                                  color: '#059669',
+                                  backgroundColor: '#D1FAE5',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  border: '1px solid #A7F3D0'
+                                }} title={`Comisión por defecto: ${payment.loan.loantype.loanPaymentComission}`}>
+                                  💡 {payment.loan.loantype.loanPaymentComission}
+                                </div>
+                              )}
+                            </div>
                           ) : (
-                            payment.comission
+                            <div style={{ position: 'relative' }}>
+                              {payment.comission}
+                              {payment.loan?.loantype?.loanPaymentComission && 
+                               parseFloat(payment.loan.loantype.loanPaymentComission) > 0 && (
+                                <div style={{
+                                  position: 'absolute',
+                                  top: '-20px',
+                                  right: '0',
+                                  fontSize: '10px',
+                                  color: '#059669',
+                                  backgroundColor: '#D1FAE5',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  border: '1px solid #A7F3D0'
+                                }} title={`Comisión por defecto: ${payment.loan.loantype.loanPaymentComission}`}>
+                                  💡 {payment.loan.loantype.loanPaymentComission}
+                                </div>
+                              )}
+                            </div>
                           )}
                         </td>
                         <td>
@@ -1122,7 +1513,8 @@ export const CreatePaymentForm = ({
                         )}
                       </tr>
                     );
-                  })}
+                  });
+                })()}
                 </tbody>
               </table>
             </Box>
@@ -1156,6 +1548,20 @@ export const CreatePaymentForm = ({
                 <thead>
                   <tr>
                     <th>Cliente</th>
+                    <th style={{ 
+                      position: 'relative',
+                      cursor: 'help'
+                    }} title="Ordenados por esta fecha (más antiguo primero)">
+                      Fecha Crédito
+                      <span style={{
+                        fontSize: '10px',
+                        color: '#6B7280',
+                        marginLeft: '4px',
+                        fontWeight: 'normal'
+                      }}>
+                        ↓
+                      </span>
+                    </th>
                     <th>Monto</th>
                     <th>Comisión</th>
                     <th>Tipo</th>
@@ -1170,14 +1576,29 @@ export const CreatePaymentForm = ({
                         <Select
                           options={loansData?.loans.map(loan => ({
                             value: loan.id,
-                            label: loan.borrower.personalData.fullName
+                            label: loan.borrower?.personalData?.fullName
                           })) || []}
                           value={loansData?.loans.find(loan => loan.id === payment.loanId) ? {
                             value: payment.loanId,
-                            label: loansData.loans.find(loan => loan.id === payment.loanId)?.borrower.personalData.fullName || ''
+                            label: loansData.loans.find(loan => loan.id === payment.loanId)?.borrower?.personalData?.fullName || ''
                           } : null}
                           onChange={(option) => handleChange(index, 'loanId', (option as Option).value)}
                         />
+                      </td>
+                      <td>
+                        {payment.loanId && loansData?.loans ? 
+                          (() => {
+                            const selectedLoan = loansData.loans.find(loan => loan.id === payment.loanId);
+                            return selectedLoan?.signDate ? 
+                              new Date(selectedLoan.signDate).toLocaleDateString('es-MX', {
+                                year: 'numeric',
+                                month: '2-digit',
+                                day: '2-digit'
+                              }) : 
+                              '-'
+                          })() : 
+                          '-'
+                        }
                       </td>
                       <td>
                         <TextInput
@@ -1338,7 +1759,7 @@ export default function CustomPage() {
           <label>Líder</label>
           <LeadSelector
             routeId={selectedRoute?.id}
-            value={selectedLead ? { value: selectedLead.id, label: selectedLead.personalData.fullName } : null}
+            value={selectedLead ? { value: selectedLead.id, label: selectedLead.personalData?.fullName } : null}
             onLeadSelect={(lead) => setSelectedLead(lead ? { 
               id: lead.value, 
               personalData: { fullName: lead.label },

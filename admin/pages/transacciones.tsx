@@ -254,22 +254,23 @@ export default function TransaccionesPage() {
             Resumen
           </button>
           <button
-            onClick={() => handleTabChange('expenses')}
-            data-testid="tab-expenses"
+            onClick={() => handleTabChange('payments')}
+            data-testid="tab-payments"
             css={{
               padding: '8px 16px',
-              backgroundColor: activeTab === 'expenses' ? '#3182ce' : '#e2e8f0',
-              color: activeTab === 'expenses' ? 'white' : '#4a5568',
+              backgroundColor: activeTab === 'payments' ? '#3182ce' : '#e2e8f0',
+              color: activeTab === 'payments' ? 'white' : '#4a5568',
               border: 'none',
               borderRadius: '6px',
               cursor: 'pointer',
               '&:hover': {
-                backgroundColor: activeTab === 'expenses' ? '#2c5282' : '#cbd5e0',
+                backgroundColor: activeTab === 'payments' ? '#2c5282' : '#cbd5e0',
               },
             }}
           >
-            Gastos
+            Abonos
           </button>
+          
           <button
             onClick={() => handleTabChange('credits')}
             data-testid="tab-credits"
@@ -288,22 +289,23 @@ export default function TransaccionesPage() {
             Créditos
           </button>
           <button
-            onClick={() => handleTabChange('payments')}
-            data-testid="tab-payments"
+            onClick={() => handleTabChange('expenses')}
+            data-testid="tab-expenses"
             css={{
               padding: '8px 16px',
-              backgroundColor: activeTab === 'payments' ? '#3182ce' : '#e2e8f0',
-              color: activeTab === 'payments' ? 'white' : '#4a5568',
+              backgroundColor: activeTab === 'expenses' ? '#3182ce' : '#e2e8f0',
+              color: activeTab === 'expenses' ? 'white' : '#4a5568',
               border: 'none',
               borderRadius: '6px',
               cursor: 'pointer',
               '&:hover': {
-                backgroundColor: activeTab === 'payments' ? '#2c5282' : '#cbd5e0',
+                backgroundColor: activeTab === 'expenses' ? '#2c5282' : '#cbd5e0',
               },
             }}
           >
-            Abonos
+            Gastos
           </button>
+          
           <button
             onClick={() => handleTabChange('transfers')}
             data-testid="tab-transfers"

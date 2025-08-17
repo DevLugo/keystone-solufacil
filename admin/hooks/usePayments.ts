@@ -8,7 +8,7 @@ import { Lead, Loan, LoanPayment, Route, Option, PaymentDistribution, PaymentTyp
 export const usePayments = () => {
   const [selectedLead, setSelectedLead] = useState<Option | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
-  const [comission, setComission] = useState<number>(8);
+  const [comission, setComission] = useState<number>(0); // Cambiado de 8 a 0 para usar comisiones por defecto del loanType
   const [payments, setPayments] = useState<LoanPayment[]>([]);
   const [selectedRoute, setSelectedRoute] = useState<Option | null>(null);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
