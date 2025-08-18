@@ -172,6 +172,7 @@ model Loan {
   pendingAmountStored    Decimal?            @postgresql.Decimal(12, 2)
   comissionAmount        Decimal?            @postgresql.Decimal(18, 4)
   finishedDate           DateTime?
+  renewedDate            DateTime?
   updatedAt              DateTime?
   createdAt              DateTime?           @default(now())
   status                 String?

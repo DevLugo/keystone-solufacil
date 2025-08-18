@@ -633,6 +633,8 @@ export const Loan = list({
 
     comissionAmount: decimal(),
     finishedDate: timestamp({ validation: { isRequired: false } }),
+    // ✅ NUEVA COLUMNA: Fecha de renovación del préstamo
+    renewedDate: timestamp({ validation: { isRequired: false }, db: { isNullable: true } }),
     updatedAt: timestamp(),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     // ((deuda pendoiente * % del prestamo ) / 10 )+ 
@@ -1241,7 +1243,6 @@ export const LoanPayment = list({
     type: select({
       options: [
         { label: 'ABONO', value: 'PAYMENT' },
-        { label: 'SIN PAGO', value: 'NO_PAYMENT' },
         { label: 'FALCO', value: 'FALCO' },
         { label: 'EXTRA COBRANZA', value: 'EXTRA_COLLECTION' },
       ],

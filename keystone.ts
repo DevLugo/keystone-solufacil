@@ -121,6 +121,8 @@ export default withAuth(
                 AND: [
                   { finishedDate: null },
                   { badDebtDate: null },
+                  // ✅ AGREGAR: Filtrar préstamos con deuda pendiente mayor a 0
+                  { pendingAmountStored: { gt: 0 } },
                   leaderId ? { leadId: leaderId as string } : {}
                 ]
               },
@@ -989,16 +991,52 @@ export default withAuth(
                     y += 20;
                   });
 
-                  // Resumen del préstamo
                   y += 10;
-                  doc.fontSize(10).fillColor('#2c3e50').text(`Total pagado en este préstamo: ${formatCurrency(loan.totalPaid)}`, 30, y);
-                  y += 15;
-                  doc.fontSize(10).fillColor('#2c3e50').text(`Deuda pendiente: ${formatCurrency(loan.pendingDebt)}`, 30, y);
-                  y += 20;
                 } else {
                   doc.fontSize(10).fillColor('#e74c3c').text('No hay pagos registrados para este préstamo', 30, y);
                   y += 20;
                 }
+
+                // ✅ NUEVA FUNCIONALIDAD: Mostrar períodos sin pagos con diseño profesional
+                if (loan.noPaymentPeriods && loan.noPaymentPeriods.length > 0) {
+                  // Verificar espacio para la sección completa
+                  const estimatedHeight = 50 + (loan.noPaymentPeriods.length * 25);
+                  if (y + estimatedHeight > doc.page.height - 100) {
+                    doc.addPage();
+                    y = 30;
+                  }
+
+                  // Encabezado con fondo similar a las tablas
+                  doc.fontSize(9).fillColor('#ffffff');
+                  doc.rect(30, y, 360, 20).fill('#e74c3c');
+                  doc.fillColor('#ffffff').text('PERÍODOS SIN PAGO', 30, y + 6, { width: 360, align: 'center' });
+                  y += 25;
+
+                  // Contenedor con borde para los períodos
+                  const periodsHeight = loan.noPaymentPeriods.length * 22 + 10;
+                  doc.rect(30, y, 360, periodsHeight).stroke('#e74c3c');
+                  doc.rect(30, y, 360, periodsHeight).fill('#fef5f5');
+
+                  y += 8;
+
+                  loan.noPaymentPeriods.forEach((period: any, index: number) => {
+                    const periodText = period.weekCount === 1 
+                      ? `${period.startDateFormatted} (1 semana)`
+                      : `${period.startDateFormatted} al ${period.endDateFormatted} (${period.weekCount} semanas)`;
+                    
+                    // Texto sin símbolo para evitar problemas de codificación
+                    doc.fontSize(8).fillColor('#dc2626').text(periodText, 50, y, { width: 330 });
+                    y += 18;
+                  });
+
+                  y += 15;
+                }
+
+                // Resumen del préstamo
+                doc.fontSize(10).fillColor('#2c3e50').text(`Total pagado en este préstamo: ${formatCurrency(loan.totalPaid)}`, 30, y);
+                y += 15;
+                doc.fontSize(10).fillColor('#2c3e50').text(`Deuda pendiente: ${formatCurrency(loan.pendingDebt)}`, 30, y);
+                y += 20;
 
                 // Separador entre préstamos
                 if (loanIndex < loansAsClient.length - 1) {
@@ -1165,16 +1203,52 @@ export default withAuth(
                     y += 20;
                   });
 
-                  // Resumen del préstamo como aval
                   y += 10;
-                  doc.fontSize(10).fillColor('#2c3e50').text(`Total pagado en este préstamo: ${formatCurrency(loan.totalPaid)}`, 30, y);
-                  y += 15;
-                  doc.fontSize(10).fillColor('#2c3e50').text(`Deuda pendiente: ${formatCurrency(loan.pendingDebt)}`, 30, y);
-                  y += 20;
                 } else {
                   doc.fontSize(10).fillColor('#e74c3c').text('No hay pagos registrados para este préstamo', 30, y);
                   y += 20;
                 }
+
+                // ✅ NUEVA FUNCIONALIDAD: Mostrar períodos sin pagos para préstamos como aval con diseño profesional
+                if (loan.noPaymentPeriods && loan.noPaymentPeriods.length > 0) {
+                  // Verificar espacio para la sección completa
+                  const estimatedHeight = 50 + (loan.noPaymentPeriods.length * 25);
+                  if (y + estimatedHeight > doc.page.height - 100) {
+                    doc.addPage();
+                    y = 30;
+                  }
+
+                  // Encabezado con fondo similar a las tablas
+                  doc.fontSize(9).fillColor('#ffffff');
+                  doc.rect(30, y, 360, 20).fill('#e74c3c');
+                  doc.fillColor('#ffffff').text('PERÍODOS SIN PAGO', 30, y + 6, { width: 360, align: 'center' });
+                  y += 25;
+
+                  // Contenedor con borde para los períodos
+                  const periodsHeight = loan.noPaymentPeriods.length * 22 + 10;
+                  doc.rect(30, y, 360, periodsHeight).stroke('#e74c3c');
+                  doc.rect(30, y, 360, periodsHeight).fill('#fef5f5');
+
+                  y += 8;
+
+                  loan.noPaymentPeriods.forEach((period: any, index: number) => {
+                    const periodText = period.weekCount === 1 
+                      ? `${period.startDateFormatted} (1 semana)`
+                      : `${period.startDateFormatted} al ${period.endDateFormatted} (${period.weekCount} semanas)`;
+                    
+                    // Texto sin símbolo para evitar problemas de codificación
+                    doc.fontSize(8).fillColor('#dc2626').text(periodText, 50, y, { width: 330 });
+                    y += 18;
+                  });
+
+                  y += 15;
+                }
+
+                // Resumen del préstamo como aval
+                doc.fontSize(10).fillColor('#2c3e50').text(`Total pagado en este préstamo: ${formatCurrency(loan.totalPaid)}`, 30, y);
+                y += 15;
+                doc.fontSize(10).fillColor('#2c3e50').text(`Deuda pendiente: ${formatCurrency(loan.pendingDebt)}`, 30, y);
+                y += 20;
 
                 // Separador entre préstamos como aval
                 if (loanIndex < loansAsCollateral.length - 1) {

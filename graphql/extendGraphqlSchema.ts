@@ -90,6 +90,53 @@ const CustomLeadPaymentReceivedType = graphql.object<LeadPaymentReceivedResponse
   },
 });
 
+// ✅ FUNCIÓN UTILITARIA GLOBAL: Calcular semanas sin pago automáticamente
+const calculateWeeksWithoutPayment = (loanId: string, signDate: Date, analysisDate: Date, payments: any[], renewedDate?: Date | null) => {
+  let weeksWithoutPayment = 0;
+  
+  // ✅ NUEVA FUNCIONALIDAD: Si el préstamo fue renovado, usar renewedDate como fecha límite
+  const effectiveEndDate = renewedDate ? Math.min(new Date(renewedDate).getTime(), analysisDate.getTime()) : analysisDate.getTime();
+  const endDate = new Date(effectiveEndDate);
+  
+  // Obtener todos los lunes desde la fecha de firma hasta la fecha de análisis (o renovación)
+  const mondays: Date[] = [];
+  let currentMonday = new Date(signDate);
+  
+  // Encontrar el lunes de la semana de firma
+  while (currentMonday.getDay() !== 1) { // 1 = lunes
+    currentMonday.setDate(currentMonday.getDate() - 1);
+  }
+  
+  // Generar todos los lunes hasta la fecha de análisis (o renovación)
+  while (currentMonday <= endDate) {
+    mondays.push(new Date(currentMonday));
+    currentMonday.setDate(currentMonday.getDate() + 7);
+  }
+  
+  // Para cada semana (lunes), verificar si hay pago
+  for (const monday of mondays) {
+    const sunday = new Date(monday);
+    sunday.setDate(sunday.getDate() + 6); // Domingo de esa semana
+    
+    // ✅ NUEVA FUNCIONALIDAD: Solo considerar semanas antes de la renovación
+    if (renewedDate && monday >= new Date(renewedDate)) {
+      break; // No contar semanas después de la renovación
+    }
+    
+    // Verificar si hay algún pago en esa semana
+    const hasPaymentInWeek = payments.some(payment => {
+      const paymentDate = new Date(payment.receivedAt);
+      return paymentDate >= monday && paymentDate <= sunday;
+    });
+    
+    if (!hasPaymentInWeek) {
+      weeksWithoutPayment++;
+    }
+  }
+  
+  return weeksWithoutPayment;
+};
+
 export const extendGraphqlSchema = graphql.extend(base => {
   return {
     mutation: {
@@ -1144,6 +1191,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     data: {
                       status: 'RENOVATED',
                       finishedDate: new Date(loanData.signDate)
+                      // ✅ NUEVA FUNCIONALIDAD: Establecer fecha de renovación (descomentado después de migración)
+                      // renewedDate: new Date(loanData.signDate)
                     }
                   });
                 }
@@ -2275,6 +2324,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
               return Math.ceil(adjustedDay / 7);
             };
 
+
+
             // Generar todas las semanas del mes (1-5)
             const weeksInMonth: string[] = [];
             const tempDate = new Date(start);
@@ -2467,6 +2518,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
               const adjustedDay = dayOfMonth + dayOfWeek - 1;
               return Math.ceil(adjustedDay / 7);
             };
+
+
 
             // Generar fechas de inicio/fin de cada semana del mes
             const weeks: { [key: string]: { start: Date, end: Date } } = {};
@@ -4051,30 +4104,24 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
               }
 
-              // Calcular semanas sin pago hasta la fecha de análisis
-              let weeksWithoutPayment = 0;
-              if (lastPaymentDate) {
-                const lastPayment = new Date(lastPaymentDate);
-                const diffTime = analysisDate.getTime() - lastPayment.getTime();
-                const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
-                weeksWithoutPayment = Math.max(0, diffWeeks); // No permitir valores negativos
-                
-                // Debug log para valores negativos
-                if (diffWeeks < 0) {
-                  console.log(`⚠️ Préstamo ${loan.id}: Último pago (${lastPaymentDate}) es DESPUÉS de fecha análisis (${analysisDate.toISOString()}). Semanas: ${diffWeeks} -> ${weeksWithoutPayment}`);
-                }
-              } else {
-                // Si no hay pagos, calcular desde la fecha de firma
-                const signDate = new Date(loan.signDate);
-                const diffTime = analysisDate.getTime() - signDate.getTime();
-                const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
-                weeksWithoutPayment = Math.max(0, diffWeeks); // No permitir valores negativos
-                
-                // Debug log para valores negativos
-                if (diffWeeks < 0) {
-                  console.log(`⚠️ Préstamo ${loan.id}: Fecha firma (${loan.signDate}) es DESPUÉS de fecha análisis (${analysisDate.toISOString()}). Semanas: ${diffWeeks} -> ${weeksWithoutPayment}`);
-                }
-              }
+              // ✅ NUEVA LÓGICA: Calcular semanas sin pago automáticamente por ausencia de registros
+              // Filtrar solo pagos tipo 'PAYMENT' (excluyendo FALCO y EXTRA_COLLECTION para el cálculo)
+              const actualPayments = (loan.payments || []).filter(payment => 
+                payment.type === 'PAYMENT' && Number(payment.amount || 0) > 0
+              );
+              
+              const signDate = new Date(loan.signDate);
+              const weeksWithoutPayment = calculateWeeksWithoutPayment(
+                loan.id, 
+                signDate, 
+                analysisDate, 
+                actualPayments
+                // ✅ NUEVA FUNCIONALIDAD: Pasar renewedDate para calcular períodos solo hasta la renovación (descomentado después de migración)
+                // loan.renewedDate
+              );
+              
+              console.log(`📊 Préstamo ${loan.id}: ${weeksWithoutPayment} semanas sin pago (calculado por ausencia de registros)`);
+              
 
               // Filtrar solo préstamos activos (no finalizados, renovados o cancelados)
               const isFinishedStatus = ['CANCELLED'].includes(loan.status);
@@ -4659,6 +4706,127 @@ export const extendGraphqlSchema = graphql.extend(base => {
               const totalPaid = detailedPayments.reduce((sum, payment) => sum + payment.amount, 0);
               const pendingDebt = Math.max(0, totalAmountDue - totalPaid);
               const isPaidOff = pendingDebt <= 0.01; // Tolerancia para errores de redondeo
+
+              // ✅ CALCULAR PERÍODOS SIN PAGO para el historial
+              const noPaymentPeriods = (() => {
+                const periods: any[] = [];
+                const start = new Date(loan.signDate);
+                // ✅ NUEVA FUNCIONALIDAD: Si el préstamo fue renovado, usar renewedDate como fecha límite (descomentado después de migración)
+                const end = loan.finishedDate ? new Date(loan.finishedDate) : new Date();
+                // const end = loan.renewedDate ? 
+                //   new Date(loan.renewedDate) : 
+                //   (loan.finishedDate ? new Date(loan.finishedDate) : new Date());
+                
+                // Obtener fechas de pago tipo 'PAYMENT' con monto > 0
+                const paymentDates = detailedPayments
+                  .filter(payment => payment.type === 'PAYMENT' && payment.amount > 0)
+                  .map(payment => new Date(payment.receivedAt))
+                  .sort((a, b) => a.getTime() - b.getTime());
+                
+                // Función para obtener el lunes de la semana
+                const getMondayOfWeek = (date: Date): Date => {
+                  const monday = new Date(date);
+                  const dayOfWeek = monday.getDay();
+                  const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+                  monday.setDate(monday.getDate() + diff);
+                  return monday;
+                };
+                
+                // Función para obtener el domingo de la semana
+                const getSundayOfWeek = (date: Date): Date => {
+                  const sunday = new Date(date);
+                  const dayOfWeek = sunday.getDay();
+                  const diff = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+                  sunday.setDate(sunday.getDate() + diff);
+                  return sunday;
+                };
+                
+                // Generar todas las semanas desde la segunda semana después de la firma
+                const weeks: { monday: Date, sunday: Date }[] = [];
+                let currentMonday = getMondayOfWeek(start);
+                currentMonday.setDate(currentMonday.getDate() + 7); // Primera semana no se espera pago
+                
+                while (currentMonday <= end) {
+                  const sunday = getSundayOfWeek(currentMonday);
+                  weeks.push({ 
+                    monday: new Date(currentMonday), 
+                    sunday: new Date(sunday) 
+                  });
+                  currentMonday.setDate(currentMonday.getDate() + 7);
+                }
+                
+                // Encontrar semanas sin pago
+                const weeksWithoutPayment: { monday: Date, sunday: Date }[] = [];
+                for (const week of weeks) {
+                  const hasPaymentInWeek = paymentDates.some(paymentDate => 
+                    paymentDate >= week.monday && paymentDate <= week.sunday
+                  );
+                  if (!hasPaymentInWeek) {
+                    weeksWithoutPayment.push(week);
+                  }
+                }
+                
+                // Agrupar semanas consecutivas
+                if (weeksWithoutPayment.length > 0) {
+                  let periodStart = weeksWithoutPayment[0];
+                  let periodEnd = weeksWithoutPayment[0];
+                  let weekCount = 1;
+                  
+                  for (let i = 1; i < weeksWithoutPayment.length; i++) {
+                    const currentWeek = weeksWithoutPayment[i];
+                    const previousWeek = weeksWithoutPayment[i - 1];
+                    const daysBetween = (currentWeek.monday.getTime() - previousWeek.monday.getTime()) / (1000 * 60 * 60 * 24);
+                    
+                    if (daysBetween === 7) {
+                      periodEnd = currentWeek;
+                      weekCount++;
+                    } else {
+                      periods.push({
+                        id: `no-payment-${periodStart.monday.getTime()}`,
+                        startDate: periodStart.monday.toISOString(),
+                        endDate: periodEnd.sunday.toISOString(),
+                        startDateFormatted: periodStart.monday.toLocaleDateString('es-ES', {
+                          year: 'numeric',
+                          month: '2-digit',
+                          day: '2-digit'
+                        }),
+                        endDateFormatted: periodEnd.sunday.toLocaleDateString('es-ES', {
+                          year: 'numeric',
+                          month: '2-digit',
+                          day: '2-digit'
+                        }),
+                        weekCount,
+                        type: 'NO_PAYMENT_PERIOD'
+                      });
+                      
+                      periodStart = currentWeek;
+                      periodEnd = currentWeek;
+                      weekCount = 1;
+                    }
+                  }
+                  
+                  // Agregar último período
+                  periods.push({
+                    id: `no-payment-${periodStart.monday.getTime()}`,
+                    startDate: periodStart.monday.toISOString(),
+                    endDate: periodEnd.sunday.toISOString(),
+                    startDateFormatted: periodStart.monday.toLocaleDateString('es-ES', {
+                      year: 'numeric',
+                      month: '2-digit',
+                      day: '2-digit'
+                    }),
+                    endDateFormatted: periodEnd.sunday.toLocaleDateString('es-ES', {
+                      year: 'numeric',
+                      month: '2-digit',
+                      day: '2-digit'
+                    }),
+                    weekCount,
+                    type: 'NO_PAYMENT_PERIOD'
+                  });
+                }
+                
+                return periods;
+              })();
               
               // Calcular días desde la firma
               const signDate = new Date(loan.signDate);
@@ -4733,6 +4901,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 routeName: loan.lead?.routes?.name || 'N/A',
                 paymentsCount: detailedPayments.length,
                 payments: detailedPayments,
+                noPaymentPeriods: noPaymentPeriods,
                 renewedFrom: loan.previousLoanId,
                 renewedTo: null, // Se calculará después
                 avalName: loan.avalName || null,

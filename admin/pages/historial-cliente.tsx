@@ -69,6 +69,16 @@ interface LoanPayment {
   balanceAfterPayment: number;
 }
 
+interface NoPaymentPeriod {
+  id: string;
+  startDate: string;
+  endDate: string;
+  startDateFormatted: string;
+  endDateFormatted: string;
+  weekCount: number;
+  type: 'NO_PAYMENT_PERIOD';
+}
+
 interface LoanDetails {
   id: string;
   signDate: string;
@@ -92,6 +102,7 @@ interface LoanDetails {
   routeName: string;
   paymentsCount: number;
   payments: LoanPayment[];
+  noPaymentPeriods: NoPaymentPeriod[];
   renewedFrom?: string;
   renewedTo?: string;
   avalName?: string;
@@ -157,6 +168,9 @@ const getStatusColor = (status: string): string => {
     default: return '#6c757d';              // Gris - estado desconocido
   }
 };
+
+// ✅ NOTA: Los períodos sin pago ahora se calculan en el backend (getClientHistory)
+// La función calculateNoPaymentPeriods se movió al GraphQL resolver para evitar duplicación
 
 // Main Component
 const HistorialClientePage: React.FC = () => {
@@ -796,6 +810,58 @@ const HistorialClientePage: React.FC = () => {
                                   <p style={{ color: '#718096', fontStyle: 'italic' }}>Sin pagos registrados</p>
                                 )}
 
+                                {/* ✅ NUEVA SECCIÓN: Períodos sin pago */}
+                                {loan.noPaymentPeriods && loan.noPaymentPeriods.length > 0 && (
+                                  <div style={{ marginTop: '16px' }}>
+                                    <h5 style={{ 
+                                      fontSize: '14px', 
+                                      fontWeight: '600', 
+                                      marginBottom: '8px', 
+                                      color: '#e53e3e',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '8px'
+                                    }}>
+                                      ⚠️ Períodos sin pago ({loan.noPaymentPeriods.length})
+                                    </h5>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                      {loan.noPaymentPeriods.map((period: NoPaymentPeriod) => (
+                                        <div 
+                                          key={period.id} 
+                                          style={{ 
+                                            backgroundColor: '#fed7e2', 
+                                            padding: '8px 12px', 
+                                            borderRadius: '6px',
+                                            fontSize: '12px',
+                                            border: '1px solid #fbb6ce',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center'
+                                          }}
+                                        >
+                                          <span style={{ fontWeight: '500', color: '#742a2a' }}>
+                                            {period.weekCount === 1 
+                                              ? `📅 ${period.startDateFormatted} (1 semana)`
+                                              : `📅 ${period.startDateFormatted} hasta ${period.endDateFormatted} (${period.weekCount} semanas)`
+                                            }
+                                          </span>
+                                          <span style={{ 
+                                            fontSize: '10px', 
+                                            color: '#e53e3e', 
+                                            fontWeight: '600',
+                                            backgroundColor: '#fed7e2',
+                                            padding: '2px 6px',
+                                            borderRadius: '4px',
+                                            border: '1px solid #f56565'
+                                          }}>
+                                            SIN PAGO
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+
                                 {/* Información adicional */}
                                 <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px', fontSize: '11px', color: '#4a5568' }}>
                                   {loan.avalName && (
@@ -969,6 +1035,58 @@ const HistorialClientePage: React.FC = () => {
                                   </div>
                                 ) : (
                                   <p style={{ color: '#718096', fontStyle: 'italic' }}>Sin pagos registrados</p>
+                                )}
+
+                                {/* ✅ NUEVA SECCIÓN: Períodos sin pago (para préstamos como aval) */}
+                                {loan.noPaymentPeriods && loan.noPaymentPeriods.length > 0 && (
+                                  <div style={{ marginTop: '16px' }}>
+                                    <h5 style={{ 
+                                      fontSize: '14px', 
+                                      fontWeight: '600', 
+                                      marginBottom: '8px', 
+                                      color: '#e53e3e',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '8px'
+                                    }}>
+                                      ⚠️ Períodos sin pago ({loan.noPaymentPeriods.length})
+                                    </h5>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                      {loan.noPaymentPeriods.map((period: NoPaymentPeriod) => (
+                                        <div 
+                                          key={period.id} 
+                                          style={{ 
+                                            backgroundColor: '#fed7e2', 
+                                            padding: '8px 12px', 
+                                            borderRadius: '6px',
+                                            fontSize: '12px',
+                                            border: '1px solid #fbb6ce',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center'
+                                          }}
+                                        >
+                                          <span style={{ fontWeight: '500', color: '#742a2a' }}>
+                                            {period.weekCount === 1 
+                                              ? `📅 ${period.startDateFormatted} (1 semana)`
+                                              : `📅 ${period.startDateFormatted} hasta ${period.endDateFormatted} (${period.weekCount} semanas)`
+                                            }
+                                          </span>
+                                          <span style={{ 
+                                            fontSize: '10px', 
+                                            color: '#e53e3e', 
+                                            fontWeight: '600',
+                                            backgroundColor: '#fed7e2',
+                                            padding: '2px 6px',
+                                            borderRadius: '4px',
+                                            border: '1px solid #f56565'
+                                          }}>
+                                            SIN PAGO
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
                                 )}
 
                                 {/* Información adicional para préstamos como aval */}

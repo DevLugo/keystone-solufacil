@@ -1070,6 +1070,7 @@ type Loan {
   pendingAmountStored: Decimal
   comissionAmount: Decimal
   finishedDate: DateTime
+  renewedDate: DateTime
   updatedAt: DateTime
   createdAt: DateTime
   pendingProfitAmount: Float
@@ -1119,6 +1120,7 @@ input LoanWhereInput {
   pendingAmountStored: DecimalNullableFilter
   comissionAmount: DecimalNullableFilter
   finishedDate: DateTimeNullableFilter
+  renewedDate: DateTimeNullableFilter
   updatedAt: DateTimeNullableFilter
   createdAt: DateTimeNullableFilter
   status: StringNullableFilter
@@ -1162,6 +1164,7 @@ input LoanOrderByInput {
   pendingAmountStored: OrderDirection
   comissionAmount: OrderDirection
   finishedDate: OrderDirection
+  renewedDate: OrderDirection
   updatedAt: OrderDirection
   createdAt: OrderDirection
   status: OrderDirection
@@ -1194,6 +1197,7 @@ input LoanUpdateInput {
   pendingAmountStored: Decimal
   comissionAmount: Decimal
   finishedDate: DateTime
+  renewedDate: DateTime
   updatedAt: DateTime
   createdAt: DateTime
   status: String
@@ -1257,6 +1261,7 @@ input LoanCreateInput {
   pendingAmountStored: Decimal
   comissionAmount: Decimal
   finishedDate: DateTime
+  renewedDate: DateTime
   updatedAt: DateTime
   createdAt: DateTime
   status: String

@@ -230,7 +230,6 @@ type Route = {
 
 const paymentTypeOptions: Option[] = [
   { label: 'ABONO', value: 'PAYMENT' },
-  { label: 'SIN PAGO', value: 'NO_PAYMENT' },
   { label: 'FALCO', value: 'FALCO' },
   { label: 'EXTRA COBRANZA', value: 'EXTRA_COLLECTION' },
 ];
@@ -419,6 +418,10 @@ export const CreatePaymentForm = ({
         },
         finishedDate: {
           equals: null
+        },
+        // ✅ AGREGAR: Filtrar préstamos con deuda pendiente mayor a 0
+        pendingAmountStored: {
+          gt: 0
         }
       }
     },
@@ -672,9 +675,6 @@ export const CreatePaymentForm = ({
   const handlePaymentTypeChange = (index: number, option: Option) => {
     const newPayments = [...payments];
     newPayments[index].type = option.value;
-    if (option.value === 'NO_PAYMENT') {
-      newPayments[index].amount = '0';
-    }
     updateState({ payments: newPayments });
   };
 
