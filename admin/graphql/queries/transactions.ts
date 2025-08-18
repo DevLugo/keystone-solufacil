@@ -73,8 +73,7 @@ export const GET_EXPENSES_BY_DATE_SIMPLE = gql`
       AND: [
         { date: { gte: $date } },
         { date: { lt: $nextDate } },
-        { type: { equals: "EXPENSE" } },
-        { expenseSource: { in: ["VIATIC", "GASOLINE", "ACCOMMODATION", "NOMINA_SALARY", "EXTERNAL_SALARY", "VEHICULE_MAINTENANCE"] } }
+        { type: { equals: "EXPENSE" } }
       ]
     }) {
       id

@@ -64,6 +64,12 @@ const GET_LOANS_BY_LEAD = gql`
     loans(where: $where) {
       id
       weeklyPaymentAmount
+      signDate
+      loantype {
+        id
+        name
+        loanPaymentComission
+      }
       borrower {
         personalData{
           fullName
@@ -89,6 +95,7 @@ const GET_LEAD_PAYMENTS = gql`
       receivedAt
       loan {
         id
+        signDate
         borrower {
           personalData {
             fullName
@@ -195,6 +202,12 @@ type Lead = {
 type Loan = {
   id: string;
   weeklyPaymentAmount: string;
+  signDate: string;
+  loantype: {
+    id: string;
+    name: string;
+    loanPaymentComission: string;
+  };
   borrower:  {
     personalData: {
       fullName: string;
@@ -342,6 +355,9 @@ export const CreatePaymentForm = ({
     isEditing: false,
   });
 
+  // ✅ AGREGAR: Estado para comisión masiva
+  const [massCommission, setMassCommission] = useState<string>('0');
+
   const { 
     payments, comission, isModalOpen, loadPaymentDistribution,
     existingPayments, editedPayments, isEditing, groupedPayments
@@ -361,12 +377,36 @@ export const CreatePaymentForm = ({
       leadId: selectedLead?.id || ''
     },
     skip: !selectedDate || !selectedLead,
-    onCompleted: (data) => {
-      console.log('Payments data received:', data);
-      if (data?.loanPayments) {
-        updateState({ existingPayments: data.loanPayments });
+        onCompleted: (data) => {
+      console.log('🚀 CONSULTA GET_LEAD_PAYMENTS COMPLETADA');
+      console.log('📅 Fecha seleccionada:', selectedDate);
+      console.log('👤 Lead seleccionado:', selectedLead?.id);
+      console.log('🔍 DATOS RECIBIDOS de GET_LEAD_PAYMENTS:', data);
+      console.log('🔍 loanPayments encontrados:', data?.loanPayments?.length || 0);
+        
+        if (data?.loanPayments) {
+          // ✅ AGREGAR: Cargar comisiones por defecto automáticamente
+          const paymentsWithDefaultCommissions = data.loanPayments.map(payment => {
+            const defaultCommission = payment.loan?.loantype?.loanPaymentComission;
+            if (defaultCommission && parseFloat(defaultCommission) > 0) {
+              return {
+                ...payment,
+                comission: parseFloat(defaultCommission)
+              };
+            }
+            return payment;
+          });
+          
+          // ✅ AGREGAR: Ordenar abonos por fecha de creación del crédito (más viejo primero)
+          const sortedPayments = paymentsWithDefaultCommissions.sort((a, b) => {
+            const dateA = new Date(a.loan?.signDate || '1970-01-01');
+            const dateB = new Date(b.loan?.signDate || '1970-01-01');
+            return dateA.getTime() - dateB.getTime(); // Ascendente: crédito más viejo arriba
+          });
+          
+          updateState({ existingPayments: sortedPayments });
+        }
       }
-    }
   });
 
   const { data: loansData, loading: loansLoading, error: loansError } = useQuery<{ loans: Loan[] }>(GET_LOANS_BY_LEAD, {
@@ -408,6 +448,8 @@ export const CreatePaymentForm = ({
       }
     }));
   };
+
+
 
   const handleSaveAllChanges = async () => {
     try {
@@ -579,17 +621,33 @@ export const CreatePaymentForm = ({
     if (loansData?.loans && existingPayments.length === 0) {
       const newPayments = loansData.loans.map(loan => ({
         amount: loan.weeklyPaymentAmount,
-        comission: comission,
+        // ✅ MODIFICAR: Usar comisión por defecto del loanType si existe
+        comission: loan.loantype?.loanPaymentComission ? parseFloat(loan.loantype.loanPaymentComission) : comission,
         loanId: loan.id,
         type: 'PAYMENT',
         paymentMethod: 'CASH',
         isNew: true, // Marcar como nuevo pago
         loan: {
           id: loan.id,
-          borrower: loan.borrower
+          signDate: loan.signDate,
+          borrower: loan.borrower,
+          loantype: loan.loantype // ✅ AGREGAR: Incluir loanType para acceder a la comisión
         }
       }));
-      updateState({ payments: newPayments });
+      
+      // ✅ AGREGAR: Ordenar pagos por fecha de creación del crédito (más viejo primero)
+      const sortedNewPayments = newPayments.sort((a, b) => {
+        const dateA = new Date(a.loan?.signDate || '1970-01-01');
+        const dateB = new Date(b.loan?.signDate || '1970-01-01');
+        return dateA.getTime() - dateB.getTime(); // Ascendente: crédito más viejo arriba
+      });
+      
+      console.log('Pagos semanales creados con comisiones por defecto del loanType:', sortedNewPayments);
+      sortedNewPayments.forEach((payment, index) => {
+        console.log(`Pago ${index + 1}: ${payment.loan?.borrower?.personalData?.fullName} - Comisión: ${payment.comission} (del loanType: ${payment.loan?.loantype?.name}) - Fecha Crédito: ${payment.loan?.signDate ? new Date(payment.loan.signDate).toLocaleDateString('es-MX') : 'N/A'}`);
+      });
+      
+      updateState({ payments: sortedNewPayments });
     } else if (existingPayments.length > 0) {
       // Si hay pagos existentes, limpiar los pagos nuevos
       updateState({ payments: [] });
@@ -631,10 +689,24 @@ export const CreatePaymentForm = ({
     updateState({ payments: newPayments });
   };
 
+
+
   const handleChange = (index: number, field: keyof LoanPayment, value: any) => {
     const newPayments = [...payments];
     if (field === 'loanId') {
       newPayments[index][field] = value;
+      
+      // ✅ AGREGAR: Cargar comisión por defecto automáticamente al seleccionar préstamo
+      if (value && loansData?.loans) {
+        const selectedLoan = loansData.loans.find(loan => loan.id === value);
+        if (selectedLoan?.loantype?.loanPaymentComission) {
+          const defaultCommission = parseFloat(selectedLoan.loantype.loanPaymentComission);
+          if (defaultCommission > 0) {
+            newPayments[index].comission = defaultCommission;
+            console.log('✅ Comisión por defecto cargada automáticamente:', defaultCommission, 'para préstamo:', selectedLoan.loantype.name);
+          }
+        }
+      }
     } else if (field === 'comission') {
       (newPayments[index][field] as unknown as string) = value;
     } else {
@@ -1004,10 +1076,10 @@ export const CreatePaymentForm = ({
               overflow: 'visible',
             }}
           >
-            <Box padding="large">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ margin: 0, fontSize: '18px', color: '#333' }}>Pagos Registrados</h3>
-                {isEditing ? (
+                                        <Box padding="large">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <h3 style={{ margin: 0, fontSize: '18px', color: '#333' }}>Pagos Registrados</h3>
+                  {isEditing ? (
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <Button
                       tone="negative"
@@ -1042,7 +1114,28 @@ export const CreatePaymentForm = ({
               <table css={styles.table}>
                 <thead>
                   <tr>
+                    <th style={{ 
+                      width: '60px',
+                      textAlign: 'center',
+                      cursor: 'help'
+                    }} title="Orden por fecha de crédito (1 = más antiguo)">
+                      #
+                    </th>
                     <th>Cliente</th>
+                    <th style={{ 
+                      position: 'relative',
+                      cursor: 'help'
+                    }} title="Ordenados por esta fecha (más antiguo primero)">
+                      Fecha Crédito
+                      <span style={{
+                        fontSize: '10px',
+                        color: '#6B7280',
+                        marginLeft: '4px',
+                        fontWeight: 'normal'
+                      }}>
+                        ↓
+                      </span>
+                    </th>
                     <th>Monto</th>
                     <th>Comisión</th>
                     <th>Tipo</th>
@@ -1053,11 +1146,29 @@ export const CreatePaymentForm = ({
                 <tbody>
                   {existingPayments
                     .filter(payment => !deletedPaymentIds.includes(payment.id))
-                    .map((payment) => {
+                    .map((payment, index) => {
                     const editedPayment = editedPayments[payment.id] || payment;
                     return (
                       <tr key={payment.id}>
+                        <td style={{ 
+                          textAlign: 'center',
+                          fontWeight: 'bold',
+                          color: '#6B7280',
+                          fontSize: '14px'
+                        }}>
+                          {index + 1}
+                        </td>
                         <td>{payment.loan?.borrower?.personalData?.fullName}</td>
+                        <td>
+                          {payment.loan?.signDate ? 
+                            new Date(payment.loan.signDate).toLocaleDateString('es-MX', {
+                              year: 'numeric',
+                              month: '2-digit',
+                              day: '2-digit'
+                            }) : 
+                            '-'
+                          }
+                        </td>
                         <td>
                           {isEditing ? (
                             <TextInput
@@ -1071,13 +1182,49 @@ export const CreatePaymentForm = ({
                         </td>
                         <td>
                           {isEditing ? (
-                            <TextInput
-                              type="number"
-                              value={editedPayment.comission}
-                              onChange={e => handleEditExistingPayment(payment.id, 'comission', e.target.value)}
-                            />
+                            <div style={{ position: 'relative' }}>
+                              <TextInput
+                                type="number"
+                                value={editedPayment.comission}
+                                onChange={e => handleEditExistingPayment(payment.id, 'comission', e.target.value)}
+                              />
+                              {payment.loan?.loantype?.loanPaymentComission && 
+                               parseFloat(payment.loan.loantype.loanPaymentComission) > 0 && (
+                                <div style={{
+                                  position: 'absolute',
+                                  top: '-20px',
+                                  right: '0',
+                                  fontSize: '10px',
+                                  color: '#059669',
+                                  backgroundColor: '#D1FAE5',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  border: '1px solid #A7F3D0'
+                                }} title={`Comisión por defecto: ${payment.loan.loantype.loanPaymentComission}`}>
+                                  💡 {payment.loan.loantype.loanPaymentComission}
+                                </div>
+                              )}
+                            </div>
                           ) : (
-                            payment.comission
+                            <div style={{ position: 'relative' }}>
+                              {payment.comission}
+                              {payment.loan?.loantype?.loanPaymentComission && 
+                               parseFloat(payment.loan.loantype.loanPaymentComission) > 0 && (
+                                <div style={{
+                                  position: 'absolute',
+                                  top: '-20px',
+                                  right: '0',
+                                  fontSize: '10px',
+                                  color: '#059669',
+                                  backgroundColor: '#D1FAE5',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  border: '1px solid #A7F3D0'
+                                }} title={`Comisión por defecto: ${payment.loan.loantype.loanPaymentComission}`}>
+                                  💡 {payment.loan.loantype.loanPaymentComission}
+                                </div>
+                              )}
+                            </div>
                           )}
                         </td>
                         <td>
@@ -1139,6 +1286,75 @@ export const CreatePaymentForm = ({
             }}
           >
             <Box padding="large">
+              {/* ✅ AGREGAR: Panel de comisión masiva para nuevos pagos */}
+              <div style={{
+                display: 'flex',
+                gap: '12px',
+                alignItems: 'center',
+                marginBottom: '16px',
+                padding: '16px',
+                backgroundColor: '#f8fafc',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0'
+              }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '200px' }}>
+                  <label style={{
+                    fontSize: '12px',
+                    fontWeight: '500',
+                    color: '#475569',
+                    marginBottom: '2px',
+                  }}>
+                    COMISIÓN MASIVA
+                  </label>
+                  <div style={{
+                    fontSize: '11px',
+                    color: '#64748b',
+                    fontStyle: 'italic',
+                  }}>
+                    Aplicar a todos los pagos nuevos
+                  </div>
+                </div>
+                <div style={{
+                  display: 'flex',
+                  gap: '8px',
+                  alignItems: 'center',
+                }}>
+                  <input
+                    type="number"
+                    value={massCommission}
+                    onChange={(e) => setMassCommission(e.target.value)}
+                    placeholder="0.00"
+                    style={{
+                      padding: '8px 12px',
+                      fontSize: '13px',
+                      border: '1px solid #E5E7EB',
+                      borderRadius: '6px',
+                      outline: 'none',
+                      width: '80px',
+                      height: '36px',
+                    }}
+                  />
+                  <Button
+                    tone="passive"
+                    size="small"
+                    onClick={() => {
+                      const commissionValue = parseFloat(massCommission);
+                      if (isNaN(commissionValue)) return;
+                      
+                      const updatedPayments = payments.map(payment => ({
+                        ...payment,
+                        comission: commissionValue
+                      }));
+                      
+                      updateState({ payments: updatedPayments });
+                      alert(`✅ Comisión masiva de ${commissionValue} aplicada a ${payments.length} pagos`);
+                    }}
+                  >
+                    Aplicar a Todos
+                  </Button>
+                </div>
+              </div>
+
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h3 style={{ margin: 0, fontSize: '18px', color: '#333' }}>Nuevos Pagos</h3>
                 <Button
@@ -1156,6 +1372,12 @@ export const CreatePaymentForm = ({
                 <thead>
                   <tr>
                     <th>Cliente</th>
+                    <th style={{ 
+                      position: 'relative',
+                      cursor: 'help'
+                    }} title="Fecha de otorgamiento del crédito">
+                      Fecha Crédito
+                    </th>
                     <th>Monto</th>
                     <th>Comisión</th>
                     <th>Tipo</th>
@@ -1166,26 +1388,41 @@ export const CreatePaymentForm = ({
                 <tbody>
                   {payments.map((payment, index) => (
                     <tr key={`new-${index}`}>
-                      <td>
-                        <Select
-                          options={loansData?.loans.map(loan => ({
-                            value: loan.id,
-                            label: loan.borrower.personalData.fullName
-                          })) || []}
-                          value={loansData?.loans.find(loan => loan.id === payment.loanId) ? {
-                            value: payment.loanId,
-                            label: loansData.loans.find(loan => loan.id === payment.loanId)?.borrower.personalData.fullName || ''
-                          } : null}
-                          onChange={(option) => handleChange(index, 'loanId', (option as Option).value)}
-                        />
-                      </td>
-                      <td>
-                        <TextInput
-                          type="number"
-                          value={payment.amount}
-                          onChange={(e) => handleChange(index, 'amount', e.target.value)}
-                        />
-                      </td>
+                                              <td>
+                          <Select
+                            options={loansData?.loans.map(loan => ({
+                              value: loan.id,
+                              label: loan.borrower.personalData.fullName
+                            })) || []}
+                            value={loansData?.loans.find(loan => loan.id === payment.loanId) ? {
+                              value: payment.loanId,
+                              label: loansData.loans.find(loan => loan.id === payment.loanId)?.borrower.personalData.fullName || ''
+                            } : null}
+                            onChange={(option) => handleChange(index, 'loanId', (option as Option).value)}
+                          />
+                        </td>
+                        <td>
+                          {payment.loanId && loansData?.loans ? 
+                            (() => {
+                              const selectedLoan = loansData.loans.find(loan => loan.id === payment.loanId);
+                              return selectedLoan?.signDate ? 
+                                new Date(selectedLoan.signDate).toLocaleDateString('es-MX', {
+                                  year: 'numeric',
+                                  month: '2-digit',
+                                  day: '2-digit'
+                                }) : 
+                                '-'
+                            })() : 
+                            '-'
+                          }
+                        </td>
+                        <td>
+                          <TextInput
+                            type="number"
+                            value={payment.amount}
+                            onChange={(e) => handleChange(index, 'amount', e.target.value)}
+                          />
+                        </td>
                       <td>
                         <TextInput
                           type="number"

@@ -570,10 +570,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
             for (const payment of existingPayment.payments) {
               const paymentAmount = parseFloat((payment.amount || 0).toString());
+              const commissionAmount = parseFloat((payment.comission || 0).toString());
+              const totalAmount = paymentAmount + commissionAmount; // ✅ INCLUIR comisión
+              
               if (payment.paymentMethod === 'CASH') {
-                oldCashAmountChange += paymentAmount;
+                oldCashAmountChange += totalAmount;
               } else {
-                oldBankAmountChange += paymentAmount;
+                oldBankAmountChange += totalAmount;
               }
             }
 
@@ -636,8 +639,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
               for (const payment of createdPaymentRecords) {
                 const paymentAmount = parseFloat((payment.amount || 0).toString());
+                const commissionAmount = parseFloat((payment.comission || 0).toString());
+                const totalAmount = paymentAmount + commissionAmount; // ✅ INCLUIR comisión
                 
-                // Preparar datos de transacción
+                // Preparar datos de transacción para el pago principal
                 transactionData.push({
                   amount: (payment.amount || 0).toString(),
                   date: new Date(paymentDate),
@@ -648,11 +653,24 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   leadId: leadId,
                 });
 
-                // Acumular cambios en balances
+                // ✅ AGREGAR: Crear transacción separada para la comisión si existe
+                if (commissionAmount > 0) {
+                  transactionData.push({
+                    amount: (payment.comission || 0).toString(),
+                    date: new Date(paymentDate),
+                    type: 'INCOME',
+                    incomeSource: 'LOAN_PAYMENT_COMISSION',
+                    loanPaymentId: payment.id,
+                    loanId: payment.loanId,
+                    leadId: leadId,
+                  });
+                }
+
+                // Acumular cambios en balances (pago + comisión)
                 if (payment.paymentMethod === 'CASH') {
-                  newCashAmountChange += paymentAmount;
+                  newCashAmountChange += totalAmount;
                 } else {
-                  newBankAmountChange += paymentAmount;
+                  newBankAmountChange += totalAmount;
                 }
               }
 
@@ -662,23 +680,51 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
             }
 
+            // ✅ AGREGAR: Logs de debugging para verificar cálculos
+            console.log('🔍 UPDATE LEAD PAYMENT - Cálculo de balances:', {
+              oldCashAmountChange,
+              oldBankAmountChange,
+              newCashAmountChange,
+              newBankAmountChange,
+              cashBalanceChange: newCashAmountChange - oldCashAmountChange,
+              bankBalanceChange: newBankAmountChange - oldBankAmountChange,
+              currentCashAmount: parseFloat((cashAccount.amount || 0).toString()),
+              currentBankAmount: parseFloat((bankAccount.amount || 0).toString())
+            });
+
             // Actualizar balances de cuentas (revertir antiguos y aplicar nuevos)
             const cashBalanceChange = newCashAmountChange - oldCashAmountChange;
             const bankBalanceChange = newBankAmountChange - oldBankAmountChange;
 
             if (cashBalanceChange !== 0) {
               const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
+              const newCashBalance = currentCashAmount + cashBalanceChange;
+              
+              console.log('💰 Actualizando balance CASH:', {
+                currentAmount: currentCashAmount,
+                change: cashBalanceChange,
+                newAmount: newCashBalance
+              });
+              
               await tx.account.update({
                 where: { id: cashAccount.id },
-                data: { amount: (currentCashAmount + cashBalanceChange).toString() }
+                data: { amount: newCashBalance.toString() }
               });
             }
 
             if (bankBalanceChange !== 0) {
               const currentBankAmount = parseFloat((bankAccount.amount || 0).toString());
+              const newBankBalance = currentBankAmount + bankBalanceChange;
+              
+              console.log('🏦 Actualizando balance BANK:', {
+                currentAmount: currentBankAmount,
+                change: bankBalanceChange,
+                newAmount: newBankBalance
+              });
+              
               await tx.account.update({
                 where: { id: bankAccount.id },
-                data: { amount: (currentBankAmount + bankBalanceChange).toString() }
+                data: { amount: newBankBalance.toString() }
               });
             }
 

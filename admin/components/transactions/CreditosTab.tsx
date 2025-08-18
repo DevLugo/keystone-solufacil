@@ -279,6 +279,7 @@ const GET_PREVIOUS_LOANS = gql`
       signDate
       loantype {
         id
+        name
         rate
         weekDuration
       }
@@ -526,27 +527,62 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         }
       }
 
-      setNewLoan(prev => {
-        const updatedLoan = {
-          ...prev,
-          previousLoan,
-          borrower: selectedLoan.borrower,
-          avalName: selectedLoan.avalName,
-          avalPhone: selectedLoan.avalPhone,
-          pendingAmount,
-          amountToPay: newLoanAmountToPay
-        };
-        
-        // Si ya hay un tipo de préstamo seleccionado, cargar la comisión automáticamente
-        if (updatedLoan.loantype?.id) {
-          const selectedType = loanTypesData?.loantypes?.find((type: any) => type.id === updatedLoan.loantype?.id);
-          if (selectedType?.loanGrantedComission && parseFloat(selectedType.loanGrantedComission.toString()) > 0) {
-            updatedLoan.comissionAmount = selectedType.loanGrantedComission.toString();
+              setNewLoan(prev => {
+          const updatedLoan = {
+            ...prev,
+            previousLoan,
+            borrower: selectedLoan.borrower,
+            avalName: selectedLoan.avalName,
+            avalPhone: selectedLoan.avalPhone,
+            pendingAmount,
+            amountToPay: newLoanAmountToPay,
+            // ✅ AGREGAR: Precargar automáticamente el tipo de préstamo del préstamo anterior
+            loantype: selectedLoan.loantype,
+            // ✅ AGREGAR: Precargar el monto solicitado del préstamo anterior
+            requestedAmount: selectedLoan.requestedAmount
+          };
+          
+          // Si ya hay un tipo de préstamo seleccionado, cargar la comisión automáticamente
+          if (updatedLoan.loantype?.id) {
+            const selectedType = loanTypesData?.loantypes?.find((type: any) => type.id === updatedLoan.loantype?.id);
+            if (selectedType?.loanGrantedComission && parseFloat(selectedType.loanGrantedComission.toString()) > 0) {
+              updatedLoan.comissionAmount = selectedType.loanGrantedComission.toString();
+            }
           }
-        }
-        
-        return updatedLoan;
-      });
+          
+          console.log('✅ Datos precargados del préstamo anterior:', {
+            loantype: selectedLoan.loantype?.name,
+            requestedAmount: selectedLoan.requestedAmount,
+            borrower: selectedLoan.borrower?.personalData?.fullName
+          });
+          
+          return updatedLoan;
+        });
+
+        // ✅ AGREGAR: Recalcular automáticamente el monto entregado después de precargar los datos
+        setTimeout(() => {
+          if (selectedLoan.loantype?.rate) {
+            const { amountGived, amountToPay } = calculateLoanAmounts({
+              requestedAmount: selectedLoan.requestedAmount || '0',
+              pendingAmount: pendingAmount,
+              rate: selectedLoan.loantype.rate
+            });
+
+            console.log('🔄 Recalculando monto entregado después de precargar datos:', {
+              requestedAmount: selectedLoan.requestedAmount,
+              pendingAmount: pendingAmount,
+              rate: selectedLoan.loantype.rate,
+              amountGived,
+              amountToPay
+            });
+
+            setNewLoan(prev => ({
+              ...prev,
+              amountGived,
+              amountToPay
+            }));
+          }
+        }, 100); // Pequeño delay para asegurar que el estado se haya actualizado
     }
   };
 
