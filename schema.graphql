@@ -2322,6 +2322,7 @@ type TransactionSummary {
   loanPaymentComission: Float!
   loanGrantedComission: Float!
   leadComission: Float!
+  leadExpense: Float!
   moneyInvestment: Float!
   otro: Float!
   balance: Float!

@@ -24,6 +24,7 @@ const GET_TRANSACTIONS_SUMMARY = gql`
       loanPaymentComission
       loanGrantedComission
       leadComission
+      leadExpense
       moneyInvestment
       otro
       balance
@@ -95,7 +96,7 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
     const income = item.abono + item.moneyInvestment;
     const expenses = item.viatic + item.gasoline + item.accommodation + 
                     item.nominaSalary + item.externalSalary + item.vehiculeMaintenance + 
-                    item.otro; // loanGranted se muestra por separado
+                    item.otro + item.leadExpense; // loanGranted se muestra por separado
     const comissions = item.loanPaymentComission + item.loanGrantedComission + item.leadComission;
     
     // CALCULAR BALANCES EN EL FRONTEND (ingresos - gastos)
@@ -283,6 +284,26 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
                 if (gastosLiderTotal > 0) {
                   return (
                     <tr>
+                      <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#e53e3e' }}>Comisiones de líder</td>
+                      <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'center' }}>{gastosLiderCount}</td>
+                      <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#e53e3e' }}>
+                        ${gastosLiderTotal.toFixed(2)}
+                      </td>
+                    </tr>
+                  );
+                }
+                return null;
+              })()}
+
+              {/* Gastos de líder */}
+              {(() => {
+                const gastosLiderTotal = leader.details.reduce((sum: number, item: any) => 
+                  sum + item.leadExpense, 0);
+                const gastosLiderCount = leader.details.filter((item: any) => 
+                  item.leadExpense > 0).length;
+                if (gastosLiderTotal > 0) {
+                  return (
+                    <tr>
                       <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#e53e3e' }}>Gastos de líder</td>
                       <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'center' }}>{gastosLiderCount}</td>
                       <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#e53e3e' }}>
@@ -457,7 +478,7 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
                 ${leaders.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => 
                   sum + item.viatic + item.gasoline + item.accommodation + 
                   item.nominaSalary + item.externalSalary + item.vehiculeMaintenance + 
-                  item.otro, 0), 0).toFixed(2)}
+                  item.otro + item.leadExpense, 0), 0).toFixed(2)}
               </td>
             </tr>
             <tr>
@@ -471,6 +492,13 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#e53e3e' }}>
                 ${leaders.reduce((sum: number, loc: LocalitySummary) => 
                   sum + loc.details.reduce((sum: number, item: any) => sum + item.loanGrantedComission, 0), 0).toFixed(2)}
+              </td>
+            </tr>
+            <tr>
+              <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#e53e3e' }}>(-) Total Gastos de Líder</td>
+              <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#e53e3e' }}>
+                ${leaders.reduce((sum: number, loc: LocalitySummary) => 
+                  sum + loc.details.reduce((sum: number, item: any) => sum + item.leadExpense, 0), 0).toFixed(2)}
               </td>
             </tr>
             <tr>

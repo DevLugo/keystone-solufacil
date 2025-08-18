@@ -234,7 +234,8 @@ const expenseTypes = [
   { label: 'Préstamo Otorgado', value: 'LOAN_GRANTED' },
   { label: 'Comisión de Pago de Préstamo', value: 'LOAN_PAYMENT_COMISSION' },
   { label: 'Comisión de Otorgamiento de Préstamo', value: 'LOAN_GRANTED_COMISSION' },
-  { label: 'Comisión de Líder', value: 'LEAD_COMISSION' }
+  { label: 'Comisión de Líder', value: 'LEAD_COMISSION' },
+  { label: 'Gasto de Líder', value: 'LEAD_EXPENSE' }
 ];
 
 const formStyles = {

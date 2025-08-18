@@ -406,12 +406,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
               for (const loanId of affectedLoanIds) {
                 const loan = await tx.loan.findUnique({ where: { id: loanId }, include: { loantype: true, payments: true } });
                 if (!loan) continue;
-                const rate = parseFloat(loan.loantype?.rate?.toString() || '0');
-                const requested = parseFloat(loan.requestedAmount.toString());
-                const weekDuration = Number(loan.loantype?.weekDuration || 0);
+                const loanWithRelations = loan as any;
+                const rate = parseFloat(loanWithRelations.loantype?.rate?.toString() || '0');
+                const requested = parseFloat(loanWithRelations.requestedAmount.toString());
+                const weekDuration = Number(loanWithRelations.loantype?.weekDuration || 0);
                 const totalDebt = requested * (1 + rate);
                 const expectedWeekly = weekDuration > 0 ? (totalDebt / weekDuration) : 0;
-                const totalPaid = (loan.payments || []).reduce((s: number, p: any) => s + parseFloat((p.amount || 0).toString()), 0);
+                const totalPaid = (loanWithRelations.payments || []).reduce((s: number, p: any) => s + parseFloat((p.amount || 0).toString()), 0);
                 const pending = Math.max(0, totalDebt - totalPaid);
                 await tx.loan.update({
                   where: { id: loanId },
@@ -1032,6 +1033,102 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   }
                 });
 
+                // ✅ AGREGAR: Crear transacciones y actualizar balance (lógica del hook)
+                const lead = await tx.employee.findUnique({
+                  where: { id: loanData.leadId }
+                });
+
+                if (lead?.routesId) {
+                  const account = await tx.account.findFirst({
+                    where: { 
+                      routeId: lead.routesId,
+                      type: 'EMPLOYEE_CASH_FUND'
+                    },
+                  });
+
+                  if (account) {
+                    const loanAmountNum = parseFloat(loanData.amountGived);
+                    const commissionAmountNum = parseFloat(loanData.comissionAmount || '0');
+                    const currentAmount = parseFloat((account.amount || '0').toString());
+                    const newAccountBalance = currentAmount - loanAmountNum - commissionAmountNum;
+                    
+                    // Crear transacciones LOAN_GRANTED y LOAN_GRANTED_COMISSION
+                    await tx.transaction.createMany({
+                      data: [
+                        {
+                          amount: loanAmountNum.toString(),
+                          date: new Date(loanData.signDate),
+                          type: 'EXPENSE',
+                          expenseSource: 'LOAN_GRANTED',
+                          sourceAccountId: account.id,
+                          loanId: loan.id,
+                          leadId: loanData.leadId
+                        },
+                        {
+                          amount: commissionAmountNum.toString(),
+                          date: new Date(loanData.signDate),
+                          type: 'EXPENSE',
+                          expenseSource: 'LOAN_GRANTED_COMISSION',
+                          sourceAccountId: account.id,
+                          loanId: loan.id,
+                          leadId: loanData.leadId
+                        }
+                      ]
+                    });
+
+                    // Actualizar balance de la cuenta
+                    await tx.account.update({
+                      where: { id: account.id },
+                      data: { amount: newAccountBalance.toString() }
+                    });
+
+                    // Calcular profit básico
+                    const basicProfitAmount = parseFloat(loanData.requestedAmount) * 0.20;
+                    await tx.loan.update({
+                      where: { id: loan.id },
+                      data: { profitAmount: basicProfitAmount.toFixed(2) }
+                    });
+                  }
+                }
+
+                // ✅ AGREGAR: Finalizar préstamo previo si existe
+                if (loanData.previousLoanId) {
+                  await tx.loan.update({
+                    where: { id: loanData.previousLoanId },
+                    data: {
+                      status: 'RENOVATED',
+                      finishedDate: new Date(loanData.signDate)
+                    }
+                  });
+                }
+
+                // ✅ AGREGAR: Recalcular métricas del préstamo
+                try {
+                  // Usar el objeto loan ya creado que ya tiene las relaciones incluidas
+                  const loanWithRelations = loan as any;
+                  if (loanWithRelations.loantype) {
+                    const rate = parseFloat(loanWithRelations.loantype.rate?.toString() || '0');
+                    const requested = parseFloat(loanWithRelations.requestedAmount.toString());
+                    const weekDuration = Number(loanWithRelations.loantype.weekDuration || 0);
+                    const totalDebt = requested * (1 + rate);
+                    const expectedWeekly = weekDuration > 0 ? (totalDebt / weekDuration) : 0;
+                    const totalPaid = 0; // No hay pagos aún para préstamos nuevos
+                    const pending = Math.max(0, totalDebt - totalPaid);
+                    
+                    await tx.loan.update({
+                      where: { id: loan.id },
+                      data: {
+                        totalDebtAcquired: totalDebt.toFixed(2),
+                        expectedWeeklyPayment: expectedWeekly.toFixed(2),
+                        totalPaid: totalPaid.toFixed(2),
+                        pendingAmountStored: pending.toFixed(2),
+                      }
+                    });
+                  }
+                } catch (e) { 
+                  console.error('Error recomputing loan metrics (bulk create):', e); 
+                }
+
                 createdLoans.push({
                   id: loan.id,
                   requestedAmount: loan.requestedAmount,
@@ -1132,6 +1229,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
             leadComission: graphql.field({ 
               type: graphql.nonNull(graphql.Float),
               resolve: (item: any) => item.leadComission
+            }),
+            leadExpense: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item: any) => item.leadExpense
             }),
             moneyInvestment: graphql.field({ 
               type: graphql.nonNull(graphql.Float),
@@ -1557,7 +1658,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 CREDITO: 0, VIATIC: 0, GASOLINE: 0, ACCOMMODATION: 0,
                 NOMINA_SALARY: 0, EXTERNAL_SALARY: 0, VEHICULE_MAINTENANCE: 0,
                 LOAN_GRANTED: 0, LOAN_PAYMENT_COMISSION: 0,
-                LOAN_GRANTED_COMISSION: 0, LEAD_COMISSION: 0,
+                LOAN_GRANTED_COMISSION: 0, LEAD_COMISSION: 0, LEAD_EXPENSE: 0,
                 MONEY_INVESMENT: 0, OTRO: 0, CASH_BALANCE: 0, BANK_BALANCE: 0
               };
             }
@@ -1701,6 +1802,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
+              } else if (transaction.expenseSource === 'LEAD_EXPENSE') {
+                localidades[transactionDate][leaderKey].LEAD_EXPENSE += amount;
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
+                  localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
+                }
               } else {
                 localidades[transactionDate][leaderKey].OTRO += amount;
                 if (isBankExpense) {
@@ -1781,6 +1889,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 loanPaymentComission: checkValue(data.LOAN_PAYMENT_COMISSION, 'LOAN_PAYMENT_COMISSION'),
                 loanGrantedComission: checkValue(data.LOAN_GRANTED_COMISSION, 'LOAN_GRANTED_COMISSION'),
                 leadComission: checkValue(data.LEAD_COMISSION, 'LEAD_COMISSION'),
+                leadExpense: checkValue(data.LEAD_EXPENSE, 'LEAD_EXPENSE'),
                 moneyInvestment: checkValue(data.MONEY_INVESMENT, 'MONEY_INVESMENT'),
                 otro: checkValue(data.OTRO, 'OTRO'),
                 balance: balanceFinal,
