@@ -421,7 +421,7 @@ export const CreatePaymentForm = ({
         },
         // ✅ AGREGAR: Filtrar préstamos con deuda pendiente mayor a 0
         pendingAmountStored: {
-          gt: 0
+          gt: "0"
         }
       }
     },

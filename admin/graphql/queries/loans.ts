@@ -19,17 +19,48 @@ export const GET_LOANS = gql`
           id
           fullName
           phones {
+            id
             number
+          }
+          addresses {
+            id
+            location {
+              id
+              name
+            }
           }
         }
       }
       avalName
       avalPhone
+      collaterals {
+        id
+        fullName
+        phones {
+          id
+          number
+        }
+        addresses {
+          id
+          location {
+            id
+            name
+          }
+        }
+      }
       previousLoan {
         id
         pendingAmount
         avalName
         avalPhone
+        collaterals {
+          id
+          fullName
+          phones {
+            id
+            number
+          }
+        }
         borrower {
           id
           personalData {
@@ -60,6 +91,32 @@ export const GET_LEADS = gql`
       type
       personalData {
         fullName
+      }
+    }
+  }
+`;
+
+export const SEARCH_POTENTIAL_COLLATERALS = gql`
+  query SearchPotentialCollaterals($searchTerm: String!) {
+    personalDatas(
+      where: {
+        fullName: { contains: $searchTerm, mode: insensitive }
+      }
+      take: 20
+    ) {
+      id
+      fullName
+      phones {
+        id
+        number
+      }
+      addresses {
+        id
+        street
+        location {
+          id
+          name
+        }
       }
     }
   }

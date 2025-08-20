@@ -940,6 +940,8 @@ type PersonalData {
   updatedAt: DateTime
   employee: Employee
   borrower: Borrower
+  loansAsCollateral(where: LoanWhereInput! = {}, orderBy: [LoanOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: LoanWhereUniqueInput): [Loan!]
+  loansAsCollateralCount(where: LoanWhereInput! = {}): Int
 }
 
 input PersonalDataWhereUniqueInput {
@@ -961,6 +963,7 @@ input PersonalDataWhereInput {
   updatedAt: DateTimeNullableFilter
   employee: EmployeeWhereInput
   borrower: BorrowerWhereInput
+  loansAsCollateral: LoanManyRelationFilter
 }
 
 input PhoneManyRelationFilter {
@@ -988,6 +991,7 @@ input PersonalDataUpdateInput {
   updatedAt: DateTime
   employee: EmployeeRelateToOneForUpdateInput
   borrower: BorrowerRelateToOneForUpdateInput
+  loansAsCollateral: LoanRelateToManyForUpdateInput
 }
 
 input PhoneRelateToManyForUpdateInput {
@@ -1024,6 +1028,7 @@ input PersonalDataCreateInput {
   updatedAt: DateTime
   employee: EmployeeRelateToOneForCreateInput
   borrower: BorrowerRelateToOneForCreateInput
+  loansAsCollateral: LoanRelateToManyForCreateInput
 }
 
 input PhoneRelateToManyForCreateInput {
@@ -1054,6 +1059,8 @@ type Loan {
   profitAmount: Decimal
   avalName: String
   avalPhone: String
+  collaterals(where: PersonalDataWhereInput! = {}, orderBy: [PersonalDataOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: PersonalDataWhereUniqueInput): [PersonalData!]
+  collateralsCount(where: PersonalDataWhereInput! = {}): Int
   grantor: Employee
   transactions(where: TransactionWhereInput! = {}, orderBy: [TransactionOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TransactionWhereUniqueInput): [Transaction!]
   transactionsCount(where: TransactionWhereInput! = {}): Int
@@ -1080,7 +1087,6 @@ type Loan {
   weeklyPaymentAmount: Float
   amountToPay: Float
   status: String
-  isLastLoan(where: Boolean): Boolean
   snapshotRouteId: String
   snapshotRouteName: String
   excludedByCleanup: PortfolioCleanup
@@ -1106,6 +1112,7 @@ input LoanWhereInput {
   profitAmount: DecimalNullableFilter
   avalName: StringFilter
   avalPhone: StringFilter
+  collaterals: PersonalDataManyRelationFilter
   grantor: EmployeeWhereInput
   transactions: TransactionManyRelationFilter
   lead: EmployeeWhereInput
@@ -1146,6 +1153,12 @@ input DateTimeFilter {
   not: DateTimeFilter
 }
 
+input PersonalDataManyRelationFilter {
+  every: PersonalDataWhereInput
+  some: PersonalDataWhereInput
+  none: PersonalDataWhereInput
+}
+
 input LoanOrderByInput {
   id: OrderDirection
   oldId: OrderDirection
@@ -1183,6 +1196,7 @@ input LoanUpdateInput {
   profitAmount: Decimal
   avalName: String
   avalPhone: String
+  collaterals: PersonalDataRelateToManyForUpdateInput
   grantor: EmployeeRelateToOneForUpdateInput
   transactions: TransactionRelateToManyForUpdateInput
   lead: EmployeeRelateToOneForUpdateInput
@@ -1219,6 +1233,13 @@ input LoantypeRelateToOneForUpdateInput {
   disconnect: Boolean
 }
 
+input PersonalDataRelateToManyForUpdateInput {
+  disconnect: [PersonalDataWhereUniqueInput!]
+  set: [PersonalDataWhereUniqueInput!]
+  create: [PersonalDataCreateInput!]
+  connect: [PersonalDataWhereUniqueInput!]
+}
+
 input LoanRelateToOneForUpdateInput {
   create: LoanCreateInput
   connect: LoanWhereUniqueInput
@@ -1247,6 +1268,7 @@ input LoanCreateInput {
   profitAmount: Decimal
   avalName: String
   avalPhone: String
+  collaterals: PersonalDataRelateToManyForCreateInput
   grantor: EmployeeRelateToOneForCreateInput
   transactions: TransactionRelateToManyForCreateInput
   lead: EmployeeRelateToOneForCreateInput
@@ -1278,6 +1300,11 @@ input LoanPaymentRelateToManyForCreateInput {
 input LoantypeRelateToOneForCreateInput {
   create: LoantypeCreateInput
   connect: LoantypeWhereUniqueInput
+}
+
+input PersonalDataRelateToManyForCreateInput {
+  create: [PersonalDataCreateInput!]
+  connect: [PersonalDataWhereUniqueInput!]
 }
 
 input LoanRelateToOneForCreateInput {
@@ -2209,10 +2236,18 @@ input MultipleLoanInput {
   loantypeId: ID!
   previousLoanId: ID
   borrowerData: MultipleBorrowerDataInput
+  avalData: AvalDataInput
 }
 
 input MultipleBorrowerDataInput {
   fullName: String!
+  phone: String
+}
+
+input AvalDataInput {
+  selectedCollateralId: ID
+  action: String
+  name: String
   phone: String
 }
 

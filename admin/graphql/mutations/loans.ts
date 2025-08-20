@@ -21,3 +21,65 @@ export const UPDATE_PERSONAL_DATA = gql`
     }
   }
 `;
+
+export const UPDATE_LOAN_COLLATERALS = gql`
+  mutation UpdateLoanCollaterals($loanId: ID!, $collateralIds: [ID!]!) {
+    updateLoan(
+      where: { id: $loanId }
+      data: { 
+        collaterals: { 
+          set: $collateralIds 
+        } 
+      }
+    ) {
+      id
+      collaterals {
+        id
+        fullName
+        phones {
+          id
+          number
+        }
+      }
+    }
+  }
+`;
+
+export const UPDATE_PHONE = gql`
+  mutation UpdatePhone($phoneId: ID!, $number: String!) {
+    updatePhone(
+      where: { id: $phoneId }
+      data: { number: $number }
+    ) {
+      id
+      number
+    }
+  }
+`;
+
+export const CREATE_PHONE = gql`
+  mutation CreatePhone($personalDataId: ID!, $number: String!) {
+    createPhone(
+      data: { 
+        number: $number
+        personalData: { connect: { id: $personalDataId } }
+      }
+    ) {
+      id
+      number
+    }
+  }
+`;
+
+export const CREATE_PERSONAL_DATA = gql`
+  mutation CreatePersonalData($data: PersonalDataCreateInput!) {
+    createPersonalData(data: $data) {
+      id
+      fullName
+      phones {
+        id
+        number
+      }
+    }
+  }
+`;

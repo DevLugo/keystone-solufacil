@@ -26,7 +26,11 @@ import { LoanListView } from '../components/loans/LoanListView';
 
 // Import GraphQL queries and mutations
 import { GET_LOAN_TYPES } from '../graphql/queries/loantypes';
-import { CREATE_LOAN as CREATE_LOAN_MUTATION, CREATE_LOANS_BULK, UPDATE_PERSONAL_DATA as UPDATE_PERSONAL_DATA_MUTATION } from '../graphql/mutations/loans';
+import { 
+  CREATE_LOAN as CREATE_LOAN_MUTATION, 
+  CREATE_LOANS_BULK, 
+  UPDATE_PERSONAL_DATA as UPDATE_PERSONAL_DATA_MUTATION
+} from '../graphql/mutations/loans';
 
 import './creditos.css';
 
@@ -95,6 +99,7 @@ const GET_LOANS = gql`
       comissionAmount
       avalName
       avalPhone
+
       loantype {
         id
         name
@@ -120,6 +125,13 @@ const GET_LOANS = gql`
             number
             __typename
           }
+          addresses {
+            id
+            location {
+              id
+              name
+            }
+          }
           __typename
         }
         __typename
@@ -129,6 +141,7 @@ const GET_LOANS = gql`
         pendingAmount
         avalName
         avalPhone
+
         borrower {
           id
           personalData {
@@ -157,6 +170,7 @@ const UPDATE_LOAN_MUTATION = gql`
       avalName
       avalPhone
       comissionAmount
+
       borrower {
         id
         personalData {
@@ -320,7 +334,7 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
         personalData: {
           id: '',
           fullName: '',
-          phones: [{ number: '' }]
+          phones: [{ id: '', number: '' }]
         }
       },
       avalName: '',
@@ -415,8 +429,8 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
           personalData: {
             ...loan.borrower?.personalData,
             phones: existingPhones.length > 0 ? 
-              existingPhones.map((_, i) => i === existingPhones.length - 1 ? { number: value } : existingPhones[i]) :
-              [{ number: value }]
+              existingPhones.map((phone, i) => i === existingPhones.length - 1 ? { id: phone.id, number: value } : phone) :
+              [{ id: '', number: value }]
           }
         };
         break;
@@ -767,7 +781,7 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
             style={{ padding: '8px 16px' }}
             isLoading={loanLoading}
           >
-            Agregar Prestamo
+            Agregar Prestamos
           </Button>
           {newLoans.length > 0 && (
             <div style={{
@@ -949,7 +963,7 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
               </>
             ) : (
               <>
-                Guardar Cambios
+                Guardar Cambios1111
                 {(newLoans.length > 0 || Object.keys(editedLoans).length > 0) && (
                   <span style={{
                     marginLeft: '8px',

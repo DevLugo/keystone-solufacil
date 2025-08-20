@@ -122,7 +122,7 @@ export default withAuth(
                   { finishedDate: null },
                   { badDebtDate: null },
                   // ✅ AGREGAR: Filtrar préstamos con deuda pendiente mayor a 0
-                  { pendingAmountStored: { gt: 0 } },
+                  { pendingAmountStored: { gt: "0" } },
                   leaderId ? { leadId: leaderId as string } : {}
                 ]
               },

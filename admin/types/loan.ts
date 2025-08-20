@@ -1,3 +1,20 @@
+// Personal Data type for collaterals
+export type PersonalData = {
+  id: string;
+  fullName: string;
+  phones: Array<{
+    id: string;
+    number: string;
+  }>;
+  addresses?: Array<{
+    id: string;
+    location: {
+      id: string;
+      name: string;
+    };
+  }>;
+};
+
 // Base loan type with only database fields
 export type BaseLoan = {
   id: string;
@@ -14,16 +31,26 @@ export type BaseLoan = {
     personalData: {
       id: string;
       fullName: string;
-      phones: Array<{ number: string }>;
+      phones: Array<{ id: string; number: string }>;
+      addresses?: Array<{
+        id: string;
+        location: {
+          id: string;
+          name: string;
+        };
+      }>;
     };
   };
   avalName: string;
   avalPhone: string;
+  // ✅ NUEVA FUNCIONALIDAD: Campo collaterals
+  collaterals?: PersonalData[];
   previousLoan?: {
     id: string;
     pendingAmount: string;
     avalName: string;
     avalPhone: string;
+    collaterals?: PersonalData[];
     borrower: {
       id: string;
       personalData: {

@@ -15,10 +15,17 @@ import { gql } from '@apollo/client';
 import { calculateLoanAmounts } from '../../utils/loanCalculations';
 import { GET_ROUTE } from '../../graphql/queries/routes';
 import { CREATE_LOANS_BULK } from '../../graphql/mutations/loans';
+import AvalDropdown from '../loans/AvalDropdown';
 
 // Import types
 import type { Loan } from '../../types/loan';
 import { calculateAmountToPay, calculatePendingAmountSimple, processLoansWithCalculations } from '../../utils/loanCalculations';
+
+// Interfaz extendida para incluir información de collateral
+interface ExtendedLoan extends Partial<Loan> {
+  selectedCollateralId?: string;
+  avalAction?: 'create' | 'update' | 'connect' | 'clear';
+}
 
 // OPTIMIZADA: SIN campos virtuales costosos
 const GET_LOANS = gql`
@@ -44,6 +51,25 @@ const GET_LOANS = gql`
       comissionAmount
       avalName
       avalPhone
+      collaterals {
+        id
+        fullName
+        phones {
+          id
+          number
+          __typename
+        }
+        addresses {
+          id
+          location {
+            id
+            name
+            __typename
+          }
+          __typename
+        }
+        __typename
+      }
       loantype {
         id
         name
@@ -80,6 +106,16 @@ const GET_LOANS = gql`
         profitAmount
         avalName
         avalPhone
+        collaterals {
+          id
+          fullName
+          phones {
+            id
+            number
+            __typename
+          }
+          __typename
+        }
         borrower {
           id
           personalData {
@@ -291,6 +327,14 @@ const GET_PREVIOUS_LOANS = gql`
       }
       avalName
       avalPhone
+      collaterals {
+        id
+        fullName
+        phones {
+          id
+          number
+        }
+      }
       payments {
         amount
       }
@@ -340,7 +384,7 @@ const DropdownPortal = ({ children, isOpen }: DropdownPortalProps) => {
 
 export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalanceUpdate }: CreditosTabProps) => {
   const [loans, setLoans] = useState<Loan[]>([]);
-  const [newLoan, setNewLoan] = useState<Partial<Loan>>({
+  const [newLoan, setNewLoan] = useState<ExtendedLoan>({
     requestedAmount: '0',
     amountGived: '',
     amountToPay: '',
@@ -352,15 +396,16 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     comissionAmount: '0',
     avalName: '',
     avalPhone: '',
-    loantype: { id: '', name: '', rate: '0', weekDuration: '0', __typename: 'LoanType' },
-    lead: { id: selectedLead?.id || '', personalData: { fullName: '', __typename: 'PersonalData' }, __typename: 'Lead' },
+    selectedCollateralId: undefined,
+    avalAction: 'clear',
+    loantype: { id: '', name: '', rate: '0', weekDuration: 0, __typename: 'LoanType' },
+    lead: { id: selectedLead?.id || '', personalData: { fullName: '' }, __typename: 'Lead' },
     borrower: {
       id: '',
       personalData: {
         id: '',
         fullName: '',
-        phones: [{ number: '', __typename: 'Phone' }],
-        __typename: 'PersonalData'
+        phones: [{ id: '', number: '' }]
       },
       __typename: 'Borrower'
     },
@@ -369,7 +414,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   });
 
   // Nuevo estado para manejar múltiples préstamos
-  const [pendingLoans, setPendingLoans] = useState<Partial<Loan>[]>([]);
+  const [pendingLoans, setPendingLoans] = useState<ExtendedLoan[]>([]);
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
 
@@ -413,7 +458,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   const { data: loanTypesData, loading: loanTypesLoading } = useQuery(GET_LOAN_TYPES);
 
   const loanTypeOptions = React.useMemo(() => {
-    return loanTypesData?.loantypes?.map(type => ({
+    return loanTypesData?.loantypes?.map((type: any) => ({
       label: `${type.name} (${type.weekDuration} semanas - ${type.rate}%)`,
       value: type.id
     })) || [];
@@ -484,8 +529,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
           personalData: {
             id: '',
             fullName: '',
-            phones: [{ number: '', __typename: 'Phone' }],
-            __typename: 'PersonalData'
+            phones: [{ id: '', number: '' }]
           },
           __typename: 'Borrower'
         },
@@ -499,7 +543,15 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       return;
     }
 
-    const selectedLoan = previousLoansData?.loans?.find(loan => loan.id === option.value);
+    console.log('🔍 Préstamos disponibles:', previousLoansData?.loans?.map((loan: any) => ({
+      id: loan.id,
+      borrower: loan.borrower?.personalData?.fullName,
+      avalName: loan.avalName,
+      avalPhone: loan.avalPhone,
+      collaterals: loan.collaterals
+    })));
+
+    const selectedLoan = previousLoansData?.loans?.find((loan: any) => loan.id === option.value);
     if (selectedLoan) {
       // Calcular la deuda pendiente localmente
       const pendingAmountNum = calculateLocalPendingAmount(selectedLoan);
@@ -528,12 +580,55 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       }
 
               setNewLoan(prev => {
+          // ✅ NUEVO: Limpiar y precargar información del aval desde collaterals
+          let avalName = '';
+          let avalPhone = '';
+          let selectedCollateralId = undefined;
+          let avalAction: 'create' | 'update' | 'connect' | 'clear' = 'clear';
+          
+          console.log('🔍 Datos del préstamo seleccionado:', {
+            loanId: selectedLoan.id,
+            avalName: selectedLoan.avalName,
+            avalPhone: selectedLoan.avalPhone,
+            collaterals: selectedLoan.collaterals,
+            borrower: selectedLoan.borrower?.personalData?.fullName
+          });
+          
+          // Si existe información en collaterals, usar esa en lugar de los campos legacy
+          if (selectedLoan.collaterals && selectedLoan.collaterals.length > 0) {
+            const primaryCollateral = selectedLoan.collaterals[0];
+            avalName = primaryCollateral.fullName;
+            avalPhone = primaryCollateral.phones?.[0]?.number || '';
+            selectedCollateralId = primaryCollateral.id;
+            avalAction = 'connect'; // Es un aval existente sin modificar
+            console.log('✅ Información del aval desde collaterals:', {
+              avalName,
+              avalPhone,
+              selectedCollateralId,
+              avalAction
+            });
+          } else if (selectedLoan.avalName || selectedLoan.avalPhone) {
+            // Fallback a campos legacy si existen
+            avalName = selectedLoan.avalName || '';
+            avalPhone = selectedLoan.avalPhone || '';
+            avalAction = 'clear'; // Sin ID, tratarlo como nuevo si se modifica
+            console.log('⚠️ No hay información en collaterals, usando campos legacy:', {
+              avalName,
+              avalPhone,
+              avalAction
+            });
+          } else {
+            console.log('ℹ️ Sin información de aval en el préstamo anterior');
+          }
+
           const updatedLoan = {
             ...prev,
             previousLoan,
             borrower: selectedLoan.borrower,
-            avalName: selectedLoan.avalName,
-            avalPhone: selectedLoan.avalPhone,
+            avalName,
+            avalPhone,
+            selectedCollateralId, // ✅ NUEVO: ID del aval seleccionado
+            avalAction, // ✅ NUEVO: Acción del aval 
             pendingAmount,
             amountToPay: newLoanAmountToPay,
             // ✅ AGREGAR: Precargar automáticamente el tipo de préstamo del préstamo anterior
@@ -553,7 +648,11 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
           console.log('✅ Datos precargados del préstamo anterior:', {
             loantype: selectedLoan.loantype?.name,
             requestedAmount: selectedLoan.requestedAmount,
-            borrower: selectedLoan.borrower?.personalData?.fullName
+            borrower: selectedLoan.borrower?.personalData?.fullName,
+            avalName: updatedLoan.avalName,
+            avalPhone: updatedLoan.avalPhone,
+            selectedCollateralId: updatedLoan.selectedCollateralId,
+            avalAction: updatedLoan.avalAction
           });
           
           return updatedLoan;
@@ -632,7 +731,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       ...prev,
       lead: { 
         id: selectedLead?.id || '', 
-        personalData: { fullName: '', __typename: 'PersonalData' }, 
+        personalData: { fullName: '' }, 
         __typename: 'Lead' 
       }
     }));
@@ -773,14 +872,16 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       comissionAmount: '0',
       avalName: '',
       avalPhone: '',
-      loantype: { id: '', name: '', rate: '0', weekDuration: '0', __typename: 'LoanType' },
-      lead: { id: selectedLead?.id || '', personalData: { fullName: '', __typename: 'PersonalData' }, __typename: 'Lead' },
+      selectedCollateralId: undefined,
+      avalAction: 'clear',
+      loantype: { id: '', name: '', rate: '0', weekDuration: 0, __typename: 'LoanType' },
+      lead: { id: selectedLead?.id || '', personalData: { fullName: '' }, __typename: 'Lead' },
       borrower: {
         id: '',
         personalData: {
           id: '',
           fullName: '',
-          phones: [{ number: '', __typename: 'Phone' }],
+          phones: [{ id: '', number: '' }],
           __typename: 'PersonalData'
         },
         __typename: 'Borrower'
@@ -802,21 +903,44 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       }
 
       // Preparar los datos para la mutación bulk
-      const loansData = pendingLoans.map(loan => ({
-        requestedAmount: (loan.requestedAmount || '0').toString(),
-        amountGived: (loan.amountGived || '0').toString(),
-        signDate: loan.signDate || selectedDate?.toISOString() || '',
-        avalName: loan.avalName || '',
-        avalPhone: loan.avalPhone || '',
-        comissionAmount: (loan.comissionAmount || '0').toString(),
-        leadId: selectedLead?.id || '',
-        loantypeId: loan.loantype?.id || '',
-        previousLoanId: loan.previousLoan?.id || undefined,
-        borrowerData: {
-          fullName: loan.borrower?.personalData?.fullName || '',
-          phone: loan.borrower?.personalData?.phones?.[0]?.number || ''
-        }
-      }));
+      const loansData = pendingLoans.map(loan => {
+        console.log('🏗️ Preparando datos de préstamo para bulk:', {
+          loanId: loan.id,
+          avalName: loan.avalName,
+          avalPhone: loan.avalPhone,
+          selectedCollateralId: loan.selectedCollateralId,
+          avalAction: loan.avalAction,
+          avalDataToSend: {
+            selectedCollateralId: loan.selectedCollateralId || undefined,
+            action: loan.avalAction || 'clear',
+            name: loan.avalName || '',
+            phone: loan.avalPhone || ''
+          }
+        });
+
+        return {
+          requestedAmount: (loan.requestedAmount || '0').toString(),
+          amountGived: (loan.amountGived || '0').toString(),
+          signDate: loan.signDate || selectedDate?.toISOString() || '',
+          avalName: loan.avalName || '',
+          avalPhone: loan.avalPhone || '',
+          comissionAmount: (loan.comissionAmount || '0').toString(),
+          leadId: selectedLead?.id || '',
+          loantypeId: loan.loantype?.id || '',
+          previousLoanId: loan.previousLoan?.id || undefined,
+          borrowerData: {
+            fullName: loan.borrower?.personalData?.fullName || '',
+            phone: loan.borrower?.personalData?.phones?.[0]?.number || ''
+          },
+          // ✅ NUEVO: Información para manejo del aval
+          avalData: {
+            selectedCollateralId: loan.selectedCollateralId || undefined,
+            action: loan.avalAction || 'clear',
+            name: loan.avalName || '',
+            phone: loan.avalPhone || ''
+          }
+        };
+      });
 
       // Llamar a la mutación bulk
       const { data } = await createMultipleLoans({ 
@@ -970,7 +1094,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
 
   useEffect(() => {
     if (routeData?.route) {
-      const balance = routeData.route.accounts.reduce((total, account) => total + account.amount, 0);
+      const balance = routeData.route.accounts.reduce((total: any, account: any) => total + account.amount, 0);
       setRouteBalance(balance);
       if (onBalanceUpdate) {
         onBalanceUpdate(balance);
@@ -1491,7 +1615,8 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                           textOverflow: 'ellipsis',
                           whiteSpace: 'nowrap',
                         }}>
-                          {loan.avalName}
+                          {/* ✅ NUEVO: Mostrar aval desde collaterals o fallback a campos legacy */}
+                          {loan.collaterals?.[0]?.fullName || loan.avalName || '-'}
                         </span>
                         <div 
                           className="tooltip"
@@ -1500,11 +1625,14 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                             display: 'none',
                           }}
                         >
-                          {loan.avalName}
+                          {loan.collaterals?.[0]?.fullName || loan.avalName || '-'}
                         </div>
                       </div>
                     </td>
-                    <td style={tableCellStyle}>{loan.avalPhone}</td>
+                    <td style={tableCellStyle}>
+                      {/* ✅ NUEVO: Mostrar teléfono desde collaterals o fallback a campos legacy */}
+                      {loan.collaterals?.[0]?.phones?.[0]?.number || loan.avalPhone || '-'}
+                    </td>
                     <td style={{
                       ...tableCellStyle,
                       width: '40px',
@@ -1522,7 +1650,9 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                         </Box>
                       ) : (
                         <Button
-                          ref={el => buttonRefs.current[loan.id] = el}
+                          ref={el => {
+                            buttonRefs.current[loan.id] = el;
+                          }}
                           tone="passive"
                           size="small"
                           onClick={() => setActiveMenu(activeMenu === loan.id ? null : loan.id)}
@@ -1612,7 +1742,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                               }
                             }
                           }}
-                          value={loanTypeOptions.find(option => option.value === newLoan.loantype?.id) || null}
+                          value={loanTypeOptions.find((option: any) => option.value === newLoan.loantype?.id) || null}
                           menuPlacement="auto"
                           menuPosition="fixed"
                           styles={{
@@ -1637,6 +1767,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                           borrower: {
                             ...newLoan.borrower,
                             personalData: {
+                              id: newLoan.borrower?.personalData?.id || '',
                               ...newLoan.borrower?.personalData,
                               fullName: e.target.value
                             }
@@ -1658,7 +1789,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                             ...newLoan.borrower,
                             personalData: {
                               ...newLoan.borrower?.personalData,
-                              phones: [{ number: e.target.value, __typename: 'Phone' }]
+                              phones: [{ id: '', number: e.target.value }]
                             }
                           }
                         })}
@@ -1676,8 +1807,8 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                           const requestedAmount = e.target.value;
                           const { amountGived, amountToPay } = calculateLoanAmounts({
                             requestedAmount,
-                            pendingAmount: newLoan.pendingAmount,
-                            rate: newLoan.loantype.rate
+                            pendingAmount: newLoan.pendingAmount || '0',
+                            rate: newLoan.loantype?.rate || 0
                           });
                           
                           setNewLoan({ 
@@ -1734,27 +1865,31 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                         placeholder="0.00"
                       />
                     </td>
-                    <td style={tableCellWithInputStyle}>
-                      <input
-                        type="text"
-                        value={newLoan.avalName}
-                        onChange={e => setNewLoan({ ...newLoan, avalName: e.target.value })}
-                        onFocus={() => setFocusedInput('avalName')}
-                        onBlur={() => setFocusedInput(null)}
-                        style={focusedInput === 'avalName' ? focusedInputStyle : tableInputStyle}
-                        placeholder="Nombre del aval"
-                      />
-                    </td>
-                    <td style={tableCellWithInputStyle}>
-                      <input
-                        type="tel"
-                        value={newLoan.avalPhone}
-                        onChange={e => setNewLoan({ ...newLoan, avalPhone: e.target.value })}
-                        onFocus={() => setFocusedInput('avalPhone')}
-                        onBlur={() => setFocusedInput(null)}
-                        style={focusedInput === 'avalPhone' ? focusedInputStyle : tableInputStyle}
-                        placeholder="Teléfono"
-                      />
+                    <td style={{...tableCellWithInputStyle}} colSpan={2}>
+                      <div style={{ position: 'relative', width: '100%' }}>
+                        <AvalDropdown
+                          loanId={newLoan.id || 'new'}
+                          currentAvalName={newLoan.avalName || ''}
+                          currentAvalPhone={newLoan.avalPhone || ''}
+                          borrowerLocationId={undefined}
+                          onAvalChange={(avalName, avalPhone, personalDataId, action) => {
+                            console.log('📝 AvalDropdown onChange:', {
+                              avalName,
+                              avalPhone,
+                              personalDataId,
+                              action
+                            });
+                            setNewLoan(prev => ({
+                              ...prev,
+                              avalName,
+                              avalPhone,
+                              selectedCollateralId: personalDataId,
+                              avalAction: action
+                            }));
+                          }}
+                          onlyNameField={false}
+                        />
+                      </div>
                     </td>
                     <td style={{
                       ...tableCellStyle,
@@ -1926,7 +2061,8 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                       ${loan.comissionAmount || '0'}
                     </td>
                     <td style={tableCellStyle}>
-                      {loan.avalName || '-'}
+                      {/* ✅ NUEVO: Mostrar aval desde collaterals o fallback a campos legacy */}
+                      {loan.collaterals?.[0]?.fullName || loan.avalName || '-'}
                     </td>
                     <td style={{
                       ...tableCellStyle,
@@ -2294,7 +2430,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                         }
                       }
                     }}
-                    value={loanTypeOptions.find(option => option.value === editingLoan.loantype?.id) || null}
+                    value={loanTypeOptions.find((option: any) => option.value === editingLoan.loantype?.id) || null}
                     styles={{
                       container: (base) => ({
                         ...base,

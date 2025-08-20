@@ -541,6 +541,16 @@ export const PersonalData = list({
     updatedAt: timestamp(),
     employee: relationship({ ref: 'Employee.personalData' }),
     borrower: relationship({ ref: 'Borrower.personalData' }),
+    // ✅ NUEVA FUNCIONALIDAD: Relación de préstamos donde esta persona actúa como collateral
+    loansAsCollateral: relationship({ 
+      ref: 'Loan.collaterals', 
+      many: true,
+      ui: {
+        displayMode: 'cards',
+        cardFields: ['requestedAmount', 'signDate'],
+        linkToItem: true
+      }
+    }),
   },
   hooks: {
     afterOperation: async (args) => {
@@ -611,6 +621,17 @@ export const Loan = list({
       }),
     avalName: text(),
     avalPhone: text(),
+    // ✅ NUEVA FUNCIONALIDAD: Relación many-to-many con PersonalData para collaterals
+    collaterals: relationship({ 
+      ref: 'PersonalData.loansAsCollateral', 
+      many: true,
+      ui: {
+        displayMode: 'cards',
+        cardFields: ['fullName', 'clientCode'],
+        inlineConnect: true,
+        linkToItem: true
+      }
+    }),
     grantor: relationship({ ref: 'Employee.loan' }),
 
     transactions: relationship({ ref: 'Transaction.loan', many: true }),
@@ -759,26 +780,7 @@ export const Loan = list({
         { label: 'CANCELADO', value: 'CANCELLED' },
       ],
     }),
-    isLastLoan: virtual({
-      ui: {
-        query: '{ isLastLoan: true }'
-      },
-      isFilterable: true,
-      field: graphql.field({
-        type: graphql.Boolean,
-        args: {
-          where: graphql.arg({ type: graphql.Boolean })
-        },
-        resolve: async (item) => {
-          
-          const loan = await prisma.loan.findUnique({
-            where: { id: (item as { id: string }).id.toString() },
-          });
-          return !loan?.previousLoanId;
-        }
-      }),
-      
-    }),
+
     // Campos de tracking histórico para reportes precisos
     snapshotRouteId: text({
       label: 'Snapshot Route ID',

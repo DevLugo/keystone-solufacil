@@ -1048,6 +1048,18 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     }
                   })
                 }),
+                // ✅ NUEVO: Campo para manejo de aval
+                avalData: graphql.arg({ 
+                  type: graphql.inputObject({
+                    name: 'AvalDataInput',
+                    fields: {
+                      selectedCollateralId: graphql.arg({ type: graphql.ID }),
+                      action: graphql.arg({ type: graphql.String }), // 'create' | 'update' | 'connect' | 'clear'
+                      name: graphql.arg({ type: graphql.String }),
+                      phone: graphql.arg({ type: graphql.String })
+                    }
+                  })
+                }),
               }
             }))))
           })
@@ -1092,21 +1104,127 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   borrowerId = borrower.id;
                 }
 
-                // Crear el préstamo
-                const loan = await tx.loan.create({
-                  data: {
-                    requestedAmount: parseFloat(loanData.requestedAmount).toFixed(2),
-                    amountGived: parseFloat(loanData.amountGived).toFixed(2),
-                    signDate: new Date(loanData.signDate),
+                // ✅ NUEVO: Manejar aval según la acción especificada
+                let collateralConnections: any = {};
+                
+                console.log('🔍 DEBUG: Datos completos del préstamo recibidos:', {
+                  avalName: loanData.avalName,
+                  avalPhone: loanData.avalPhone,
+                  avalData: loanData.avalData,
+                  hasAvalData: !!loanData.avalData,
+                  avalDataAction: loanData.avalData?.action,
+                  avalDataId: loanData.avalData?.selectedCollateralId,
+                  avalDataStringified: JSON.stringify(loanData.avalData, null, 2)
+                });
+                
+                if (loanData.avalData?.action && loanData.avalData.action !== 'clear') {
+                  const avalData = loanData.avalData;
+                  
+                  console.log('🏗️ Procesando aval para préstamo:', {
+                    action: avalData.action,
+                    selectedCollateralId: avalData.selectedCollateralId,
+                    name: avalData.name,
+                    phone: avalData.phone
+                  });
+                  
+                  if (avalData.action === 'connect' && avalData.selectedCollateralId) {
+                    // Conectar aval existente sin cambios
+                    collateralConnections = {
+                      collaterals: {
+                        connect: [{ id: avalData.selectedCollateralId }]
+                      }
+                    };
+                    console.log('🔗 Conectando aval existente:', avalData.selectedCollateralId);
+                    
+                  } else if (avalData.action === 'update' && avalData.selectedCollateralId) {
+                    // Actualizar aval existente y conectar
+                    if (avalData.name || avalData.phone) {
+                      await tx.personalData.update({
+                        where: { id: avalData.selectedCollateralId },
+                        data: {
+                          ...(avalData.name ? { fullName: avalData.name } : {}),
+                          ...(avalData.phone ? {
+                            phones: {
+                              deleteMany: {},
+                              create: [{ number: avalData.phone }]
+                            }
+                          } : {})
+                        }
+                      });
+                      console.log('✏️ Aval actualizado:', avalData.selectedCollateralId);
+                    }
+                    
+                    collateralConnections = {
+                      collaterals: {
+                        connect: [{ id: avalData.selectedCollateralId }]
+                      }
+                    };
+                    
+                  } else if (avalData.action === 'create' && avalData.name) {
+                    // Crear nuevo aval
+                    const newAval = await tx.personalData.create({
+                      data: {
+                        fullName: avalData.name,
+                        ...(avalData.phone ? {
+                          phones: {
+                            create: [{ number: avalData.phone }]
+                          }
+                        } : {})
+                      }
+                    });
+                    
+                    collateralConnections = {
+                      collaterals: {
+                        connect: [{ id: newAval.id }]
+                      }
+                    };
+                    console.log('➕ Nuevo aval creado:', newAval.id);
+                  }
+                }
+
+                console.log('🔧 Resultado de collateralConnections:', {
+                  collateralConnections: JSON.stringify(collateralConnections, null, 2),
+                  hasConnections: Object.keys(collateralConnections).length > 0
+                });
+
+                // ✅ EXPERIMENTO: Crear el préstamo SIN campos legacy si hay avalData válido
+                const shouldUseLegacyFields = !loanData.avalData?.action || loanData.avalData.action === 'clear';
+                
+                console.log('💾 Creando préstamo con configuración:', {
+                  shouldUseLegacyFields,
+                  hasCollateralConnections: Object.keys(collateralConnections).length > 0,
+                  avalAction: loanData.avalData?.action
+                });
+
+                // Preparar datos para crear el préstamo
+                const loanCreateData = {
+                  requestedAmount: parseFloat(loanData.requestedAmount).toFixed(2),
+                  amountGived: parseFloat(loanData.amountGived).toFixed(2),
+                  signDate: new Date(loanData.signDate),
+                  // ✅ EXPERIMENTO: Solo usar campos legacy si no hay avalData válido
+                  ...(shouldUseLegacyFields ? {
                     avalName: loanData.avalName || '',
                     avalPhone: loanData.avalPhone || '',
-                    comissionAmount: (parseFloat(loanData.comissionAmount || '0')).toFixed(2),
-                    lead: { connect: { id: loanData.leadId } },
-                    loantype: { connect: { id: loanData.loantypeId } },
-                    borrower: { connect: { id: borrowerId } },
-                    ...(loanData.previousLoanId ? { previousLoan: { connect: { id: loanData.previousLoanId } } } : {}),
-                    status: 'ACTIVE'
-                  },
+                  } : {
+                    avalName: '', // Limpiar campos legacy cuando usamos avalData
+                    avalPhone: '',
+                  }),
+                  comissionAmount: (parseFloat(loanData.comissionAmount || '0')).toFixed(2),
+                  lead: { connect: { id: loanData.leadId } },
+                  loantype: { connect: { id: loanData.loantypeId } },
+                  borrower: { connect: { id: borrowerId } },
+                  ...collateralConnections, // ✅ NUEVO: Conexiones de aval
+                  ...(loanData.previousLoanId ? { previousLoan: { connect: { id: loanData.previousLoanId } } } : {}),
+                  status: 'ACTIVE'
+                };
+                
+                console.log('📋 Datos finales para crear préstamo:', {
+                  loanCreateData: JSON.stringify(loanCreateData, null, 2)
+                });
+
+                // Crear el préstamo
+                const loan = await tx.loan.create({
+                  data: loanCreateData,
                   include: {
                     borrower: {
                       include: {
@@ -1122,8 +1240,19 @@ export const extendGraphqlSchema = graphql.extend(base => {
                       include: {
                         personalData: true
                       }
+                    },
+                    collaterals: { // ✅ NUEVO: Incluir los avales conectados
+                      include: {
+                        phones: true
+                      }
                     }
                   }
+                });
+                
+                console.log('✅ Préstamo creado con avales:', {
+                  loanId: loan.id,
+                  collateralsCount: loan.collaterals?.length || 0,
+                  collaterals: loan.collaterals?.map(c => ({ id: c.id, name: c.fullName, phone: c.phones?.[0]?.number })) || []
                 });
 
                 // ✅ AGREGAR: Crear transacciones y actualizar balance (lógica del hook)
