@@ -31,6 +31,7 @@ interface AvalDropdownProps {
   onAvalChange: (avalName: string, avalPhone: string, personalDataId?: string, action?: 'create' | 'update' | 'connect' | 'clear') => void;
   includeAllLocations?: boolean;
   onlyNameField?: boolean;
+  usedAvalIds?: string[]; // ✅ NUEVO: IDs de avales ya usados hoy
 }
 
 const AvalDropdown: React.FC<AvalDropdownProps> = ({
@@ -40,7 +41,8 @@ const AvalDropdown: React.FC<AvalDropdownProps> = ({
   borrowerLocationId,
   onAvalChange,
   includeAllLocations = false,
-  onlyNameField = false
+  onlyNameField = false,
+  usedAvalIds = [] // ✅ NUEVO: IDs de avales ya usados
 }) => {
   const [avalName, setAvalName] = useState(currentAvalName || '');
   const [avalPhone, setAvalPhone] = useState(currentAvalPhone || '');
@@ -123,6 +125,21 @@ const AvalDropdown: React.FC<AvalDropdownProps> = ({
               address.location?.id === borrowerLocationId
             )
           );
+        }
+        
+        // ✅ NUEVO: Filtrar avales ya usados hoy (excepto el actual)
+        if (usedAvalIds.length > 0) {
+          const initialCount = filteredResults.length;
+          filteredResults = filteredResults.filter((person: PersonalData) => {
+            // Permitir el aval actual (si ya está seleccionado)
+            if (selectedPersonalDataId && person.id === selectedPersonalDataId) {
+              return true;
+            }
+            // Filtrar otros avales ya usados
+            return !usedAvalIds.includes(person.id);
+          });
+          
+          console.log(`🚫 Avales filtrados por uso previo: ${initialCount - filteredResults.length} de ${initialCount}`);
         }
         
         setSearchResults(filteredResults);
@@ -566,7 +583,7 @@ const AvalDropdown: React.FC<AvalDropdownProps> = ({
                       border: '1px solid #D1D5DB',
                       borderRadius: '4px',
                       boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                      zIndex: 1000,
+                      zIndex: 9999,
                       maxHeight: '200px',
                       overflowY: 'auto'
                     }}
@@ -772,7 +789,7 @@ const AvalDropdown: React.FC<AvalDropdownProps> = ({
                     border: '1px solid #D1D5DB',
                     borderRadius: '4px',
                     boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                    zIndex: 1000,
+                    zIndex: 9999,
                     maxHeight: '200px',
                     overflowY: 'auto'
                   }}

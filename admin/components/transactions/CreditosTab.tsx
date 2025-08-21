@@ -16,6 +16,7 @@ import { calculateLoanAmounts } from '../../utils/loanCalculations';
 import { GET_ROUTE } from '../../graphql/queries/routes';
 import { CREATE_LOANS_BULK } from '../../graphql/mutations/loans';
 import AvalDropdown from '../loans/AvalDropdown';
+import ClientDropdown from '../loans/ClientDropdown';
 
 // Import types
 import type { Loan } from '../../types/loan';
@@ -421,7 +422,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   const [newLoanId, setNewLoanId] = useState<string | null>(null);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const [isAddingNew, setIsAddingNew] = useState(false);
+  // ✅ ELIMINADO: const [isAddingNew, setIsAddingNew] = useState(false);
   const buttonRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -486,11 +487,48 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       { value: '', label: 'Seleccionar préstamo previo' }
     ];
     
-    if (previousLoansData?.loans) {
+    console.log('🔍 DEBUG previousLoanOptions:', {
+      hasLoansData: !!previousLoansData?.loans,
+      loansCount: previousLoansData?.loans?.length || 0,
+      hasSelectedDate: !!selectedDate,
+      hasSelectedLead: !!selectedLead?.id,
+      selectedLeadId: selectedLead?.id,
+      loading: previousLoansLoading
+    });
+    
+    if (previousLoansData?.loans && selectedDate) {
+      // ✅ NUEVO: Obtener IDs de clientes que ya fueron renovados hoy
+      const selectedDateStr = selectedDate.toISOString().split('T')[0]; // YYYY-MM-DD
+      const renewedTodayBorrowerIds = new Set<string>();
+      
+      // Verificar en préstamos ya creados hoy
+      if (loansData?.loans) {
+        loansData.loans.forEach((loan: any) => {
+          if (loan.previousLoan && loan.borrower?.id) {
+            renewedTodayBorrowerIds.add(loan.borrower.id);
+          }
+        });
+      }
+      
+      // Verificar en préstamos pendientes de guardar
+      pendingLoans.forEach((loan: any) => {
+        if (loan.previousLoan && loan.borrower?.id) {
+          renewedTodayBorrowerIds.add(loan.borrower.id);
+        }
+      });
+
+      console.log('🚫 Clientes ya renovados hoy:', Array.from(renewedTodayBorrowerIds));
+
       // Agrupar préstamos por borrower para obtener solo el más reciente de cada cliente
       const borrowerLoans = previousLoansData.loans.reduce((acc: { [key: string]: any }, loan: any) => {
         const borrowerId = loan.borrower?.id;
         if (!borrowerId) return acc;
+        
+        // ✅ NUEVO: Filtrar clientes ya renovados hoy
+        if (renewedTodayBorrowerIds.has(borrowerId)) {
+          console.log(`🚫 Excluyendo cliente ya renovado: ${loan.borrower?.personalData?.fullName}`);
+          return acc;
+        }
         
         if (!acc[borrowerId] || new Date(loan.signDate) > new Date(acc[borrowerId].signDate)) {
           acc[borrowerId] = loan;
@@ -517,7 +555,432 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     }
 
     return options;
-  }, [previousLoansData?.loans]);
+  }, [previousLoansData?.loans, selectedDate, loansData?.loans, pendingLoans]);
+
+  // ✅ NUEVO: Calcular avales ya usados hoy
+  const usedAvalIds = React.useMemo(() => {
+    const usedIds = new Set<string>();
+    
+    if (selectedDate) {
+      // Verificar en préstamos ya creados hoy
+      if (loansData?.loans) {
+        loansData.loans.forEach((loan: any) => {
+          if (loan.collaterals) {
+            loan.collaterals.forEach((collateral: any) => {
+              usedIds.add(collateral.id);
+            });
+          }
+        });
+      }
+      
+      // Verificar en préstamos pendientes de guardar
+      pendingLoans.forEach((loan: any) => {
+        if (loan.selectedCollateralId) {
+          usedIds.add(loan.selectedCollateralId);
+        }
+      });
+    }
+    
+    console.log('🚫 Avales ya usados hoy:', Array.from(usedIds));
+    return Array.from(usedIds);
+  }, [selectedDate, loansData?.loans, pendingLoans]);
+
+  // ✅ NUEVO: Función para generar IDs únicos para préstamos
+  const generateLoanId = React.useCallback(() => {
+    return `temp-loan-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  }, []);
+
+  // ✅ NUEVO: Fila vacía para captura tipo Excel
+  const emptyLoanRow = React.useMemo(() => ({
+    id: 'empty-row',
+    requestedAmount: '',
+    amountGived: '',
+    amountToPay: '',
+    pendingAmount: '0',
+    signDate: selectedDate?.toISOString() || '',
+    comissionAmount: '0',
+    avalName: '',
+    avalPhone: '',
+    selectedCollateralId: undefined,
+    avalAction: 'clear',
+    collaterals: [], // ✅ Agregar propiedad collaterals vacía
+    loantype: { id: '', name: '', rate: '0', weekDuration: 0, __typename: 'LoanType' },
+    lead: { id: selectedLead?.id || '', personalData: { fullName: '' }, __typename: 'Lead' },
+    borrower: {
+      id: '',
+      personalData: {
+        id: '',
+        fullName: '',
+        phones: [{ id: '', number: '' }]
+      },
+      __typename: 'Borrower'
+    },
+    previousLoan: undefined,
+    __typename: 'Loan'
+  }), [selectedDate, selectedLead]);
+
+  // ✅ NUEVO: Estado para la fila vacía editable
+  const [editableEmptyRow, setEditableEmptyRow] = React.useState<any>(null);
+
+  // ✅ NUEVO: Función para manejar cambios en la fila vacía (mantener editable)
+  const handleEmptyRowChange = React.useCallback((field: string, value: any) => {
+    console.log('🚀 Usuario empezó a escribir en fila vacía:', { field, value });
+    
+    // Si no hay fila editable, crear una nueva basada en emptyLoanRow
+    const currentRow = editableEmptyRow || {
+      ...emptyLoanRow,
+      id: generateLoanId()
+    };
+    
+    // Crear una copia actualizada
+    let updatedRow = { ...currentRow };
+    
+    // Manejar casos especiales
+    if (field === 'avalData') {
+      updatedRow = {
+        ...updatedRow,
+        avalName: value.avalName,
+        avalPhone: value.avalPhone,
+        selectedCollateralId: value.selectedCollateralId,
+        avalAction: value.avalAction
+      };
+    } else if (field === 'clientData') {
+      // ✅ NUEVO: Manejar datos del cliente (nombre + teléfono)
+      updatedRow = {
+        ...updatedRow,
+        borrower: {
+          ...updatedRow.borrower,
+          personalData: {
+            ...updatedRow.borrower.personalData,
+            fullName: value.clientName,
+            phones: [{ id: '', number: value.clientPhone }]
+          }
+        }
+      };
+    } else if (field === 'borrowerName') {
+      updatedRow = {
+        ...updatedRow,
+        borrower: {
+          ...updatedRow.borrower,
+          personalData: {
+            ...updatedRow.borrower.personalData,
+            fullName: value
+          }
+        }
+      };
+    } else if (field === 'borrowerPhone') {
+      updatedRow = {
+        ...updatedRow,
+        borrower: {
+          ...updatedRow.borrower,
+          personalData: {
+            ...updatedRow.borrower.personalData,
+            phones: [{ id: '', number: value }]
+          }
+        }
+      };
+    } else if (field === 'previousLoan') {
+      // ✅ NUEVO: Aplicar la lógica completa de handlePreviousLoanChange
+      if (value?.value) {
+        const selectedLoan = previousLoansData?.loans?.find((loan: any) => loan.id === value.value);
+        if (selectedLoan) {
+          console.log('🔍 Aplicando lógica completa de préstamo anterior para fila vacía:', selectedLoan);
+          
+          // Calcular la deuda pendiente localmente
+          const pendingAmountNum = calculateLocalPendingAmount(selectedLoan);
+          const pendingAmount = pendingAmountNum.toFixed(2);
+          
+          // Calcular amountToPay del préstamo seleccionado
+          const selectedLoanAmountToPay = selectedLoan.loantype?.rate ? 
+            (parseFloat(selectedLoan.requestedAmount) * (1 + parseFloat(selectedLoan.loantype.rate))).toFixed(2) : 
+            '0';
+
+          // Crear una copia del préstamo seleccionado con los campos necesarios
+          const previousLoan = {
+            ...selectedLoan,
+            pendingAmount,
+            amountToPay: selectedLoanAmountToPay
+          };
+
+          // Precargar información del aval desde collaterals o legacy
+          let avalName = '';
+          let avalPhone = '';
+          let selectedCollateralId = undefined;
+          let avalAction: 'create' | 'update' | 'connect' | 'clear' = 'clear';
+          
+          if (selectedLoan.collaterals && selectedLoan.collaterals.length > 0) {
+            const primaryCollateral = selectedLoan.collaterals[0];
+            avalName = primaryCollateral.fullName;
+            avalPhone = primaryCollateral.phones?.[0]?.number || '';
+            selectedCollateralId = primaryCollateral.id;
+            avalAction = 'connect';
+          } else if (selectedLoan.avalName || selectedLoan.avalPhone) {
+            avalName = selectedLoan.avalName || '';
+            avalPhone = selectedLoan.avalPhone || '';
+            avalAction = 'clear';
+          }
+
+          // Aplicar toda la información precargada
+          updatedRow = {
+            ...updatedRow,
+            previousLoan,
+            borrower: selectedLoan.borrower,
+            avalName,
+            avalPhone,
+            selectedCollateralId,
+            avalAction,
+            pendingAmount,
+            // Precargar tipo de préstamo y monto solicitado
+            loantype: selectedLoan.loantype,
+            requestedAmount: selectedLoan.requestedAmount
+          };
+
+          // Si hay tipo de préstamo, cargar la comisión automáticamente (incluye 0)
+          if (selectedLoan.loantype?.id) {
+            const selectedType = loanTypesData?.loantypes?.find((type: any) => type.id === selectedLoan.loantype?.id);
+            if (selectedType) {
+              updatedRow.comissionAmount = (selectedType.loanGrantedComission ?? 0).toString();
+            }
+          }
+
+          // ✅ NUEVO: Recalcular monto entregado después de precargar datos
+          if (selectedLoan.loantype?.rate) {
+            const { amountGived, amountToPay } = calculateLoanAmounts({
+              requestedAmount: selectedLoan.requestedAmount || '0',
+              pendingAmount: pendingAmount,
+              rate: selectedLoan.loantype.rate
+            });
+
+            updatedRow.amountGived = amountGived;
+            updatedRow.amountToPay = amountToPay;
+
+            console.log('🔄 Montos calculados para fila vacía:', {
+              requestedAmount: selectedLoan.requestedAmount,
+              pendingAmount,
+              rate: selectedLoan.loantype.rate,
+              amountGived,
+              amountToPay
+            });
+          }
+
+          console.log('✅ Datos precargados en fila vacía:', {
+            loantype: selectedLoan.loantype?.name,
+            requestedAmount: selectedLoan.requestedAmount,
+            borrower: selectedLoan.borrower?.personalData?.fullName,
+            borrowerPhone: selectedLoan.borrower?.personalData?.phones?.[0]?.number,
+            borrowerPhones: selectedLoan.borrower?.personalData?.phones,
+            updatedRowBorrower: updatedRow.borrower?.personalData,
+            avalName: updatedRow.avalName,
+            avalPhone: updatedRow.avalPhone,
+            comissionAmount: updatedRow.comissionAmount,
+            amountGived: updatedRow.amountGived,
+            amountToPay: updatedRow.amountToPay
+          });
+        }
+      } else if (value === null) {
+        // ✅ NUEVO: Limpiar selección de préstamo anterior
+        console.log('🧹 Limpiando selección de préstamo anterior');
+        updatedRow = {
+          ...updatedRow,
+          previousLoan: undefined,
+          borrower: {
+            id: '',
+            personalData: {
+              id: '',
+              fullName: '',
+              phones: [{ id: '', number: '' }]
+            }
+          },
+          avalName: '',
+          avalPhone: '',
+          selectedCollateralId: undefined,
+          avalAction: 'clear' as const,
+          pendingAmount: '0',
+          amountGived: '',
+          amountToPay: '',
+          requestedAmount: '',
+          loantype: undefined,
+          comissionAmount: ''
+        };
+        console.log('✅ Fila limpiada después de quitar préstamo anterior');
+      }
+    } else if (field === 'loantype') {
+      // Manejar selección de tipo de préstamo
+      if (value?.value) {
+        const selectedType = loanTypesData?.loantypes?.find((type: any) => type.id === value.value);
+        if (selectedType) {
+          updatedRow = {
+            ...updatedRow,
+            loantype: selectedType,
+            // Cargar comisión configurada (puede ser 0)
+            comissionAmount: (selectedType.loanGrantedComission ?? 0).toString(),
+          };
+
+          // Recalcular montos con el nuevo tipo
+          const { amountGived, amountToPay } = calculateLoanAmounts({
+            requestedAmount: updatedRow.requestedAmount || '0',
+            pendingAmount: updatedRow.previousLoan?.pendingAmount || '0',
+            rate: selectedType.rate,
+          });
+          updatedRow.amountGived = amountGived;
+          updatedRow.amountToPay = amountToPay;
+        }
+      }
+    } else {
+      // Casos normales
+      updatedRow = {
+        ...updatedRow,
+        [field]: value
+      };
+    }
+    
+    // ✅ NUEVO: Actualizar la fila editable en lugar de agregar a pendientes inmediatamente
+    setEditableEmptyRow(updatedRow);
+    
+    // ✅ NUEVO: Si es la primera vez que se escribe en esta fila, solo activarla (NO agregar a pendingLoans)
+    if (!editableEmptyRow && (updatedRow.borrower?.personalData?.fullName?.trim() || 
+                              updatedRow.borrower?.personalData?.phones?.[0]?.number?.trim() || 
+                              updatedRow.requestedAmount?.trim())) {
+      console.log('🆕 Primera entrada detectada, activando fila vacía');
+      // NO crear nueva fila aquí, solo activar la actual
+    }
+    
+    // ✅ NUEVO: Verificar si la fila tiene toda la información necesaria para confirmarse automáticamente
+    const hasRequiredInfo = updatedRow.borrower?.personalData?.fullName?.trim() && 
+                           updatedRow.loantype?.id && 
+                           updatedRow.requestedAmount?.trim() && 
+                           parseFloat(updatedRow.requestedAmount) > 0;
+    
+    if (hasRequiredInfo) {
+      console.log('✅ Fila completa detectada, confirmando automáticamente');
+      
+      // Agregar a pendingLoans automáticamente (evitar duplicados por mismo id)
+      setPendingLoans(prev => {
+        const alreadyExists = prev.some(pl => pl.id === updatedRow.id);
+        if (alreadyExists) return prev;
+        return [...prev, updatedRow as ExtendedLoan];
+      });
+      
+      // Crear nueva fila vacía
+      const nextEmptyRow = {
+        ...emptyLoanRow,
+        id: generateLoanId(),
+        borrower: {
+          id: '',
+          personalData: {
+            id: '',
+            fullName: '',
+            phones: [{ id: '', number: '' }]
+          }
+        },
+        avalName: '',
+        avalPhone: '',
+        selectedCollateralId: undefined,
+        avalAction: 'clear' as const,
+        pendingAmount: '0',
+        amountGived: '',
+        amountToPay: '',
+        requestedAmount: '',
+        loantype: undefined,
+        comissionAmount: ''
+      };
+      
+      setEditableEmptyRow(nextEmptyRow);
+      console.log('✅ Fila confirmada automáticamente y nueva fila vacía creada');
+    }
+    
+    console.log('✅ Fila vacía actualizada (editable):', {
+      ...updatedRow,
+      borrowerPhone: updatedRow.borrower?.personalData?.phones?.[0]?.number,
+      borrowerName: updatedRow.borrower?.personalData?.fullName
+    });
+  }, [emptyLoanRow, generateLoanId, previousLoansData, loanTypesData, calculateLocalPendingAmount, calculateLoanAmounts, editableEmptyRow]);
+
+  // ✅ NUEVO: Función para confirmar la fila editable y agregarla a pendientes
+  const confirmEditableRow = React.useCallback(() => {
+    if (editableEmptyRow) {
+      // ✅ CORREGIDO: Solo agregar a pendingLoans cuando se confirme explícitamente
+      setPendingLoans(prev => [...prev, editableEmptyRow as ExtendedLoan]);
+      
+      // ✅ NUEVO: Crear automáticamente la siguiente fila vacía
+      const nextEmptyRow = {
+        ...emptyLoanRow,
+        id: generateLoanId(),
+        borrower: {
+          id: '',
+          personalData: {
+            id: '',
+            fullName: '',
+            phones: [{ id: '', number: '' }]
+          }
+        },
+        avalName: '',
+        avalPhone: '',
+        selectedCollateralId: undefined,
+        avalAction: 'clear' as const,
+        pendingAmount: '0',
+        amountGived: '',
+        amountToPay: '',
+        requestedAmount: '',
+        loantype: undefined,
+        comissionAmount: ''
+      };
+      
+      setEditableEmptyRow(nextEmptyRow); // ✅ NUEVO: Establecer la nueva fila vacía
+      console.log('✅ Fila confirmada y agregada a pendientes, nueva fila vacía creada');
+    }
+  }, [editableEmptyRow, emptyLoanRow, generateLoanId]);
+
+  // ✅ NUEVO: Función para manejar Tab en el último campo y crear automáticamente
+  const handleTabOnLastField = React.useCallback(() => {
+    if (editableEmptyRow) {
+      // Verificar que la fila tenga datos mínimos
+      const hasMinData = editableEmptyRow.borrower?.personalData?.fullName?.trim() || 
+                        editableEmptyRow.borrower?.personalData?.phones?.[0]?.number?.trim() ||
+                        editableEmptyRow.requestedAmount?.trim();
+      
+      if (hasMinData) {
+        // Confirmar la fila actual
+        setPendingLoans(prev => [...prev, editableEmptyRow as ExtendedLoan]);
+        
+        // Crear automáticamente la siguiente fila vacía
+        const nextEmptyRow = {
+          ...emptyLoanRow,
+          id: generateLoanId(),
+          borrower: {
+            id: '',
+            personalData: {
+              id: '',
+              fullName: '',
+              phones: [{ id: '', number: '' }]
+            }
+          },
+          avalName: '',
+          avalPhone: '',
+          selectedCollateralId: undefined,
+          avalAction: 'clear' as const,
+          pendingAmount: '0',
+          amountGived: '',
+          amountToPay: '',
+          requestedAmount: '',
+          loantype: undefined,
+          comissionAmount: ''
+        };
+        
+        setEditableEmptyRow(nextEmptyRow);
+        console.log('✅ Fila confirmada automáticamente y nueva fila creada');
+      }
+    }
+  }, [editableEmptyRow, emptyLoanRow, generateLoanId]);
+
+  // ✅ NUEVO: Función para manejar cambios en filas existentes
+  const handlePendingLoanChange = React.useCallback((index: number, field: string, value: any) => {
+    setPendingLoans(prev => 
+      prev.map((loan, i) => 
+        i === index ? { ...loan, [field]: value } : loan
+      )
+    );
+  }, []);
 
   const handlePreviousLoanChange = (option: { value: string; label: string } | null) => {
     if (!option?.value) {
@@ -579,7 +1042,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         }
       }
 
-              setNewLoan(prev => {
+      setNewLoan(prev => {
           // ✅ NUEVO: Limpiar y precargar información del aval desde collaterals
           let avalName = '';
           let avalPhone = '';
@@ -621,29 +1084,29 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
             console.log('ℹ️ Sin información de aval en el préstamo anterior');
           }
 
-          const updatedLoan = {
-            ...prev,
-            previousLoan,
-            borrower: selectedLoan.borrower,
+        const updatedLoan = {
+          ...prev,
+          previousLoan,
+          borrower: selectedLoan.borrower,
             avalName,
             avalPhone,
             selectedCollateralId, // ✅ NUEVO: ID del aval seleccionado
             avalAction, // ✅ NUEVO: Acción del aval 
-            pendingAmount,
+          pendingAmount,
             amountToPay: newLoanAmountToPay,
             // ✅ AGREGAR: Precargar automáticamente el tipo de préstamo del préstamo anterior
             loantype: selectedLoan.loantype,
             // ✅ AGREGAR: Precargar el monto solicitado del préstamo anterior
             requestedAmount: selectedLoan.requestedAmount
-          };
-          
-          // Si ya hay un tipo de préstamo seleccionado, cargar la comisión automáticamente
-          if (updatedLoan.loantype?.id) {
-            const selectedType = loanTypesData?.loantypes?.find((type: any) => type.id === updatedLoan.loantype?.id);
-            if (selectedType?.loanGrantedComission && parseFloat(selectedType.loanGrantedComission.toString()) > 0) {
-              updatedLoan.comissionAmount = selectedType.loanGrantedComission.toString();
-            }
+        };
+        
+        // Si ya hay un tipo de préstamo seleccionado, cargar la comisión automáticamente
+        if (updatedLoan.loantype?.id) {
+          const selectedType = loanTypesData?.loantypes?.find((type: any) => type.id === updatedLoan.loantype?.id);
+          if (selectedType?.loanGrantedComission && parseFloat(selectedType.loanGrantedComission.toString()) > 0) {
+            updatedLoan.comissionAmount = selectedType.loanGrantedComission.toString();
           }
+        }
           
           console.log('✅ Datos precargados del préstamo anterior:', {
             loantype: selectedLoan.loantype?.name,
@@ -654,9 +1117,9 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
             selectedCollateralId: updatedLoan.selectedCollateralId,
             avalAction: updatedLoan.avalAction
           });
-          
-          return updatedLoan;
-        });
+        
+        return updatedLoan;
+      });
 
         // ✅ AGREGAR: Recalcular automáticamente el monto entregado después de precargar los datos
         setTimeout(() => {
@@ -759,11 +1222,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleAddLoan = () => {
-    setIsAddingNew(true);
-    setIsBulkMode(true);
-    // No limpiar el formulario, permitir agregar múltiples préstamos
-  };
+  // ✅ ELIMINADO: handleAddLoan - ya no se usa el botón de agregar
 
   const [createLoan] = useMutation(CREATE_LOAN);
   const [createMultipleLoans] = useMutation(CREATE_LOANS_BULK);
@@ -817,8 +1276,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         setLoans([...loans, data.createLoan]);
         setNewLoanId(data.createLoan.id);
         
-        // 2. Cerrar el formulario inmediatamente
-        setIsAddingNew(false);
+        // ✅ ELIMINADO: Cerrar formulario - ya no aplica con tabla Excel
         
         // 3. Actualizar los datos en segundo plano
         Promise.all([
@@ -840,7 +1298,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   };
 
   const handleCancelNew = () => {
-    setIsAddingNew(false);
+    // ✅ ELIMINADO: setIsAddingNew(false) - ya no aplica
     setIsBulkMode(false);
     setPendingLoans([]);
   };
@@ -881,8 +1339,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         personalData: {
           id: '',
           fullName: '',
-          phones: [{ id: '', number: '' }],
-          __typename: 'PersonalData'
+          phones: [{ id: '', number: '' }]
         },
         __typename: 'Borrower'
       },
@@ -897,13 +1354,36 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     try {
       setIsCreating(true);
       
-      if (pendingLoans.length === 0) {
-        alert('No hay préstamos pendientes para guardar');
+      // ✅ NUEVO: Filtrar préstamos válidos (ignorar filas vacías)
+      const validLoans = pendingLoans.filter(loan => {
+        // Validar que tenga al menos los campos mínimos requeridos
+        const hasRequiredFields = (
+          loan.borrower?.personalData?.fullName?.trim() &&
+          loan.loantype?.id &&
+          loan.requestedAmount &&
+          parseFloat(loan.requestedAmount) > 0
+        );
+        
+        console.log('🔍 Validando préstamo:', {
+          loanId: loan.id,
+          borrowerName: loan.borrower?.personalData?.fullName,
+          loanTypeId: loan.loantype?.id,
+          requestedAmount: loan.requestedAmount,
+          isValid: hasRequiredFields
+        });
+        
+        return hasRequiredFields;
+      });
+      
+      if (validLoans.length === 0) {
+        alert('No hay préstamos válidos para guardar. Asegúrate de completar al menos: nombre del cliente, tipo de préstamo y monto solicitado.');
         return;
       }
 
-      // Preparar los datos para la mutación bulk
-      const loansData = pendingLoans.map(loan => {
+      console.log(`✅ ${validLoans.length} de ${pendingLoans.length} préstamos son válidos`);
+
+      // Preparar los datos para la mutación bulk usando solo préstamos válidos
+      const loansData = validLoans.map(loan => {
         console.log('🏗️ Preparando datos de préstamo para bulk:', {
           loanId: loan.id,
           avalName: loan.avalName,
@@ -919,18 +1399,18 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         });
 
         return {
-          requestedAmount: (loan.requestedAmount || '0').toString(),
-          amountGived: (loan.amountGived || '0').toString(),
-          signDate: loan.signDate || selectedDate?.toISOString() || '',
-          avalName: loan.avalName || '',
-          avalPhone: loan.avalPhone || '',
-          comissionAmount: (loan.comissionAmount || '0').toString(),
-          leadId: selectedLead?.id || '',
-          loantypeId: loan.loantype?.id || '',
-          previousLoanId: loan.previousLoan?.id || undefined,
-          borrowerData: {
-            fullName: loan.borrower?.personalData?.fullName || '',
-            phone: loan.borrower?.personalData?.phones?.[0]?.number || ''
+        requestedAmount: (loan.requestedAmount || '0').toString(),
+        amountGived: (loan.amountGived || '0').toString(),
+        signDate: loan.signDate || selectedDate?.toISOString() || '',
+        avalName: loan.avalName || '',
+        avalPhone: loan.avalPhone || '',
+        comissionAmount: (loan.comissionAmount || '0').toString(),
+        leadId: selectedLead?.id || '',
+        loantypeId: loan.loantype?.id || '',
+        previousLoanId: loan.previousLoan?.id || undefined,
+        borrowerData: {
+          fullName: loan.borrower?.personalData?.fullName || '',
+          phone: loan.borrower?.personalData?.phones?.[0]?.number || ''
           },
           // ✅ NUEVO: Información para manejo del aval
           avalData: {
@@ -954,7 +1434,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         
         // Limpiar la lista de pendientes
         setPendingLoans([]);
-        setIsAddingNew(false);
+        // ✅ ELIMINADO: setIsAddingNew(false) - ya no aplica
         setIsBulkMode(false);
         
         // Recargar los datos
@@ -1386,30 +1866,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
 
 
 
-          {/* Add Loan Button */}
-          <Button
-            tone="active"
-            size="medium"
-            weight="bold"
-            onClick={handleAddLoan}
-            style={{
-              padding: '8px 12px',
-              fontSize: '13px',
-              borderRadius: '6px',
-              backgroundColor: '#0052CC',
-              transition: 'all 0.2s ease',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              height: '36px',
-              whiteSpace: 'nowrap',
-              alignSelf: 'center',
-              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
-            }}
-          >
-            <FaPlus size={12} style={{ marginTop: '-1px' }} />
-            <span>Nuevo Préstamo</span>
-          </Button>
+          {/* ✅ ELIMINADO: Botón de agregar préstamo - ahora se usa la tabla tipo Excel */}
         </div>
 
         {/* Loans Table */}
@@ -1571,7 +2028,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                         calculateAmountToPay(loan.requestedAmount, loan.loantype.rate) : 
                         'N/A'}
                     </td>
-                    <td style={tableCellStyle}>${loan.comissionAmount}</td>
+                    <td style={tableCellStyle}>${loan.comissionAmount || '0'}</td>
                     <td style={tableCellStyle}>
                       <div 
                         style={{ 
@@ -1671,7 +2128,8 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                     </td>
                   </tr>
                 ))}
-                {isAddingNew && (
+                {/* ✅ ELIMINADO: Fila de input en tabla de préstamos existentes - ahora solo tabla tipo Excel */}
+                {false && (
                   <tr style={{
                     backgroundColor: '#F0F9FF',
                     position: 'relative',
@@ -1872,6 +2330,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                           currentAvalName={newLoan.avalName || ''}
                           currentAvalPhone={newLoan.avalPhone || ''}
                           borrowerLocationId={undefined}
+                          usedAvalIds={usedAvalIds} // ✅ NUEVO: Pasar avales ya usados
                           onAvalChange={(avalName, avalPhone, personalDataId, action) => {
                             console.log('📝 AvalDropdown onChange:', {
                               avalName,
@@ -1952,8 +2411,8 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         </Box>
       </Box>
 
-      {/* Tabla de Préstamos Pendientes */}
-      {pendingLoans.length > 0 && (
+      {/* ✅ NUEVO: Tabla tipo Excel - siempre visible para captura rápida */}
+      {(
         <Box
           style={{
             backgroundColor: '#F0F9FF',
@@ -1976,9 +2435,29 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
               alignItems: 'center',
               gap: '8px'
             }}>
-              <span>📋</span>
-              Préstamos Pendientes ({pendingLoans.length})
+              <span>➕</span>
+              {pendingLoans.length > 0 ? `Préstamos Pendientes (${pendingLoans.length})` : 'Agregar Nuevos Préstamos'}
             </h3>
+            {pendingLoans.length === 0 && (
+              <p style={{
+                margin: '8px 0 0 0',
+                fontSize: '13px',
+                color: '#6B7280',
+                fontStyle: 'italic'
+              }}>
+                💡 <strong>Fila vacía siempre disponible:</strong> Empieza a escribir en cualquier campo de la fila gris de abajo. Se confirmará automáticamente cuando esté completa.
+              </p>
+            )}
+            {pendingLoans.length > 0 && (
+              <p style={{
+                margin: '8px 0 0 0',
+                fontSize: '13px',
+                color: '#059669',
+                fontStyle: 'italic'
+              }}>
+                💡 <strong>Pro tip:</strong> La fila se confirma automáticamente al completar nombre, tipo y monto solicitado. Siempre puedes seguir editando.
+              </p>
+            )}
           </div>
           
           <div style={{
@@ -1994,9 +2473,9 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                   backgroundColor: '#E0F2FE',
                   borderBottom: '1px solid #B3E5FC' 
                 }}>
+                  <th style={tableHeaderStyle}>Préstamo Previo</th>
                   <th style={tableHeaderStyle}>Tipo</th>
-                  <th style={tableHeaderStyle}>Nombre</th>
-                  <th style={tableHeaderStyle}>Teléfono</th>
+                  <th style={{...tableHeaderStyle, minWidth: '250px'}}>Cliente (Nombre + Teléfono)</th>
                   <th style={tableHeaderStyle}>Monto Solicitado</th>
                   <th style={tableHeaderStyle}>Monto Entregado</th>
                   <th style={tableHeaderStyle}>Comisión</th>
@@ -2008,16 +2487,82 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                 </tr>
               </thead>
               <tbody>
-                {pendingLoans.map((loan, index) => (
+                {/* ✅ NUEVO: Agregar fila vacía al final para captura tipo Excel */}
+                {(() => {
+                  // Mostrar SOLO una fila de captura al final: si hay editable, esa; si no, la vacía
+                  const tail = editableEmptyRow ? editableEmptyRow : emptyLoanRow;
+                  const allRows = [...pendingLoans, tail];
+                  return allRows;
+                })().map((loan, index) => {
+                  const isEmptyRow = index === pendingLoans.length; // Solo la última fila es de captura
+                  const isEditableRow = isEmptyRow && !!editableEmptyRow; // última fila es la editable si existe
+                  const isInactiveRow = isEmptyRow && !editableEmptyRow; // última fila sin datos
+                  const isPendingRow = index < pendingLoans.length; // filas confirmadas en memoria
+                  const isInputRow = isPendingRow || isEmptyRow; // ✅ Siempre editable: pendientes y fila de captura
+                  return (
                   <tr 
                     key={index}
                     style={{
                       borderBottom: '1px solid #E0F2FE',
-                      backgroundColor: 'white',
+                      backgroundColor: isInactiveRow ? '#F8FAFC' : (isEditableRow ? '#ECFDF5' : 'white'), // ✅ Verde suave cuando confirmada
                     }}
                   >
+                                        {/* ✅ NUEVO: Columna para Préstamo Previo */}
                     <td style={tableCellStyle}>
-                      {loan.previousLoan ? (
+                      {isInputRow ? (
+                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                          <Select
+                            placeholder="Préstamo anterior..."
+                            options={previousLoanOptions}
+                            onChange={(option) => {
+                              if (isPendingRow) {
+                                handlePendingLoanChange(index, 'previousLoan', option);
+                              } else {
+                                handleEmptyRowChange('previousLoan', option);
+                              }
+                            }}
+                            value={loan.previousLoan?.id ? { 
+                              value: loan.previousLoan.id, 
+                              label: `${loan.previousLoan.borrower?.personalData?.fullName || 'Sin nombre'} ($${loan.previousLoan.pendingAmount || 0})`
+                            } : { value: '', label: 'Seleccionar préstamo previo' }}
+                            menuPosition="fixed"
+                            menuPortalTarget={document.body}
+                            styles={{
+                              container: (base) => ({ ...base, flex: 1 }),
+                              control: (base) => ({ ...base, fontSize: '12px', minHeight: '32px' }),
+                              menuPortal: (base) => ({ ...base, zIndex: 9999 })
+                            }}
+                          />
+                          {/* ✅ NUEVO: Botón para limpiar selección de préstamo anterior */}
+                          {loan.previousLoan && isInputRow && (
+                            <Button
+                              tone="negative"
+                              size="small"
+                              onClick={() => {
+                                if (isPendingRow) {
+                                  handlePendingLoanChange(index, 'previousLoan', null);
+                                } else {
+                                  handleEmptyRowChange('previousLoan', null);
+                                }
+                              }}
+                              style={{
+                                padding: '4px',
+                                width: '24px',
+                                height: '24px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                minWidth: '24px',
+                                flexShrink: 0
+                              }}
+                              title="Quitar selección de préstamo anterior"
+                            >
+                              ×
+                            </Button>
+                          )}
+                        </div>
+                      ) : (
+                        loan.previousLoan ? (
                         <span style={{
                           display: 'inline-flex',
                           alignItems: 'center',
@@ -2028,46 +2573,180 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                           fontSize: '12px',
                           fontWeight: '500',
                         }}>
-                          Renovado
+                            {loan.previousLoan.borrower?.personalData?.fullName || 'Renovado'}
                         </span>
+                        ) : (
+                          '-'
+                        )
+                      )}
+                    </td>
+                    {/* ✅ NUEVO: Columna separada para Tipo */}
+                    <td style={tableCellStyle}>
+                      {isInputRow ? (
+                        <Select
+                          placeholder="Tipo de préstamo..."
+                          options={loanTypeOptions}
+                          onChange={(option) => {
+                            if (isPendingRow) {
+                              handlePendingLoanChange(index, 'loantype', option);
+                            } else {
+                              handleEmptyRowChange('loantype', option);
+                            }
+                          }}
+                          value={loan.loantype?.id ? { 
+                            value: loan.loantype.id, 
+                            label: loan.loantype.name 
+                          } : { value: '', label: 'Seleccionar tipo' }}
+                          menuPosition="fixed"
+                          menuPortalTarget={document.body}
+                          styles={{
+                            container: (base) => ({ ...base, width: '100%' }),
+                            control: (base) => ({ ...base, fontSize: '12px', minHeight: '32px' }),
+                            menuPortal: (base) => ({ ...base, zIndex: 9999 })
+                          }}
+                        />
                       ) : (
                         <span style={{
                           display: 'inline-flex',
                           alignItems: 'center',
                           padding: '4px 8px',
-                          backgroundColor: '#F0FDF4',
-                          color: '#059669',
+                          backgroundColor: loan.previousLoan ? '#F0F9FF' : '#F0FDF4',
+                          color: loan.previousLoan ? '#0052CC' : '#059669',
                           borderRadius: '4px',
                           fontSize: '12px',
                           fontWeight: '500',
                         }}>
-                          Nuevo
+                          {loan.loantype?.name || 'Sin tipo'}
                         </span>
                       )}
                     </td>
-                    <td style={tableCellStyle}>
+                    <td style={{...tableCellStyle, minWidth: '250px'}}>
+                      {isInputRow ? (
+                        <ClientDropdown
+                          loanId={loan.id}
+                          currentClientName={loan.borrower?.personalData?.fullName || ''}
+                          currentClientPhone={loan.borrower?.personalData?.phones?.[0]?.number || ''}
+                          isFromPreviousLoan={!!loan.previousLoan} // ✅ NUEVA: Indicar si viene de préstamo anterior
+                          onClientChange={(clientName, clientPhone, action) => {
+                            console.log('📝 ClientDropdown onChange:', {
+                              clientName,
+                              clientPhone,
+                              action
+                            });
+                            // Actualizar tanto el nombre como el teléfono
+                            if (isPendingRow) {
+                              handlePendingLoanChange(index, 'clientData', { clientName, clientPhone, action });
+                            } else {
+                              handleEmptyRowChange('clientData', { clientName, clientPhone, action });
+                            }
+                          }}
+                        />
+                      ) : (
+                        <div style={{ display: 'flex', gap: '8px', fontSize: '13px' }}>
+                          <span style={{ fontWeight: '500' }}>
                       {loan.borrower?.personalData?.fullName || 'Sin nombre'}
+                          </span>
+                          <span style={{ color: '#6B7280' }}>
+                            {loan.borrower?.personalData?.phones?.[0]?.number || 'Sin teléfono'}
+                          </span>
+                        </div>
+                      )}
                     </td>
                     <td style={tableCellStyle}>
-                      {loan.borrower?.personalData?.phones?.[0]?.number || '-'}
+                      {isInputRow ? (
+                        <TextInput
+                          placeholder="0.00"
+                          value={loan.requestedAmount || ''}
+                          onChange={(e) => {
+                            if (isPendingRow) {
+                              handlePendingLoanChange(index, 'requestedAmount', e.target.value);
+                            } else {
+                              handleEmptyRowChange('requestedAmount', e.target.value);
+                            }
+                          }}
+                          style={{ width: '100%', fontSize: '13px' }}
+                          type="number"
+                          step="0.01"
+                        />
+                      ) : (
+                        `$${loan.requestedAmount || '0'}`
+                      )}
                     </td>
                     <td style={tableCellStyle}>
-                      ${loan.requestedAmount || '0'}
+                      {isInputRow ? (
+                        <TextInput
+                          placeholder="0.00"
+                          value={loan.amountGived || ''}
+                          onChange={(e) => {
+                            if (isPendingRow) {
+                              handlePendingLoanChange(index, 'amountGived', e.target.value);
+                            } else {
+                              handleEmptyRowChange('amountGived', e.target.value);
+                            }
+                          }}
+                          style={{ width: '100%', fontSize: '13px' }}
+                          type="number"
+                          step="0.01"
+                        />
+                      ) : (
+                        `$${loan.amountGived || '0'}`
+                      )}
                     </td>
                     <td style={tableCellStyle}>
-                      ${loan.amountGived || '0'}
+                      {isInputRow ? (
+                        <TextInput
+                          placeholder="0.00"
+                          value={loan.comissionAmount || ''}
+                          onChange={(e) => {
+                            if (isPendingRow) {
+                              handlePendingLoanChange(index, 'comissionAmount', e.target.value);
+                            } else {
+                              handleEmptyRowChange('comissionAmount', e.target.value);
+                            }
+                          }}
+                          // Ya no confirmamos con Tab; la confirmación es automática por validación
+                          style={{ width: '100%', fontSize: '13px' }}
+                          type="number"
+                          step="0.01"
+                        />
+                      ) : (
+                        `$${loan.comissionAmount || '0'}`
+                      )}
                     </td>
                     <td style={tableCellStyle}>
-                      ${loan.comissionAmount || '0'}
-                    </td>
-                    <td style={tableCellStyle}>
-                      {/* ✅ NUEVO: Mostrar aval desde collaterals o fallback a campos legacy */}
-                      {loan.collaterals?.[0]?.fullName || loan.avalName || '-'}
+                      {isInputRow ? (
+                        <AvalDropdown
+                          loanId="empty-row"
+                          currentAvalName={loan.avalName || ''}
+                          currentAvalPhone={loan.avalPhone || ''}
+                          borrowerLocationId={undefined}
+                          usedAvalIds={usedAvalIds}
+                          onAvalChange={(avalName, avalPhone, personalDataId, action) => {
+                            // Para la fila vacía, necesitamos crear múltiples campos a la vez
+                            const payload = {
+                              avalName,
+                              avalPhone,
+                              selectedCollateralId: personalDataId,
+                              avalAction: action
+                            };
+                            if (isPendingRow) {
+                              handlePendingLoanChange(index, 'avalData', payload);
+                            } else {
+                              handleEmptyRowChange('avalData', payload);
+                            }
+                          }}
+                          onlyNameField={false}
+                        />
+                      ) : (
+                        /* ✅ Mostrar aval desde collaterals o fallback a campos legacy */
+                        loan.collaterals?.[0]?.fullName || loan.avalName || '-'
+                      )}
                     </td>
                     <td style={{
                       ...tableCellStyle,
                       width: '80px',
                     }}>
+                      {!isEmptyRow && (
                       <Button
                         tone="negative"
                         size="small"
@@ -2086,17 +2765,101 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                       >
                         <FaTrash size={14} />
                       </Button>
+                      )}
                     </td>
                   </tr>
-                ))}
+                  ); // Cerrar el return del map
+                })}
               </tbody>
             </table>
           </div>
         </Box>
       )}
 
-      {/* Botón de Guardado Masivo */}
-      {isAddingNew && (
+      {/* ✅ NUEVO: Botón de guardado para la tabla tipo Excel */}
+      {pendingLoans.length > 0 && (
+        <Box
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginTop: '24px',
+            padding: '16px',
+            backgroundColor: '#f0f9ff',
+            borderRadius: '8px',
+            border: '1px solid #e0f2fe',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+          }}
+        >
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 12px',
+              backgroundColor: '#e0f2fe',
+              borderRadius: '6px',
+              color: '#0052CC',
+              fontSize: '14px',
+              fontWeight: '500',
+            }}>
+              <span>📋</span>
+              <span>{pendingLoans.length} préstamo{pendingLoans.length !== 1 ? 's' : ''} listo{pendingLoans.length !== 1 ? 's' : ''} para guardar</span>
+            </div>
+          </div>
+          
+          <div style={{
+            display: 'flex',
+            gap: '12px',
+          }}>
+            <Button
+              tone="negative"
+              weight="bold"
+              onClick={() => {
+                // ✅ ELIMINADO: setIsAddingNew(false) - ya no aplica
+                setIsBulkMode(false);
+                setPendingLoans([]);
+              }}
+              style={{ padding: '8px 24px', minWidth: '150px' }}
+            >
+              Cancelar Todo
+            </Button>
+            <Button
+              tone="active"
+              weight="bold"
+              onClick={handleSaveAllNewLoans}
+              disabled={isCreating}
+              style={{
+                padding: '8px 24px',
+                minWidth: '200px',
+                backgroundColor: '#0052CC',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              {isCreating ? (
+                <>
+                  <LoadingDots label="Guardando..." />
+                  <span>Guardando préstamos...</span>
+                </>
+              ) : (
+                <>
+                  <span>💾</span>
+                  <span>Crear {pendingLoans.length} Préstamo{pendingLoans.length !== 1 ? 's' : ''} Nuevo{pendingLoans.length !== 1 ? 's' : ''}</span>
+                </>
+              )}
+            </Button>
+          </div>
+        </Box>
+      )}
+
+      {/* ✅ ELIMINADO: Botón de guardado masivo viejo - ahora se usa la nueva tabla tipo Excel */}
+      {false && (
         <Box
           style={{
             display: 'flex',
@@ -2158,7 +2921,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
               tone="negative"
               weight="bold"
               onClick={() => {
-                setIsAddingNew(false);
+                // ✅ ELIMINADO: setIsAddingNew(false) - ya no aplica
                 setIsBulkMode(false);
                 setPendingLoans([]);
               }}
