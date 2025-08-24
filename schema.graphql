@@ -1057,8 +1057,6 @@ type Loan {
   signDate: DateTime
   badDebtDate: DateTime
   profitAmount: Decimal
-  avalName: String
-  avalPhone: String
   collaterals(where: PersonalDataWhereInput! = {}, orderBy: [PersonalDataOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: PersonalDataWhereUniqueInput): [PersonalData!]
   collateralsCount(where: PersonalDataWhereInput! = {}): Int
   grantor: Employee
@@ -1110,8 +1108,6 @@ input LoanWhereInput {
   signDate: DateTimeFilter
   badDebtDate: DateTimeNullableFilter
   profitAmount: DecimalNullableFilter
-  avalName: StringFilter
-  avalPhone: StringFilter
   collaterals: PersonalDataManyRelationFilter
   grantor: EmployeeWhereInput
   transactions: TransactionManyRelationFilter
@@ -1167,8 +1163,6 @@ input LoanOrderByInput {
   signDate: OrderDirection
   badDebtDate: OrderDirection
   profitAmount: OrderDirection
-  avalName: OrderDirection
-  avalPhone: OrderDirection
   snapshotLeadId: OrderDirection
   snapshotLeadAssignedAt: OrderDirection
   totalDebtAcquired: OrderDirection
@@ -1194,8 +1188,6 @@ input LoanUpdateInput {
   signDate: DateTime
   badDebtDate: DateTime
   profitAmount: Decimal
-  avalName: String
-  avalPhone: String
   collaterals: PersonalDataRelateToManyForUpdateInput
   grantor: EmployeeRelateToOneForUpdateInput
   transactions: TransactionRelateToManyForUpdateInput
@@ -1266,8 +1258,6 @@ input LoanCreateInput {
   signDate: DateTime
   badDebtDate: DateTime
   profitAmount: Decimal
-  avalName: String
-  avalPhone: String
   collaterals: PersonalDataRelateToManyForCreateInput
   grantor: EmployeeRelateToOneForCreateInput
   transactions: TransactionRelateToManyForCreateInput
@@ -2187,6 +2177,7 @@ type Mutation {
   createBulkPortfolioCleanup(name: String!, description: String, cleanupDate: String!, routeId: String!, fromDate: String!, toDate: String!, weeksWithoutPaymentThreshold: Int): JSON!
   adjustAccountBalance(accountId: String!, targetAmount: Float!, counterAccountId: String, description: String): JSON!
   createMultipleLoans(loans: [MultipleLoanInput!]!): [JSON!]!
+  updateLoanWithAval(where: ID!, data: UpdateLoanWithAvalInput): JSON!
 }
 
 input TokaAssignmentInput {
@@ -2245,6 +2236,20 @@ input MultipleBorrowerDataInput {
 }
 
 input AvalDataInput {
+  selectedCollateralId: ID
+  action: String
+  name: String
+  phone: String
+}
+
+input UpdateLoanWithAvalInput {
+  requestedAmount: String
+  amountGived: String
+  comissionAmount: String
+  avalData: UpdateAvalDataInput
+}
+
+input UpdateAvalDataInput {
   selectedCollateralId: ID
   action: String
   name: String

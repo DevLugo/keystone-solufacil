@@ -41,15 +41,11 @@ export type BaseLoan = {
       }>;
     };
   };
-  avalName: string;
-  avalPhone: string;
   // ✅ NUEVA FUNCIONALIDAD: Campo collaterals
   collaterals?: PersonalData[];
   previousLoan?: {
     id: string;
     pendingAmount: string;
-    avalName: string;
-    avalPhone: string;
     collaterals?: PersonalData[];
     borrower: {
       id: string;

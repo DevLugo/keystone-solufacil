@@ -83,3 +83,10 @@ export const CREATE_PERSONAL_DATA = gql`
     }
   }
 `;
+
+// ✅ NUEVA MUTACIÓN: Actualizar préstamo con manejo de avales
+export const UPDATE_LOAN_WITH_AVAL = gql`
+  mutation UpdateLoanWithAval($where: ID!, $data: UpdateLoanWithAvalInput!) {
+    updateLoanWithAval(where: $where, data: $data)
+  }
+`;

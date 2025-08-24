@@ -619,8 +619,6 @@ export const Loan = list({
         scale: 2,
         validation: { isRequired: false },
       }),
-    avalName: text(),
-    avalPhone: text(),
     // ✅ NUEVA FUNCIONALIDAD: Relación many-to-many con PersonalData para collaterals
     collaterals: relationship({ 
       ref: 'PersonalData.loansAsCollateral', 

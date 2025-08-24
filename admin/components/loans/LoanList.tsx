@@ -33,15 +33,11 @@ const GET_LOANS = gql`
           }
         }
       }
-      avalName
-      avalPhone
       previousLoan {
         id
         requestedAmount
         amountGived
         profitAmount
-        avalName
-        avalPhone
         borrower {
           id
           personalData {

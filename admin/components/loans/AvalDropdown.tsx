@@ -32,6 +32,7 @@ interface AvalDropdownProps {
   includeAllLocations?: boolean;
   onlyNameField?: boolean;
   usedAvalIds?: string[]; // ✅ NUEVO: IDs de avales ya usados hoy
+  selectedCollateralId?: string; // ✅ NUEVO: ID del collateral seleccionado desde el componente padre
 }
 
 const AvalDropdown: React.FC<AvalDropdownProps> = ({
@@ -42,7 +43,8 @@ const AvalDropdown: React.FC<AvalDropdownProps> = ({
   onAvalChange,
   includeAllLocations = false,
   onlyNameField = false,
-  usedAvalIds = [] // ✅ NUEVO: IDs de avales ya usados
+  usedAvalIds = [], // ✅ NUEVO: IDs de avales ya usados
+  selectedCollateralId // ✅ NUEVO: ID del collateral seleccionado desde el componente padre
 }) => {
   const [avalName, setAvalName] = useState(currentAvalName || '');
   const [avalPhone, setAvalPhone] = useState(currentAvalPhone || '');
@@ -59,14 +61,70 @@ const AvalDropdown: React.FC<AvalDropdownProps> = ({
     phone: '',
     id: undefined
   });
+  
+  // ✅ NUEVO: Efecto para sincronizar selectedCollateralId con selectedPersonalDataId
+  useEffect(() => {
+    console.log('🔄 Efecto de sincronización ejecutándose:', {
+      selectedCollateralId,
+      selectedPersonalDataId,
+      originalDataId: originalData.id,
+      currentAvalName,
+      currentAvalPhone,
+      hasSelectedCollateralId: !!selectedCollateralId,
+      hasSelectedPersonalDataId: !!selectedPersonalDataId,
+      hasOriginalDataId: !!originalData.id
+    });
+    
+    if (selectedCollateralId && !selectedPersonalDataId) {
+      // Si hay un selectedCollateralId del componente padre, sincronizarlo
+      setSelectedPersonalDataId(selectedCollateralId);
+      console.log('🔗 Sincronizando selectedCollateralId del padre:', selectedCollateralId);
+      
+      // ✅ NUEVO: También actualizar originalData si no está establecido
+      if (!originalData.id && (currentAvalName || currentAvalPhone)) {
+        setOriginalData({
+          name: currentAvalName || '',
+          phone: currentAvalPhone || '',
+          id: selectedCollateralId
+        });
+        console.log('🔗 OriginalData actualizado con selectedCollateralId:', {
+          name: currentAvalName,
+          phone: currentAvalPhone,
+          id: selectedCollateralId
+        });
+      }
+    }
+  }, [selectedCollateralId, selectedPersonalDataId, originalData.id, currentAvalName, currentAvalPhone]);
   const [isNameInputFocused, setIsNameInputFocused] = useState(false);
   const [includeAllLocationState, setIncludeAllLocationState] = useState(includeAllLocations);
   
   const dropdownRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
+  // ✅ NUEVO: Efecto inicial para establecer valores iniciales solo una vez
+  useEffect(() => {
+    if (currentAvalName || currentAvalPhone) {
+      setOriginalData({
+        name: currentAvalName || '',
+        phone: currentAvalPhone || '',
+        id: undefined
+      });
+      console.log('🔗 Valores iniciales establecidos:', {
+        name: currentAvalName,
+        phone: currentAvalPhone
+      });
+    }
+  }, []); // Solo se ejecuta una vez al montar el componente
+
   // ✅ NUEVO: Efecto que solo actúa en cambios EXTERNOS de props (no en nuestros propios onChange)
   useEffect(() => {
+    console.log('🔄 useEffect ejecutándose con props:', {
+      currentAvalName,
+      currentAvalPhone,
+      avalName,
+      avalPhone
+    });
+    
     // Solo actualizar si los props son diferentes a los valores internos actuales
     const propsName = currentAvalName || '';
     const propsPhone = currentAvalPhone || '';
@@ -80,22 +138,30 @@ const AvalDropdown: React.FC<AvalDropdownProps> = ({
         newPhone: propsPhone
       });
       
-      setAvalName(propsName);
+            setAvalName(propsName);
       setAvalPhone(propsPhone);
+      
+      // ✅ IMPORTANTE: Mantener el ID del aval si ya lo tenemos
+      if (selectedCollateralId && !selectedPersonalDataId) {
+        setSelectedPersonalDataId(selectedCollateralId);
+        console.log('🔗 Sincronizando selectedPersonalDataId con selectedCollateralId:', selectedCollateralId);
+      }
       
       // Solo resetear estado si viene de una fuente externa
       if (propsName || propsPhone) {
-        // Si hay datos precargados, es un aval existente (renovación)
-        setIsNewAval(false);
-        setHasDataChanges(false);
-        // Actualizar originalData para que las comparaciones funcionen
-        setOriginalData({
-          name: propsName,
-          phone: propsPhone,
-          id: undefined
-        });
-        console.log('🔗 Aval precargado desde props externos, isNewAval=false, hasDataChanges=false');
-      } else {
+          // Si hay datos precargados, es un aval existente (renovación)
+          setIsNewAval(false);
+          setHasDataChanges(false);
+          // ✅ IMPORTANTE: Mantener el ID existente si ya lo tenemos
+          const existingId = selectedCollateralId || selectedPersonalDataId;
+          // Actualizar originalData para que las comparaciones funcionen
+          setOriginalData({
+            name: propsName,
+            phone: propsPhone,
+            id: existingId  // ✅ MANTENER EL ID EXISTENTE
+          });
+          console.log('🔗 Aval precargado desde props externos, isNewAval=false, hasDataChanges=false, id:', existingId);
+        } else {
         // Sin datos = estado inicial limpio
         setIsNewAval(false);
         setHasDataChanges(false);
@@ -109,7 +175,7 @@ const AvalDropdown: React.FC<AvalDropdownProps> = ({
     } else {
       console.log('🚫 Props no cambiaron realmente (mismo valor interno), ignorando useEffect');
     }
-  }, [currentAvalName, currentAvalPhone, avalName, avalPhone]);
+  }, [currentAvalName, currentAvalPhone]); // ✅ REMOVIDO: avalName y avalPhone de las dependencias
 
   // GraphQL hooks
   const [searchPotentialCollaterals, { loading: searchLoading }] = useLazyQuery(
@@ -155,22 +221,40 @@ const AvalDropdown: React.FC<AvalDropdownProps> = ({
 
   // ✅ NUEVA función para determinar estado basado en variables separadas
   const getCurrentAction = (): 'create' | 'update' | 'connect' | 'clear' => {
-    if (!avalName.trim() && !avalPhone.trim()) {
-      return 'clear'; // Sin datos = sin aval
-    }
-    
-    if (isNewAval) {
-      return 'create'; // Es un aval nuevo (usuario escribió sin seleccionar)
-    }
-    
-    if (selectedPersonalDataId) {
-      if (hasDataChanges) {
-        return 'update'; // Aval existente con modificaciones
+    const action = (() => {
+      if (!avalName.trim() && !avalPhone.trim()) {
+        return 'clear'; // Sin datos = sin aval
       }
-      return 'connect'; // Aval existente sin cambios
-    }
+      
+      if (isNewAval) {
+        return 'create'; // Es un aval nuevo (usuario escribió sin seleccionar)
+      }
+      
+      if (selectedPersonalDataId) {
+        if (hasDataChanges) {
+          return 'update'; // Aval existente con modificaciones
+        }
+        return 'connect'; // Aval existente sin cambios
+      }
+      
+      return 'create'; // Por defecto, crear nuevo
+    })();
     
-    return 'create'; // Por defecto, crear nuevo
+    console.log('🎯 getCurrentAction calculado:', {
+      avalName: avalName.trim(),
+      avalPhone: avalPhone.trim(),
+      isNewAval,
+      selectedPersonalDataId,
+      hasDataChanges,
+      calculatedAction: action,
+      '🔍 DEBUG - Variables de estado:': {
+        isNewAval,
+        hasDataChanges,
+        selectedPersonalDataId: !!selectedPersonalDataId
+      }
+    });
+    
+    return action;
   };
 
   // Efecto para cerrar dropdown al hacer click fuera
@@ -190,12 +274,6 @@ const AvalDropdown: React.FC<AvalDropdownProps> = ({
     (value: string) => {
       setAvalName(value);
       
-      // En un select con búsqueda, escribir siempre limpia la selección previa
-      if (selectedPersonalDataId) {
-        setSelectedPersonalDataId(undefined);
-        console.log('🔄 Escribiendo en select, limpiando selección previa');
-      }
-      
       // Buscar coincidencias para mostrar en el dropdown
       if (value.length >= 2) {
         searchPotentialCollaterals({ 
@@ -207,26 +285,72 @@ const AvalDropdown: React.FC<AvalDropdownProps> = ({
         setSearchResults([]);
       }
       
-      // ✅ NUEVO: Al escribir sin seleccionar, establecer variables de estado
-      if (value.trim()) {
-        setIsNewAval(true); // Usuario está creando un aval nuevo
-        setHasDataChanges(false); // No hay cambios vs original porque es nuevo
+      // ✅ CALCULAR estado y acción con valores actuales
+      let newIsNewAval: boolean;
+      let newHasDataChanges: boolean;
+      let currentAction: 'create' | 'update' | 'connect' | 'clear';
+      
+      if (!value.trim() && !avalPhone.trim()) {
+        // Sin datos = estado limpio
+        newIsNewAval = false;
+        newHasDataChanges = false;
+        currentAction = 'clear';
+      } else if (selectedPersonalDataId) {
+        // Hay un ID seleccionado = aval existente
+        // Verificar si hay cambios vs datos originales
+        const nameChanged = value !== originalData.name;
+        const phoneChanged = avalPhone !== originalData.phone;
+        newIsNewAval = false; // No es nuevo, ya existe
+        newHasDataChanges = nameChanged || phoneChanged; // Hay cambios si algo cambió
+        
+        if (newHasDataChanges) {
+          currentAction = 'update'; // Aval existente con modificaciones
+        } else {
+          currentAction = 'connect'; // Aval existente sin cambios
+        }
       } else {
-        setIsNewAval(false); // Campo vacío
-        setHasDataChanges(false);
+        // Sin ID pero con datos = aval nuevo (usuario escribiendo)
+        newIsNewAval = true; // Es nuevo porque usuario escribió sin seleccionar
+        newHasDataChanges = false; // No hay cambios vs original porque es nuevo
+        currentAction = 'create';
       }
       
-      console.log('📝 handleNameChange (select mode):', {
+      // Actualizar variables de estado
+      setIsNewAval(newIsNewAval);
+      setHasDataChanges(newHasDataChanges);
+      
+      console.log('📝 handleNameChange:', {
         value,
-        isNewAval: value.trim() ? true : false,
-        willSearch: value.length >= 2
+        avalPhone,
+        selectedPersonalDataId,
+        originalName: originalData.name,
+        originalPhone: originalData.phone,
+        nameChanged: value !== originalData.name,
+        phoneChanged: avalPhone !== originalData.phone,
+        newIsNewAval,
+        newHasDataChanges,
+        calculatedAction: currentAction,
+        '🔍 DEBUG - Estado actual:': {
+          isNewAval: newIsNewAval,
+          hasDataChanges: newHasDataChanges,
+          action: currentAction
+        },
+        '🔍 DEBUG - Comparación detallada:': {
+          value,
+          originalName: originalData.name,
+          valueLength: value.length,
+          originalNameLength: originalData.name.length,
+          valueTrimmed: value.trim(),
+          originalNameTrimmed: originalData.name.trim(),
+          nameChanged: value !== originalData.name,
+          nameChangedTrimmed: value.trim() !== originalData.name.trim()
+        }
       });
       
-      // Notificar cambio al componente padre (sin ID ya que no hay selección)
-      const currentAction = value.trim() ? 'create' : 'clear';
-      onAvalChange(value, avalPhone, undefined, currentAction);
+      // Notificar cambio al componente padre
+      onAvalChange(value, avalPhone, selectedPersonalDataId, currentAction);
     },
-    [searchPotentialCollaterals, avalPhone, onAvalChange, selectedPersonalDataId]
+    [searchPotentialCollaterals, avalPhone, onAvalChange, selectedPersonalDataId, originalData.name, originalData.phone]
   );
 
   // Función para seleccionar una persona del dropdown
@@ -343,7 +467,12 @@ const AvalDropdown: React.FC<AvalDropdownProps> = ({
         phoneChanged: value !== originalData.phone,
         newIsNewAval,
         newHasDataChanges,
-        calculatedAction: currentAction
+        calculatedAction: currentAction,
+        '🔍 DEBUG - Estado actual:': {
+          isNewAval: newIsNewAval,
+          hasDataChanges: newHasDataChanges,
+          action: currentAction
+        }
       });
       
       // Notificar cambio al componente padre
@@ -575,10 +704,10 @@ const AvalDropdown: React.FC<AvalDropdownProps> = ({
                   <div
                     ref={dropdownRef}
                     style={{
-                      position: 'absolute',
-                      top: '100%',
-                      left: 0,
-                      right: 0,
+                      position: 'fixed',
+                      top: nameInputRef.current ? nameInputRef.current.getBoundingClientRect().bottom + 5 : 0,
+                      left: nameInputRef.current ? nameInputRef.current.getBoundingClientRect().left : 0,
+                      width: nameInputRef.current ? Math.max(nameInputRef.current.offsetWidth * 1.5, 300) : 'auto',
                       backgroundColor: 'white',
                       border: '1px solid #D1D5DB',
                       borderRadius: '4px',

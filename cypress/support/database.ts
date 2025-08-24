@@ -183,8 +183,6 @@ export async function seedDatabase() {
           profitAmount: loanAmount * 0.2, // 20% ganancia
           signDate: new Date(),
           status: 'APPROVED',
-          avalName: faker.person.fullName(),
-          avalPhone: faker.phone.number(),
           loantype: { connect: { id: loanType.id } },
           borrower: { connect: { id: client.borrower.id } },
           lead: { connect: { id: testLeader.id } },
