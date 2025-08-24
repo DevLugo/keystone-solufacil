@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { PageContainer } from '@keystone-6/core/admin-ui/components';
 import { Heading } from '@keystone-ui/core';
 import { useQuery, gql } from '@apollo/client';
-import { SidebarFilter } from '../components/SidebarFilter';
 
 const GET_BASIC_LOANS = gql`
   query GetBasicLoans {
@@ -87,7 +86,7 @@ export default function ListadosPage() {
 
   return (
     <PageContainer header={<Heading type="h1">Listados</Heading>}>
-      <SidebarFilter />
+
       <div style={{ marginTop: '20px' }}>
         <div style={{ display: 'flex', marginBottom: '20px' }}>
           <button
