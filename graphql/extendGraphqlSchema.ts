@@ -4849,22 +4849,35 @@ export const extendGraphqlSchema = graphql.extend(base => {
             });
             console.log('🧪 Prueba sin filtros - resultados:', testSearch);
 
-            // 🔍 Buscar préstamos donde aparece como aval
+            // 🔍 Buscar préstamos donde aparece como aval (usando collaterals)
             const loansAsCollateral = await context.prisma.loan.findMany({
               where: {
-                avalName: {
-                  contains: searchTerm,
-                  mode: 'insensitive'
+                collaterals: {
+                  some: {
+                    fullName: {
+                      contains: searchTerm,
+                      mode: 'insensitive'
+                    }
+                  }
                 }
               },
               select: {
                 id: true,
-                avalName: true,
-                avalPhone: true,
                 signDate: true,
                 finishedDate: true,
                 amountGived: true,
                 status: true,
+                collaterals: {
+                  select: {
+                    id: true,
+                    fullName: true,
+                    phones: {
+                      select: {
+                        number: true
+                      }
+                    }
+                  }
+                },
                 borrower: {
                   include: {
                     personalData: {
@@ -4878,7 +4891,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
             });
 
-            console.log('🏦 Préstamos como aval encontrados:', loansAsCollateral.length);
+            console.log('🏦 Préstamos como aval encontrados:', loansAsCollateral?.length || 0);
 
             const clients = await context.prisma.personalData.findMany({
               where: whereCondition,
@@ -4970,62 +4983,67 @@ export const extendGraphqlSchema = graphql.extend(base => {
             });
 
             // Agregar clientes que aparecen solo como avalistas (sin duplicar por ID)
-            loansAsCollateral.forEach(loan => {
-              // Buscar si ya existe un cliente con el mismo personalData.id
-              // Primero, intentar encontrar el personalData correspondiente al aval
-              const avalPersonalData = clients.find(client => 
-                client.fullName && loan.avalName && 
-                client.fullName.toLowerCase().trim() === loan.avalName.toLowerCase().trim()
-              );
+            if (loansAsCollateral && Array.isArray(loansAsCollateral)) {
+              loansAsCollateral.forEach(loan => {
+                // Obtener información del aval desde collaterals
+                const collateral = loan.collaterals?.[0]; // Tomar el primer aval
+                if (!collateral) return;
 
-              if (avalPersonalData) {
-                // El aval ya existe como cliente principal, actualizar información
-                const existingClient = combinedResults.get(avalPersonalData.id);
-                if (existingClient) {
-                  existingClient.hasBeenCollateral = true;
-                  existingClient.collateralLoans += 1;
-                  
-                  // Actualizar fecha del préstamo más reciente si este es más nuevo
-                  const loanDate = new Date(loan.signDate);
-                  const currentLatestDate = existingClient.latestLoanDate ? new Date(existingClient.latestLoanDate.split('/').reverse().join('-')) : new Date(0);
-                  
-                  if (loanDate > currentLatestDate) {
-                    existingClient.latestLoanDate = loanDate.toLocaleDateString('es-ES', {
-                      year: 'numeric',
-                      month: '2-digit',
-                      day: '2-digit'
-                    });
+                // Buscar si ya existe un cliente con el mismo personalData.id
+                const avalPersonalData = clients.find(client => 
+                  client.fullName && collateral.fullName && 
+                  client.fullName.toLowerCase().trim() === collateral.fullName.toLowerCase().trim()
+                );
+
+                if (avalPersonalData) {
+                  // El aval ya existe como cliente principal, actualizar información
+                  const existingClient = combinedResults.get(avalPersonalData.id);
+                  if (existingClient) {
+                    existingClient.hasBeenCollateral = true;
+                    existingClient.collateralLoans += 1;
+                    
+                    // Actualizar fecha del préstamo más reciente si este es más nuevo
+                    const loanDate = new Date(loan.signDate);
+                    const currentLatestDate = existingClient.latestLoanDate ? new Date(existingClient.latestLoanDate.split('/').reverse().join('-')) : new Date(0);
+                    
+                    if (loanDate > currentLatestDate) {
+                      existingClient.latestLoanDate = loanDate.toLocaleDateString('es-ES', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit'
+                      });
+                    }
                   }
+                } else {
+                  // El aval no existe como cliente principal, crear nueva entrada
+                  const avalId = `aval_${loan.id}`;
+                  
+                  // Para clientes solo como aval, usar la fecha de este préstamo
+                  const loanDate = new Date(loan.signDate).toLocaleDateString('es-ES', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit'
+                  });
+                  
+                  combinedResults.set(avalId, {
+                    id: avalId,
+                    name: collateral.fullName || 'Sin nombre',
+                    dui: 'N/A',
+                    phone: collateral.phones?.[0]?.number || 'N/A',
+                    address: 'N/A (Solo como aval)',
+                    route: 'N/A',
+                    location: 'N/A (Solo como aval)',
+                    latestLoanDate: loanDate,
+                    hasLoans: false,
+                    hasBeenCollateral: true,
+                    totalLoans: 0,
+                    activeLoans: 0,
+                    finishedLoans: 0,
+                    collateralLoans: 1
+                  });
                 }
-              } else {
-                // El aval no existe como cliente principal, crear nueva entrada
-                const avalId = `aval_${loan.id}`;
-                
-                // Para clientes solo como aval, usar la fecha de este préstamo
-                const loanDate = new Date(loan.signDate).toLocaleDateString('es-ES', {
-                  year: 'numeric',
-                  month: '2-digit',
-                  day: '2-digit'
-                });
-                
-                combinedResults.set(avalId, {
-                  id: avalId,
-                  name: loan.avalName || 'Sin nombre',
-                  dui: 'N/A',
-                  phone: loan.avalPhone || 'N/A',
-                  address: 'N/A (Solo como aval)',
-                  route: 'N/A',
-                  location: 'N/A (Solo como aval)',
-                  latestLoanDate: loanDate,
-                  hasLoans: false,
-                  hasBeenCollateral: true,
-                  totalLoans: 0,
-                  activeLoans: 0,
-                  finishedLoans: 0,
-                  collateralLoans: 1
-                });
-              }
-            });
+              });
+            }
 
             // Ordenar por fecha del préstamo más reciente (descendente) y luego por nombre
             const sortedResults = Array.from(combinedResults.values()).sort((a, b) => {
@@ -5110,12 +5128,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
             // Obtener préstamos como cliente (a través de borrower)
             const clientLoans = client.borrower?.loans || [];
             
-            // Buscar préstamos como aval usando avalName
+            // Buscar préstamos como aval usando collaterals
             const collateralLoans = await context.prisma.loan.findMany({
               where: {
-                avalName: {
-                  contains: client.fullName,
-                  mode: 'insensitive'
+                collaterals: {
+                  some: {
+                    fullName: {
+                      contains: client.fullName,
+                      mode: 'insensitive'
+                    }
+                  }
                 }
               },
               include: {
@@ -5140,6 +5162,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 borrower: {
                   include: {
                     personalData: true
+                  }
+                },
+                collaterals: {
+                  include: {
+                    phones: true,
+                    addresses: {
+                      include: {
+                        location: true
+                      }
+                    }
                   }
                 }
               },

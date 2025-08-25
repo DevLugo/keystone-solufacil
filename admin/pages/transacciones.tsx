@@ -14,9 +14,9 @@ import type { Route, Employee } from '../types/transaction';
 import type { RouteWithEmployees, EmployeeWithTypename } from '../types/components';
 import { CreateExpensesForm } from './gastos';
 import { CreditosTab } from '../components/transactions/CreditosTab';
-import { CreatePaymentForm } from './abonos';
+import { CreatePaymentForm } from '../components/transactions/abonosTab';
 import { SummaryTab } from '../components/transactions/SummaryTab';
-import TransferForm from '../components/transactions/TransferForm';
+import TransferForm from '../components/transactions/TransferTab';
 
 const GET_TRANSACTIONS_SUMMARY = gql`
   query GetTransactionsSummary($date: DateTime!, $nextDate: DateTime!) {

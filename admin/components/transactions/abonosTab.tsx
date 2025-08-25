@@ -11,8 +11,8 @@ import { TrashIcon } from '@keystone-ui/icons';
 import { useRouter } from 'next/router';
 import { PageContainer, GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
 import { DatePicker, Select, TextInput } from '@keystone-ui/fields';
-import { LoanPayment } from '../../schema';
-import type { Employee, Option } from '../types/transaction';
+import { LoanPayment } from '../../../schema';
+import type { Employee, Option } from '../../types/transaction';
 import { FaPlus } from 'react-icons/fa';
 
 const GET_LEADS = gql`
@@ -230,7 +230,6 @@ type Route = {
 
 const paymentTypeOptions: Option[] = [
   { label: 'ABONO', value: 'PAYMENT' },
-  { label: 'FALCO', value: 'FALCO' },
   { label: 'EXTRA COBRANZA', value: 'EXTRA_COLLECTION' },
 ];
 
@@ -774,7 +773,7 @@ export const CreatePaymentForm = ({
     return existingPayments.filter(payment => !deletedPaymentIds.includes(payment.id)).length;
   }, [existingPayments, deletedPaymentIds]);
 
-  const [activeTab, setActiveTab] = useState<'existing' | 'new'>('existing');
+  const [activeTab, setActiveTab] = useState<'existing' | 'new'>('new');
 
   useEffect(() => {
     refetchPayments();
@@ -1390,13 +1389,15 @@ export const CreatePaymentForm = ({
                     <tr key={`new-${index}`}>
                                               <td>
                           <Select
-                            options={loansData?.loans.map(loan => ({
-                              value: loan.id,
-                              label: loan.borrower.personalData.fullName
-                            })) || []}
+                            options={loansData?.loans
+                              ?.filter(loan => loan.borrower && loan.borrower.personalData) // ✅ Filtrar préstamos válidos
+                              ?.map(loan => ({
+                                value: loan.id,
+                                label: loan.borrower?.personalData?.fullName || 'Sin nombre'
+                              })) || []}
                             value={loansData?.loans.find(loan => loan.id === payment.loanId) ? {
                               value: payment.loanId,
-                              label: loansData.loans.find(loan => loan.id === payment.loanId)?.borrower.personalData.fullName || ''
+                              label: loansData.loans.find(loan => loan.id === payment.loanId)?.borrower?.personalData?.fullName || 'Sin nombre'
                             } : null}
                             onChange={(option) => handleChange(index, 'loanId', (option as Option).value)}
                           />
@@ -1405,6 +1406,7 @@ export const CreatePaymentForm = ({
                           {payment.loanId && loansData?.loans ? 
                             (() => {
                               const selectedLoan = loansData.loans.find(loan => loan.id === payment.loanId);
+                              // ✅ Validar que el préstamo y su fecha existan
                               return selectedLoan?.signDate ? 
                                 new Date(selectedLoan.signDate).toLocaleDateString('es-MX', {
                                   year: 'numeric',

@@ -1243,7 +1243,6 @@ export const LoanPayment = list({
     type: select({
       options: [
         { label: 'ABONO', value: 'PAYMENT' },
-        { label: 'FALCO', value: 'FALCO' },
         { label: 'EXTRA COBRANZA', value: 'EXTRA_COLLECTION' },
       ],
     }),
