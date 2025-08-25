@@ -83,7 +83,118 @@ export default withAuth(
         // Agregar middleware para parsing de JSON
         app.use(express.json({ limit: '10mb' }));
         app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-                (app as any).get('/generate-pdf', async (req: Request, res: Response) => {
+
+        // Endpoint para subir imágenes a Cloudinary
+        app.post('/api/upload-image', async (req: Request, res: Response) => {
+          try {
+            // Verificar que las variables de entorno estén configuradas
+            if (!process.env.CLOUDINARY_CLOUD_NAME || 
+                !process.env.CLOUDINARY_API_KEY || 
+                !process.env.CLOUDINARY_API_SECRET) {
+              return res.status(500).json({ 
+                error: 'Configuración de Cloudinary no encontrada' 
+              });
+            }
+
+            // Importar multer dinámicamente
+            const multer = require('multer');
+            const { v2: cloudinary } = require('cloudinary');
+
+            // Configurar Cloudinary
+            cloudinary.config({
+              cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+              api_key: process.env.CLOUDINARY_API_KEY,
+              api_secret: process.env.CLOUDINARY_API_SECRET,
+            });
+
+            // Configurar multer
+            const upload = multer({
+              storage: multer.memoryStorage(),
+              limits: {
+                fileSize: 10 * 1024 * 1024, // 10MB máximo
+              },
+              fileFilter: (req: any, file: any, cb: any) => {
+                if (file.mimetype.startsWith('image/')) {
+                  cb(null, true);
+                } else {
+                  cb(new Error('Solo se permiten archivos de imagen'));
+                }
+              },
+            });
+
+            // Procesar el archivo con multer
+            upload.single('file')(req as any, res as any, async (err: any) => {
+              if (err) {
+                console.error('Error de multer:', err);
+                return res.status(400).json({ 
+                  error: err.message || 'Error al procesar el archivo' 
+                });
+              }
+
+              const file = (req as any).file;
+              if (!file) {
+                return res.status(400).json({ error: 'No se proporcionó ningún archivo' });
+              }
+
+              try {
+                const folder = (req as any).body?.folder || 'documentos-personales';
+                
+                // Subir a Cloudinary usando upload_stream
+                const result = await new Promise((resolve, reject) => {
+                  const stream = cloudinary.uploader.upload_stream(
+                    {
+                      folder: folder,
+                      resource_type: 'image',
+                      transformation: [
+                        { quality: 'auto:good' },
+                        { fetch_format: 'auto' }
+                      ],
+                      allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
+                      max_bytes: 10 * 1024 * 1024,
+                    },
+                    (error: any, result: any) => {
+                      if (error) {
+                        reject(error);
+                      } else {
+                        resolve({
+                          public_id: result.public_id,
+                          secure_url: result.secure_url,
+                          url: result.url,
+                          format: result.format,
+                          width: result.width,
+                          height: result.height,
+                          bytes: result.bytes,
+                        });
+                      }
+                    }
+                  );
+
+                  // Convertir buffer a stream
+                  const { Readable } = require('stream');
+                  const readable = Readable.from(file.buffer);
+                  readable.pipe(stream);
+                });
+
+                res.status(200).json(result);
+              } catch (error) {
+                console.error('Error al subir a Cloudinary:', error);
+                res.status(500).json({ 
+                  error: 'Error al subir la imagen',
+                  details: error instanceof Error ? error.message : 'Error desconocido'
+                });
+              }
+            });
+
+          } catch (error) {
+            console.error('Error en endpoint de subida:', error);
+            res.status(500).json({ 
+              error: 'Error interno del servidor',
+              details: error instanceof Error ? error.message : 'Error desconocido'
+            });
+          }
+        });
+
+        (app as any).get('/generate-pdf', async (req: Request, res: Response) => {
           try {
             const { localityId, routeId, localityName, routeName, leaderName, leaderId } = req.query;
 

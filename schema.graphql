@@ -9,6 +9,8 @@ type User {
   role: String
   portfolioCleanups(where: PortfolioCleanupWhereInput! = {}, orderBy: [PortfolioCleanupOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: PortfolioCleanupWhereUniqueInput): [PortfolioCleanup!]
   portfolioCleanupsCount(where: PortfolioCleanupWhereInput! = {}): Int
+  documentPhotos(where: DocumentPhotoWhereInput! = {}, orderBy: [DocumentPhotoOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: DocumentPhotoWhereUniqueInput): [DocumentPhoto!]
+  documentPhotosCount(where: DocumentPhotoWhereInput! = {}): Int
   createdAt: DateTime
   adjustBalance: JSON
 }
@@ -34,6 +36,7 @@ input UserWhereInput {
   password: PasswordFilter
   role: StringNullableFilter
   portfolioCleanups: PortfolioCleanupManyRelationFilter
+  documentPhotos: DocumentPhotoManyRelationFilter
   createdAt: DateTimeNullableFilter
 }
 
@@ -107,6 +110,12 @@ input PortfolioCleanupManyRelationFilter {
   none: PortfolioCleanupWhereInput
 }
 
+input DocumentPhotoManyRelationFilter {
+  every: DocumentPhotoWhereInput
+  some: DocumentPhotoWhereInput
+  none: DocumentPhotoWhereInput
+}
+
 input DateTimeNullableFilter {
   equals: DateTime
   in: [DateTime!]
@@ -137,6 +146,7 @@ input UserUpdateInput {
   password: String
   role: String
   portfolioCleanups: PortfolioCleanupRelateToManyForUpdateInput
+  documentPhotos: DocumentPhotoRelateToManyForUpdateInput
   createdAt: DateTime
 }
 
@@ -145,6 +155,13 @@ input PortfolioCleanupRelateToManyForUpdateInput {
   set: [PortfolioCleanupWhereUniqueInput!]
   create: [PortfolioCleanupCreateInput!]
   connect: [PortfolioCleanupWhereUniqueInput!]
+}
+
+input DocumentPhotoRelateToManyForUpdateInput {
+  disconnect: [DocumentPhotoWhereUniqueInput!]
+  set: [DocumentPhotoWhereUniqueInput!]
+  create: [DocumentPhotoCreateInput!]
+  connect: [DocumentPhotoWhereUniqueInput!]
 }
 
 input UserUpdateArgs {
@@ -158,12 +175,18 @@ input UserCreateInput {
   password: String
   role: String
   portfolioCleanups: PortfolioCleanupRelateToManyForCreateInput
+  documentPhotos: DocumentPhotoRelateToManyForCreateInput
   createdAt: DateTime
 }
 
 input PortfolioCleanupRelateToManyForCreateInput {
   create: [PortfolioCleanupCreateInput!]
   connect: [PortfolioCleanupWhereUniqueInput!]
+}
+
+input DocumentPhotoRelateToManyForCreateInput {
+  create: [DocumentPhotoCreateInput!]
+  connect: [DocumentPhotoWhereUniqueInput!]
 }
 
 type Employee {
@@ -189,6 +212,7 @@ type Employee {
 input EmployeeWhereUniqueInput {
   id: ID
   oldId: String
+  personalData: PersonalDataWhereUniqueInput
 }
 
 input EmployeeWhereInput {
@@ -885,6 +909,7 @@ type Borrower {
 
 input BorrowerWhereUniqueInput {
   id: ID
+  personalData: PersonalDataWhereUniqueInput
 }
 
 input BorrowerWhereInput {
@@ -942,11 +967,15 @@ type PersonalData {
   borrower: Borrower
   loansAsCollateral(where: LoanWhereInput! = {}, orderBy: [LoanOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: LoanWhereUniqueInput): [Loan!]
   loansAsCollateralCount(where: LoanWhereInput! = {}): Int
+  documentPhotos(where: DocumentPhotoWhereInput! = {}, orderBy: [DocumentPhotoOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: DocumentPhotoWhereUniqueInput): [DocumentPhoto!]
+  documentPhotosCount(where: DocumentPhotoWhereInput! = {}): Int
 }
 
 input PersonalDataWhereUniqueInput {
   id: ID
   clientCode: String
+  employee: EmployeeWhereUniqueInput
+  borrower: BorrowerWhereUniqueInput
 }
 
 input PersonalDataWhereInput {
@@ -964,6 +993,7 @@ input PersonalDataWhereInput {
   employee: EmployeeWhereInput
   borrower: BorrowerWhereInput
   loansAsCollateral: LoanManyRelationFilter
+  documentPhotos: DocumentPhotoManyRelationFilter
 }
 
 input PhoneManyRelationFilter {
@@ -992,6 +1022,7 @@ input PersonalDataUpdateInput {
   employee: EmployeeRelateToOneForUpdateInput
   borrower: BorrowerRelateToOneForUpdateInput
   loansAsCollateral: LoanRelateToManyForUpdateInput
+  documentPhotos: DocumentPhotoRelateToManyForUpdateInput
 }
 
 input PhoneRelateToManyForUpdateInput {
@@ -1029,6 +1060,7 @@ input PersonalDataCreateInput {
   employee: EmployeeRelateToOneForCreateInput
   borrower: BorrowerRelateToOneForCreateInput
   loansAsCollateral: LoanRelateToManyForCreateInput
+  documentPhotos: DocumentPhotoRelateToManyForCreateInput
 }
 
 input PhoneRelateToManyForCreateInput {
@@ -1069,6 +1101,8 @@ type Loan {
   previousLoan: Loan
   commissionPayment(where: CommissionPaymentWhereInput! = {}, orderBy: [CommissionPaymentOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: CommissionPaymentWhereUniqueInput): [CommissionPayment!]
   commissionPaymentCount(where: CommissionPaymentWhereInput! = {}): Int
+  documentPhotos(where: DocumentPhotoWhereInput! = {}, orderBy: [DocumentPhotoOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: DocumentPhotoWhereUniqueInput): [DocumentPhoto!]
+  documentPhotosCount(where: DocumentPhotoWhereInput! = {}): Int
   totalDebtAcquired: Decimal
   expectedWeeklyPayment: Decimal
   totalPaid: Decimal
@@ -1117,6 +1151,7 @@ input LoanWhereInput {
   borrower: BorrowerWhereInput
   previousLoan: LoanWhereInput
   commissionPayment: CommissionPaymentManyRelationFilter
+  documentPhotos: DocumentPhotoManyRelationFilter
   totalDebtAcquired: DecimalNullableFilter
   expectedWeeklyPayment: DecimalNullableFilter
   totalPaid: DecimalNullableFilter
@@ -1197,6 +1232,7 @@ input LoanUpdateInput {
   borrower: BorrowerRelateToOneForUpdateInput
   previousLoan: LoanRelateToOneForUpdateInput
   commissionPayment: CommissionPaymentRelateToManyForUpdateInput
+  documentPhotos: DocumentPhotoRelateToManyForUpdateInput
   totalDebtAcquired: Decimal
   expectedWeeklyPayment: Decimal
   totalPaid: Decimal
@@ -1267,6 +1303,7 @@ input LoanCreateInput {
   borrower: BorrowerRelateToOneForCreateInput
   previousLoan: LoanRelateToOneForCreateInput
   commissionPayment: CommissionPaymentRelateToManyForCreateInput
+  documentPhotos: DocumentPhotoRelateToManyForCreateInput
   totalDebtAcquired: Decimal
   expectedWeeklyPayment: Decimal
   totalPaid: Decimal
@@ -2035,6 +2072,97 @@ input PortfolioCleanupCreateInput {
   updatedAt: DateTime
 }
 
+type DocumentPhoto {
+  id: ID!
+  title: String
+  description: String
+  photoUrl: String
+  publicId: String
+  documentType: DocumentPhotoDocumentTypeType
+  personalData: PersonalData
+  loan: Loan
+  uploadedBy: User
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+enum DocumentPhotoDocumentTypeType {
+  INE
+  DOMICILIO
+  PAGARE
+  OTRO
+}
+
+input DocumentPhotoWhereUniqueInput {
+  id: ID
+}
+
+input DocumentPhotoWhereInput {
+  AND: [DocumentPhotoWhereInput!]
+  OR: [DocumentPhotoWhereInput!]
+  NOT: [DocumentPhotoWhereInput!]
+  id: IDFilter
+  title: StringFilter
+  description: StringFilter
+  photoUrl: StringFilter
+  publicId: StringFilter
+  documentType: DocumentPhotoDocumentTypeTypeNullableFilter
+  personalData: PersonalDataWhereInput
+  loan: LoanWhereInput
+  uploadedBy: UserWhereInput
+  createdAt: DateTimeNullableFilter
+  updatedAt: DateTimeNullableFilter
+}
+
+input DocumentPhotoDocumentTypeTypeNullableFilter {
+  equals: DocumentPhotoDocumentTypeType
+  in: [DocumentPhotoDocumentTypeType!]
+  notIn: [DocumentPhotoDocumentTypeType!]
+  not: DocumentPhotoDocumentTypeTypeNullableFilter
+}
+
+input DocumentPhotoOrderByInput {
+  id: OrderDirection
+  title: OrderDirection
+  description: OrderDirection
+  photoUrl: OrderDirection
+  publicId: OrderDirection
+  documentType: OrderDirection
+  createdAt: OrderDirection
+  updatedAt: OrderDirection
+}
+
+input DocumentPhotoUpdateInput {
+  title: String
+  description: String
+  photoUrl: String
+  publicId: String
+  documentType: DocumentPhotoDocumentTypeType
+  personalData: PersonalDataRelateToOneForUpdateInput
+  loan: LoanRelateToOneForUpdateInput
+  uploadedBy: UserRelateToOneForUpdateInput
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input DocumentPhotoUpdateArgs {
+  where: DocumentPhotoWhereUniqueInput!
+  data: DocumentPhotoUpdateInput!
+}
+
+input DocumentPhotoCreateInput {
+  title: String
+  description: String
+  photoUrl: String
+  publicId: String
+  documentType: DocumentPhotoDocumentTypeType
+  personalData: PersonalDataRelateToOneForCreateInput
+  loan: LoanRelateToOneForCreateInput
+  uploadedBy: UserRelateToOneForCreateInput
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
 """
 The `JSON` scalar type represents JSON values as specified by [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf).
 """
@@ -2167,6 +2295,12 @@ type Mutation {
   updatePortfolioCleanups(data: [PortfolioCleanupUpdateArgs!]!): [PortfolioCleanup]
   deletePortfolioCleanup(where: PortfolioCleanupWhereUniqueInput!): PortfolioCleanup
   deletePortfolioCleanups(where: [PortfolioCleanupWhereUniqueInput!]!): [PortfolioCleanup]
+  createDocumentPhoto(data: DocumentPhotoCreateInput!): DocumentPhoto
+  createDocumentPhotos(data: [DocumentPhotoCreateInput!]!): [DocumentPhoto]
+  updateDocumentPhoto(where: DocumentPhotoWhereUniqueInput!, data: DocumentPhotoUpdateInput!): DocumentPhoto
+  updateDocumentPhotos(data: [DocumentPhotoUpdateArgs!]!): [DocumentPhoto]
+  deleteDocumentPhoto(where: DocumentPhotoWhereUniqueInput!): DocumentPhoto
+  deleteDocumentPhotos(where: [DocumentPhotoWhereUniqueInput!]!): [DocumentPhoto]
   endSession: Boolean!
   authenticateUserWithPassword(email: String!, password: String!): UserAuthenticationWithPasswordResult
   createInitialUser(data: CreateInitialUserInput!): UserAuthenticationWithPasswordSuccess!
@@ -2337,6 +2471,9 @@ type Query {
   portfolioCleanup(where: PortfolioCleanupWhereUniqueInput!): PortfolioCleanup
   portfolioCleanups(where: PortfolioCleanupWhereInput! = {}, orderBy: [PortfolioCleanupOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: PortfolioCleanupWhereUniqueInput): [PortfolioCleanup!]
   portfolioCleanupsCount(where: PortfolioCleanupWhereInput! = {}): Int
+  documentPhoto(where: DocumentPhotoWhereUniqueInput!): DocumentPhoto
+  documentPhotos(where: DocumentPhotoWhereInput! = {}, orderBy: [DocumentPhotoOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: DocumentPhotoWhereUniqueInput): [DocumentPhoto!]
+  documentPhotosCount(where: DocumentPhotoWhereInput! = {}): Int
   keystone: KeystoneMeta!
   authenticatedItem: AuthenticatedItem
   getTransactionsSummary(startDate: String!, endDate: String!): [TransactionSummary!]!
@@ -2391,24 +2528,25 @@ type KeystoneAdminMeta {
 
 type KeystoneAdminUIListMeta {
   key: String!
-  itemQueryName: String!
-  listQueryName: String!
-  hideCreate: Boolean!
-  hideDelete: Boolean!
   path: String!
   label: String!
   singular: String!
   plural: String!
   description: String
-  initialColumns: [String!]!
   pageSize: Int!
   labelField: String!
   fields: [KeystoneAdminUIFieldMeta!]!
   groups: [KeystoneAdminUIFieldGroupMeta!]!
   graphql: KeystoneAdminUIGraphQL!
+  initialColumns: [String!]!
+  initialSearchFields: [String!]!
   initialSort: KeystoneAdminUISort
-  isHidden: Boolean!
   isSingleton: Boolean!
+  hideCreate: Boolean!
+  hideDelete: Boolean!
+  isHidden: Boolean!
+  itemQueryName: String!
+  listQueryName: String!
 }
 
 type KeystoneAdminUIFieldMeta {

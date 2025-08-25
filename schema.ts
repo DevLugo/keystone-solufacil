@@ -223,6 +223,16 @@ export const User = list({
       defaultValue: 'NORMAL',
     }),
     portfolioCleanups: relationship({ ref: 'PortfolioCleanup.executedBy', many: true }),
+    // ✅ NUEVA FUNCIONALIDAD: Fotos de documentos subidas por el usuario
+    documentPhotos: relationship({ 
+      ref: 'DocumentPhoto.uploadedBy', 
+      many: true,
+      ui: {
+        displayMode: 'cards',
+        cardFields: ['title', 'documentType', 'createdAt'],
+        linkToItem: true
+      }
+    }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     adjustBalance: virtual({
       ui: {
@@ -551,6 +561,16 @@ export const PersonalData = list({
         linkToItem: true
       }
     }),
+    // ✅ NUEVA FUNCIONALIDAD: Fotos de documentos personales
+    documentPhotos: relationship({ 
+      ref: 'DocumentPhoto.personalData', 
+      many: true,
+      ui: {
+        displayMode: 'cards',
+        cardFields: ['title', 'documentType', 'createdAt'],
+        linkToItem: true
+      }
+    }),
   },
   hooks: {
     afterOperation: async (args) => {
@@ -643,6 +663,16 @@ export const Loan = list({
     }),
     previousLoan: relationship({ ref: 'Loan' }), // Agrego esta línea
     commissionPayment: relationship({ ref: 'CommissionPayment.loan', many: true }),
+    // ✅ NUEVA FUNCIONALIDAD: Fotos de documentos personales
+    documentPhotos: relationship({ 
+      ref: 'DocumentPhoto.loan', 
+      many: true,
+      ui: {
+        displayMode: 'cards',
+        cardFields: ['title', 'documentType', 'personalData'],
+        linkToItem: true
+      }
+    }),
 
     // Campos persistentes para métricas
     totalDebtAcquired: decimal({ precision: 12, scale: 2, db: { isNullable: true } }),
@@ -2059,6 +2089,44 @@ export const Account = list({
   },
 });
 
+// Modelo para fotos de documentos personales
+export const DocumentPhoto = list({
+  access: allowAll,
+  graphql: {
+    plural: 'DocumentPhotos',
+  },
+  fields: {
+    title: text({ validation: { isRequired: true } }),
+    description: text(),
+    photoUrl: text({ validation: { isRequired: true } }),
+    publicId: text({ validation: { isRequired: true } }),
+    documentType: select({
+      type: 'enum',
+      options: [
+        { label: 'INE', value: 'INE' },
+        { label: 'Comprobante de Domicilio', value: 'DOMICILIO' },
+        { label: 'Pagaré', value: 'PAGARE' },
+        { label: 'Otro', value: 'OTRO' }
+      ],
+      validation: { isRequired: true }
+    }),
+    personalData: relationship({ 
+      ref: 'PersonalData.documentPhotos'
+    }),
+    loan: relationship({ 
+      ref: 'Loan.documentPhotos'
+    }),
+    uploadedBy: relationship({ ref: 'User.documentPhotos' }),
+    createdAt: timestamp({ defaultValue: { kind: 'now' } }),
+    updatedAt: timestamp(),
+  },
+  ui: {
+    listView: {
+      initialColumns: ['title', 'documentType', 'personalData', 'loan', 'createdAt'],
+    },
+  },
+});
+
 export const lists = {
   User,
   Employee,
@@ -2084,4 +2152,5 @@ export const lists = {
   Account,
   AuditLog,
   PortfolioCleanup,
+  DocumentPhoto,
 };

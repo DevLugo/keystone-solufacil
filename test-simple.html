@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prueba Simple de Subida</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 500px; margin: 50px auto; padding: 20px; }
+        .upload { border: 2px dashed #ccc; padding: 20px; text-align: center; margin: 20px 0; }
+        .result { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .error { background: #ffebee; color: #c62828; }
+        .success { background: #e8f5e8; color: #2e7d32; }
+    </style>
+</head>
+<body>
+    <h1>Prueba Simple de Subida a Cloudinary</h1>
+    
+    <div class="upload">
+        <h3>Selecciona una imagen</h3>
+        <input type="file" id="imageInput" accept="image/*">
+        <br><br>
+        <button onclick="uploadImage()">Subir Imagen</button>
+    </div>
+
+    <div id="result"></div>
+
+    <script>
+        function uploadImage() {
+            const fileInput = document.getElementById('imageInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showResult('Por favor selecciona un archivo', 'error');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('folder', 'documentos-personales');
+
+            fetch('/api/upload-image', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showResult(`Error: ${data.error}`, 'error');
+                } else {
+                    showResult(`
+                        <strong>¡Imagen subida exitosamente!</strong><br>
+                        <strong>URL:</strong> <a href="${data.secure_url}" target="_blank">${data.secure_url}</a><br>
+                        <strong>Public ID:</strong> ${data.public_id}<br>
+                        <strong>Formato:</strong> ${data.format}<br>
+                        <strong>Tamaño:</strong> ${(data.bytes / 1024).toFixed(2)} KB
+                    `, 'success');
+                }
+            })
+            .catch(error => {
+                showResult(`Error de red: ${error.message}`, 'error');
+            });
+        }
+
+        function showResult(message, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = `<div class="result ${type}">${message}</div>`;
+        }
+    </script>
+</body>
+</html>

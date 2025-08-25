@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prueba de Subida de Imágenes</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .upload-form {
+            border: 2px dashed #ccc;
+            padding: 20px;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .preview {
+            max-width: 300px;
+            margin: 20px 0;
+        }
+        .result {
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .success {
+            background: #e8f5e8;
+            color: #2e7d32;
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Prueba de Subida de Imágenes a Cloudinary</h1>
+    
+    <div class="upload-form">
+        <h3>Selecciona una imagen para subir</h3>
+        <input type="file" id="imageInput" accept="image/*">
+        <br><br>
+        <button onclick="uploadImage()">Subir Imagen</button>
+    </div>
+
+    <div id="preview" class="preview"></div>
+    <div id="result"></div>
+
+    <script>
+        function uploadImage() {
+            const fileInput = document.getElementById('imageInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showResult('Por favor selecciona un archivo', 'error');
+                return;
+            }
+
+            // Mostrar preview
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const preview = document.getElementById('preview');
+                preview.innerHTML = `<img src="${e.target.result}" style="max-width: 100%; height: auto;">`;
+            };
+            reader.readAsDataURL(file);
+
+            // Crear FormData
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('folder', 'documentos-personales');
+
+            // Subir archivo
+            fetch('/api/upload-image', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showResult(`Error: ${data.error}`, 'error');
+                } else {
+                    showResult(`
+                        <strong>¡Imagen subida exitosamente!</strong><br>
+                        <strong>URL:</strong> <a href="${data.secure_url}" target="_blank">${data.secure_url}</a><br>
+                        <strong>Public ID:</strong> ${data.public_id}<br>
+                        <strong>Formato:</strong> ${data.format}<br>
+                        <strong>Tamaño:</strong> ${(data.bytes / 1024).toFixed(2)} KB<br>
+                        <strong>Dimensiones:</strong> ${data.width} x ${data.height}
+                    `, 'success');
+                }
+            })
+            .catch(error => {
+                showResult(`Error de red: ${error.message}`, 'error');
+            });
+        }
+
+        function showResult(message, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = `<div class="${type}">${message}</div>`;
+        }
+    </script>
+</body>
+</html>
