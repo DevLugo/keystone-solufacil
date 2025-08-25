@@ -83,6 +83,9 @@
     "npm": ">=8.0.0"
   },
   "resolutions": {
-    "graphql": "^16.6.0"
+    "graphql": "^16.6.0",
+    "@apollographql/graphql-upload-8-fork": "^8.1.4",
+    "graphql-upload": "^15.0.2",
+    "apollo-upload-client": "^17.0.0"
   }
 }
