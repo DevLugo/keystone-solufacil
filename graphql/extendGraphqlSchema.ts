@@ -5628,6 +5628,220 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         }
       }),
+
+      // ✅ NUEVA FUNCIONALIDAD: Upload de documentos personales
+      uploadDocumentPhoto: graphql.field({
+        type: graphql.nonNull(graphql.JSON),
+        args: {
+          input: graphql.arg({ 
+            type: graphql.nonNull(graphql.inputObject({
+              name: 'UploadDocumentPhotoInput',
+              fields: {
+                file: graphql.arg({ type: graphql.nonNull(graphql.String) }), // Base64 encoded file
+                filename: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+                originalName: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+                mimeType: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+                documentType: graphql.arg({ 
+                  type: graphql.nonNull(graphql.enum({
+                    name: 'DocumentType',
+                    values: graphql.enumValues(['INE', 'ADDRESS_PROOF', 'PROMISSORY_NOTE'])
+                  }))
+                }),
+                personalDataId: graphql.arg({ type: graphql.nonNull(graphql.ID) }),
+                loanId: graphql.arg({ type: graphql.ID }),
+                description: graphql.arg({ type: graphql.String }),
+              }
+            }))
+          })
+        },
+        resolve: async (root, { input }, context: Context) => {
+          try {
+            // Import cloudinary utilities
+            const { uploadDocumentPhoto } = require('../utils/cloudinary');
+            
+            // Decode base64 file
+            const fileBuffer = Buffer.from(input.file, 'base64');
+            
+            // Upload to Cloudinary
+            const cloudinaryResult = await uploadDocumentPhoto(
+              fileBuffer,
+              {
+                personalDataId: input.personalDataId,
+                documentType: input.documentType,
+                loanId: input.loanId,
+                description: input.description,
+              },
+              input.originalName
+            );
+
+            // Create DocumentPhoto record
+            const documentPhoto = await context.db.DocumentPhoto.createOne({
+              data: {
+                filename: input.filename,
+                originalName: input.originalName,
+                mimeType: input.mimeType,
+                size: fileBuffer.length,
+                documentType: input.documentType,
+                cloudinaryUrl: cloudinaryResult.url,
+                cloudinarySecureUrl: cloudinaryResult.secure_url,
+                cloudinaryPublicId: cloudinaryResult.public_id,
+                cloudinaryFolder: cloudinaryResult.folder,
+                cloudinaryVersion: cloudinaryResult.version?.toString(),
+                description: input.description,
+                personalData: { connect: { id: input.personalDataId } },
+                ...(input.loanId && { loan: { connect: { id: input.loanId } } }),
+              },
+            });
+
+            return {
+              success: true,
+              message: 'Documento subido exitosamente',
+              documentPhoto: {
+                id: documentPhoto.id,
+                filename: documentPhoto.filename,
+                originalName: documentPhoto.originalName,
+                documentType: documentPhoto.documentType,
+                cloudinaryUrl: documentPhoto.cloudinaryUrl,
+                cloudinarySecureUrl: documentPhoto.cloudinarySecureUrl,
+                cloudinaryPublicId: documentPhoto.cloudinaryPublicId,
+                size: documentPhoto.size,
+                createdAt: documentPhoto.createdAt,
+              }
+            };
+          } catch (error) {
+            console.error('Error al subir documento:', error);
+            return {
+              success: false,
+              message: `Error al subir documento: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+              documentPhoto: null
+            };
+          }
+        }
+      }),
+    },
+    query: {
+      // ✅ NUEVA FUNCIONALIDAD: Query para obtener documentos por crédito y fecha
+      getDocumentPhotosByCreditDate: graphql.field({
+        type: graphql.nonNull(graphql.JSON),
+        args: {
+          date: graphql.arg({ type: graphql.nonNull(graphql.DateTime) }),
+          leadId: graphql.arg({ type: graphql.ID }),
+        },
+        resolve: async (root, { date, leadId }, context: Context) => {
+          try {
+            const nextDay = new Date(date);
+            nextDay.setDate(nextDay.getDate() + 1);
+
+            // Buscar todos los préstamos de la fecha específica
+            const loans = await context.db.Loan.findMany({
+              where: {
+                AND: [
+                  { signDate: { gte: date } },
+                  { signDate: { lt: nextDay } },
+                  { finishedDate: { equals: null } },
+                  ...(leadId ? [{ lead: { id: { equals: leadId } } }] : []),
+                ]
+              },
+              include: {
+                borrower: {
+                  include: {
+                    personalData: {
+                      include: {
+                        phones: true,
+                        documentPhotos: {
+                          orderBy: { createdAt: 'desc' }
+                        }
+                      }
+                    }
+                  }
+                },
+                collaterals: {
+                  include: {
+                    phones: true,
+                    documentPhotos: {
+                      orderBy: { createdAt: 'desc' }
+                    }
+                  }
+                },
+                documentPhotos: {
+                  include: {
+                    personalData: true
+                  },
+                  orderBy: { createdAt: 'desc' }
+                },
+                loantype: true,
+              },
+              orderBy: { signDate: 'desc' }
+            });
+
+            return {
+              success: true,
+              loans: loans.map((loan: any) => ({
+                id: loan.id,
+                requestedAmount: Number(loan.requestedAmount),
+                amountGived: Number(loan.amountGived),
+                signDate: loan.signDate,
+                loanType: loan.loantype?.name,
+                borrower: {
+                  id: loan.borrower?.id,
+                  personalData: {
+                    id: loan.borrower?.personalData?.id,
+                    fullName: loan.borrower?.personalData?.fullName,
+                    phones: loan.borrower?.personalData?.phones?.map((p: any) => ({
+                      number: p.number
+                    })),
+                    documentPhotos: loan.borrower?.personalData?.documentPhotos?.map((doc: any) => ({
+                      id: doc.id,
+                      originalName: doc.originalName,
+                      documentType: doc.documentType,
+                      cloudinaryUrl: doc.cloudinaryUrl,
+                      cloudinarySecureUrl: doc.cloudinarySecureUrl,
+                      cloudinaryPublicId: doc.cloudinaryPublicId,
+                      createdAt: doc.createdAt,
+                    }))
+                  }
+                },
+                collaterals: loan.collaterals?.map((collateral: any) => ({
+                  id: collateral.id,
+                  fullName: collateral.fullName,
+                  phones: collateral.phones?.map((p: any) => ({
+                    number: p.number
+                  })),
+                  documentPhotos: collateral.documentPhotos?.map((doc: any) => ({
+                    id: doc.id,
+                    originalName: doc.originalName,
+                    documentType: doc.documentType,
+                    cloudinaryUrl: doc.cloudinaryUrl,
+                    cloudinarySecureUrl: doc.cloudinarySecureUrl,
+                    cloudinaryPublicId: doc.cloudinaryPublicId,
+                    createdAt: doc.createdAt,
+                  }))
+                })),
+                documentPhotos: loan.documentPhotos?.map((doc: any) => ({
+                  id: doc.id,
+                  originalName: doc.originalName,
+                  documentType: doc.documentType,
+                  cloudinaryUrl: doc.cloudinaryUrl,
+                  cloudinarySecureUrl: doc.cloudinarySecureUrl,
+                  cloudinaryPublicId: doc.cloudinaryPublicId,
+                  createdAt: doc.createdAt,
+                  personalData: {
+                    id: doc.personalData?.id,
+                    fullName: doc.personalData?.fullName,
+                  }
+                }))
+              }))
+            };
+          } catch (error) {
+            console.error('Error al obtener documentos por fecha de crédito:', error);
+            return {
+              success: false,
+              loans: [],
+              message: `Error: ${error instanceof Error ? error.message : 'Error desconocido'}`
+            };
+          }
+        }
+      }),
     },
   };
 });

@@ -817,6 +817,17 @@ export const Loan = list({
         itemView: { fieldMode: 'read' },
       }
     }),
+    // ✅ NUEVA FUNCIONALIDAD: Relación con fotos de documentos
+    documentPhotos: relationship({ 
+      ref: 'DocumentPhoto.loan', 
+      many: true,
+      ui: {
+        displayMode: 'cards',
+        cardFields: ['originalName', 'documentType', 'createdAt'],
+        linkToItem: true,
+        description: 'Documentos asociados con este préstamo'
+      }
+    }),
   },
   hooks: {
     beforeOperation: async ({ operation, item, context, resolvedData }) => {
@@ -2091,11 +2102,34 @@ export const DocumentPhoto = list({
       isIndexed: true,
     }),
     
-    // Datos del archivo codificados en base64
-    fileData: text({
+    // URLs de Cloudinary
+    cloudinaryUrl: text({
+      validation: { isRequired: true },
       ui: {
-        displayMode: 'textarea',
-        description: 'Datos del archivo codificados en base64'
+        description: 'URL completa de la imagen en Cloudinary'
+      }
+    }),
+    cloudinaryPublicId: text({
+      validation: { isRequired: true },
+      ui: {
+        description: 'Public ID de Cloudinary para gestión de la imagen'
+      }
+    }),
+    cloudinarySecureUrl: text({
+      ui: {
+        description: 'URL segura (HTTPS) de la imagen en Cloudinary'
+      }
+    }),
+    
+    // Información adicional de Cloudinary
+    cloudinaryFolder: text({
+      ui: {
+        description: 'Carpeta en Cloudinary donde se almacena la imagen'
+      }
+    }),
+    cloudinaryVersion: text({
+      ui: {
+        description: 'Versión de la imagen en Cloudinary'
       }
     }),
     
@@ -2140,6 +2174,7 @@ export const DocumentPhoto = list({
       documentType: item.documentType,
       filename: item.filename,
       originalName: item.originalName,
+      cloudinaryPublicId: item.cloudinaryPublicId,
       personalDataId: item.personalDataId,
       loanId: item.loanId,
     })
