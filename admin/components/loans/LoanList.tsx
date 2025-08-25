@@ -5,20 +5,24 @@ import { jsx, Box } from '@keystone-ui/core';
 import { LoadingDots } from '@keystone-ui/loading';
 import { Button } from '@keystone-ui/button';
 import { gql, useQuery } from '@apollo/client';
+import { calculateWeeklyPaymentAmount, calculateAmountToPay, calculatePendingAmountSimple } from '../../utils/loanCalculations';
+import { LoanDebug } from './LoanDebug';
 
 const GET_LOANS = gql`
   query GetLoans($leadId: ID!) {
     loans(where: { lead: { id: { equals: $leadId } } }) {
       id
-      weeklyPaymentAmount
       requestedAmount
       amountGived
-      amountToPay
-      pendingAmount
       signDate
       finishedDate
       createdAt
       updatedAt
+      loantype {
+        id
+        rate
+        weekDuration
+      }
       borrower {
         id
         personalData {
@@ -29,13 +33,11 @@ const GET_LOANS = gql`
           }
         }
       }
-      avalName
-      avalPhone
       previousLoan {
         id
-        pendingAmount
-        avalName
-        avalPhone
+        requestedAmount
+        amountGived
+        profitAmount
         borrower {
           id
           personalData {
@@ -49,15 +51,17 @@ const GET_LOANS = gql`
 
 type Loan = {
   id: string;
-  weeklyPaymentAmount: string;
   requestedAmount: string;
   amountGived: string;
-  amountToPay: string;
-  pendingAmount: string;
   signDate: string;
   finishedDate: string | null;
   createdAt: string;
   updatedAt: string;
+  loantype: {
+    id: string;
+    rate: string;
+    weekDuration: number;
+  } | null;
   borrower: {
     id: string;
     personalData: {
@@ -70,7 +74,9 @@ type Loan = {
   avalPhone: string;
   previousLoan?: {
     id: string;
-    pendingAmount: string;
+    requestedAmount: string;
+    amountGived: string;
+    profitAmount: string;
     avalName: string;
     avalPhone: string;
     borrower: {
@@ -174,13 +180,29 @@ export const LoanList: React.FC<LoanListProps> = ({ leadId, onLoanSelect }) => {
                 <strong>${loan.requestedAmount}</strong>
               </div>
               <div css={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Monto Pendiente:</span>
-                <strong>${loan.pendingAmount}</strong>
+                <span>Monto Entregado:</span>
+                <strong>${loan.amountGived}</strong>
               </div>
               <div css={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Pago Semanal:</span>
-                <strong>${loan.weeklyPaymentAmount}</strong>
+                <span>Monto a Pagar:</span>
+                <strong>
+                  {loan.loantype ? (
+                    `$${calculateAmountToPay(loan.requestedAmount, loan.loantype.rate)} (${loan.loantype.rate}%)`
+                  ) : (
+                    <span style={{ color: 'red' }}>Sin tipo de préstamo asignado</span>
+                  )}
+                </strong>
               </div>
+              <div css={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#999' }}>
+                <span>Debug:</span>
+                <span>loantype: {loan.loantype ? 'SÍ' : 'NO'} | rate: {loan.loantype?.rate || 'NULL'}</span>
+              </div>
+              {loan.previousLoan && (
+                <div css={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Deuda Anterior:</span>
+                  <strong>${calculatePendingAmountSimple(loan.previousLoan)}</strong>
+                </div>
+              )}
             </div>
 
             <div css={{ 
@@ -207,3 +229,4 @@ export const LoanList: React.FC<LoanListProps> = ({ leadId, onLoanSelect }) => {
     </Box>
   );
 };
+

@@ -1,168 +1,332 @@
 /** @jsxRuntime classic */
 /** @jsx jsx */
 
-import React, { useState } from 'react';
-import { jsx, Box, Stack } from '@keystone-ui/core';
+import React, { useState, useEffect } from 'react';
+import { Box, jsx } from '@keystone-ui/core';
 import { PageContainer } from '@keystone-6/core/admin-ui/components';
-import { RouteLeadSelector } from '../components/routes/RouteLeadSelector';
-import { CreateLoanForm } from './creditos';
+import { DatePicker } from '@keystone-ui/fields';
+import { LoadingDots } from '@keystone-ui/loading';
+import { useQuery } from '@apollo/client';
+import { gql } from '@apollo/client';
+import { GET_ROUTES_SIMPLE } from '../graphql/queries/routes-optimized';
+import RouteLeadSelector from '../components/routes/RouteLeadSelector';
+import type { Route, Employee } from '../types/transaction';
+import type { RouteWithEmployees, EmployeeWithTypename } from '../types/components';
 import { CreateExpensesForm } from './gastos';
-import { CreatePaymentForm } from './abonos';
-import type { Option, RouteOption, Route, Employee } from '../types/transaction';
+import { CreditosTab } from '../components/transactions/CreditosTab';
+import { CreatePaymentForm } from '../components/transactions/abonosTab';
+import { SummaryTab } from '../components/transactions/SummaryTab';
+import TransferForm from '../components/transactions/TransferTab';
 
-const styles = {
-  container: {
-    maxWidth: '1200px',
-    margin: '0 auto',
-    padding: '24px'
-  },
-  section: {
-    marginBottom: '24px',
-    padding: '16px',
-    backgroundColor: 'white',
-    borderRadius: '8px',
-    boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)'
-  },
-  dateInput: {
-    padding: '8px',
-    border: '1px solid #e2e8f0',
-    borderRadius: '4px',
-    width: '100%',
-    '&:focus': {
-      outline: 'none',
-      borderColor: '#4299e1',
-      boxShadow: '0 0 0 1px #4299e1',
+const GET_TRANSACTIONS_SUMMARY = gql`
+  query GetTransactionsSummary($date: DateTime!, $nextDate: DateTime!) {
+    getTransactionsSummary(date: $date, nextDate: $nextDate) {
+      totalAbono
+      totalExpense
+      totalComission
+      totalLoanGranted
+      totalLoanGrantedComision
+      totalLoanPaymentComission
+      cashBalance
+      bankBalance
+      cashAbono
+      bankAbono
+      localidades {
+        name
+        totalAbono
+        totalExpense
+        totalComission
+        totalLoanGranted
+        totalLoanGrantedComision
+        totalLoanPaymentComission
+        cashBalance
+        bankBalance
+        cashAbono
+        bankAbono
+      }
     }
   }
-};
+`;
 
-const TransactionsPage = () => {
-  const [selectedTab, setSelectedTab] = useState<'expenses' | 'credits' | 'payments'>('expenses');
-  const [selectedDate, setSelectedDate] = useState<Date>(
-    new Date(new Date().setHours(0, 0, 0, 0))
-  );
-  const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
-  const [selectedLead, setSelectedLead] = useState<Employee | null>(null);
+// Helpers para transformar los tipos extendidos a los tipos base
+function toRoute(route: RouteWithEmployees | null): Route | null {
+  if (!route) return null;
+  return {
+    id: route.id,
+    name: route.name,
+    accounts: (route.accounts || []).map(acc => ({
+      id: acc.id,
+      name: acc.name,
+      type: acc.type as any, // forzamos el tipo, ya que puede venir como string
+      amount: acc.amount
+    }))
+  };
+}
+function toEmployee(lead: EmployeeWithTypename | null): Employee | null {
+  if (!lead) return null;
+  return {
+    id: lead.id,
+    type: lead.type,
+    personalData: {
+      fullName: lead.personalData.fullName
+    },
+    routes: lead.routes
+  };
+}
+function toCreditLead(lead: EmployeeWithTypename | null): any {
+  if (!lead) return null;
+  return {
+    id: lead.id,
+    type: lead.type,
+    personalData: {
+      fullName: lead.personalData.fullName,
+      __typename: lead.personalData.__typename
+    },
+    __typename: lead.__typename
+  };
+}
 
-  const getTabTitle = () => {
-    switch (selectedTab) {
-      case 'expenses':
-        return 'Registrar Gastos';
-      case 'credits':
-        return 'Registrar Créditos';
-      case 'payments':
-        return 'Registrar Pagos';
-      default:
-        return 'Gestión de Transacciones';
+export default function TransaccionesPage() {
+  const [activeTab, setActiveTab] = useState('summary');
+  const [selectedDate, setSelectedDate] = useState<Date>(() => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    return date;
+  });
+  const [selectedRoute, setSelectedRoute] = useState<RouteWithEmployees | null>(null);
+  const [selectedLead, setSelectedLead] = useState<EmployeeWithTypename | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const { data: routesData, loading: routesLoading } = useQuery(GET_ROUTES_SIMPLE, {
+    variables: {
+      where: {
+        isActive: { equals: true }
+      }
     }
+  });
+
+  const { data: summaryData, loading: summaryLoading, refetch: refetchSummary } = useQuery(GET_TRANSACTIONS_SUMMARY, {
+    variables: {
+      date: selectedDate.toISOString(),
+      nextDate: new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000 - 1).toISOString()
+    },
+    skip: activeTab !== 'summary'
+  });
+
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
+    setRefreshKey(prev => prev + 1);
   };
 
-  const handleDateChange = (date: Date) => {
-    setSelectedDate(date);
+  const handleDateChange = (date: string) => {
+    const newDate = new Date(date);
+    newDate.setHours(0, 0, 0, 0);
+    setSelectedDate(newDate);
+    setRefreshKey(prev => prev + 1);
   };
 
-  const handleRouteSelect = (route: Route | null) => {
+  useEffect(() => {
+    setIsLoading(true);
+    const timeout = setTimeout(() => setIsLoading(false), 100);
+    return () => clearTimeout(timeout);
+  }, [selectedDate, refreshKey]);
+
+  const handleRouteSelect = (route: RouteWithEmployees | null) => {
     setSelectedRoute(route);
+    setRefreshKey(prev => prev + 1);
   };
 
   const handleLeadSelect = (lead: Employee | null) => {
-    setSelectedLead(lead);
+    // Si el lead ya tiene __typename, lo dejamos igual, si no, lo convertimos
+    if (lead && (lead as any).__typename) {
+      setSelectedLead(lead as EmployeeWithTypename);
+    } else if (lead) {
+      setSelectedLead({
+        ...lead,
+        __typename: 'Employee',
+        personalData: {
+          ...lead.personalData,
+          __typename: 'PersonalData'
+        }
+      });
+    } else {
+      setSelectedLead(null);
+    }
+    setRefreshKey(prev => prev + 1);
+  };
+
+  const handleRefresh = async () => {
+    setRefreshKey(prev => prev + 1);
+    if (activeTab === 'summary') {
+      await refetchSummary();
+    }
+  };
+
+  const renderTabContent = () => {
+    if (isLoading) {
+      return (
+        <Box css={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
+          <LoadingDots label="Cargando..." />
+        </Box>
+      );
+    }
+
+    switch (activeTab) {
+      case 'summary':
+        return (
+          <SummaryTab
+            selectedDate={selectedDate}
+            refreshKey={refreshKey}
+          />
+        );
+      case 'expenses':
+        return (
+          <CreateExpensesForm
+            selectedDate={selectedDate}
+            selectedRoute={toRoute(selectedRoute)}
+            selectedLead={toEmployee(selectedLead)}
+            refreshKey={refreshKey}
+          />
+        );
+      case 'credits':
+        return (
+          <CreditosTab
+            selectedDate={selectedDate}
+            selectedRoute={selectedRoute?.id || null}
+            selectedLead={toCreditLead(selectedLead)}
+          />
+        );
+      case 'payments':
+        return (
+          <CreatePaymentForm
+            selectedDate={selectedDate}
+            selectedRoute={toRoute(selectedRoute)}
+            selectedLead={toEmployee(selectedLead)}
+            refreshKey={refreshKey}
+          />
+        );
+      case 'transfers':
+        return (
+          <TransferForm
+            selectedDate={selectedDate}
+            selectedRoute={toRoute(selectedRoute)}
+            selectedLead={toEmployee(selectedLead)}
+            refreshKey={refreshKey}
+            onTransferComplete={handleRefresh}
+          />
+        );
+      default:
+        return null;
+    }
   };
 
   return (
-    <PageContainer header={<h1>{getTabTitle()}</h1>}>
-      <div css={styles.container}>
-        <div css={styles.section}>
-          <Box marginBottom="large">
-            <RouteLeadSelector
-              selectedRoute={selectedRoute}
-              selectedLead={selectedLead}
-              selectedDate={selectedDate}
-              onRouteSelect={handleRouteSelect}
-              onLeadSelect={handleLeadSelect}
-              onDateSelect={handleDateChange}
-            />
-          </Box>
-        </div>
+    <PageContainer header={<h2>Transacciones</h2>}>
+      <Box css={{ padding: '24px' }}>
+        <Box css={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
+          <RouteLeadSelector
+            selectedRoute={selectedRoute}
+            selectedLead={selectedLead}
+            selectedDate={selectedDate}
+            onRouteSelect={handleRouteSelect}
+            onLeadSelect={handleLeadSelect}
+            onDateSelect={date => handleDateChange(date.toISOString())}
+          />
+        </Box>
 
-        <div css={styles.section}>
-          <Stack gap="xlarge">
-            <Box css={{ display: 'flex', gap: '16px', borderBottom: '2px solid #e2e8f0' }}>
-              <button
-                onClick={() => setSelectedTab('expenses')}
-                css={{
-                  padding: '12px 24px',
-                  border: 'none',
-                  background: 'none',
-                  borderBottom: selectedTab === 'expenses' ? '2px solid #4299e1' : 'none',
-                  marginBottom: '-2px',
-                  cursor: 'pointer',
-                  color: selectedTab === 'expenses' ? '#2c5282' : '#4a5568',
-                  fontWeight: selectedTab === 'expenses' ? 600 : 400
-                }}
-              >
-                Gastos
-              </button>
-              <button
-                onClick={() => setSelectedTab('credits')}
-                css={{
-                  padding: '12px 24px',
-                  border: 'none',
-                  background: 'none',
-                  borderBottom: selectedTab === 'credits' ? '2px solid #4299e1' : 'none',
-                  marginBottom: '-2px',
-                  cursor: 'pointer',
-                  color: selectedTab === 'credits' ? '#2c5282' : '#4a5568',
-                  fontWeight: selectedTab === 'credits' ? 600 : 400
-                }}
-              >
-                Créditos
-              </button>
-              <button
-                onClick={() => setSelectedTab('payments')}
-                css={{
-                  padding: '12px 24px',
-                  border: 'none',
-                  background: 'none',
-                  borderBottom: selectedTab === 'payments' ? '2px solid #4299e1' : 'none',
-                  marginBottom: '-2px',
-                  cursor: 'pointer',
-                  color: selectedTab === 'payments' ? '#2c5282' : '#4a5568',
-                  fontWeight: selectedTab === 'payments' ? 600 : 400
-                }}
-              >
-                Abonos
-              </button>
-            </Box>
+        <Box css={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
+          <button
+            onClick={() => handleTabChange('summary')}
+            data-testid="tab-summary"
+            css={{
+              padding: '8px 16px',
+              backgroundColor: activeTab === 'summary' ? '#3182ce' : '#e2e8f0',
+              color: activeTab === 'summary' ? 'white' : '#4a5568',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              '&:hover': {
+                backgroundColor: activeTab === 'summary' ? '#2c5282' : '#cbd5e0',
+              },
+            }}
+          >
+            Resumen
+          </button>
+          <button
+            onClick={() => handleTabChange('payments')}
+            data-testid="tab-payments"
+            css={{
+              padding: '8px 16px',
+              backgroundColor: activeTab === 'payments' ? '#3182ce' : '#e2e8f0',
+              color: activeTab === 'payments' ? 'white' : '#4a5568',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              '&:hover': {
+                backgroundColor: activeTab === 'payments' ? '#2c5282' : '#cbd5e0',
+              },
+            }}
+          >
+            Abonos
+          </button>
+          
+          <button
+            onClick={() => handleTabChange('credits')}
+            data-testid="tab-credits"
+            css={{
+              padding: '8px 16px',
+              backgroundColor: activeTab === 'credits' ? '#3182ce' : '#e2e8f0',
+              color: activeTab === 'credits' ? 'white' : '#4a5568',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              '&:hover': {
+                backgroundColor: activeTab === 'credits' ? '#2c5282' : '#cbd5e0',
+              },
+            }}
+          >
+            Créditos
+          </button>
+          <button
+            onClick={() => handleTabChange('expenses')}
+            data-testid="tab-expenses"
+            css={{
+              padding: '8px 16px',
+              backgroundColor: activeTab === 'expenses' ? '#3182ce' : '#e2e8f0',
+              color: activeTab === 'expenses' ? 'white' : '#4a5568',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              '&:hover': {
+                backgroundColor: activeTab === 'expenses' ? '#2c5282' : '#cbd5e0',
+              },
+            }}
+          >
+            Gastos
+          </button>
+          
+          <button
+            onClick={() => handleTabChange('transfers')}
+            data-testid="tab-transfers"
+            css={{
+              padding: '8px 16px',
+              backgroundColor: activeTab === 'transfers' ? '#3182ce' : '#e2e8f0',
+              color: activeTab === 'transfers' ? 'white' : '#4a5568',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              '&:hover': {
+                backgroundColor: activeTab === 'transfers' ? '#2c5282' : '#cbd5e0',
+              },
+            }}
+          >
+            Transferencias
+          </button>
+        </Box>
 
-            <Box>
-              {selectedTab === 'expenses' && (
-                <CreateExpensesForm
-                  selectedDate={selectedDate}
-                  selectedRoute={selectedRoute}
-                  selectedLead={selectedLead}
-                />
-              )}
-              {selectedTab === 'credits' && (
-                <CreateLoanForm
-                  selectedDate={selectedDate}
-                  selectedRoute={selectedRoute}
-                  selectedLead={selectedLead}
-                />
-              )}
-              {selectedTab === 'payments' && (
-                <CreatePaymentForm
-                  selectedDate={selectedDate}
-                  selectedRoute={selectedRoute}
-                  selectedLead={selectedLead}
-                />
-              )}
-            </Box>
-          </Stack>
-        </div>
-      </div>
+        {renderTabContent()}
+      </Box>
     </PageContainer>
   );
-};
-
-export default TransactionsPage;
+}

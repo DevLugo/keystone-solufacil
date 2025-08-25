@@ -1,25 +1,33 @@
 /** @jsxRuntime classic */
 /** @jsx jsx */
+/** @jsxFrag jsx.Fragment */
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useLazyQuery } from '@apollo/client';
 import { Box, jsx } from '@keystone-ui/core';
 import { LoadingDots } from '@keystone-ui/loading';
 import { Select } from '@keystone-ui/fields';
 import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
-import { GET_LEADS } from '../../graphql/queries/routes';
-import type { Employee } from '../../types/transaction';
+import { GET_LEADS_SIMPLE, GET_ROUTES_SIMPLE } from '../../graphql/queries/routes-optimized';
+import type { Employee, Option } from '../../types/transaction';
 import { gql } from '@apollo/client';
+import { FaTimes } from 'react-icons/fa';
 
 type Lead = {
   id: string;
   personalData: {
     fullName: string;
+    addresses?: Array<{
+      location: {
+        name: string;
+      } | null;
+    }> | null;
   };
   type: string;
 };
 
-type Route = {
+// Tipo simplificado para evitar cargar datos pesados
+type RouteSimple = {
   id: string;
   name: string;
   accounts: Array<{
@@ -27,28 +35,6 @@ type Route = {
     name: string;
     type: string;
     amount: number;
-    transactions: Array<{
-      id: string;
-      amount: number;
-      type: string;
-    }>;
-  }>;
-  employees: Array<{
-    id: string;
-    type: string;
-    LeadManagedLoans: Array<{
-      id: string;
-      status: string;
-      requestedAmount: number;
-      weeklyPaymentAmount: number;
-      finishedDate: string | null;
-      badDebtDate: string | null;
-      payments: Array<{
-        id: string;
-        amount: number;
-        receivedAt: string;
-      }>;
-    }>;
   }>;
 };
 
@@ -64,126 +50,136 @@ type RouteSummary = {
 };
 
 interface RouteLeadSelectorProps {
-  selectedRoute: Route | null;
+  selectedRoute: any | null; // Flexibilizado para evitar problemas de tipo
   selectedLead: Employee | null;
   selectedDate: Date;
-  onRouteSelect: (route: Route | null) => void;
+  onRouteSelect: (route: any | null) => void;
   onLeadSelect: (lead: Employee | null) => void;
   onDateSelect: (date: Date) => void;
-  onRefresh?: () => void;
 }
 
 const styles = {
-  mainContainer: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '24px',
+  container: {
     width: '100%',
-    backgroundColor: '#ffffff',
-    borderRadius: '12px',
     padding: '24px',
+    backgroundColor: 'white',
+    borderRadius: '8px',
     boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '24px',
+  },
+  title: {
+    fontSize: '20px',
+    fontWeight: '600',
+    color: '#1a202c',
+    margin: '0',
+  },
+  content: {
+    width: '100%',
   },
   selectorsContainer: {
     display: 'grid',
     gridTemplateColumns: 'repeat(3, 1fr)',
     gap: '16px',
     width: '100%',
-    marginBottom: '8px'
+    marginBottom: '24px'
   },
   selector: {
     width: '100%'
   },
+  selectorLabel: {
+    fontSize: '13px',
+    fontWeight: '500',
+    color: '#6B7280',
+    marginBottom: '8px',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.025em',
+  },
   dateInput: {
     width: '100%',
-    padding: '12px',
-    border: '1px solid #e2e8f0',
+    padding: '8px 12px',
+    border: '1px solid #E5E7EB',
     borderRadius: '8px',
     fontSize: '14px',
+    color: '#111827',
     transition: 'all 0.2s ease',
+    outline: 'none',
     '&:focus': {
-      outline: 'none',
-      borderColor: '#4299e1',
-      boxShadow: '0 0 0 2px rgba(66, 153, 225, 0.2)',
+      borderColor: '#0052CC',
+      boxShadow: '0 0 0 2px rgba(0, 82, 204, 0.1)',
     },
     '&:hover': {
-      borderColor: '#4299e1',
+      borderColor: '#0052CC',
     }
   },
   accountsContainer: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '24px',
-  },
-  accountSection: {
-    backgroundColor: '#f8fafc',
-    borderRadius: '8px',
-    border: '1px solid #e2e8f0',
-    overflow: 'hidden',
-  },
-  accountHeader: {
-    padding: '16px 20px',
-    borderBottom: '1px solid #e2e8f0',
-    backgroundColor: '#fff',
-  },
-  accountTitle: {
-    fontSize: '16px',
-    fontWeight: '600',
-    color: '#1a202c',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-  },
-  accountBadge: {
-    padding: '2px 8px',
-    borderRadius: '12px',
-    fontSize: '12px',
-    fontWeight: '500',
-    backgroundColor: '#e2e8f0',
-    color: '#4a5568',
-  },
-  summaryContainer: {
-    padding: '20px',
-  },
-  summaryHeader: {
-    fontSize: '16px',
-    fontWeight: '600',
-    color: '#1a202c',
-    marginBottom: '12px',
-  },
-  summaryGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
     gap: '16px',
+    width: '100%',
   },
   summaryCard: {
-    backgroundColor: '#ffffff',
-    padding: '16px',
-    borderRadius: '8px',
+    backgroundColor: 'white',
+    padding: '20px',
+    borderRadius: '12px',
     boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '8px',
+    overflow: 'hidden',
+  },
+  cardTopBorder: {
+    height: '2px',
+    background: '#0052CC',
+    opacity: 0.1,
+    marginBottom: '16px'
   },
   cardLabel: {
     fontSize: '13px',
-    color: '#64748b',
     fontWeight: '500',
+    color: '#6B7280',
+    marginBottom: '8px',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.025em',
   },
   cardValue: {
     fontSize: '24px',
     fontWeight: '600',
-    color: '#0f172a',
+    color: '#111827',
+    letterSpacing: '-0.02em',
+    lineHeight: '1',
+    marginBottom: '4px',
   },
   cardSubValue: {
-    fontSize: '14px',
-    color: '#64748b',
+    fontSize: '13px',
+    color: '#6B7280',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
   },
-  selectorLabel: {
-    fontSize: '14px',
-    fontWeight: '500',
-    color: '#4a5568',
-    marginBottom: '6px',
+  clearButton: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '32px',
+    height: '32px',
+    padding: '0',
+    border: '1px solid #e2e8f0',
+    borderRadius: '4px',
+    backgroundColor: 'white',
+    color: '#64748b',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    '&:hover': {
+      backgroundColor: '#f1f5f9',
+      color: '#475569',
+    }
+  },
+  selectContainer: {
+    display: 'flex',
+    gap: '8px',
+    alignItems: 'center',
   }
 };
 
@@ -206,9 +202,14 @@ const GET_ROUTES = gql`
           id
           status
           requestedAmount
-          weeklyPaymentAmount
+          amountGived
           finishedDate
           badDebtDate
+          loantype {
+            id
+            rate
+            weekDuration
+          }
           payments {
             id
             amount
@@ -220,33 +221,17 @@ const GET_ROUTES = gql`
   }
 `;
 
-const processRouteStats = (route: Route) => {
+const processRouteStats = (route: RouteSimple) => {
   const accounts: AccountSummary[] = [];
   
-  // Procesar todas las cuentas de la ruta
+  // Procesar todas las cuentas de la ruta de forma simplificada
   if (route.accounts && route.accounts.length > 0) {
     route.accounts.forEach(account => {
-      const loans = route.employees
-        .flatMap(emp => emp.LeadManagedLoans || [])
-        .filter(loan => loan !== null && loan !== undefined);
-
-      const activeLoans = loans.filter(loan => 
-        loan && loan.status === 'ACTIVE' && !loan.finishedDate && !loan.badDebtDate
-      );
-
-      const overdueLoans = loans.filter(loan => {
-        if (!loan || !loan.payments || !loan.payments.length) return false;
-        const lastPayment = new Date(loan.payments[loan.payments.length - 1].receivedAt);
-        const today = new Date();
-        const diffDays = Math.floor((today.getTime() - lastPayment.getTime()) / (1000 * 60 * 60 * 24));
-        return diffDays > 7;
-      });
-
       accounts.push({
         id: account.id,
         name: account.name || 'Cuenta sin nombre',
-        totalAccounts: loans.length,
-        amount: account.amount
+        totalAccounts: 1, // Simplificado - solo contamos las cuentas
+        amount: account.amount || 0
       });
     });
   }
@@ -254,28 +239,32 @@ const processRouteStats = (route: Route) => {
   return accounts;
 };
 
-export const RouteLeadSelector: React.FC<RouteLeadSelectorProps> = ({
+const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
   selectedRoute,
   selectedLead,
   selectedDate,
   onRouteSelect,
   onLeadSelect,
   onDateSelect,
-  onRefresh
 }) => {
-  const { data: routesData, loading: routesLoading, error: routesError, refetch: refetchRoutes } = useQuery<{ routes: Route[] }>(GET_ROUTES, {
+  // OPTIMIZADO: Usar cache-first y consulta simple
+  const { data: routesData, loading: routesLoading, error: routesError } = useQuery<{ routes: RouteSimple[] }>(GET_ROUTES_SIMPLE, {
     variables: { where: {} },
-    fetchPolicy: 'network-only',
+    fetchPolicy: 'cache-first', // Cambiado de 'network-only'
   });
 
-  const [getLeads, { data: leadsData, loading: leadsLoading, error: leadsError }] = useLazyQuery<{ employees: Lead[] }>(GET_LEADS);
+  const [getLeads, { data: leadsData, loading: leadsLoading, error: leadsError }] = useLazyQuery<{ employees: Lead[] }>(GET_LEADS_SIMPLE);
 
-  React.useEffect(() => {
-    if (selectedRoute?.id) {
-      refetchRoutes();
-    }
-  }, [selectedRoute?.id, refetchRoutes]);
+  const [routesErrorState, setRoutesErrorState] = useState<Error | null>(null);
+  const [leadsErrorState, setLeadsErrorState] = useState<Error | null>(null);
 
+  const dateOptions: Option[] = [
+    { label: 'Hoy', value: new Date().toISOString() },
+    { label: 'Ayer', value: new Date(Date.now() - 86400000).toISOString() },
+    { label: 'Esta semana', value: new Date(Date.now() - 604800000).toISOString() },
+  ];
+
+  // ELIMINADO: refetch innecesario que causaba problemas
   const currentRoute = selectedRoute?.id 
     ? routesData?.routes.find(route => route.id === selectedRoute.id) 
     : null;
@@ -290,45 +279,64 @@ export const RouteLeadSelector: React.FC<RouteLeadSelectorProps> = ({
     }
   }, [selectedRoute, getLeads]);
 
-  React.useEffect(() => {
-    if (onRefresh) {
-      onRefresh();
-    }
-  }, [onRefresh]);
-
   const routes = routesData?.routes || [];
   const leads = leadsData?.employees || [];
 
-  const routeOptions = routes.map((route: Route) => ({
+  const routeOptions = routes.map((route: RouteSimple) => ({
     label: route.name,
     value: route.id,
     data: route
   }));
 
-  const leadOptions = leads.map((lead: Lead) => ({
-    label: lead.personalData?.fullName || 'Sin nombre',
-    value: lead.id,
-    data: lead
-  }));
+  const leadOptions = leads.map((lead: Lead) => {
+    const locality = lead.personalData?.addresses?.[0]?.location?.name || '';
+    const state = (lead.personalData as any)?.addresses?.[0]?.location?.municipality?.state?.name || '';
+    const label = locality && state ? `${locality} · ${state} · (${lead.personalData?.fullName})` : locality || lead.personalData?.fullName || 'Sin nombre';
+    return {
+      label,
+      value: lead.id,
+      data: lead
+    };
+  });
 
-  const handleRouteChange = async (option: any) => {
+  // OPTIMIZADO: Eliminar refetch innecesario
+  const handleRouteChange = (option: any) => {
     onRouteSelect(option?.data || null);
     onLeadSelect(null);
-    await refetchRoutes();
+    // ELIMINADO: await refetchRoutes(); que causaba timeout
   };
 
   const handleLeadChange = (option: any) => {
-    onLeadSelect(option?.data || null);
+    if (option?.data) {
+      onLeadSelect({
+        id: option.data.id,
+        type: option.data.type,
+        personalData: {
+          fullName: option.data.personalData.fullName
+        },
+        routes: {
+          accounts: [] // Proporcionar estructura mínima requerida
+        }
+      });
+    } else {
+      onLeadSelect(null);
+    }
   };
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    try {
-      const [year, month, day] = e.target.value.split('-');
-      const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-      date.setMinutes(date.getMinutes() + date.getTimezoneOffset());
+    const dateString = e.target.value; // formato YYYY-MM-DD
+    if (dateString) {
+      // Dividimos la cadena de fecha en sus componentes
+      const [year, month, day] = dateString.split('-').map(num => parseInt(num, 10));
+      
+      // Creamos la fecha asegurando que se use exactamente el día seleccionado
+      // Los meses en JavaScript son 0-indexed (enero = 0)
+      const date = new Date(year, month - 1, day);
+      
+      // Ajustamos la zona horaria para evitar problemas de desplazamiento de día
+      date.setUTCHours(12, 0, 0, 0);
+      
       onDateSelect(date);
-    } catch (error) {
-      console.error('Error al procesar la fecha:', error);
     }
   };
 
@@ -345,59 +353,81 @@ export const RouteLeadSelector: React.FC<RouteLeadSelectorProps> = ({
   };
 
   return (
-    <Box css={styles.mainContainer}>
-      <Box css={styles.selectorsContainer}>
-        <Box css={styles.selector}>
-          <div css={styles.selectorLabel}>Ruta</div>
-          <Select
-            value={routeOptions.find(option => option.value === selectedRoute?.id) || null}
-            options={routeOptions}
-            onChange={handleRouteChange}
-            placeholder="Seleccionar ruta"
-            isLoading={routesLoading}
-          />
-        </Box>
-        <Box css={styles.selector}>
-          <div css={styles.selectorLabel}>Líder</div>
-          <Select
-            value={leadOptions.find(option => option.value === selectedLead?.id) || null}
-            options={leadOptions}
-            onChange={handleLeadChange}
-            placeholder="Seleccionar líder"
-            isLoading={leadsLoading}
-            isDisabled={!selectedRoute}
-          />
-        </Box>
-        <Box css={styles.selector}>
-          <div css={styles.selectorLabel}>Fecha</div>
-          <input
-            type="date"
-            value={selectedDate.toISOString().split('T')[0]}
-            onChange={handleDateChange}
-            css={styles.dateInput}
-          />
-        </Box>
+    <Box css={styles.container}>
+      <Box css={styles.header}>
+        <h2 css={styles.title}>Selección de Ruta y Localidad</h2>
       </Box>
 
-      {selectedRoute && routeSummary && (
-        <Box css={styles.accountsContainer}>
-          <div css={styles.accountSection}>
-            <div css={styles.summaryContainer}>
-              <div css={styles.summaryGrid}>
-                {routeSummary.accounts.map((account) => (
-                  <div key={account.id} css={styles.summaryCard}>
-                    <div css={styles.cardLabel}>{account.name}</div>
-                    <div css={styles.cardValue}>{formatCurrency(account.amount)}</div>
-                    <div css={styles.cardSubValue}>
-                      {account.totalAccounts} cuentas
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+      <Box css={styles.content}>
+        <Box css={styles.selectorsContainer}>
+          <Box css={styles.selector}>
+            <div css={styles.selectorLabel}>Ruta</div>
+            <Select
+              value={routeOptions.find(option => option.value === selectedRoute?.id) || null}
+              options={routeOptions}
+              onChange={handleRouteChange}
+              placeholder="Seleccionar ruta"
+              isLoading={routesLoading}
+              data-testid="route-selector"
+            />
+          </Box>
+
+          <Box css={styles.selector}>
+            <div css={styles.selectorLabel}>Localidad</div>
+            <Box css={styles.selectContainer}>
+              <Select
+                value={leadOptions.find(option => option.value === selectedLead?.id) || null}
+                options={leadOptions}
+                onChange={handleLeadChange}
+                placeholder="Seleccionar localidad"
+                isLoading={leadsLoading}
+                isDisabled={!selectedRoute}
+                data-testid="lead-selector"
+              />
+              {selectedLead && (
+                <button
+                  css={styles.clearButton}
+                  onClick={() => onLeadSelect(null)}
+                  title="Limpiar localidad seleccionada"
+                >
+                  <FaTimes />
+                </button>
+              )}
+            </Box>
+          </Box>
+
+          <Box css={styles.selector}>
+            <div css={styles.selectorLabel}>Fecha</div>
+            <input
+              type="date"
+              value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''}
+              onChange={handleDateChange}
+              css={styles.dateInput}
+            />
+          </Box>
         </Box>
-      )}
+
+        {selectedRoute && routeSummary && (
+          <Box css={styles.accountsContainer}>
+            {routeSummary.accounts.map((account) => (
+              <div key={account.id} css={styles.summaryCard}>
+                <div css={styles.cardTopBorder} />
+                <div css={styles.cardLabel}>{account.name}</div>
+                <div css={styles.cardValue}>{formatCurrency(account.amount)}</div>
+                <div css={styles.cardSubValue}>
+                  {account.totalAccounts} cuentas
+                </div>
+              </div>
+            ))}
+          </Box>
+        )}
+
+        {(routesError || leadsError) && (
+          <GraphQLErrorNotice networkError={routesError || leadsError} errors={[]} />
+        )}
+      </Box>
     </Box>
   );
 };
+
+export default RouteLeadSelectorComponent;

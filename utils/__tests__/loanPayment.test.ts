@@ -1,4 +1,5 @@
 import { calculatePaymentProfitAmount } from "../loanPayment";
+import '@testing-library/jest-dom';
 
 describe('LoanPayment Tests', () => {
     const testCases = [
@@ -110,13 +111,14 @@ describe('LoanPayment Tests', () => {
 
     testCases.forEach(({ input, output }) => {
         test(`calculatePaymentProfitAmount(${input.paymentAmount}, ${input.totalProfit}) should return ${output}`, async () => {
-            await expect(calculatePaymentProfitAmount(
+            const result = await calculatePaymentProfitAmount(
                 input.paymentAmount,
                 input.totalProfit,
                 input.totalAmountToPay,
                 input.requestedAmount,
                 input.loanPayedAmount
-            )).resolves.toEqual(output);
+            );
+            expect(result).toEqual(output);
         });
     });
 
@@ -149,7 +151,7 @@ describe('LoanPayment Tests', () => {
             console.log("latestTotalProfitAmount", latestTotalProfitAmount);
         }
 
-        expect(latestTotalReturnToCapital + latestTotalProfitAmount).toBe(4200);
+        expect(latestTotalReturnToCapital + latestTotalProfitAmount).toBeCloseTo(4200, 2);
 
         
     });

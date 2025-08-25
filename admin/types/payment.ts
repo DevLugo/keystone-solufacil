@@ -8,7 +8,13 @@ export type Lead = {
 
 export type Loan = {
   id: string;
-  weeklyPaymentAmount: string;
+  requestedAmount: string;
+  amountGived: string;
+  loantype: {
+    id: string;
+    rate: string;
+    weekDuration: number;
+  } | null;
   borrower: {
     personalData: {
       fullName: string;
@@ -43,7 +49,6 @@ export type PaymentDistribution = {
 
 export enum PaymentType {
   PAYMENT = 'PAYMENT',
-  NO_PAYMENT = 'NO_PAYMENT',
   FALCO = 'FALCO',
   EXTRA_COLLECTION = 'EXTRA_COLLECTION'
 }
@@ -55,7 +60,6 @@ export enum PaymentMethod {
 
 export const paymentTypeOptions: Option[] = [
   { label: 'ABONO', value: PaymentType.PAYMENT },
-  { label: 'SIN PAGO', value: PaymentType.NO_PAYMENT },
   { label: 'FALCO', value: PaymentType.FALCO },
   { label: 'EXTRA COBRANZA', value: PaymentType.EXTRA_COLLECTION },
 ];

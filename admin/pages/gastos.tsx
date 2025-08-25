@@ -1,7 +1,7 @@
 /** @jsxRuntime classic */
 /** @jsx jsx */
 
-import React, { useState, useEffect, useMemo, Fragment } from 'react';
+import React, { useState, useEffect, useMemo, Fragment, useRef } from 'react';
 import { useQuery, useMutation, useLazyQuery } from '@apollo/client';
 import { Box, jsx } from '@keystone-ui/core';
 import { Button } from '@keystone-ui/button';
@@ -10,48 +10,51 @@ import { PageContainer, GraphQLErrorNotice } from '@keystone-6/core/admin-ui/com
 import { Select, TextInput, DatePicker } from '@keystone-ui/fields';
 import { LoadingDots } from '@keystone-ui/loading';
 import { gql } from '@apollo/client';
+import { FaPlus, FaEllipsisV, FaCheck, FaTimes, FaEdit, FaTrash } from 'react-icons/fa';
+import { createPortal } from 'react-dom';
 
 // Import components
-import { RouteLeadSelector } from '../components/routes/RouteLeadSelector';
+import RouteLeadSelector from '../components/routes/RouteLeadSelector';
 
 // Import GraphQL queries and mutations
 import { GET_ROUTES, GET_LEADS } from '../graphql/queries/routes';
+import { GET_ROUTES_SIMPLE } from '../graphql/queries/routes-optimized';
 import { CREATE_TRANSACTION, UPDATE_TRANSACTION } from '../graphql/mutations/transactions';
 import type { Transaction, Account, Option, TransactionCreateInput, Route, Employee } from '../types/transaction';
 
-const GET_EXPENSES_BY_DATE = gql`
-  query GetExpensesByDate($date: DateTime!, $nextDate: DateTime!) {
-    transactions(where: {
-      AND: [
-        { date: { gte: $date } },
-        { date: { lt: $nextDate } },
-        { type: { equals: "EXPENSE" } },
-        { expenseSource: { not: { equals: "LOAN_GRANTED" } } },
-        { expenseSource: { not: { equals: "LOAN_GRANTED_COMISSION" } } },
-        { expenseSource: { not: { equals: "LOAN_PAYMENT_COMISSION" } } }
-      ]
-    }) {
-      id
-      amount
-      expenseSource
-      date
-      sourceAccount {
-        id
-        name
-        __typename
-      }
-      lead {
-        id
-        personalData {
-          fullName
-          __typename
-        }
-        __typename
-      }
-      __typename
-    }
-  }
-`;
+interface DropdownPortalProps {
+  isOpen: boolean;
+  children: React.ReactNode;
+}
+
+const DropdownPortal: React.FC<DropdownPortalProps> = ({ isOpen, children }) => {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted || !isOpen) return null;
+
+  return createPortal(
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 9999,
+        pointerEvents: 'none',
+      }}
+    >
+      {children}
+    </div>,
+    document.body
+  );
+};
+
+import { GET_EXPENSES_BY_DATE_SIMPLE } from '../graphql/queries/transactions';
 
 const styles = {
   form: {
@@ -185,7 +188,39 @@ const styles = {
         color: 'white',
       }
     }
-  }
+  },
+  tableHeaderStyle: {
+    padding: '12px 16px',
+    textAlign: 'left' as const,
+    fontSize: '13px',
+    fontWeight: '600',
+    color: '#4B5563',
+    backgroundColor: '#F9FAFB',
+    borderBottom: '1px solid #E5E7EB',
+    whiteSpace: 'nowrap' as const,
+  },
+  tableCellStyle: {
+    padding: '12px 16px',
+    fontSize: '13px',
+    color: '#374151',
+    borderBottom: '1px solid #E5E7EB',
+    whiteSpace: 'nowrap' as const,
+  },
+  menuItemStyle: {
+    display: 'flex',
+    alignItems: 'center',
+    width: '100%',
+    padding: '8px 16px',
+    border: 'none',
+    background: 'none',
+    cursor: 'pointer',
+    fontSize: '13px',
+    color: '#374151',
+    transition: 'background-color 0.2s',
+    '&:hover': {
+      backgroundColor: '#F3F4F6',
+    },
+  },
 };
 
 const expenseTypes = [
@@ -199,7 +234,8 @@ const expenseTypes = [
   { label: 'Préstamo Otorgado', value: 'LOAN_GRANTED' },
   { label: 'Comisión de Pago de Préstamo', value: 'LOAN_PAYMENT_COMISSION' },
   { label: 'Comisión de Otorgamiento de Préstamo', value: 'LOAN_GRANTED_COMISSION' },
-  { label: 'Comisión de Líder', value: 'LEAD_COMISSION' }
+  { label: 'Comisión de Líder', value: 'LEAD_COMISSION' },
+  { label: 'Gasto de Líder', value: 'LEAD_EXPENSE' }
 ];
 
 const formStyles = {
@@ -237,6 +273,7 @@ export interface GastosProps {
   selectedRoute: Route | null;
   selectedLead: Employee | null;
   onSaveComplete?: () => void;
+  refreshKey: number;
 }
 
 interface FormState {
@@ -246,6 +283,7 @@ interface FormState {
   editedTransactions: { [key: string]: Transaction };
   showSuccessMessage: boolean;
   expandedSection: 'existing' | 'new' | null;
+  editingTransaction: Transaction | null;
 }
 
 type DatePickerProps = {
@@ -261,18 +299,30 @@ const DELETE_TRANSACTION = gql`
   }
 `;
 
-export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, onSaveComplete }: GastosProps) => {
+export const CreateExpensesForm = ({ 
+  selectedDate, 
+  selectedRoute, 
+  selectedLead,
+  refreshKey,
+  onSaveComplete
+}: GastosProps) => {
   const [state, setState] = useState<FormState>({
     newTransactions: [],
     transactions: [],
     focusedInput: null,
     editedTransactions: {},
     showSuccessMessage: false,
-    expandedSection: 'existing' // Por defecto, la sección de gastos existentes está expandida
+    expandedSection: 'existing',
+    editingTransaction: null
   });
 
+  const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const buttonRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
+  const [isAddingNew, setIsAddingNew] = useState(false);
+
   const { 
-    newTransactions, transactions, focusedInput, editedTransactions, showSuccessMessage, expandedSection 
+    newTransactions, transactions, focusedInput, editedTransactions, showSuccessMessage, expandedSection, editingTransaction 
   } = state;
 
   const toggleSection = (section: 'existing' | 'new') => {
@@ -286,7 +336,7 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
     setState(prev => ({ ...prev, ...updates }));
   };
 
-  const { data: routesData, loading: routesLoading, error: routesError, refetch: refetchRoutes } = useQuery<{ routes: Route[] }>(GET_ROUTES, {
+  const { data: routesData, loading: routesLoading, error: routesError, refetch: refetchRoutes } = useQuery<{ routes: Route[] }>(GET_ROUTES_SIMPLE, {
     variables: { where: {} },
   });
 
@@ -312,10 +362,10 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
 
   const [getLeads, { data: leadsData, loading: leadsLoading, error: leadsError }] = useLazyQuery(GET_LEADS);
 
-  const { data: expensesData, loading: expensesLoading, refetch: refetchExpenses } = useQuery(GET_EXPENSES_BY_DATE, {
+  const { data: expensesData, loading: expensesLoading, refetch: refetchExpenses } = useQuery(GET_EXPENSES_BY_DATE_SIMPLE, {
     variables: { 
       date: selectedDate.toISOString().split('T')[0] + 'T00:00:00.000Z',
-      nextDate: new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000 - 60000).toISOString() // Restamos 1 minuto
+      nextDate: new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0] + 'T00:00:00.000Z'
     },
     skip: !selectedDate,
     onCompleted: (data) => {
@@ -362,6 +412,19 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
       newTransactions: [...newTransactions, newTransaction],
       expandedSection: 'new'
     });
+    setIsAddingNew(true);
+  };
+
+  // Función helper para obtener la cuenta Toka
+  const getTokaAccount = () => {
+    return selectedRoute?.accounts?.find(acc => 
+      acc.type === 'PREPAID_GAS' && acc.name?.toLowerCase().includes('toka')
+    );
+  };
+
+  // Función helper para verificar si hay cuenta Toka disponible
+  const hasTokaAccount = () => {
+    return getTokaAccount() !== undefined;
   };
 
   const handleEditExistingTransaction = (transactionId: string, field: string, value: string) => {
@@ -381,6 +444,54 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
     });
   };
 
+  const handleOpenEditModal = (transaction: Transaction) => {
+    updateState({ editingTransaction: transaction });
+  };
+
+  const handleCloseEditModal = () => {
+    updateState({ editingTransaction: null });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!state.editingTransaction) return;
+
+    try {
+      await updateTransaction({
+        variables: { 
+          id: state.editingTransaction.id,
+          data: {
+            amount: state.editingTransaction.amount,
+            expenseSource: state.editingTransaction.expenseSource
+          }
+        }
+      });
+
+      // Refrescar los datos
+      await Promise.all([
+        refetchExpenses(),
+        refetchRoutes(),
+        selectedRoute?.id ? refetchRoute() : Promise.resolve()
+      ]);
+
+      // Actualizar el componente padre
+      if (onSaveComplete) {
+        await onSaveComplete();
+      }
+
+      updateState({ 
+        showSuccessMessage: true,
+        editingTransaction: null
+      });
+
+      setTimeout(() => {
+        updateState({ showSuccessMessage: false });
+      }, 2000);
+
+    } catch (error) {
+      console.error('Error updating transaction:', error);
+    }
+  };
+
   const handleEditTransaction = (index: number, field: string, value: string) => {
     const updatedTransactions = [...newTransactions];
     const transaction = { ...updatedTransactions[index] };
@@ -388,10 +499,24 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
     switch (field) {
       case 'expenseType': {
         transaction.expenseSource = value;
+        
+        // Si es gasolina, buscar la cuenta toka como default
+        if (value === 'GASOLINE' && selectedRoute?.accounts) {
+          const tokaAccount = selectedRoute.accounts.find(acc => 
+            acc.type === 'PREPAID_GAS' && acc.name?.toLowerCase().includes('toka')
+          );
+          if (tokaAccount) {
+            transaction.sourceAccount = { connect: { id: tokaAccount.id } };
+          }
+        }
         break;
       }
       case 'amount': {
         transaction.amount = value;
+        break;
+      }
+      case 'sourceAccount': {
+        transaction.sourceAccount = { connect: { id: value } };
         break;
       }
       default: {
@@ -403,6 +528,15 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
 
     updatedTransactions[index] = transaction;
     updateState({ newTransactions: updatedTransactions });
+  };
+
+  const handleCancelNew = (index: number) => {
+    const updatedTransactions = [...newTransactions];
+    updatedTransactions.splice(index, 1);
+    updateState({ newTransactions: updatedTransactions });
+    if (updatedTransactions.length === 0) {
+      setIsAddingNew(false);
+    }
   };
 
   const handleSaveAllChanges = async () => {
@@ -445,13 +579,13 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
         newTransactions: [],
         editedTransactions: {}
       });
+
+      // 🔧 FIX: Ocultar los rows de creación
+      setIsAddingNew(false);
       
       // Ocultar el mensaje después de 2 segundos
       setTimeout(() => {
-        updateState(prev => ({
-          ...prev,
-          showSuccessMessage: false
-        }));
+        updateState({ showSuccessMessage: false });
       }, 2000);
 
     } catch (error) {
@@ -483,10 +617,7 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
 
       updateState({ showSuccessMessage: true });
       setTimeout(() => {
-        updateState(prev => ({
-          ...prev,
-          showSuccessMessage: false
-        }));
+        updateState({ showSuccessMessage: false });
       }, 2000);
 
     } catch (error) {
@@ -510,6 +641,21 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
     }
   }, [selectedDate, selectedLead, expensesData]);
 
+  useEffect(() => {
+    refetchExpenses();
+  }, [refreshKey, refetchExpenses]);
+
+  const getDropdownPosition = (buttonId: string) => {
+    const button = buttonRefs.current[buttonId];
+    if (!button) return { top: 0, left: 0 };
+
+    const rect = button.getBoundingClientRect();
+    return {
+      top: rect.top - 4, // Posicionar arriba del botón
+      left: rect.right - 160, // 160px es el ancho del dropdown
+    };
+  };
+
   if (routesLoading || expensesLoading) return <LoadingDots label="Loading data" />;
   if (routesError) return <GraphQLErrorNotice errors={routesError?.graphQLErrors || []} networkError={routesError?.networkError} />;
 
@@ -517,7 +663,577 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
     newTransactions.reduce((sum, transaction) => sum + parseFloat(transaction.amount || '0'), 0);
 
   return (
-    <Box paddingTop="xlarge">
+    <Box paddingTop="medium">
+      <div style={{
+        display: 'flex',
+        gap: '16px',
+        alignItems: 'flex-start',
+        marginBottom: '16px',
+        background: 'white',
+        padding: '16px',
+        borderRadius: '8px',
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+      }}>
+        {/* Stats Grid */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, 1fr)',
+          gap: '1px',
+          background: '#E2E8F0',
+          borderRadius: '8px',
+          overflow: 'hidden',
+          flex: 1,
+          boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+        }}>
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column' as const,
+            background: 'white',
+            padding: '12px',
+            position: 'relative',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '2px',
+              background: '#0052CC',
+              opacity: 0.1,
+            }} />
+            <div style={{
+              fontSize: '12px',
+              fontWeight: '500',
+              color: '#6B7280',
+              marginBottom: '4px',
+            }}>
+              TOTAL DE GASTOS
+            </div>
+            <div style={{
+              fontSize: '20px',
+              fontWeight: '600',
+              color: '#111827',
+              letterSpacing: '-0.02em',
+              lineHeight: '1',
+              marginBottom: '2px',
+            }}>
+              {transactions.length + newTransactions.length}
+            </div>
+            <div style={{
+              fontSize: '12px',
+              color: '#059669',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}>
+              <span>Registrados</span>
+            </div>
+          </div>
+
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column' as const,
+            background: 'white',
+            padding: '12px',
+            position: 'relative',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '2px',
+              background: '#0052CC',
+              opacity: 0.1,
+            }} />
+            <div style={{
+              fontSize: '12px',
+              fontWeight: '500',
+              color: '#6B7280',
+              marginBottom: '4px',
+            }}>
+              GASTOS NUEVOS
+            </div>
+            <div style={{
+              fontSize: '20px',
+              fontWeight: '600',
+              color: '#111827',
+              letterSpacing: '-0.02em',
+              lineHeight: '1',
+              marginBottom: '2px',
+            }}>
+              {newTransactions.length}
+            </div>
+            <div style={{
+              fontSize: '12px',
+              color: '#6B7280',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}>
+              <span>Por guardar</span>
+            </div>
+          </div>
+
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column' as const,
+            background: 'white',
+            padding: '12px',
+            position: 'relative',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '2px',
+              background: '#0052CC',
+              opacity: 0.1,
+            }} />
+            <div style={{
+              fontSize: '12px',
+              fontWeight: '500',
+              color: '#6B7280',
+              marginBottom: '4px',
+            }}>
+              TOTAL GASTADO
+            </div>
+            <div style={{
+              fontSize: '20px',
+              fontWeight: '600',
+              color: '#111827',
+              letterSpacing: '-0.02em',
+              lineHeight: '1',
+              marginBottom: '2px',
+            }}>
+              ${totalAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <div style={{
+              fontSize: '12px',
+              color: '#6B7280',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}>
+              <span>En {transactions.length + newTransactions.length} gastos</span>
+            </div>
+          </div>
+
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column' as const,
+            background: 'white',
+            padding: '12px',
+            position: 'relative',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '2px',
+              background: '#0052CC',
+              opacity: 0.1,
+            }} />
+            <div style={{
+              fontSize: '12px',
+              fontWeight: '500',
+              color: '#6B7280',
+              marginBottom: '4px',
+            }}>
+              GASTOS MODIFICADOS
+            </div>
+            <div style={{
+              fontSize: '20px',
+              fontWeight: '600',
+              color: '#111827',
+              letterSpacing: '-0.02em',
+              lineHeight: '1',
+              marginBottom: '2px',
+            }}>
+              {Object.keys(editedTransactions).length}
+            </div>
+            <div style={{
+              fontSize: '12px',
+              color: '#6B7280',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}>
+              <span>Por guardar</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Add Expense Button */}
+        <Button
+          tone="active"
+          size="medium"
+          weight="bold"
+          onClick={handleAddTransaction}
+          isDisabled={!selectedRoute || !selectedDate || createLoading}
+          style={{
+            padding: '8px 12px',
+            fontSize: '13px',
+            borderRadius: '6px',
+            backgroundColor: '#0052CC',
+            transition: 'all 0.2s ease',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            height: '36px',
+            whiteSpace: 'nowrap',
+            alignSelf: 'center',
+            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+          }}
+        >
+          <FaPlus size={12} style={{ marginTop: '-1px' }} />
+          <span>Nuevo Gasto</span>
+        </Button>
+      </div>
+
+      {/* Expenses Table */}
+      <Box
+        style={{
+          backgroundColor: 'white',
+          borderRadius: '8px',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+          position: 'relative',
+        }}
+      >
+        <div style={{
+          padding: '12px',
+        }}>
+          <table style={{ 
+            width: '100%', 
+            borderCollapse: 'collapse',
+            fontSize: '13px',
+          }}>
+            <thead>
+              <tr style={{ 
+                backgroundColor: '#F9FAFB',
+                borderBottom: '1px solid #E5E7EB' 
+              }}>
+                <th style={styles.tableHeaderStyle}>Tipo</th>
+                <th style={styles.tableHeaderStyle}>Monto</th>
+                <th style={styles.tableHeaderStyle}>Fecha</th>
+                <th style={styles.tableHeaderStyle}>Líder</th>
+                <th style={styles.tableHeaderStyle}>Cuenta</th>
+                <th style={{
+                  ...styles.tableHeaderStyle,
+                  width: '40px',
+                  minWidth: '40px',
+                }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {transactions.map((transaction) => (
+                <tr 
+                  key={transaction.id}
+                  style={{
+                    borderBottom: '1px solid #E5E7EB',
+                    transition: 'all 0.3s ease',
+                    backgroundColor: 'white',
+                    position: 'relative',
+                  }}
+                >
+                  <td style={styles.tableCellStyle}>
+                    {expenseTypes.find(t => t.value === transaction.expenseSource)?.label || 'Sin tipo'}
+                  </td>
+                  <td style={styles.tableCellStyle}>
+                    ${parseFloat(transaction.amount).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+                  <td style={styles.tableCellStyle}>
+                    {new Date(new Date(transaction.date).getTime() + new Date().getTimezoneOffset() * 60000).toLocaleDateString('es-MX', {
+                      year: 'numeric',
+                      month: '2-digit',
+                      day: '2-digit'
+                    })}
+                  </td>
+                  <td style={styles.tableCellStyle}>{transaction.lead?.personalData?.fullName || 'Sin líder'}</td>
+                  <td style={styles.tableCellStyle}>{transaction.sourceAccount?.name || '-'}</td>
+                  <td style={{
+                    ...styles.tableCellStyle,
+                    width: '40px',
+                    position: 'relative',
+                  }}>
+                    <Button
+                      ref={el => buttonRefs.current[transaction.id] = el}
+                      tone="passive"
+                      size="small"
+                      onClick={() => setActiveMenu(activeMenu === transaction.id ? null : transaction.id)}
+                      style={{
+                        padding: '6px',
+                        minWidth: '32px',
+                        height: '32px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <FaEllipsisV size={14} />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+              {isAddingNew && newTransactions.map((transaction, index) => (
+                <tr 
+                  key={`new-${index}`}
+                  style={{
+                    backgroundColor: '#F0F9FF',
+                    position: 'relative',
+                  }}
+                                  >
+                    <td style={styles.tableCellStyle}>
+                    <Box css={styles.selectContainer}>
+                      <Select
+                        value={expenseTypes.find(t => t.value === transaction.expenseSource) || expenseTypes[0]}
+                        options={expenseTypes}
+                        onChange={option => handleEditTransaction(index, 'expenseType', option?.value || '')}
+                        menuPortalTarget={document.body}
+                        menuPosition="fixed"
+                        menuPlacement="auto"
+                      />
+                    </Box>
+                  </td>
+                  <td style={styles.tableCellStyle}>
+                    <TextInput
+                      type="number"
+                      value={transaction.amount}
+                      onChange={e => handleEditTransaction(index, 'amount', e.target.value)}
+                      placeholder="0.00"
+                    />
+                  </td>
+                  <td style={styles.tableCellStyle}>
+                    {new Date(new Date(transaction.date).getTime() + new Date().getTimezoneOffset() * 60000).toLocaleDateString('es-MX', {
+                      year: 'numeric',
+                      month: '2-digit',
+                      day: '2-digit'
+                    })}
+                  </td>
+                  <td style={styles.tableCellStyle}>{selectedLead?.personalData?.fullName}</td>
+                  <td style={styles.tableCellStyle}>
+                    <Box css={styles.selectContainer}>
+                      <Select
+                        value={selectedRoute?.accounts?.map(acc => ({
+                          label: acc.name || '',
+                          value: acc.id
+                        })).find(acc => acc.value === transaction.sourceAccount?.connect?.id) || null}
+                        options={selectedRoute?.accounts?.filter(acc => {
+                          // Si es gasolina, solo mostrar PREPAID_GAS (toka) y EMPLOYEE_CASH_FUND (efectivo)
+                          if (transaction.expenseSource === 'GASOLINE') {
+                            return acc.type === 'PREPAID_GAS' || acc.type === 'EMPLOYEE_CASH_FUND';
+                          }
+                          // Para otros tipos, mostrar todas las cuentas EXCEPTO PREPAID_GAS (toka)
+                          return acc.type !== 'PREPAID_GAS';
+                        }).map(acc => ({
+                          label: acc.type === 'PREPAID_GAS' ? `${acc.name || 'Toka'} (Prepago Gas)` : 
+                                 acc.type === 'EMPLOYEE_CASH_FUND' ? `${acc.name || 'Efectivo'} (Efectivo)` :
+                                 acc.name || '',
+                          value: acc.id
+                        })) || []}
+                        onChange={option => handleEditTransaction(index, 'sourceAccount', option?.value || '')}
+                        menuPortalTarget={document.body}
+                        menuPosition="fixed"
+                        menuPlacement="auto"
+                      />
+                    </Box>
+                  </td>
+                  <td style={{
+                    ...styles.tableCellStyle,
+                    width: '100px',
+                  }}>
+                    <Box style={{ display: 'flex', gap: '4px' }}>
+                      <Button
+                        tone="positive"
+                        size="small"
+                        onClick={() => handleSaveAllChanges()}
+                        style={{
+                          padding: '6px',
+                          width: '32px',
+                          height: '32px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                        title="Guardar"
+                      >
+                        <FaCheck size={14} />
+                      </Button>
+                      <Button
+                        tone="passive"
+                        size="small"
+                        onClick={() => handleCancelNew(index)}
+                        style={{
+                          padding: '6px',
+                          width: '32px',
+                          height: '32px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                        title="Cancelar"
+                      >
+                        <FaTimes size={14} />
+                      </Button>
+                    </Box>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Box>
+
+      {/* Global Dropdown Container */}
+      <DropdownPortal isOpen={activeMenu !== null}>
+        {transactions.map((transaction) => (
+          activeMenu === transaction.id && (
+            <div
+              key={`dropdown-${transaction.id}`}
+              ref={menuRef}
+              style={{
+                position: 'fixed',
+                ...getDropdownPosition(transaction.id),
+                backgroundColor: 'white',
+                borderRadius: '8px',
+                boxShadow: '0 -4px 6px -1px rgba(0, 0, 0, 0.1), 0 -2px 4px -1px rgba(0, 0, 0, 0.06)',
+                pointerEvents: 'auto',
+                minWidth: '160px',
+                zIndex: 10000,
+                transform: 'translateY(-100%)', // Mover el menú hacia arriba
+              }}
+            >
+              <button
+                onClick={() => {
+                  handleOpenEditModal(transaction);
+                  setActiveMenu(null);
+                }}
+                style={styles.menuItemStyle}
+              >
+                <FaEdit size={14} style={{ marginRight: '8px' }} />
+                Editar
+              </button>
+              <button
+                onClick={() => {
+                  handleDeleteExistingTransaction(transaction.id);
+                  setActiveMenu(null);
+                }}
+                style={{
+                  ...styles.menuItemStyle,
+                  color: '#DC2626',
+                  borderTop: '1px solid #E5E7EB',
+                }}
+              >
+                <FaTrash size={14} style={{ marginRight: '8px' }} />
+                Eliminar
+              </button>
+            </div>
+          )
+        ))}
+      </DropdownPortal>
+
+      {/* Edit Modal */}
+      {editingTransaction && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '8px',
+            padding: '24px',
+            width: '400px',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+          }}>
+            <h3 style={{
+              marginBottom: '16px',
+              fontSize: '16px',
+              fontWeight: '600',
+              color: '#1a202c',
+            }}>
+              Editar Gasto
+            </h3>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{
+                display: 'block',
+                marginBottom: '8px',
+                fontSize: '14px',
+                color: '#4a5568',
+              }}>
+                Tipo de Gasto
+              </label>
+              <Select
+                value={expenseTypes.find(t => t.value === editingTransaction.expenseSource) || expenseTypes[0]}
+                options={expenseTypes}
+                onChange={option => updateState({
+                  editingTransaction: {
+                    ...editingTransaction,
+                    expenseSource: option?.value || ''
+                  }
+                })}
+                menuPortalTarget={document.body}
+                menuPosition="fixed"
+                menuPlacement="auto"
+              />
+            </div>
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{
+                display: 'block',
+                marginBottom: '8px',
+                fontSize: '14px',
+                color: '#4a5568',
+              }}>
+                Monto
+              </label>
+              <TextInput
+                type="number"
+                value={editingTransaction.amount}
+                onChange={e => updateState({
+                  editingTransaction: {
+                    ...editingTransaction,
+                    amount: e.target.value
+                  }
+                })}
+                placeholder="0.00"
+              />
+            </div>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: '8px',
+            }}>
+              <Button
+                tone="passive"
+                onClick={handleCloseEditModal}
+              >
+                Cancelar
+              </Button>
+              <Button
+                tone="positive"
+                onClick={handleSaveEdit}
+              >
+                Guardar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success Message */}
       {showSuccessMessage && (
         <Box
           style={{
@@ -539,211 +1255,6 @@ export const CreateExpensesForm = ({ selectedDate, selectedRoute, selectedLead, 
           <span style={{ fontWeight: '500' }}>¡Cambios guardados exitosamente!</span>
         </Box>
       )}
-
-      <Box css={styles.mainContainer}>
-        <Box css={styles.section}>
-          <div css={styles.sectionHeader}>
-            <div css={styles.sectionTitle}>
-              Resumen de Gastos
-              <div css={styles.totalAmount}>
-                Total: <span>${totalAmount.toFixed(2)}</span>
-              </div>
-            </div>
-          </div>
-
-          {expensesLoading ? (
-            <Box
-              style={{
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                padding: '48px',
-              }}
-            >
-              <LoadingDots label="Cargando transacciones..." />
-            </Box>
-          ) : (
-            <Fragment>
-              <Box css={styles.section}>
-                <div css={styles.sectionHeader}>
-                  <div css={styles.sectionTitle}>
-                    Gastos Existentes
-                    <div css={styles.badge}>{transactions.length}</div>
-                  </div>
-                  <span style={{ cursor: 'pointer' }} onClick={() => toggleSection('existing')}>
-                    {expandedSection === 'existing' ? '▼' : '▶'}
-                  </span>
-                </div>
-
-                {expandedSection === 'existing' && transactions.length > 0 && (
-                  <Box padding="medium">
-                    <table css={styles.table}>
-                      <thead>
-                        <tr>
-                          <th>Tipo</th>
-                          <th>Monto</th>
-                          <th>Fecha</th>
-                          <th>Líder</th>
-                          <th>Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {transactions.map((transaction, index) => {
-                          const editedTransaction = editedTransactions[transaction.id] || transaction;
-                          return (
-                            <tr key={transaction.id}>
-                              <td>
-                                <Box css={styles.selectContainer}>
-                                  <Select
-                                    value={expenseTypes.find(t => t.value === editedTransaction.expenseSource) || expenseTypes[0]}
-                                    options={expenseTypes}
-                                    onChange={option => handleEditExistingTransaction(transaction.id, 'expenseSource', option?.value || '')}
-                                    menuPortalTarget={document.body}
-                                    menuPosition="fixed"
-                                    menuPlacement="auto"
-                                  />
-                                </Box>
-                              </td>
-                              <td>
-                                <TextInput
-                                  type="number"
-                                  value={editedTransaction.amount}
-                                  onChange={e => handleEditExistingTransaction(transaction.id, 'amount', e.target.value)}
-                                  placeholder="0.00"
-                                />
-                              </td>
-                              <td>{new Date(transaction.date).toLocaleDateString()}</td>
-                              <td>{transaction.lead?.personalData?.fullName || 'Sin líder'}</td>
-                              <td>
-                                <Button
-                                  tone="negative"
-                                  size="small"
-                                  onClick={() => handleDeleteExistingTransaction(transaction.id)}
-                                >
-                                  Eliminar
-                                </Button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </Box>
-                )}
-              </Box>
-
-              <Box css={styles.section}>
-                <div css={styles.sectionHeader}>
-                  <div css={styles.sectionTitle}>
-                    Nuevos Gastos
-                    <div css={styles.badge}>{newTransactions.length}</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-                    <Button
-                      tone="active"
-                      weight="bold"
-                      onClick={handleAddTransaction}
-                      isDisabled={!selectedRoute || !selectedDate || createLoading}
-                      css={styles.actionButton}
-                    >
-                      {createLoading ? <LoadingDots label="Agregando..." /> : '+ Agregar Gasto'}
-                    </Button>
-                    <span style={{ cursor: 'pointer' }} onClick={() => toggleSection('new')}>
-                      {expandedSection === 'new' ? '▼' : '▶'}
-                    </span>
-                  </div>
-                </div>
-
-                {expandedSection === 'new' && newTransactions.length > 0 && (
-                  <Box padding="medium">
-                    <table css={styles.table}>
-                      <thead>
-                        <tr>
-                          <th>Tipo</th>
-                          <th>Monto</th>
-                          <th>Fecha</th>
-                          <th>Líder</th>
-                          <th>Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {newTransactions.map((transaction, index) => (
-                          <tr key={index}>
-                            <td>
-                              <Box css={styles.selectContainer}>
-                                <Select
-                                  value={expenseTypes.find(t => t.value === transaction.expenseSource) || expenseTypes[0]}
-                                  options={expenseTypes}
-                                  onChange={option => handleEditTransaction(index, 'expenseType', option?.value || '')}
-                                  menuPortalTarget={document.body}
-                                  menuPosition="fixed"
-                                  menuPlacement="auto"
-                                />
-                              </Box>
-                            </td>
-                            <td>
-                              <TextInput
-                                type="number"
-                                value={transaction.amount}
-                                onChange={e => handleEditTransaction(index, 'amount', e.target.value)}
-                                placeholder="0.00"
-                              />
-                            </td>
-                            <td>{new Date(transaction.date).toLocaleDateString()}</td>
-                            <td>{selectedLead?.personalData?.fullName}</td>
-                            <td>
-                              <Button
-                                tone="negative"
-                                size="small"
-                                onClick={() => updateState({ newTransactions: newTransactions.filter((_, i) => i !== index) })}
-                              >
-                                Eliminar
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </Box>
-                )}
-              </Box>
-
-              {(newTransactions.length > 0 || Object.keys(editedTransactions).length > 0) && (
-                <Box css={styles.section}>
-                  <div style={{
-                    display: 'flex',
-                    justifyContent: 'flex-end',
-                    gap: '16px'
-                  }}>
-                    <Button
-                      tone="active"
-                      weight="bold"
-                      onClick={() => updateState({ newTransactions: [], editedTransactions: {} })}
-                      isDisabled={createLoading || updateLoading}
-                      css={styles.actionButton}
-                    >
-                      Limpiar Cambios
-                    </Button>
-                    <Button
-                      tone="positive"
-                      weight="bold"
-                      onClick={handleSaveAllChanges}
-                      isLoading={createLoading || updateLoading}
-                      css={styles.actionButton}
-                    >
-                      {createLoading || updateLoading ? (
-                        <LoadingDots label="Guardando..." />
-                      ) : (
-                        'Guardar Cambios'
-                      )}
-                    </Button>
-                  </div>
-                </Box>
-              )}
-            </Fragment>
-          )}
-        </Box>
-      </Box>
     </Box>
   );
 };
@@ -754,7 +1265,7 @@ export default function ExpensesPage() {
   const [selectedLead, setSelectedLead] = useState<Employee | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const { refetch: refetchRouteData } = useQuery(GET_ROUTES, {
+  const { refetch: refetchRouteData } = useQuery(GET_ROUTES_SIMPLE, {
     variables: { where: {} },
     fetchPolicy: 'network-only',
   });
@@ -814,6 +1325,7 @@ export default function ExpensesPage() {
           selectedDate={selectedDate}
           selectedRoute={selectedRoute}
           selectedLead={selectedLead}
+          refreshKey={refreshKey}
           onSaveComplete={handleRefresh}
         />
       </Box>

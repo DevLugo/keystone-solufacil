@@ -1,0 +1,29 @@
+services:
+  postgres-test:
+    image: postgres:14-alpine
+    container_name: solufacil-test-db
+    environment:
+      POSTGRES_DB: solufacil_test
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    ports:
+      - "5433:5432"
+    # Base de datos en memoria para máxima velocidad
+    tmpfs:
+      - /var/lib/postgresql/data:rw,noexec,nosuid,size=1024m
+    # Configuración optimizada para testing
+    command: >
+      postgres 
+      -c shared_buffers=256MB
+      -c max_connections=200
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_user -d solufacil_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5 

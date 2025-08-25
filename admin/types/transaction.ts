@@ -5,7 +5,7 @@ export interface PersonalData {
 export interface Account {
   id: string;
   name?: string;
-  type: 'BANK' | 'OFFICE_CASH_FUND' | 'EMPLOYEE_CASH_FUND' | 'LEAD';
+  type: 'BANK' | 'OFFICE_CASH_FUND' | 'EMPLOYEE_CASH_FUND' | 'PREPAID_GAS';
   amount?: number;
 }
 

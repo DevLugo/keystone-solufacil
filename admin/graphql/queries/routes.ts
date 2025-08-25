@@ -5,13 +5,32 @@ export const GET_ROUTES = gql`
     routes(where: $where) {
       id
       name
+      accounts {
+        id
+        name
+        type
+        amount
+      }
+      employees {
+        id
+        type
+      }
+    }
+  }
+`;
+
+export const GET_ALL_ROUTES_SIMPLE = gql`
+  query RoutesAll {
+    routes(where: {}) {
+      id
+      name
     }
   }
 `;
 
 export const GET_ROUTE = gql`
-  query Route($where: RouteWhereInput!) {
-    routes(where: $where) {
+  query Route($where: RouteWhereUniqueInput!) {
+    route(where: $where) {
       id
       name
       accounts {
@@ -19,9 +38,34 @@ export const GET_ROUTE = gql`
         name
         type
         amount
-        __typename
+        transactions(take: 10, orderBy: { date: desc }) {
+          id
+          amount
+          type
+        }
       }
-      __typename
+      employees {
+        id
+        type
+        LeadManagedLoans(take: 20, orderBy: { signDate: desc }) {
+          id
+          status
+          requestedAmount
+          amountGived
+          finishedDate
+          badDebtDate
+          loantype {
+            id
+            rate
+            weekDuration
+          }
+          payments(take: 5, orderBy: { receivedAt: desc }) {
+            id
+            amount
+            receivedAt
+          }
+        }
+      }
     }
   }
 `;
@@ -38,6 +82,36 @@ export const GET_LEADS = gql`
         accounts {
           id
           type
+        }
+      }
+    }
+  }
+`;
+
+export const GET_ROUTE_LOANS = gql`
+  query RouteLoans($routeId: ID!, $first: Int = 10, $skip: Int = 0) {
+    route(where: { id: $routeId }) {
+      id
+      employees {
+        id
+        type
+        LeadManagedLoans(first: $first, skip: $skip, orderBy: { signDate: desc }) {
+          id
+          status
+          requestedAmount
+          amountGived
+          finishedDate
+          badDebtDate
+          loantype {
+            id
+            rate
+            weekDuration
+          }
+          payments(first: 10, orderBy: { receivedAt: desc }) {
+            id
+            amount
+            receivedAt
+          }
         }
       }
     }

@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { useLazyQuery, useQuery, useMutation } from '@apollo/client';
 import { GET_LEADS, GET_ROUTES, GET_LOANS_BY_LEAD } from '../graphql/queries/payment';
 import { CREATE_LEAD_PAYMENT_RECEIVED } from '../graphql/mutations/payment';
+import { calculateAmountToPay } from '../utils/loanCalculations';
 import { Lead, Loan, LoanPayment, Route, Option, PaymentDistribution, PaymentType, PaymentMethod } from '../types/payment';
 
 export const usePayments = () => {
   const [selectedLead, setSelectedLead] = useState<Option | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
-  const [comission, setComission] = useState<number>(8);
+  const [comission, setComission] = useState<number>(0); // Cambiado de 8 a 0 para usar comisiones por defecto del loanType
   const [payments, setPayments] = useState<LoanPayment[]>([]);
   const [selectedRoute, setSelectedRoute] = useState<Option | null>(null);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -55,7 +56,9 @@ export const usePayments = () => {
   useEffect(() => {
     if (loansData?.loans) {
       const newPayments = loansData.loans.map(loan => ({
-        amount: loan.weeklyPaymentAmount,
+        amount: loan.loantype?.rate ? 
+          calculateAmountToPay(loan.requestedAmount, loan.loantype.rate) : 
+          '0',
         comission,
         loanId: loan.id,
         type: PaymentType.PAYMENT,

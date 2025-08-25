@@ -9,6 +9,7 @@ import { Select } from '@keystone-ui/fields';
 import { FaTrash } from 'react-icons/fa';
 import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
 import type { ExtendedLoan, Loan, LoanType, Option } from '../../types/loan';
+import AvalDropdown from './AvalDropdown';
 
 interface LoanListViewProps {
   loans: ExtendedLoan[];
@@ -187,11 +188,32 @@ export const LoanListView = memo(({
         </div>
         <div className="table-cell fixed-width" style={{ padding: '4px' }}>
           <div className="loan-input">
-            <input
-              type="text"
-              value={loan.avalName || ''}
-              onChange={(e) => handleEdit(loan, index, 'avalName', e.target.value, isExisting)}
-              placeholder="Nombre del aval"
+            <AvalDropdown
+              loanId={loan.id}
+              currentAvalName={loan.avalName || ''}
+              currentAvalPhone={loan.avalPhone || ''}
+              borrowerLocationId={loan.borrower?.personalData?.addresses?.[0]?.location?.id}
+              onAvalChange={(avalName, avalPhone) => {
+                if (isExisting) {
+                  // Actualizar el estado local del loan existente
+                  const updatedLoans = localExistingLoans.map(l => {
+                    if (l.id === loan.id) {
+                      return { ...l, avalName, avalPhone };
+                    }
+                    return l;
+                  });
+                  setLocalExistingLoans(updatedLoans);
+                  
+                  // Notificar al componente padre para persistir los cambios
+                  onEditExistingLoan(loan.id, 'avalName', avalName);
+                  onEditExistingLoan(loan.id, 'avalPhone', avalPhone);
+                } else {
+                  // Para préstamos nuevos, actualizar directamente
+                  handleEdit(loan, index, 'avalName', avalName, false);
+                  handleEdit(loan, index, 'avalPhone', avalPhone, false);
+                }
+              }}
+              onlyNameField={true}
             />
           </div>
         </div>
