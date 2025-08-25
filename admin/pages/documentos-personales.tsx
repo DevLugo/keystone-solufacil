@@ -507,7 +507,7 @@ export default function DocumentosPersonalesPage() {
           paddingRight: '4px'
         }
       }}>
-        {/* Header con DatePicker y filtros */}
+        {/* Header con selector de semanas y filtros */}
         <Box
           css={{
             display: 'grid',
@@ -550,6 +550,7 @@ export default function DocumentosPersonalesPage() {
             onRouteSelect={setSelectedRoute}
             onLeadSelect={setSelectedLead}
             onDateSelect={setSelectedDate}
+            hideDateField={true}
           />
         </Box>
 
@@ -1090,7 +1091,7 @@ export default function DocumentosPersonalesPage() {
                                 personType="TITULAR"
                                 imageUrl={document?.photoUrl}
                                 publicId={document?.publicId}
-                                onImageClick={() => document && openImageModal(document, 'TITULAR')}
+                                onImageClick={() => document && window.open(document.photoUrl, '_blank')}
                                 onUploadClick={() => openUploadModal(
                                   type,
                                   'TITULAR',
@@ -1161,7 +1162,7 @@ export default function DocumentosPersonalesPage() {
                                 personType="AVAL"
                                 imageUrl={document?.photoUrl}
                                 publicId={document?.publicId}
-                                onImageClick={() => document && openImageModal(document, 'AVAL')}
+                                onImageClick={() => document && window.open(document.photoUrl, '_blank')}
                                 onUploadClick={() => openUploadModal(
                                   type,
                                   'AVAL',

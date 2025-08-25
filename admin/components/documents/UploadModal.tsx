@@ -85,7 +85,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       });
       
       // Limpiar formulario
-      setTitle('');
       setDescription('');
       setPhotoUrl('');
       setPublicId('');
@@ -245,7 +244,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             <Button
               size="medium"
               onClick={handleSubmit}
-              disabled={isUploading || !title.trim() || !photoUrl || !publicId}
+              disabled={isUploading || !photoUrl || !publicId}
               css={{
                 backgroundColor: '#10b981',
                 '&:hover': { backgroundColor: '#059669' },

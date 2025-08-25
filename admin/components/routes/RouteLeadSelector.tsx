@@ -56,6 +56,7 @@ interface RouteLeadSelectorProps {
   onRouteSelect: (route: any | null) => void;
   onLeadSelect: (lead: Employee | null) => void;
   onDateSelect: (date: Date) => void;
+  hideDateField?: boolean; // Nueva prop para ocultar el campo de fecha
 }
 
 const styles = {
@@ -65,6 +66,11 @@ const styles = {
     backgroundColor: 'white',
     borderRadius: '8px',
     boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+    '@media (max-width: 768px)': {
+      padding: '16px',
+      width: '100%',
+      maxWidth: '100%'
+    }
   },
   header: {
     display: 'flex',
@@ -86,10 +92,18 @@ const styles = {
     gridTemplateColumns: 'repeat(3, 1fr)',
     gap: '16px',
     width: '100%',
-    marginBottom: '24px'
+    marginBottom: '24px',
+    '@media (max-width: 768px)': {
+      gridTemplateColumns: '1fr',
+      gap: '20px'
+    }
   },
   selector: {
-    width: '100%'
+    width: '100%',
+    '@media (max-width: 768px)': {
+      width: '100%',
+      minWidth: '100%'
+    }
   },
   selectorLabel: {
     fontSize: '13px',
@@ -246,6 +260,7 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
   onRouteSelect,
   onLeadSelect,
   onDateSelect,
+  hideDateField = false,
 }) => {
   // OPTIMIZADO: Usar cache-first y consulta simple
   const { data: routesData, loading: routesLoading, error: routesError } = useQuery<{ routes: RouteSimple[] }>(GET_ROUTES_SIMPLE, {
@@ -359,7 +374,14 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
       </Box>
 
       <Box css={styles.content}>
-        <Box css={styles.selectorsContainer}>
+        <Box css={{
+          ...styles.selectorsContainer,
+          gridTemplateColumns: hideDateField ? '1fr 1fr' : 'repeat(3, 1fr)',
+          '@media (max-width: 768px)': {
+            gridTemplateColumns: '1fr',
+            gap: '16px'
+          }
+        }}>
           <Box css={styles.selector}>
             <div css={styles.selectorLabel}>Ruta</div>
             <Select
@@ -396,15 +418,17 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
             </Box>
           </Box>
 
-          <Box css={styles.selector}>
-            <div css={styles.selectorLabel}>Fecha</div>
-            <input
-              type="date"
-              value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''}
-              onChange={handleDateChange}
-              css={styles.dateInput}
-            />
-          </Box>
+          {!hideDateField && (
+            <Box css={styles.selector}>
+              <div css={styles.selectorLabel}>Fecha</div>
+              <input
+                type="date"
+                value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''}
+                onChange={handleDateChange}
+                css={styles.dateInput}
+              />
+            </Box>
+          )}
         </Box>
 
         {selectedRoute && routeSummary && (
