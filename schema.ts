@@ -551,6 +551,17 @@ export const PersonalData = list({
         linkToItem: true
       }
     }),
+    // ✅ NUEVA FUNCIONALIDAD: Relación con fotos de documentos
+    documentPhotos: relationship({ 
+      ref: 'DocumentPhoto.personalData', 
+      many: true,
+      ui: {
+        displayMode: 'cards',
+        cardFields: ['originalName', 'documentType', 'createdAt'],
+        linkToItem: true,
+        description: 'Fotos de documentos asociados (INE, comprobante de domicilio, pagarés)'
+      }
+    }),
   },
   hooks: {
     afterOperation: async (args) => {
@@ -2059,6 +2070,82 @@ export const Account = list({
   },
 });
 
+// DocumentPhoto model for storing personal data photos
+export const DocumentPhoto = list({
+  access: allowAll,
+  fields: {
+    // Información del documento
+    filename: text({ validation: { isRequired: true } }),
+    originalName: text({ validation: { isRequired: true } }),
+    mimeType: text(),
+    size: integer(), // Size in bytes
+    
+    // Tipo de documento
+    documentType: select({
+      options: [
+        { label: 'INE', value: 'INE' },
+        { label: 'Comprobante de Domicilio', value: 'ADDRESS_PROOF' },
+        { label: 'Pagaré', value: 'PROMISSORY_NOTE' },
+      ],
+      validation: { isRequired: true },
+      isIndexed: true,
+    }),
+    
+    // Datos del archivo codificados en base64
+    fileData: text({
+      ui: {
+        displayMode: 'textarea',
+        description: 'Datos del archivo codificados en base64'
+      }
+    }),
+    
+    // Relación con PersonalData
+    personalData: relationship({ 
+      ref: 'PersonalData.documentPhotos',
+      validation: { isRequired: true }
+    }),
+    
+    // Relación opcional con el préstamo
+    loan: relationship({ 
+      ref: 'Loan.documentPhotos',
+      many: false,
+      ui: {
+        description: 'Préstamo asociado con este documento'
+      }
+    }),
+    
+    // Metadata
+    description: text({ 
+      ui: { 
+        displayMode: 'textarea',
+        description: 'Descripción opcional del documento'
+      }
+    }),
+    
+    // Timestamps
+    createdAt: timestamp({ defaultValue: { kind: 'now' } }),
+    updatedAt: timestamp(),
+  },
+  ui: {
+    listView: {
+      initialColumns: ['originalName', 'documentType', 'personalData', 'loan', 'createdAt'],
+    },
+  },
+  hooks: createAuditHook('DocumentPhoto', 
+    (item: any, operation: string) => {
+      const operationText = operation === 'CREATE' ? 'subido' : operation === 'UPDATE' ? 'actualizado' : 'eliminado';
+      return `Documento ${operationText}: ${item.originalName} (${item.documentType})`;
+    },
+    (item: any) => ({
+      documentType: item.documentType,
+      filename: item.filename,
+      originalName: item.originalName,
+      personalDataId: item.personalDataId,
+      loanId: item.loanId,
+    })
+  ),
+});
+
 export const lists = {
   User,
   Employee,
@@ -2084,4 +2171,5 @@ export const lists = {
   Account,
   AuditLog,
   PortfolioCleanup,
+  DocumentPhoto,
 };
