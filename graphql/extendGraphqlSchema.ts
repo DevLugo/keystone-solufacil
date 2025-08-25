@@ -5718,8 +5718,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         }
       }),
-    },
-    query: {
+
       // ✅ NUEVA FUNCIONALIDAD: Query para obtener documentos por crédito y fecha
       getDocumentPhotosByCreditDate: graphql.field({
         type: graphql.nonNull(graphql.JSON),
@@ -5842,6 +5841,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         }
       }),
-    },
+    }
   };
 });
