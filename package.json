@@ -14,13 +14,13 @@
     "migrate": "keystone prisma migrate deploy",
     "migrate:reset": "keystone prisma migrate reset --force",
     "verify-deployment": "node scripts/verify-deployment.js",
-    "prepare-render": "npm run verify-deployment && echo '✅ Proyecto listo para Render. Ve a DEPLOY_RENDER.md para instrucciones.'",
-    "clean:cypress": "rm -rf cypress/screenshots cypress/videos cypress/downloads && echo '🧹 Archivos temporales de Cypress eliminados'",
-    "clean:all": "npm run clean:cypress && rm -rf node_modules && echo '🧹 Limpieza completa realizada'",
+    "prepare-render": "npm run verify-deployment && echo '\u2705 Proyecto listo para Render. Ve a DEPLOY_RENDER.md para instrucciones.'",
+    "clean:cypress": "rm -rf cypress/screenshots cypress/videos cypress/downloads && echo '\ud83e\uddf9 Archivos temporales de Cypress eliminados'",
+    "clean:all": "npm run clean:cypress && rm -rf node_modules && echo '\ud83e\uddf9 Limpieza completa realizada'",
     "env:setup": "npm run env:check || npm run env:create",
-    "env:check": "test -f .env && echo '✅ .env existe' || exit 1",
-    "env:create": "cp env.example .env && echo '✅ .env creado desde env.example - EDITA .env con tus valores'",
-    "env:create-test": "cp env.test .env.test && echo '✅ .env.test creado desde env.test'",
+    "env:check": "test -f .env && echo '\u2705 .env existe' || exit 1",
+    "env:create": "cp env.example .env && echo '\u2705 .env creado desde env.example - EDITA .env con tus valores'",
+    "env:create-test": "cp env.test .env.test && echo '\u2705 .env.test creado desde env.test'",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:integration": "jest --testPathPattern=integration",
@@ -47,8 +47,10 @@
     "@types/bcrypt": "^5.0.2",
     "@types/node": "^24.0.10",
     "bcrypt": "^6.0.0",
+    "cloudinary": "^2.0.1",
     "dotenv": "^16.4.7",
     "fast-xml-parser": "^5.2.5",
+    "multer": "^1.4.5-lts.1",
     "pdfkit": "^0.16.0",
     "pg": "^8.13.1",
     "react-icons": "^5.4.0",
@@ -61,6 +63,7 @@
     "@testing-library/user-event": "^14.5.2",
     "@types/jest": "^29.5.14",
     "@types/mocha": "^10.0.10",
+    "@types/multer": "^1.4.11",
     "@types/pdfkit": "^0.13.9",
     "@types/supertest": "^6.0.2",
     "apollo-server-testing": "^2.25.4",
@@ -78,5 +81,11 @@
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=8.0.0"
+  },
+  "resolutions": {
+    "graphql": "^16.6.0",
+    "@apollographql/graphql-upload-8-fork": "^8.1.4",
+    "graphql-upload": "^15.0.2",
+    "apollo-upload-client": "^17.0.0"
   }
 }
