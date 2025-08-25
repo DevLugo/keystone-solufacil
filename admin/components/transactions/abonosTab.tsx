@@ -545,8 +545,8 @@ export const CreatePaymentForm = ({
       const { cashPaidAmount, bankPaidAmount } = loadPaymentDistribution;
       const totalPaid = cashPaidAmount + bankPaidAmount;
       
-      // Calcular el total esperado según la pestaña seleccionada
-      const expectedAmount = activeTab === 'new' 
+      // Calcular el total esperado
+      const expectedAmount = payments.length > 0
         ? payments.reduce((sum, payment) => sum + parseFloat(payment.amount || '0'), 0)
         : state.groupedPayments 
           ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0
@@ -558,7 +558,7 @@ export const CreatePaymentForm = ({
       }
 
       // Si hay pagos nuevos, crear un nuevo LeadPaymentReceived
-      if (activeTab === 'new' && payments.length > 0) {
+      if (payments.length > 0) {
         await createCustomLeadPaymentReceived({
           variables: {
             expectedAmount,
@@ -579,7 +579,7 @@ export const CreatePaymentForm = ({
       }
 
       // Si hay pagos existentes editados, actualizarlos
-      if (activeTab === 'existing' && state.groupedPayments) {
+      if (state.groupedPayments) {
         for (const [leadPaymentId, data] of Object.entries(state.groupedPayments)) {
           const { payments, paymentDate } = data;
           const { cashPaidAmount, bankPaidAmount, falcoAmount } = loadPaymentDistribution;
@@ -773,7 +773,7 @@ export const CreatePaymentForm = ({
     return existingPayments.filter(payment => !deletedPaymentIds.includes(payment.id)).length;
   }, [existingPayments, deletedPaymentIds]);
 
-  const [activeTab, setActiveTab] = useState<'existing' | 'new'>('new');
+
 
   useEffect(() => {
     refetchPayments();
@@ -1023,83 +1023,112 @@ export const CreatePaymentForm = ({
         </Button>
       </div>
 
-      <Box marginBottom="large">
-        <div style={{ 
-          display: 'flex', 
-          borderBottom: '1px solid #e5e7eb',
-          marginBottom: '16px',
-          backgroundColor: '#f8f9fa',
-          borderRadius: '6px 6px 0 0',
-          padding: '4px 8px'
-        }}>
-          <div
-            onClick={() => setActiveTab('new')}
-            style={{ 
-              padding: '8px 16px',
-              cursor: 'pointer',
-              borderBottom: activeTab === 'new' ? '2px solid #0052CC' : 'none',
-              color: activeTab === 'new' ? '#0052CC' : '#6B7280',
-              fontWeight: activeTab === 'new' ? '600' : '500',
-              backgroundColor: activeTab === 'new' ? 'white' : 'transparent',
-              borderRadius: '4px 4px 0 0',
-              boxShadow: activeTab === 'new' ? '0 1px 2px rgba(0, 0, 0, 0.05)' : 'none'
-            }}
-          >
-            Nuevos Pagos
-          </div>
-          <div
-            onClick={() => setActiveTab('existing')}
-            style={{ 
-              padding: '8px 16px',
-              marginRight: '8px',
-              cursor: 'pointer',
-              borderBottom: activeTab === 'existing' ? '2px solid #0052CC' : 'none',
-              color: activeTab === 'existing' ? '#0052CC' : '#6B7280',
-              fontWeight: activeTab === 'existing' ? '600' : '500',
-              backgroundColor: activeTab === 'existing' ? 'white' : 'transparent',
-              borderRadius: '4px 4px 0 0',
-              boxShadow: activeTab === 'existing' ? '0 1px 2px rgba(0, 0, 0, 0.05)' : 'none'
-            }}
-          >
-            Pagos Registrados
-          </div>
-          
-        </div>
+      <Box
+        style={{
+          backgroundColor: 'white',
+          borderRadius: '8px',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+          overflow: 'visible',
+        }}
+      >
+        <Box padding="large">
+          {/* Panel de comisión masiva para nuevos pagos */}
+          {payments.length > 0 && (
+            <div style={{
+              display: 'flex',
+              gap: '12px',
+              alignItems: 'center',
+              marginBottom: '16px',
+              padding: '16px',
+              backgroundColor: '#f8fafc',
+              borderRadius: '8px',
+              border: '1px solid #e2e8f0'
+            }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '200px' }}>
+                <label style={{
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  color: '#475569',
+                  marginBottom: '2px',
+                }}>
+                  COMISIÓN MASIVA
+                </label>
+                <div style={{
+                  fontSize: '11px',
+                  color: '#64748b',
+                  fontStyle: 'italic',
+                }}>
+                  Aplicar a todos los pagos nuevos
+                </div>
+              </div>
+              <div style={{
+                display: 'flex',
+                gap: '8px',
+                alignItems: 'center',
+              }}>
+                <input
+                  type="number"
+                  value={massCommission}
+                  onChange={(e) => setMassCommission(e.target.value)}
+                  placeholder="0.00"
+                  style={{
+                    padding: '8px 12px',
+                    fontSize: '13px',
+                    border: '1px solid #E5E7EB',
+                    borderRadius: '6px',
+                    outline: 'none',
+                    width: '80px',
+                    height: '36px',
+                  }}
+                />
+                <Button
+                  tone="passive"
+                  size="small"
+                  onClick={() => {
+                    const commissionValue = parseFloat(massCommission);
+                    if (isNaN(commissionValue)) return;
+                    
+                    const updatedPayments = payments.map(payment => ({
+                      ...payment,
+                      comission: commissionValue
+                    }));
+                    
+                    updateState({ payments: updatedPayments });
+                    alert(`✅ Comisión masiva de ${commissionValue} aplicada a ${payments.length} pagos`);
+                  }}
+                >
+                  Aplicar a Todos
+                </Button>
+              </div>
+            </div>
+          )}
 
-        {activeTab === 'existing' && (
-          <Box
-            style={{
-              backgroundColor: 'white',
-              borderRadius: '0 8px 8px 8px',
-              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-              overflow: 'visible',
-            }}
-          >
-                                        <Box padding="large">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                  <h3 style={{ margin: 0, fontSize: '18px', color: '#333' }}>Pagos Registrados</h3>
-                  {isEditing ? (
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <Button
-                      tone="negative"
-                      weight="bold"
-                      onClick={() => {
-                        setState(prev => ({ ...prev, editedPayments: {}, isEditing: false }));
-                        setDeletedPaymentIds([]); // Resetear eliminados al cancelar
-                      }}
-                    >
-                      Cancelar
-                    </Button>
-                    <Button
-                      tone="positive"
-                      weight="bold"
-                      onClick={handleSaveAllChanges}
-                      isLoading={updateLoading}
-                    >
-                      Guardar Cambios
-                    </Button>
-                  </div>
-                ) : (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '18px', color: '#333' }}>Todos los Pagos</h3>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {isEditing ? (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <Button
+                    tone="negative"
+                    weight="bold"
+                    onClick={() => {
+                      setState(prev => ({ ...prev, editedPayments: {}, isEditing: false }));
+                      setDeletedPaymentIds([]); // Resetear eliminados al cancelar
+                    }}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    tone="positive"
+                    weight="bold"
+                    onClick={handleSaveAllChanges}
+                    isLoading={updateLoading}
+                  >
+                    Guardar Cambios
+                  </Button>
+                </div>
+              ) : (
+                <>
                   <Button
                     tone="active"
                     weight="bold"
@@ -1107,373 +1136,288 @@ export const CreatePaymentForm = ({
                   >
                     Editar Pagos
                   </Button>
-                )}
-              </div>
-
-              <table css={styles.table}>
-                <thead>
-                  <tr>
-                    <th style={{ 
-                      width: '60px',
-                      textAlign: 'center',
-                      cursor: 'help'
-                    }} title="Orden por fecha de crédito (1 = más antiguo)">
-                      #
-                    </th>
-                    <th>Cliente</th>
-                    <th style={{ 
-                      position: 'relative',
-                      cursor: 'help'
-                    }} title="Ordenados por esta fecha (más antiguo primero)">
-                      Fecha Crédito
-                      <span style={{
-                        fontSize: '10px',
-                        color: '#6B7280',
-                        marginLeft: '4px',
-                        fontWeight: 'normal'
-                      }}>
-                        ↓
-                      </span>
-                    </th>
-                    <th>Monto</th>
-                    <th>Comisión</th>
-                    <th>Tipo</th>
-                    <th>Forma de Pago</th>
-                    {isEditing && <th>Acciones</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {existingPayments
-                    .filter(payment => !deletedPaymentIds.includes(payment.id))
-                    .map((payment, index) => {
-                    const editedPayment = editedPayments[payment.id] || payment;
-                    return (
-                      <tr key={payment.id}>
-                        <td style={{ 
-                          textAlign: 'center',
-                          fontWeight: 'bold',
-                          color: '#6B7280',
-                          fontSize: '14px'
-                        }}>
-                          {index + 1}
-                        </td>
-                        <td>{payment.loan?.borrower?.personalData?.fullName}</td>
-                        <td>
-                          {payment.loan?.signDate ? 
-                            new Date(payment.loan.signDate).toLocaleDateString('es-MX', {
-                              year: 'numeric',
-                              month: '2-digit',
-                              day: '2-digit'
-                            }) : 
-                            '-'
-                          }
-                        </td>
-                        <td>
-                          {isEditing ? (
-                            <TextInput
-                              type="number"
-                              value={editedPayment.amount}
-                              onChange={e => handleEditExistingPayment(payment.id, 'amount', e.target.value)}
-                            />
-                          ) : (
-                            payment.amount
-                          )}
-                        </td>
-                        <td>
-                          {isEditing ? (
-                            <div style={{ position: 'relative' }}>
-                              <TextInput
-                                type="number"
-                                value={editedPayment.comission}
-                                onChange={e => handleEditExistingPayment(payment.id, 'comission', e.target.value)}
-                              />
-                              {payment.loan?.loantype?.loanPaymentComission && 
-                               parseFloat(payment.loan.loantype.loanPaymentComission) > 0 && (
-                                <div style={{
-                                  position: 'absolute',
-                                  top: '-20px',
-                                  right: '0',
-                                  fontSize: '10px',
-                                  color: '#059669',
-                                  backgroundColor: '#D1FAE5',
-                                  padding: '2px 6px',
-                                  borderRadius: '4px',
-                                  border: '1px solid #A7F3D0'
-                                }} title={`Comisión por defecto: ${payment.loan.loantype.loanPaymentComission}`}>
-                                  💡 {payment.loan.loantype.loanPaymentComission}
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <div style={{ position: 'relative' }}>
-                              {payment.comission}
-                              {payment.loan?.loantype?.loanPaymentComission && 
-                               parseFloat(payment.loan.loantype.loanPaymentComission) > 0 && (
-                                <div style={{
-                                  position: 'absolute',
-                                  top: '-20px',
-                                  right: '0',
-                                  fontSize: '10px',
-                                  color: '#059669',
-                                  backgroundColor: '#D1FAE5',
-                                  padding: '2px 6px',
-                                  borderRadius: '4px',
-                                  border: '1px solid #A7F3D0'
-                                }} title={`Comisión por defecto: ${payment.loan.loantype.loanPaymentComission}`}>
-                                  💡 {payment.loan.loantype.loanPaymentComission}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </td>
-                        <td>
-                          {isEditing ? (
-                            <Select
-                              options={paymentTypeOptions}
-                              value={paymentTypeOptions.find(option => option.value === editedPayment.type) || null}
-                              onChange={(option) => handleEditExistingPayment(payment.id, 'type', (option as Option).value)}
-                            />
-                          ) : (
-                            paymentTypeOptions.find(opt => opt.value === payment.type)?.label
-                          )}
-                        </td>
-                        <td>
-                          {isEditing ? (
-                            <Select
-                              options={paymentMethods}
-                              value={paymentMethods.find(option => option.value === editedPayment.paymentMethod) || null}
-                              onChange={(option) => handleEditExistingPayment(payment.id, 'paymentMethod', (option as Option).value)}
-                            />
-                          ) : (
-                            paymentMethods.find(opt => opt.value === payment.paymentMethod)?.label
-                          )}
-                        </td>
-                        {isEditing && (
-                          <td>
-                            <Button
-                              tone="negative"
-                              size="small"
-                              onClick={() => {
-                                // Agregar a la lista de eliminados visualmente
-                                setDeletedPaymentIds(prev => [...prev, payment.id]);
-                                // También eliminar del estado editedPayments
-                                const newEditedPayments = { ...editedPayments };
-                                delete newEditedPayments[payment.id];
-                                setState(prev => ({ ...prev, editedPayments: newEditedPayments }));
-                              }}
-                            >
-                              <TrashIcon size="small" />
-                            </Button>
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </Box>
-          </Box>
-        )}
-
-        {activeTab === 'new' && (
-          <Box
-            style={{
-              backgroundColor: 'white',
-              borderRadius: '0 8px 8px 8px',
-              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-              overflow: 'visible',
-            }}
-          >
-            <Box padding="large">
-              {/* ✅ AGREGAR: Panel de comisión masiva para nuevos pagos */}
-              <div style={{
-                display: 'flex',
-                gap: '12px',
-                alignItems: 'center',
-                marginBottom: '16px',
-                padding: '16px',
-                backgroundColor: '#f8fafc',
-                borderRadius: '8px',
-                border: '1px solid #e2e8f0'
-              }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '200px' }}>
-                  <label style={{
-                    fontSize: '12px',
-                    fontWeight: '500',
-                    color: '#475569',
-                    marginBottom: '2px',
-                  }}>
-                    COMISIÓN MASIVA
-                  </label>
-                  <div style={{
-                    fontSize: '11px',
-                    color: '#64748b',
-                    fontStyle: 'italic',
-                  }}>
-                    Aplicar a todos los pagos nuevos
-                  </div>
-                </div>
-                <div style={{
-                  display: 'flex',
-                  gap: '8px',
-                  alignItems: 'center',
-                }}>
-                  <input
-                    type="number"
-                    value={massCommission}
-                    onChange={(e) => setMassCommission(e.target.value)}
-                    placeholder="0.00"
-                    style={{
-                      padding: '8px 12px',
-                      fontSize: '13px',
-                      border: '1px solid #E5E7EB',
-                      borderRadius: '6px',
-                      outline: 'none',
-                      width: '80px',
-                      height: '36px',
-                    }}
-                  />
                   <Button
-                    tone="passive"
-                    size="small"
-                    onClick={() => {
-                      const commissionValue = parseFloat(massCommission);
-                      if (isNaN(commissionValue)) return;
-                      
-                      const updatedPayments = payments.map(payment => ({
-                        ...payment,
-                        comission: commissionValue
-                      }));
-                      
-                      updateState({ payments: updatedPayments });
-                      alert(`✅ Comisión masiva de ${commissionValue} aplicada a ${payments.length} pagos`);
-                    }}
+                    tone="active"
+                    size="medium"
+                    weight="bold"
+                    onClick={handleAddPayment}
                   >
-                    Aplicar a Todos
+                    <FaPlus size={12} style={{ marginRight: '8px' }} />
+                    Agregar Pago
                   </Button>
-                </div>
-              </div>
+                </>
+              )}
+            </div>
+          </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ margin: 0, fontSize: '18px', color: '#333' }}>Nuevos Pagos</h3>
-                <Button
-                  tone="active"
-                  size="medium"
-                  weight="bold"
-                  onClick={handleAddPayment}
-                >
-                  <FaPlus size={12} style={{ marginRight: '8px' }} />
-                  Agregar Pago
-                </Button>
-              </div>
-
-              <table css={styles.table}>
-                <thead>
-                  <tr>
-                    <th>Cliente</th>
-                    <th style={{ 
-                      position: 'relative',
-                      cursor: 'help'
-                    }} title="Fecha de otorgamiento del crédito">
-                      Fecha Crédito
-                    </th>
-                    <th>Monto</th>
-                    <th>Comisión</th>
-                    <th>Tipo</th>
-                    <th>Forma de Pago</th>
-                    <th>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {payments.map((payment, index) => (
-                    <tr key={`new-${index}`}>
-                                              <td>
-                          <Select
-                            options={loansData?.loans
-                              ?.filter(loan => loan.borrower && loan.borrower.personalData) // ✅ Filtrar préstamos válidos
-                              ?.map(loan => ({
-                                value: loan.id,
-                                label: loan.borrower?.personalData?.fullName || 'Sin nombre'
-                              })) || []}
-                            value={loansData?.loans.find(loan => loan.id === payment.loanId) ? {
-                              value: payment.loanId,
-                              label: loansData.loans.find(loan => loan.id === payment.loanId)?.borrower?.personalData?.fullName || 'Sin nombre'
-                            } : null}
-                            onChange={(option) => handleChange(index, 'loanId', (option as Option).value)}
-                          />
-                        </td>
-                        <td>
-                          {payment.loanId && loansData?.loans ? 
-                            (() => {
-                              const selectedLoan = loansData.loans.find(loan => loan.id === payment.loanId);
-                              // ✅ Validar que el préstamo y su fecha existan
-                              return selectedLoan?.signDate ? 
-                                new Date(selectedLoan.signDate).toLocaleDateString('es-MX', {
-                                  year: 'numeric',
-                                  month: '2-digit',
-                                  day: '2-digit'
-                                }) : 
-                                '-'
-                            })() : 
-                            '-'
-                          }
-                        </td>
-                        <td>
-                          <TextInput
-                            type="number"
-                            value={payment.amount}
-                            onChange={(e) => handleChange(index, 'amount', e.target.value)}
-                          />
-                        </td>
-                      <td>
+          <table css={styles.table}>
+            <thead>
+              <tr>
+                <th style={{ 
+                  width: '60px',
+                  textAlign: 'center',
+                  cursor: 'help'
+                }} title="Orden por fecha de crédito (1 = más antiguo)">
+                  #
+                </th>
+                <th>Estado</th>
+                <th>Cliente</th>
+                <th style={{ 
+                  position: 'relative',
+                  cursor: 'help'
+                }} title="Fecha de otorgamiento del crédito">
+                  Fecha Crédito
+                </th>
+                <th>Monto</th>
+                <th>Comisión</th>
+                <th>Tipo</th>
+                <th>Forma de Pago</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {/* Pagos Registrados */}
+              {existingPayments
+                .filter(payment => !deletedPaymentIds.includes(payment.id))
+                .map((payment, index) => {
+                const editedPayment = editedPayments[payment.id] || payment;
+                return (
+                  <tr key={`existing-${payment.id}`} style={{ backgroundColor: '#f8fafc' }}>
+                    <td style={{ 
+                      textAlign: 'center',
+                      fontWeight: 'bold',
+                      color: '#6B7280',
+                      fontSize: '14px'
+                    }}>
+                      {index + 1}
+                    </td>
+                    <td>
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        padding: '4px 8px',
+                        backgroundColor: '#E0F2FE',
+                        color: '#0277BD',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        fontWeight: '500',
+                      }}>
+                        Registrado
+                      </span>
+                    </td>
+                    <td>{payment.loan?.borrower?.personalData?.fullName}</td>
+                    <td>
+                      {payment.loan?.signDate ? 
+                        new Date(payment.loan.signDate).toLocaleDateString('es-MX', {
+                          year: 'numeric',
+                          month: '2-digit',
+                          day: '2-digit'
+                        }) : 
+                        '-'
+                      }
+                    </td>
+                    <td>
+                      {isEditing ? (
                         <TextInput
                           type="number"
-                          value={payment.comission}
-                          onChange={(e) => handleChange(index, 'comission', e.target.value)}
+                          value={editedPayment.amount}
+                          onChange={e => handleEditExistingPayment(payment.id, 'amount', e.target.value)}
                         />
-                      </td>
-                      <td>
+                      ) : (
+                        payment.amount
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <div style={{ position: 'relative' }}>
+                          <TextInput
+                            type="number"
+                            value={editedPayment.comission}
+                            onChange={e => handleEditExistingPayment(payment.id, 'comission', e.target.value)}
+                          />
+                          {payment.loan?.loantype?.loanPaymentComission && 
+                           parseFloat(payment.loan.loantype.loanPaymentComission) > 0 && (
+                            <div style={{
+                              position: 'absolute',
+                              top: '-20px',
+                              right: '0',
+                              fontSize: '10px',
+                              color: '#059669',
+                              backgroundColor: '#D1FAE5',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              border: '1px solid #A7F3D0'
+                            }} title={`Comisión por defecto: ${payment.loan.loantype.loanPaymentComission}`}>
+                              💡 {payment.loan.loantype.loanPaymentComission}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div style={{ position: 'relative' }}>
+                          {payment.comission}
+                          {payment.loan?.loantype?.loanPaymentComission && 
+                           parseFloat(payment.loan.loantype.loanPaymentComission) > 0 && (
+                            <div style={{
+                              position: 'absolute',
+                              top: '-20px',
+                              right: '0',
+                              fontSize: '10px',
+                              color: '#059669',
+                              backgroundColor: '#D1FAE5',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              border: '1px solid #A7F3D0'
+                            }} title={`Comisión por defecto: ${payment.loan.loantype.loanPaymentComission}`}>
+                              💡 {payment.loan.loantype.loanPaymentComission}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
                         <Select
                           options={paymentTypeOptions}
-                          value={paymentTypeOptions.find(option => option.value === payment.type) || null}
-                          onChange={(option) => handleChange(index, 'type', (option as Option).value)}
+                          value={paymentTypeOptions.find(option => option.value === editedPayment.type) || null}
+                          onChange={(option) => handleEditExistingPayment(payment.id, 'type', (option as Option).value)}
                         />
-                      </td>
-                      <td>
+                      ) : (
+                        paymentTypeOptions.find(opt => opt.value === payment.type)?.label
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
                         <Select
                           options={paymentMethods}
-                          value={paymentMethods.find(option => option.value === payment.paymentMethod) || null}
-                          onChange={(option) => handleChange(index, 'paymentMethod', (option as Option).value)}
+                          value={paymentMethods.find(option => option.value === editedPayment.paymentMethod) || null}
+                          onChange={(option) => handleEditExistingPayment(payment.id, 'paymentMethod', (option as Option).value)}
                         />
-                      </td>
-                      <td>
+                      ) : (
+                        paymentMethods.find(opt => opt.value === payment.paymentMethod)?.label
+                      )}
+                    </td>
+                    <td>
+                      {isEditing && (
                         <Button
                           tone="negative"
                           size="small"
-                          onClick={() => handleRemovePayment(index)}
+                          onClick={() => {
+                            // Agregar a la lista de eliminados visualmente
+                            setDeletedPaymentIds(prev => [...prev, payment.id]);
+                            // También eliminar del estado editedPayments
+                            const newEditedPayments = { ...editedPayments };
+                            delete newEditedPayments[payment.id];
+                            setState(prev => ({ ...prev, editedPayments: newEditedPayments }));
+                          }}
                         >
                           <TrashIcon size="small" />
                         </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Box>
-          </Box>
-        )}
-      </Box>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
 
-      <Box marginBottom="large" style={{ display: 'flex', alignItems: 'center' }}>
-        <Box style={{ flex: 1 }} marginRight="medium">
-          <label>Comisión</label>
-          <TextInput 
-            value={comission}
-            type='number'
-            onChange={(e) => updateState({ comission: parseInt(e.target.value) })}
-          />
+              {/* Pagos Nuevos */}
+              {payments.map((payment, index) => (
+                <tr key={`new-${index}`} style={{ backgroundColor: '#ECFDF5' }}>
+                  <td style={{ 
+                    textAlign: 'center',
+                    fontWeight: 'bold',
+                    color: '#059669',
+                    fontSize: '14px'
+                  }}>
+                    {existingPayments.filter(p => !deletedPaymentIds.includes(p.id)).length + index + 1}
+                  </td>
+                  <td>
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      padding: '4px 8px',
+                      backgroundColor: '#D1FAE5',
+                      color: '#059669',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      fontWeight: '500',
+                    }}>
+                      Nuevo
+                    </span>
+                  </td>
+                  <td>
+                    <Select
+                      options={loansData?.loans
+                        ?.filter(loan => loan.borrower && loan.borrower.personalData)
+                        ?.map(loan => ({
+                          value: loan.id,
+                          label: loan.borrower?.personalData?.fullName || 'Sin nombre'
+                        })) || []}
+                      value={loansData?.loans.find(loan => loan.id === payment.loanId) ? {
+                        value: payment.loanId,
+                        label: loansData.loans.find(loan => loan.id === payment.loanId)?.borrower?.personalData?.fullName || 'Sin nombre'
+                      } : null}
+                      onChange={(option) => handleChange(index, 'loanId', (option as Option).value)}
+                    />
+                  </td>
+                  <td>
+                    {payment.loanId && loansData?.loans ? 
+                      (() => {
+                        const selectedLoan = loansData.loans.find(loan => loan.id === payment.loanId);
+                        return selectedLoan?.signDate ? 
+                          new Date(selectedLoan.signDate).toLocaleDateString('es-MX', {
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit'
+                          }) : 
+                          '-'
+                      })() : 
+                      '-'
+                    }
+                  </td>
+                  <td>
+                    <TextInput
+                      type="number"
+                      value={payment.amount}
+                      onChange={(e) => handleChange(index, 'amount', e.target.value)}
+                    />
+                  </td>
+                  <td>
+                    <TextInput
+                      type="number"
+                      value={payment.comission}
+                      onChange={(e) => handleChange(index, 'comission', e.target.value)}
+                    />
+                  </td>
+                  <td>
+                    <Select
+                      options={paymentTypeOptions}
+                      value={paymentTypeOptions.find(option => option.value === payment.type) || null}
+                      onChange={(option) => handleChange(index, 'type', (option as Option).value)}
+                    />
+                  </td>
+                  <td>
+                    <Select
+                      options={paymentMethods}
+                      value={paymentMethods.find(option => option.value === payment.paymentMethod) || null}
+                      onChange={(option) => handleChange(index, 'paymentMethod', (option as Option).value)}
+                    />
+                  </td>
+                  <td>
+                    <Button
+                      tone="negative"
+                      size="small"
+                      onClick={() => handleRemovePayment(index)}
+                    >
+                      <TrashIcon size="small" />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </Box>
       </Box>
+
+
 
       <Box marginTop="large">
         <Button 
@@ -1482,9 +1426,9 @@ export const CreatePaymentForm = ({
           tone="active"
           onClick={() => updateState({ isModalOpen: true })}
           style={{ marginLeft: '10px' }}
-          isDisabled={!payments.length}
+          isDisabled={!payments.length && !isEditing}
         >
-          Registrar pagos
+          {isEditing ? 'Guardar Cambios' : 'Registrar pagos'}
         </Button>
       </Box>
 
@@ -1505,7 +1449,7 @@ export const CreatePaymentForm = ({
       >
         <Box padding="large">
           <Box marginBottom="large">
-            <h4>Total pagado: ${(activeTab === 'new' ? totalAmount : state.groupedPayments ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0 : 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h4>
+            <h4>Total pagado: ${(payments.length > 0 ? totalAmount : state.groupedPayments ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0 : 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h4>
           </Box>
           <Box marginBottom="large">
             <label>Efectivo</label>
