@@ -6,6 +6,8 @@ import { Select } from '@keystone-ui/fields';
 import { Button } from '@keystone-ui/button';
 import { LoadingDots } from '@keystone-ui/loading';
 import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
+import { DocumentThumbnail } from '../components/documents/DocumentThumbnail';
+import { ImageModal } from '../components/documents/ImageModal';
 
 // GraphQL Queries
 const GET_ROUTES = gql`
@@ -36,6 +38,46 @@ const SEARCH_CLIENTS = gql`
 const GET_CLIENT_HISTORY = gql`
   query GetClientHistory($clientId: String!, $routeId: String, $locationId: String) {
     getClientHistory(clientId: $clientId, routeId: $routeId, locationId: $locationId)
+  }
+`;
+
+const GET_CLIENT_DOCUMENTS = gql`
+  query GetClientDocuments($clientId: String!) {
+    documentPhotos(
+      where: {
+        OR: [
+          { personalData: { id: { equals: $clientId } } },
+          { loan: { borrower: { personalData: { id: { equals: $clientId } } } } },
+          { loan: { lead: { personalData: { id: { equals: $clientId } } } } }
+        ]
+      }
+      orderBy: { createdAt: desc }
+    ) {
+      id
+      title
+      description
+      photoUrl
+      publicId
+      documentType
+      createdAt
+      personalData {
+        id
+        fullName
+      }
+      loan {
+        id
+        borrower {
+          personalData {
+            fullName
+          }
+        }
+        lead {
+          personalData {
+            fullName
+          }
+        }
+      }
+    }
   }
 `;
 
@@ -111,6 +153,35 @@ interface LoanDetails {
   clientDui?: string; // Para préstamos como aval
 }
 
+interface ClientDocument {
+  id: string;
+  title: string;
+  description: string;
+  photoUrl: string;
+  publicId: string;
+  documentType: 'INE' | 'DOMICILIO' | 'PAGARE';
+  createdAt: string;
+  personalData: {
+    id: string;
+    fullName: string;
+  };
+  loan: {
+    id: string;
+    borrower: {
+      personalData: {
+        id: string;
+        fullName: string;
+      };
+    };
+    lead: {
+      personalData: {
+        id: string;
+        fullName: string;
+      };
+    };
+  };
+}
+
 interface ClientHistoryData {
   client: {
     id: string;
@@ -180,6 +251,38 @@ const HistorialClientePage: React.FC = () => {
   const [selectedClient, setSelectedClient] = useState<ClientSearchResult | null>(null);
   const [clientResults, setClientResults] = useState<ClientSearchResult[]>([]);
   const [showClientHistory, setShowClientHistory] = useState<boolean>(false);
+  const [showAutocomplete, setShowAutocomplete] = useState<boolean>(false);
+  
+  // Estado para el modal de imagen
+  const [imageModal, setImageModal] = useState<{
+    isOpen: boolean;
+    imageUrl: string;
+    title: string;
+    description: string;
+    documentType: string;
+    personType: string;
+  }>({
+    isOpen: false,
+    imageUrl: '',
+    title: '',
+    description: '',
+    documentType: '',
+    personType: ''
+  });
+
+  // Estado para detectar si es mobile
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Detectar tamaño de pantalla
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // GraphQL hooks
   const { data: routesData, loading: routesLoading } = useQuery(GET_ROUTES);
@@ -187,6 +290,16 @@ const HistorialClientePage: React.FC = () => {
   const [searchClients, { data: searchData, loading: searchLoading }] = useLazyQuery(SEARCH_CLIENTS);
   
   const [getClientHistory, { data: historyData, loading: historyLoading, error: historyError }] = useLazyQuery(GET_CLIENT_HISTORY);
+  
+  const [getClientDocuments, { data: documentsData, loading: documentsLoading }] = useLazyQuery(GET_CLIENT_DOCUMENTS);
+
+  // Debug: Log cuando cambian los datos de documentos
+  useEffect(() => {
+    if (documentsData) {
+      console.log('📄 Documentos obtenidos:', documentsData);
+      console.log('📊 Total documentos:', documentsData.documentPhotos?.length || 0);
+    }
+  }, [documentsData]);
 
   // Options for selects using useMemo (como en el reporte que funciona)
   const routeOptions = useMemo(() => {
@@ -235,7 +348,7 @@ const HistorialClientePage: React.FC = () => {
 
   // Search clients when search term changes
   useEffect(() => {
-    if (searchTerm.length >= 2) {
+    if (searchTerm.length >= 2 && showAutocomplete) {
       const debounceTimer = setTimeout(() => {
         searchClients({
           variables: {
@@ -251,7 +364,7 @@ const HistorialClientePage: React.FC = () => {
     } else {
       setClientResults([]);
     }
-  }, [searchTerm, selectedRoute, selectedLocation, searchClients]);
+  }, [searchTerm, selectedRoute, selectedLocation, searchClients, showAutocomplete]);
 
   useEffect(() => {
     if (searchData?.searchClients) {
@@ -261,8 +374,9 @@ const HistorialClientePage: React.FC = () => {
 
   const handleClientSelect = (client: ClientSearchResult) => {
     setSelectedClient(client);
-    setSearchTerm(client.name);
+    setSearchTerm(client.name); // Mantener el nombre del cliente seleccionado en el input
     setClientResults([]);
+    setShowAutocomplete(false); // Desactivar el autocomplete después de seleccionar
   };
 
   const handleGenerateReport = () => {
@@ -274,6 +388,15 @@ const HistorialClientePage: React.FC = () => {
           locationId: selectedLocation?.id
         }
       });
+      
+      // Obtener documentos del cliente
+      console.log('🔍 Buscando documentos para cliente:', selectedClient.id);
+      getClientDocuments({
+        variables: {
+          clientId: selectedClient.id
+        }
+      });
+      
       setShowClientHistory(true);
     }
   };
@@ -283,6 +406,50 @@ const HistorialClientePage: React.FC = () => {
     setSelectedClient(null);
     setClientResults([]);
     setShowClientHistory(false);
+    setShowAutocomplete(true); // Reactivar el autocomplete para nueva búsqueda
+    // Limpiar también los datos del historial y documentos
+    if (historyData) {
+      // Forzar refetch limpio
+      getClientHistory({
+        variables: { clientId: '', routeId: '', locationId: '' }
+      });
+    }
+    if (documentsData) {
+      // Forzar refetch limpio
+      getClientDocuments({
+        variables: { clientId: '' }
+      });
+    }
+  };
+
+  const openImageModal = (document: ClientDocument, personType: string) => {
+    setImageModal({
+      isOpen: true,
+      imageUrl: document.photoUrl,
+      title: document.title,
+      description: document.description || '',
+      documentType: document.documentType,
+      personType
+    });
+  };
+
+  const getPersonTypeFromDocument = (document: ClientDocument, clientId: string): 'TITULAR' | 'AVAL' => {
+    // Si el documento está directamente asociado al personalData del cliente
+    if (document.personalData?.id === clientId) {
+      return 'TITULAR';
+    }
+    
+    // Si está asociado a un préstamo donde el cliente es el titular
+    if (document.loan?.borrower?.personalData?.id === clientId) {
+      return 'TITULAR';
+    }
+    
+    // Si está asociado a un préstamo donde el cliente es el aval
+    if (document.loan?.lead?.personalData?.id === clientId) {
+      return 'AVAL';
+    }
+    
+    return 'TITULAR'; // Por defecto
   };
 
   const handleExportPDF = async (historyData: ClientHistoryData) => {
@@ -328,11 +495,15 @@ const HistorialClientePage: React.FC = () => {
 
   return (
     <PageContainer header="Historial de Cliente">
-      <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
+      <div style={{ 
+        padding: isMobile ? '16px' : '24px', 
+        maxWidth: '1400px', 
+        margin: '0 auto'
+      }}>
         <h1 style={{ 
-          fontSize: '28px', 
+          fontSize: isMobile ? '24px' : '28px', 
           fontWeight: 'bold', 
-          marginBottom: '24px',
+          marginBottom: isMobile ? '20px' : '24px',
           color: '#1a202c'
         }}>
           📋 Historial de Cliente
@@ -350,7 +521,12 @@ const HistorialClientePage: React.FC = () => {
             🔍 Búsqueda de Cliente
           </h2>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '16px' }}>
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))', 
+            gap: isMobile ? '12px' : '16px', 
+            marginBottom: '16px' 
+          }}>
             <div>
               <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '8px', color: '#4a5568' }}>
                 Ruta (Opcional)
@@ -405,19 +581,24 @@ const HistorialClientePage: React.FC = () => {
             <input
               type="text"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setShowAutocomplete(true); // Activar autocomplete cuando se escribe
+              }}
+              onFocus={() => setShowAutocomplete(true)} // Activar autocomplete al hacer focus
               placeholder="Escriba nombre o DUI del cliente..."
               style={{
                 width: '100%',
                 padding: '12px',
                 border: '1px solid #cbd5e0',
                 borderRadius: '6px',
-                fontSize: '14px'
+                fontSize: '14px',
+                backgroundColor: 'white'
               }}
             />
             
             {/* Resultados de búsqueda */}
-            {clientResults.length > 0 && (
+            {showAutocomplete && clientResults.length > 0 && (
               <div style={{
                 position: 'absolute',
                 top: '100%',
@@ -464,24 +645,34 @@ const HistorialClientePage: React.FC = () => {
               </div>
             )}
             
-            {searchLoading && (
+            {showAutocomplete && searchLoading && (
               <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, padding: '12px', backgroundColor: 'white', border: '1px solid #cbd5e0', borderRadius: '6px' }}>
                 <LoadingDots label="Buscando clientes..." />
               </div>
             )}
+
+
           </div>
 
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <div style={{ 
+            display: 'flex', 
+            gap: isMobile ? '8px' : '12px', 
+            alignItems: 'center',
+            flexDirection: isMobile ? 'column' : 'row',
+            width: '100%'
+          }}>
             <Button 
               onClick={handleGenerateReport}
               isDisabled={!selectedClient}
               style={{
                 backgroundColor: selectedClient ? '#4299e1' : '#a0aec0',
                 color: 'white',
-                padding: '10px 20px',
+                padding: isMobile ? '12px 16px' : '10px 20px',
                 border: 'none',
                 borderRadius: '6px',
-                cursor: selectedClient ? 'pointer' : 'not-allowed'
+                cursor: selectedClient ? 'pointer' : 'not-allowed',
+                width: isMobile ? '100%' : 'auto',
+                fontSize: isMobile ? '14px' : 'inherit'
               }}
             >
               📊 Generar Historial
@@ -492,9 +683,11 @@ const HistorialClientePage: React.FC = () => {
               style={{
                 backgroundColor: '#718096',
                 color: 'white',
-                padding: '10px 20px',
+                padding: isMobile ? '12px 16px' : '10px 20px',
                 border: 'none',
-                borderRadius: '6px'
+                borderRadius: '6px',
+                width: isMobile ? '100%' : 'auto',
+                fontSize: isMobile ? '14px' : 'inherit'
               }}
             >
               🗑️ Limpiar
@@ -506,10 +699,12 @@ const HistorialClientePage: React.FC = () => {
                 style={{
                   backgroundColor: '#38a169',
                   color: 'white',
-                  padding: '10px 20px',
+                  padding: isMobile ? '12px 16px' : '10px 20px',
                   border: 'none',
                   borderRadius: '6px',
-                  marginLeft: '8px'
+                  marginLeft: isMobile ? '0px' : '8px',
+                  width: isMobile ? '100%' : 'auto',
+                  fontSize: isMobile ? '14px' : 'inherit'
                 }}
               >
                 📄 Exportar PDF
@@ -517,7 +712,12 @@ const HistorialClientePage: React.FC = () => {
             )}
 
             {selectedClient && (
-              <div style={{ fontSize: '14px', color: '#4a5568' }}>
+              <div style={{ 
+                fontSize: isMobile ? '12px' : '14px', 
+                color: '#4a5568',
+                textAlign: isMobile ? 'center' : 'left',
+                width: '100%'
+              }}>
                 Cliente seleccionado: <strong>{selectedClient.name}</strong> ({selectedClient.dui})
               </div>
             )}
@@ -552,7 +752,11 @@ const HistorialClientePage: React.FC = () => {
                 👤 {historyResult.client.fullName}
               </h2>
               
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(250px, 1fr))', 
+                gap: isMobile ? '12px' : '16px' 
+              }}>
                 <div>
                   <p><strong>DUI:</strong> {historyResult.client.dui}</p>
                   <p><strong>Teléfonos:</strong> {historyResult.client.phones.join(', ')}</p>
@@ -568,13 +772,13 @@ const HistorialClientePage: React.FC = () => {
             {/* Summary Stats */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-              gap: '16px',
-              marginBottom: '32px'
+              gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: isMobile ? '12px' : '16px',
+              marginBottom: isMobile ? '24px' : '32px'
             }}>
               <div style={{
                 backgroundColor: historyResult.summary.hasBeenClient ? '#e6fffa' : '#f7fafc',
-                padding: '20px',
+                padding: isMobile ? '16px' : '20px',
                 borderRadius: '8px',
                 border: `2px solid ${historyResult.summary.hasBeenClient ? '#38b2ac' : '#cbd5e0'}`,
                 textAlign: 'center'
@@ -654,6 +858,138 @@ const HistorialClientePage: React.FC = () => {
               </div>
             </div>
 
+            {/* Documentos del Cliente */}
+            <div style={{ marginBottom: '32px' }}>
+              <h3 style={{ 
+                fontSize: '20px', 
+                fontWeight: 'bold', 
+                marginBottom: '16px',
+                color: '#2d3748',
+                borderBottom: '2px solid #805ad5',
+                paddingBottom: '8px'
+              }}>
+                📷 Documentos del Cliente
+              </h3>
+
+              {/* Estado de carga */}
+              {documentsLoading && (
+                <div style={{
+                  textAlign: 'center',
+                  padding: '32px',
+                  backgroundColor: '#f8fafc',
+                  borderRadius: '8px',
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <LoadingDots label="Cargando documentos..." />
+                  <p style={{ marginTop: '16px', color: '#718096', fontSize: '14px' }}>
+                    Buscando documentos asociados al cliente...
+                  </p>
+                </div>
+              )}
+
+              {/* Documentos encontrados */}
+              {!documentsLoading && documentsData?.documentPhotos && documentsData.documentPhotos.length > 0 && (
+                <>
+                  <p style={{ 
+                    fontSize: '12px', 
+                    color: '#718096', 
+                    marginBottom: '16px',
+                    fontStyle: 'italic'
+                  }}>
+                    💡 Haz clic en cualquier documento para ver la imagen completa
+                  </p>
+
+                                  <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(200px, 1fr))',
+                  gap: isMobile ? '12px' : '16px',
+                  padding: isMobile ? '16px' : '20px',
+                  backgroundColor: '#f8fafc',
+                  borderRadius: '8px',
+                  border: '1px solid #e2e8f0'
+                }}>
+                    {documentsData.documentPhotos.map((document: ClientDocument) => {
+                      const personType = getPersonTypeFromDocument(document, historyResult.client.id);
+                      return (
+                        <DocumentThumbnail
+                          key={document.id}
+                          type={document.documentType}
+                          personType={personType}
+                          imageUrl={document.photoUrl}
+                          publicId={document.publicId}
+                          onImageClick={() => openImageModal(document, personType)}
+                          onUploadClick={() => {}} // No permitir subir desde aquí
+                          size="medium"
+                        />
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              {/* Sin documentos */}
+              {!documentsLoading && (!documentsData?.documentPhotos || documentsData.documentPhotos.length === 0) && (
+                <div style={{
+                  textAlign: 'center',
+                  padding: '40px',
+                  backgroundColor: '#f8fafc',
+                  borderRadius: '8px',
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <div style={{
+                    fontSize: '48px',
+                    marginBottom: '16px',
+                    color: '#a0aec0'
+                  }}>
+                    📷
+                  </div>
+                  <h4 style={{ 
+                    fontSize: '16px', 
+                    fontWeight: '600', 
+                    marginBottom: '8px', 
+                    color: '#4a5568' 
+                  }}>
+                    No se encontraron documentos
+                  </h4>
+                  <p style={{ 
+                    fontSize: '14px', 
+                    color: '#718096', 
+                    marginBottom: '16px',
+                    maxWidth: '400px',
+                    margin: '0 auto'
+                  }}>
+                    Este cliente no tiene documentos asociados (INE, comprobante de domicilio, pagarés, etc.)
+                  </p>
+                  <div style={{
+                    fontSize: '12px',
+                    color: '#a0aec0',
+                    backgroundColor: '#f1f5f9',
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    display: 'inline-block'
+                  }}>
+                    💡 Los documentos se pueden agregar desde la página "Documentos Personales"
+                  </div>
+                </div>
+              )}
+
+              {/* Información adicional */}
+              <div style={{
+                fontSize: '11px',
+                color: '#718096',
+                marginTop: '12px',
+                fontStyle: 'italic',
+                textAlign: 'center'
+              }}>
+                {documentsData?.documentPhotos && documentsData.documentPhotos.length > 0 ? (
+                  `Total de documentos: ${documentsData.documentPhotos.length}`
+                ) : (
+                  'Estado: Sin documentos asociados'
+                )}
+              </div>
+            </div>
+
             {/* Loans as Client */}
             {historyResult.loansAsClient.length > 0 && (
               <div style={{ marginBottom: '32px' }}>
@@ -677,19 +1013,84 @@ const HistorialClientePage: React.FC = () => {
                   💡 Haz clic en cualquier fila para ver el detalle completo de pagos y fechas
                 </p>
                 
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+                <div style={{ 
+                  overflowX: 'auto',
+                  fontSize: isMobile ? '12px' : 'inherit'
+                }}>
+                  <table style={{ 
+                    width: '100%', 
+                    borderCollapse: 'collapse', 
+                    backgroundColor: 'white', 
+                    borderRadius: '8px', 
+                    overflow: 'hidden', 
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                    minWidth: isMobile ? '800px' : 'auto'
+                  }}>
                     <thead>
                       <tr style={{ backgroundColor: '#f7fafc' }}>
-                        <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>FECHA</th>
-                        <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>TIPO</th>
-                        <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>PRESTADO</th>
-                        <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>TOTAL A PAGAR</th>
-                        <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>PAGADO</th>
-                        <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>DEUDA PENDIENTE</th>
-                        <th style={{ padding: '12px', textAlign: 'center', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>ESTADO</th>
-                        <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>LÍDER</th>
-                        <th style={{ padding: '12px', textAlign: 'center', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>DÍAS</th>
+                        <th style={{ 
+                          padding: isMobile ? '8px' : '12px', 
+                          textAlign: 'left', 
+                          borderBottom: '2px solid #e2e8f0', 
+                          fontSize: isMobile ? '10px' : '12px', 
+                          fontWeight: '600' 
+                        }}>FECHA</th>
+                        <th style={{ 
+                          padding: isMobile ? '8px' : '12px', 
+                          textAlign: 'left', 
+                          borderBottom: '2px solid #e2e8f0', 
+                          fontSize: isMobile ? '10px' : '12px', 
+                          fontWeight: '600' 
+                        }}>TIPO</th>
+                        <th style={{ 
+                          padding: isMobile ? '8px' : '12px', 
+                          textAlign: 'right', 
+                          borderBottom: '2px solid #e2e8f0', 
+                          fontSize: isMobile ? '10px' : '12px', 
+                          fontWeight: '600' 
+                        }}>PRESTADO</th>
+                        <th style={{ 
+                          padding: isMobile ? '8px' : '12px', 
+                          textAlign: 'right', 
+                          borderBottom: '2px solid #e2e8f0', 
+                          fontSize: isMobile ? '10px' : '12px', 
+                          fontWeight: '600' 
+                        }}>TOTAL A PAGAR</th>
+                        <th style={{ 
+                          padding: isMobile ? '8px' : '12px', 
+                          textAlign: 'right', 
+                          borderBottom: '2px solid #e2e8f0', 
+                          fontSize: isMobile ? '10px' : '12px', 
+                          fontWeight: '600' 
+                        }}>PAGADO</th>
+                        <th style={{ 
+                          padding: isMobile ? '8px' : '12px', 
+                          textAlign: 'right', 
+                          borderBottom: '2px solid #e2e8f0', 
+                          fontSize: isMobile ? '10px' : '12px', 
+                          fontWeight: '600' 
+                        }}>DEUDA PENDIENTE</th>
+                        <th style={{ 
+                          padding: isMobile ? '8px' : '12px', 
+                          textAlign: 'center', 
+                          borderBottom: '2px solid #e2e8f0', 
+                          fontSize: isMobile ? '10px' : '12px', 
+                          fontWeight: '600' 
+                        }}>ESTADO</th>
+                        <th style={{ 
+                          padding: isMobile ? '8px' : '12px', 
+                          textAlign: 'left', 
+                          borderBottom: '2px solid #e2e8f0', 
+                          fontSize: isMobile ? '10px' : '12px', 
+                          fontWeight: '600' 
+                        }}>LÍDER</th>
+                        <th style={{ 
+                          padding: isMobile ? '8px' : '12px', 
+                          textAlign: 'center', 
+                          borderBottom: '2px solid #e2e8f0', 
+                          fontSize: isMobile ? '10px' : '12px', 
+                          fontWeight: '600' 
+                        }}>DÍAS</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1132,6 +1533,17 @@ const HistorialClientePage: React.FC = () => {
             )}
           </div>
         )}
+
+        {/* Modal de imagen */}
+        <ImageModal
+          isOpen={imageModal.isOpen}
+          onClose={() => setImageModal({ ...imageModal, isOpen: false })}
+          imageUrl={imageModal.imageUrl}
+          title={imageModal.title}
+          description={imageModal.description}
+          documentType={imageModal.documentType}
+          personType={imageModal.personType}
+        />
       </div>
     </PageContainer>
   );

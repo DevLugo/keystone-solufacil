@@ -4982,7 +4982,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               });
             });
 
-            // Agregar clientes que aparecen solo como avalistas (sin duplicar por ID)
+            // Agregar información de avales a clientes existentes (sin crear duplicados)
             if (loansAsCollateral && Array.isArray(loansAsCollateral)) {
               loansAsCollateral.forEach(loan => {
                 // Obtener información del aval desde collaterals
@@ -5014,34 +5014,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
                       });
                     }
                   }
-                } else {
-                  // El aval no existe como cliente principal, crear nueva entrada
-                  const avalId = `aval_${loan.id}`;
-                  
-                  // Para clientes solo como aval, usar la fecha de este préstamo
-                  const loanDate = new Date(loan.signDate).toLocaleDateString('es-ES', {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit'
-                  });
-                  
-                  combinedResults.set(avalId, {
-                    id: avalId,
-                    name: collateral.fullName || 'Sin nombre',
-                    dui: 'N/A',
-                    phone: collateral.phones?.[0]?.number || 'N/A',
-                    address: 'N/A (Solo como aval)',
-                    route: 'N/A',
-                    location: 'N/A (Solo como aval)',
-                    latestLoanDate: loanDate,
-                    hasLoans: false,
-                    hasBeenCollateral: true,
-                    totalLoans: 0,
-                    activeLoans: 0,
-                    finishedLoans: 0,
-                    collateralLoans: 1
-                  });
                 }
+                // ELIMINADO: No crear entradas separadas para avales que no son clientes principales
+                // Esto evita duplicados y mantiene solo un resultado por personalData
               });
             }
 
