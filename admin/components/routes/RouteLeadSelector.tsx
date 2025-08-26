@@ -16,6 +16,7 @@ import { FaTimes } from 'react-icons/fa';
 type Lead = {
   id: string;
   personalData: {
+    id: string;
     fullName: string;
     addresses?: Array<{
       location: {
@@ -303,7 +304,27 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
     data: route
   }));
 
-  const leadOptions = leads.map((lead: Lead) => {
+  // Deduplicar leads basándose en personalData.id para evitar entradas repetidas
+  const uniqueLeads = leads.reduce((acc: Lead[], current: Lead) => {
+    // Primero intentar por personalData.id
+    if (current.personalData?.id) {
+      const exists = acc.find(lead => lead.personalData?.id === current.personalData?.id);
+      if (!exists) {
+        acc.push(current);
+      }
+    } else {
+      // Fallback: deduplicar por nombre completo si no hay ID
+      const exists = acc.find(lead => 
+        lead.personalData?.fullName === current.personalData?.fullName
+      );
+      if (!exists) {
+        acc.push(current);
+      }
+    }
+    return acc;
+  }, []);
+
+  const leadOptions = uniqueLeads.map((lead: Lead) => {
     const locality = lead.personalData?.addresses?.[0]?.location?.name || '';
     const state = (lead.personalData as any)?.addresses?.[0]?.location?.municipality?.state?.name || '';
     const label = locality && state ? `${locality} · ${state} · (${lead.personalData?.fullName})` : locality || lead.personalData?.fullName || 'Sin nombre';
