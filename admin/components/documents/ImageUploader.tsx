@@ -2,7 +2,7 @@
 /** @jsx React.createElement */
 /** @jsxFrag React.Fragment */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@keystone-ui/button';
 import { LoadingDots } from '@keystone-ui/loading';
 import { FaUpload, FaCamera, FaTrash, FaEye } from 'react-icons/fa';
@@ -37,7 +37,13 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   const [isUploading, setIsUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(currentImageUrl || null);
   const [showPreview, setShowPreview] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [isCameraReady, setIsCameraReady] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -105,22 +111,127 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
     }
   };
 
-  const handleCapturePhoto = () => {
-    // Implementar captura de foto con la cámara
+  const handleCapturePhoto = async () => {
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      navigator.mediaDevices.getUserMedia({ video: true })
-        .then((stream) => {
-          // Aquí se implementaría la captura de foto
-          alert('Funcionalidad de captura de foto en desarrollo');
-        })
-        .catch((error) => {
-          console.error('Error al acceder a la cámara:', error);
-          alert('No se pudo acceder a la cámara');
-        });
+      try {
+        // Configuración más compatible con macOS
+        const constraints = {
+          video: {
+            width: { ideal: 1280, min: 640 },
+            height: { ideal: 720, min: 480 },
+            frameRate: { ideal: 30, min: 15 }
+          }
+        };
+
+        const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+        
+        setStream(mediaStream);
+        setShowCamera(true);
+        
+        // Esperar a que el DOM se actualice antes de inicializar el video
+        setTimeout(() => {
+          if (videoRef.current) {
+            videoRef.current.srcObject = mediaStream;
+            // Forzar la reproducción del video
+            videoRef.current.play().catch(e => {
+              console.log('Error al reproducir video:', e);
+              setCameraError('Error al reproducir el video de la cámara');
+            });
+          }
+        }, 100);
+        
+      } catch (error) {
+        console.error('Error al acceder a la cámara:', error);
+        alert('No se pudo acceder a la cámara. Asegúrate de dar permisos y que no esté siendo usada por otra aplicación.');
+      }
     } else {
       alert('Tu navegador no soporta la captura de fotos');
     }
   };
+
+  const capturePhoto = () => {
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const context = canvas.getContext('2d');
+      
+      if (context) {
+        // Configurar canvas con las dimensiones del video
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        
+        // Dibujar el frame actual del video en el canvas
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Convertir canvas a blob
+        canvas.toBlob(async (blob) => {
+          if (blob) {
+            // Crear archivo desde el blob
+            const file = new File([blob], 'foto-capturada.jpg', { type: 'image/jpeg' });
+            
+            // Crear preview
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              setPreviewUrl(e.target?.result as string);
+            };
+            reader.readAsDataURL(file);
+            
+            // Subir a Cloudinary
+            try {
+              setIsUploading(true);
+              
+              const formData = new FormData();
+              formData.append('file', file);
+              formData.append('folder', 'documentos-personales');
+
+              const response = await fetch('/api/upload-image', {
+                method: 'POST',
+                body: formData,
+              });
+
+              if (!response.ok) {
+                throw new Error('Error al subir la imagen');
+              }
+
+              const result: CloudinaryUploadResult = await response.json();
+              
+              // Llamar al callback con la URL y public_id
+              onImageUpload(result.secure_url, result.public_id);
+              
+            } catch (error) {
+              console.error('Error al subir imagen capturada:', error);
+              alert('Error al subir la imagen capturada. Por favor, inténtalo de nuevo.');
+              setPreviewUrl(null);
+            } finally {
+              setIsUploading(false);
+            }
+          }
+        }, 'image/jpeg', 0.9);
+      }
+    }
+    
+    // Cerrar cámara
+    closeCamera();
+  };
+
+  const closeCamera = () => {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      setStream(null);
+    }
+    setShowCamera(false);
+    setIsCameraReady(false);
+    setCameraError(null);
+  };
+
+  // Limpiar stream cuando se desmonte el componente
+  useEffect(() => {
+    return () => {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [stream]);
 
   return (
     <div style={{ width: '100%' }}>
@@ -229,6 +340,175 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
         </div>
       )}
 
+      {/* Modal de cámara */}
+      {showCamera && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.9)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+        }}>
+          <div style={{
+            position: 'relative',
+            width: '100%',
+            maxWidth: '500px',
+            textAlign: 'center'
+          }}>
+            {/* Título */}
+            <div style={{
+              color: 'white',
+              fontSize: '18px',
+              fontWeight: 'bold',
+              marginBottom: '16px'
+            }}>
+              Capturar Foto
+            </div>
+            
+            {/* Video de la cámara */}
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              controls={false}
+              style={{
+                width: '100%',
+                maxWidth: '400px',
+                borderRadius: '8px',
+                border: '2px solid #fff',
+                backgroundColor: '#000'
+              }}
+              onLoadedMetadata={() => {
+                // Forzar la reproducción cuando se carguen los metadatos
+                if (videoRef.current) {
+                  videoRef.current.play().catch(e => {
+                    console.log('Error al reproducir video:', e);
+                    setCameraError('Error al reproducir el video de la cámara');
+                  });
+                }
+              }}
+              onCanPlay={() => {
+                // Asegurar que el video esté reproduciéndose
+                if (videoRef.current && videoRef.current.paused) {
+                  videoRef.current.play().catch(e => {
+                    console.log('Error al reproducir video:', e);
+                    setCameraError('Error al reproducir el video de la cámara');
+                  });
+                }
+                setIsCameraReady(true);
+                setCameraError(null);
+              }}
+              onError={() => {
+                setCameraError('Error al cargar el video de la cámara');
+                setIsCameraReady(false);
+              }}
+            />
+            
+            {/* Indicador de estado de la cámara */}
+            {!isCameraReady && !cameraError && (
+              <div style={{
+                color: '#fbbf24',
+                fontSize: '14px',
+                marginTop: '8px'
+              }}>
+                Inicializando cámara...
+              </div>
+            )}
+            
+            {cameraError && (
+              <div style={{
+                color: '#ef4444',
+                fontSize: '14px',
+                marginTop: '8px',
+                padding: '8px',
+                backgroundColor: '#fef2f2',
+                borderRadius: '4px',
+                border: '1px solid #fecaca'
+              }}>
+                ⚠️ {cameraError}
+                <Button
+                  tone="passive"
+                  size="small"
+                  onClick={() => {
+                    setCameraError(null);
+                    setIsCameraReady(false);
+                    if (videoRef.current) {
+                      videoRef.current.play().catch(e => {
+                        console.log('Error al reproducir video:', e);
+                      });
+                    }
+                  }}
+                  style={{
+                    marginLeft: '8px',
+                    padding: '4px 8px',
+                    fontSize: '12px'
+                  }}
+                >
+                  Reintentar
+                </Button>
+              </div>
+            )}
+            
+            {/* Canvas oculto para captura */}
+            <canvas
+              ref={canvasRef}
+              style={{ display: 'none' }}
+            />
+            
+            {/* Botones de control */}
+            <div style={{
+              display: 'flex',
+              gap: '16px',
+              justifyContent: 'center',
+              marginTop: '20px'
+            }}>
+              <Button
+                tone="negative"
+                size="medium"
+                onClick={closeCamera}
+                style={{
+                  padding: '12px 24px',
+                  fontSize: '14px'
+                }}
+              >
+                Cancelar
+              </Button>
+              
+              <Button
+                tone="active"
+                size="medium"
+                onClick={capturePhoto}
+                disabled={isUploading || !isCameraReady || !!cameraError}
+                style={{
+                  padding: '12px 24px',
+                  fontSize: '14px',
+                  backgroundColor: isCameraReady && !cameraError ? '#10b981' : '#9ca3af'
+                }}
+              >
+                {isUploading ? 'Capturando...' : '📸 Capturar'}
+              </Button>
+            </div>
+            
+            {/* Instrucciones */}
+            <div style={{
+              color: '#9ca3af',
+              fontSize: '14px',
+              marginTop: '16px',
+              padding: '0 20px'
+            }}>
+              Posiciona el documento en el centro de la pantalla y presiona "Capturar"
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Botones de acción */}
       <div style={{
         display: 'flex',
@@ -257,7 +537,12 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
           size="small"
           onClick={handleCapturePhoto}
           disabled={disabled || isUploading}
-          style={{ fontSize: '12px' }}
+          style={{ 
+            fontSize: '12px',
+            backgroundColor: '#6b7280',
+            color: 'white',
+            border: 'none'
+          }}
         >
           <FaCamera size={12} style={{ marginRight: '6px' }} />
           Cámara

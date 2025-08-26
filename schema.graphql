@@ -2079,6 +2079,8 @@ type DocumentPhoto {
   photoUrl: String
   publicId: String
   documentType: DocumentPhotoDocumentTypeType
+  isError: Boolean
+  errorDescription: String
   personalData: PersonalData
   loan: Loan
   uploadedBy: User
@@ -2107,6 +2109,8 @@ input DocumentPhotoWhereInput {
   photoUrl: StringFilter
   publicId: StringFilter
   documentType: DocumentPhotoDocumentTypeTypeNullableFilter
+  isError: BooleanFilter
+  errorDescription: StringFilter
   personalData: PersonalDataWhereInput
   loan: LoanWhereInput
   uploadedBy: UserWhereInput
@@ -2121,6 +2125,11 @@ input DocumentPhotoDocumentTypeTypeNullableFilter {
   not: DocumentPhotoDocumentTypeTypeNullableFilter
 }
 
+input BooleanFilter {
+  equals: Boolean
+  not: BooleanFilter
+}
+
 input DocumentPhotoOrderByInput {
   id: OrderDirection
   title: OrderDirection
@@ -2128,6 +2137,8 @@ input DocumentPhotoOrderByInput {
   photoUrl: OrderDirection
   publicId: OrderDirection
   documentType: OrderDirection
+  isError: OrderDirection
+  errorDescription: OrderDirection
   createdAt: OrderDirection
   updatedAt: OrderDirection
 }
@@ -2138,6 +2149,8 @@ input DocumentPhotoUpdateInput {
   photoUrl: String
   publicId: String
   documentType: DocumentPhotoDocumentTypeType
+  isError: Boolean
+  errorDescription: String
   personalData: PersonalDataRelateToOneForUpdateInput
   loan: LoanRelateToOneForUpdateInput
   uploadedBy: UserRelateToOneForUpdateInput
@@ -2156,6 +2169,8 @@ input DocumentPhotoCreateInput {
   photoUrl: String
   publicId: String
   documentType: DocumentPhotoDocumentTypeType
+  isError: Boolean
+  errorDescription: String
   personalData: PersonalDataRelateToOneForCreateInput
   loan: LoanRelateToOneForCreateInput
   uploadedBy: UserRelateToOneForCreateInput

@@ -360,20 +360,22 @@ model PortfolioCleanup {
 }
 
 model DocumentPhoto {
-  id             String                        @id @default(cuid())
-  title          String                        @default("")
-  description    String                        @default("")
-  photoUrl       String                        @default("")
-  publicId       String                        @default("")
-  documentType   DocumentPhotoDocumentTypeType
-  personalData   PersonalData?                 @relation("DocumentPhoto_personalData", fields: [personalDataId], references: [id])
-  personalDataId String?                       @map("personalData")
-  loan           Loan?                         @relation("DocumentPhoto_loan", fields: [loanId], references: [id])
-  loanId         String?                       @map("loan")
-  uploadedBy     User?                         @relation("DocumentPhoto_uploadedBy", fields: [uploadedById], references: [id])
-  uploadedById   String?                       @map("uploadedBy")
-  createdAt      DateTime?                     @default(now())
-  updatedAt      DateTime?
+  id               String                        @id @default(cuid())
+  title            String                        @default("")
+  description      String                        @default("")
+  photoUrl         String                        @default("")
+  publicId         String                        @default("")
+  documentType     DocumentPhotoDocumentTypeType
+  isError          Boolean                       @default(false)
+  errorDescription String                        @default("")
+  personalData     PersonalData?                 @relation("DocumentPhoto_personalData", fields: [personalDataId], references: [id])
+  personalDataId   String?                       @map("personalData")
+  loan             Loan?                         @relation("DocumentPhoto_loan", fields: [loanId], references: [id])
+  loanId           String?                       @map("loan")
+  uploadedBy       User?                         @relation("DocumentPhoto_uploadedBy", fields: [uploadedById], references: [id])
+  uploadedById     String?                       @map("uploadedBy")
+  createdAt        DateTime?                     @default(now())
+  updatedAt        DateTime?
 
   @@index([personalDataId])
   @@index([loanId])

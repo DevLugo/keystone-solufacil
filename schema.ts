@@ -1,6 +1,6 @@
 import { graphql, list } from '@keystone-6/core';
 import { allowAll } from '@keystone-6/core/access';
-import { text, password, timestamp, relationship, decimal, integer, select, virtual, json } from '@keystone-6/core/fields';
+import { text, password, timestamp, relationship, decimal, integer, select, virtual, json, checkbox } from '@keystone-6/core/fields';
 import { KeystoneContext } from '@keystone-6/core/types';
 import { prisma } from './keystone';
 import { calculateLoanProfitAmount, calculatePendingProfitAmount } from './utils/loan';
@@ -2110,6 +2110,8 @@ export const DocumentPhoto = list({
       ],
       validation: { isRequired: true }
     }),
+    isError: checkbox({ defaultValue: false }),
+    errorDescription: text(),
     personalData: relationship({ 
       ref: 'PersonalData.documentPhotos'
     }),
@@ -2122,7 +2124,7 @@ export const DocumentPhoto = list({
   },
   ui: {
     listView: {
-      initialColumns: ['title', 'documentType', 'personalData', 'loan', 'createdAt'],
+      initialColumns: ['title', 'documentType', 'personalData', 'loan', 'isError', 'createdAt'],
     },
   },
 });

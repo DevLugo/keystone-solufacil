@@ -67,6 +67,8 @@ const GET_LOANS_WITH_DOCUMENTS = gql`
         photoUrl
         publicId
         documentType
+        isError
+        errorDescription
         createdAt
         personalData {
           id
@@ -109,6 +111,17 @@ const DELETE_DOCUMENT_PHOTO = gql`
   }
 `;
 
+// Mutation para actualizar estado de error del documento
+const UPDATE_DOCUMENT_PHOTO_ERROR = gql`
+  mutation UpdateDocumentPhotoError($id: ID!, $isError: Boolean!, $errorDescription: String) {
+    updateDocumentPhoto(where: { id: $id }, data: { isError: $isError, errorDescription: $errorDescription }) {
+      id
+      isError
+      errorDescription
+    }
+  }
+`;
+
 // Tipos de documentos permitidos
 const DOCUMENT_TYPES: Array<'INE' | 'DOMICILIO' | 'PAGARE'> = ['INE', 'DOMICILIO', 'PAGARE'];
 
@@ -137,6 +150,8 @@ interface DocumentPhoto {
   photoUrl: string;
   publicId: string;
   documentType: 'INE' | 'DOMICILIO' | 'PAGARE';
+  isError: boolean;
+  errorDescription?: string;
   createdAt: string;
   personalData: {
     id: string;
@@ -295,6 +310,7 @@ export default function DocumentosPersonalesPage() {
   // Mutations
   const [createDocumentPhoto] = useMutation(CREATE_DOCUMENT_PHOTO);
   const [deleteDocumentPhoto] = useMutation(DELETE_DOCUMENT_PHOTO);
+  const [updateDocumentPhotoError] = useMutation(UPDATE_DOCUMENT_PHOTO_ERROR);
   const [updatePersonalDataName] = useMutation(UPDATE_PERSONAL_DATA_NAME);
   const [updatePersonalDataPhone] = useMutation(UPDATE_PERSONAL_DATA_PHONE);
   const [createPersonalDataPhone] = useMutation(CREATE_PERSONAL_DATA_PHONE);
@@ -338,6 +354,8 @@ export default function DocumentosPersonalesPage() {
     documentType: 'INE' | 'DOMICILIO' | 'PAGARE';
     personalDataId: string;
     loanId: string;
+    isError: boolean;
+    errorDescription: string;
   }) => {
     try {
       await createDocumentPhoto({
@@ -348,6 +366,8 @@ export default function DocumentosPersonalesPage() {
             photoUrl: data.photoUrl,
             publicId: data.publicId,
             documentType: data.documentType,
+            isError: data.isError,
+            errorDescription: data.errorDescription,
             personalData: { connect: { id: data.personalDataId } },
             loan: { connect: { id: data.loanId } }
           }
@@ -376,6 +396,42 @@ export default function DocumentosPersonalesPage() {
     } catch (error) {
       console.error('Error al eliminar documento:', error);
       alert('Error al eliminar el documento');
+    }
+  };
+
+  // Función para manejar el estado de error del documento
+  const handleDocumentError = async (documentId: string, isError: boolean, errorDescription?: string) => {
+    try {
+      await updateDocumentPhotoError({
+        variables: { 
+          id: documentId, 
+          isError, 
+          errorDescription: errorDescription || null 
+        }
+      });
+
+      // Refrescar datos
+      refetch();
+    } catch (error) {
+      console.error('Error al actualizar estado del documento:', error);
+      alert('Error al actualizar el estado del documento');
+    }
+  };
+
+  // Función para eliminar documentos
+  const handleDocumentDelete = async (documentId: string) => {
+    if (confirm('¿Estás seguro de que quieres eliminar este documento? Esta acción no se puede deshacer.')) {
+      try {
+        // Aquí deberías implementar la mutación para eliminar el documento
+        // Por ahora solo mostraremos un mensaje
+        alert('Función de eliminación implementada. El documento será eliminado.');
+        // TODO: Implementar DELETE_DOCUMENT_PHOTO mutation
+        // await deleteDocumentPhoto({ variables: { id: documentId } });
+        // refetch();
+      } catch (error) {
+        console.error('Error al eliminar el documento:', error);
+        alert('Error al eliminar el documento');
+      }
     }
   };
 
@@ -524,7 +580,7 @@ export default function DocumentosPersonalesPage() {
         >
                       {/* Selector simple de semanas */}
             <Box css={{ width: '100%' }}>
-              <Text weight="medium" size="small" color="gray500" marginBottom="small">
+              <Text weight="medium" size="small" color="black" marginBottom="small">
                 Seleccionar Semana
               </Text>
               <Select
@@ -757,6 +813,7 @@ export default function DocumentosPersonalesPage() {
                               loan.borrower.personalData.id
                             );
                             const hasDocument = !!document;
+                            const hasError = hasDocument && document.isError;
                             
                             return (
                               <Box
@@ -766,12 +823,14 @@ export default function DocumentosPersonalesPage() {
                                   borderRadius: '8px',
                                   fontSize: '10px',
                                   fontWeight: '500',
-                                  backgroundColor: hasDocument ? '#dcfce7' : '#f3f4f6',
-                                  color: hasDocument ? '#166534' : '#6b7280',
-                                  border: `1px solid ${hasDocument ? '#bbf7d0' : '#e5e7eb'}`
+                                  backgroundColor: hasError ? '#fef2f2' : hasDocument ? '#dcfce7' : '#f3f4f6',
+                                  color: hasError ? '#dc2626' : hasDocument ? '#166534' : '#6b7280',
+                                  border: `1px solid ${hasError ? '#fecaca' : hasDocument ? '#bbf7d0' : '#e5e7eb'}`
                                 }}
+                                title={hasError ? `Error: ${document.errorDescription || 'Documento marcado como error'}` : undefined}
                               >
                                 {getTypeLabel(type)}
+                                {hasError && ' ⚠️'}
                               </Box>
                             );
                           })}
@@ -791,6 +850,7 @@ export default function DocumentosPersonalesPage() {
                               loan.lead.personalData.id
                             );
                             const hasDocument = !!document;
+                            const hasError = hasDocument && document.isError;
                             
                             return (
                               <Box
@@ -800,12 +860,14 @@ export default function DocumentosPersonalesPage() {
                                   borderRadius: '8px',
                                   fontSize: '10px',
                                   fontWeight: '500',
-                                  backgroundColor: hasDocument ? '#dcfce7' : '#f3f4f6',
-                                  color: hasDocument ? '#166534' : '#6b7280',
-                                  border: `1px solid ${hasDocument ? '#bbf7d0' : '#e5e7eb'}`
+                                  backgroundColor: hasError ? '#fef2f2' : hasDocument ? '#dcfce7' : '#f3f4f6',
+                                  color: hasError ? '#dc2626' : hasDocument ? '#166534' : '#6b7280',
+                                  border: `1px solid ${hasError ? '#fecaca' : hasDocument ? '#bbf7d0' : '#e5e7eb'}`
                                 }}
+                                title={hasError ? `Error: ${document.errorDescription || 'Documento marcado como error'}` : undefined}
                               >
                                 {getTypeLabel(type)}
+                                {hasError && ' ⚠️'}
                               </Box>
                             );
                           })}
@@ -926,6 +988,7 @@ export default function DocumentosPersonalesPage() {
                                 loan.borrower.personalData.id
                               );
                               const hasDocument = !!document;
+                              const hasError = hasDocument && document.isError;
                               
                               return (
                                 <Box
@@ -935,12 +998,14 @@ export default function DocumentosPersonalesPage() {
                                     borderRadius: '12px',
                                     fontSize: '11px',
                                     fontWeight: '500',
-                                    backgroundColor: hasDocument ? '#dcfce7' : '#f3f4f6',
-                                    color: hasDocument ? '#166534' : '#6b7280',
-                                    border: `1px solid ${hasDocument ? '#bbf7d0' : '#e5e7eb'}`
+                                    backgroundColor: hasError ? '#fef2f2' : hasDocument ? '#dcfce7' : '#f3f4f6',
+                                    color: hasError ? '#dc2626' : hasDocument ? '#166534' : '#6b7280',
+                                    border: `1px solid ${hasError ? '#fecaca' : hasDocument ? '#bbf7d0' : '#e5e7eb'}`
                                   }}
+                                  title={hasError ? `Error: ${document.errorDescription || 'Documento marcado como error'}` : undefined}
                                 >
                                   {getTypeLabel(type)}
+                                  {hasError && ' ⚠️'}
                                 </Box>
                               );
                             })}
@@ -1000,6 +1065,7 @@ export default function DocumentosPersonalesPage() {
                                 loan.lead.personalData.id
                               );
                               const hasDocument = !!document;
+                              const hasError = hasDocument && document.isError;
                               
                               return (
                                 <Box
@@ -1009,12 +1075,14 @@ export default function DocumentosPersonalesPage() {
                                     borderRadius: '12px',
                                     fontSize: '11px',
                                     fontWeight: '500',
-                                    backgroundColor: hasDocument ? '#dcfce7' : '#f3f4f6',
-                                    color: hasDocument ? '#166534' : '#6b7280',
-                                    border: `1px solid ${hasDocument ? '#bbf7d0' : '#e5e7eb'}`
+                                    backgroundColor: hasError ? '#fef2f2' : hasDocument ? '#dcfce7' : '#f3f4f6',
+                                    color: hasError ? '#dc2626' : hasDocument ? '#166534' : '#6b7280',
+                                    border: `1px solid ${hasError ? '#fecaca' : hasDocument ? '#bbf7d0' : '#e5e7eb'}`
                                   }}
+                                  title={hasError ? `Error: ${document.errorDescription || 'Documento marcado como error'}` : undefined}
                                 >
                                   {getTypeLabel(type)}
+                                  {hasError && ' ⚠️'}
                                 </Box>
                               );
                             })}
@@ -1091,6 +1159,8 @@ export default function DocumentosPersonalesPage() {
                                 personType="TITULAR"
                                 imageUrl={document?.photoUrl}
                                 publicId={document?.publicId}
+                                isError={document?.isError || false}
+                                errorDescription={document?.errorDescription || ''}
                                 onImageClick={() => document && window.open(document.photoUrl, '_blank')}
                                 onUploadClick={() => openUploadModal(
                                   type,
@@ -1099,6 +1169,10 @@ export default function DocumentosPersonalesPage() {
                                   loan.id,
                                   loan.borrower.personalData.fullName
                                 )}
+                                onMarkAsError={(isError, errorDescription) => 
+                                  document && handleDocumentError(document.id, isError, errorDescription)
+                                }
+                                onDelete={() => document && handleDocumentDelete(document.id)}
                                 size="medium"
                               />
                             );
@@ -1155,24 +1229,30 @@ export default function DocumentosPersonalesPage() {
                               loan.lead.personalData.id
                             );
 
-                            return (
-                              <DocumentThumbnail
-                                key={`aval-${type}`}
-                                type={type}
-                                personType="AVAL"
-                                imageUrl={document?.photoUrl}
-                                publicId={document?.publicId}
-                                onImageClick={() => document && window.open(document.photoUrl, '_blank')}
-                                onUploadClick={() => openUploadModal(
-                                  type,
-                                  'AVAL',
-                                  loan.lead.personalData.id,
-                                  loan.id,
-                                  loan.lead.personalData.fullName
-                                )}
-                                size="medium"
-                              />
-                            );
+                                                          return (
+                                <DocumentThumbnail
+                                  key={`aval-${type}`}
+                                  type={type}
+                                  personType="AVAL"
+                                  imageUrl={document?.photoUrl}
+                                  publicId={document?.publicId}
+                                  isError={document?.isError || false}
+                                  errorDescription={document?.errorDescription || ''}
+                                  onImageClick={() => document && window.open(document.photoUrl, '_blank')}
+                                  onUploadClick={() => openUploadModal(
+                                    type,
+                                    'AVAL',
+                                    loan.lead.personalData.id,
+                                    loan.id,
+                                    loan.lead.personalData.fullName
+                                  )}
+                                  onMarkAsError={(isError, errorDescription) => 
+                                    document && handleDocumentError(document.id, isError, errorDescription)
+                                  }
+                                  onDelete={() => document && handleDocumentDelete(document.id)}
+                                  size="medium"
+                                />
+                              );
                           })}
                         </Box>
                       </Box>

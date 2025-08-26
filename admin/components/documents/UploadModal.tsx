@@ -19,6 +19,8 @@ interface UploadModalProps {
     documentType: 'INE' | 'DOMICILIO' | 'PAGARE';
     personalDataId: string;
     loanId: string;
+    isError: boolean;
+    errorDescription: string;
   }) => void;
   documentType: 'INE' | 'DOMICILIO' | 'PAGARE';
   personType: 'TITULAR' | 'AVAL';
@@ -41,6 +43,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const [photoUrl, setPhotoUrl] = useState('');
   const [publicId, setPublicId] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [isError, setIsError] = useState(false);
+  const [errorDescription, setErrorDescription] = useState('');
 
   if (!isOpen) return null;
 
@@ -81,13 +85,17 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         publicId,
         documentType,
         personalDataId,
-        loanId
+        loanId,
+        isError,
+        errorDescription: errorDescription.trim()
       });
       
       // Limpiar formulario
       setDescription('');
       setPhotoUrl('');
       setPublicId('');
+      setIsError(false);
+      setErrorDescription('');
       onClose();
     } catch (error) {
       console.error('Error al subir documento:', error);
@@ -103,6 +111,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     setDescription('');
     setPhotoUrl('');
     setPublicId('');
+    setIsError(false);
+    setErrorDescription('');
     onClose();
   };
 
@@ -142,16 +152,16 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             alignItems: 'center',
             justifyContent: 'space-between',
             padding: '20px',
-            backgroundColor: '#f8fafc',
-            borderBottom: '1px solid #e2e8f0'
+            backgroundColor: '#f1f5f9',
+            borderBottom: '2px solid #e2e8f0'
           }}
         >
           <Box>
-            <Text weight="semibold" size="large">
+            <Text weight="bold" size="large" color="black">
               Subir {getTypeLabel(documentType)}
             </Text>
-            <Text size="small" color="muted">
-              {getPersonLabel(personType)}: {personName}
+            <Text size="small" color="black" css={{ marginTop: '4px' }}>
+              {getPersonLabel(personType)}: <strong>{personName}</strong>
             </Text>
           </Box>
           
@@ -162,9 +172,19 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             css={{
               padding: '8px',
               minWidth: 'auto',
-              backgroundColor: '#ef4444',
-              '&:hover': { backgroundColor: '#dc2626' },
-              '&:disabled': { opacity: 0.5, cursor: 'not-allowed' }
+              backgroundColor: '#dc2626',
+              color: 'white',
+              border: 'none',
+              '&:hover': { 
+                backgroundColor: '#b91c1c',
+                transform: 'scale(1.05)'
+              },
+              '&:disabled': { 
+                opacity: 0.6, 
+                cursor: 'not-allowed',
+                backgroundColor: '#9ca3af'
+              },
+              transition: 'all 0.2s ease'
             }}
           >
             <FaTimes size={16} />
@@ -197,6 +217,58 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               onChange={(e) => setDescription(e.target.value)}
               disabled={isUploading}
             />
+          </Box>
+
+          {/* Campo para marcar como error */}
+          <Box marginBottom="large">
+            <Box css={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 'small' }}>
+              <input
+                type="checkbox"
+                id="isError"
+                checked={isError}
+                onChange={(e) => setIsError(e.target.checked)}
+                disabled={isUploading}
+                css={{
+                  width: '18px',
+                  height: '18px',
+                  cursor: 'pointer',
+                  accentColor: '#dc2626',
+                  '&:checked': {
+                    backgroundColor: '#dc2626',
+                    borderColor: '#dc2626'
+                  },
+                  '&:focus': {
+                    outline: '2px solid #fca5a5',
+                    outlineOffset: '2px'
+                  }
+                }}
+              />
+              <Text weight="semibold" size="small" color="red600">
+                Marcar como error
+              </Text>
+            </Box>
+            
+            {isError && (
+              <TextInput
+                placeholder="Descripción del error..."
+                value={errorDescription}
+                onChange={(e) => setErrorDescription(e.target.value)}
+                disabled={isUploading}
+                css={{
+                  borderColor: '#dc2626',
+                  backgroundColor: '#fef2f2',
+                  color: '#1f2937',
+                  '&:focus': {
+                    borderColor: '#b91c1c',
+                    boxShadow: '0 0 0 2px rgba(220, 38, 38, 0.2)',
+                    backgroundColor: 'white'
+                  },
+                  '&::placeholder': {
+                    color: '#9ca3af'
+                  }
+                }}
+              />
+            )}
           </Box>
 
           {/* Información del documento */}
@@ -234,8 +306,20 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               disabled={isUploading}
               css={{
                 backgroundColor: '#6b7280',
-                '&:hover': { backgroundColor: '#4b5563' },
-                '&:disabled': { opacity: 0.5, cursor: 'not-allowed' }
+                color: 'white',
+                border: 'none',
+                fontWeight: '600',
+                '&:hover': { 
+                  backgroundColor: '#4b5563',
+                  transform: 'translateY(-1px)',
+                  boxShadow: '0 4px 12px rgba(75, 85, 99, 0.3)'
+                },
+                '&:disabled': { 
+                  opacity: 0.6, 
+                  cursor: 'not-allowed',
+                  backgroundColor: '#9ca3af'
+                },
+                transition: 'all 0.2s ease'
               }}
             >
               Cancelar
@@ -246,9 +330,24 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               onClick={handleSubmit}
               disabled={isUploading || !photoUrl || !publicId}
               css={{
-                backgroundColor: '#10b981',
-                '&:hover': { backgroundColor: '#059669' },
-                '&:disabled': { opacity: 0.5, cursor: 'not-allowed' }
+                backgroundColor: '#059669',
+                color: 'white',
+                border: 'none',
+                fontWeight: '600',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                '&:hover': { 
+                  backgroundColor: '#047857',
+                  transform: 'translateY(-1px)',
+                  boxShadow: '0 4px 12px rgba(5, 150, 105, 0.3)'
+                },
+                '&:disabled': { 
+                  opacity: 0.6, 
+                  cursor: 'not-allowed',
+                  backgroundColor: '#9ca3af'
+                },
+                transition: 'all 0.2s ease'
               }}
             >
               {isUploading ? (

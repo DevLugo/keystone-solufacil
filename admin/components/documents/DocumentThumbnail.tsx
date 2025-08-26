@@ -5,15 +5,19 @@ import React, { useState } from 'react';
 import { jsx, Box, Text } from '@keystone-ui/core';
 import { Button } from '@keystone-ui/button';
 import { LoadingDots } from '@keystone-ui/loading';
-import { FaCamera, FaEye, FaPlus, FaCheck } from 'react-icons/fa';
+import { FaCamera, FaEye, FaPlus, FaCheck, FaExclamationTriangle, FaTimes } from 'react-icons/fa';
 
 interface DocumentThumbnailProps {
   type: 'INE' | 'DOMICILIO' | 'PAGARE';
   personType: 'TITULAR' | 'AVAL';
   imageUrl?: string;
   publicId?: string;
+  isError?: boolean;
+  errorDescription?: string;
   onImageClick?: () => void;
   onUploadClick?: () => void;
+  onMarkAsError?: (isError: boolean, errorDescription?: string) => void;
+  onDelete?: () => void;
   isUploading?: boolean;
   size?: 'small' | 'medium' | 'large';
 }
@@ -23,12 +27,18 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
   personType,
   imageUrl,
   publicId,
+  isError = false,
+  errorDescription = '',
   onImageClick,
   onUploadClick,
+  onMarkAsError,
+  onDelete,
   isUploading = false,
   size = 'medium'
 }) => {
   const [isHovered, setIsHovered] = useState(false);
+  const [showErrorInput, setShowErrorInput] = useState(false);
+  const [errorInput, setErrorInput] = useState(errorDescription);
 
   const getTypeLabel = (type: string) => {
     switch (type) {
@@ -134,23 +144,150 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
             </Box>
           )}
 
-          {/* Indicador de completado */}
+          {/* Botón de eliminar (esquina superior izquierda) */}
+          {hasImage && onDelete && (
+            <Box
+              css={{
+                position: 'absolute',
+                top: '4px',
+                left: '4px',
+                backgroundColor: '#ef4444',
+                borderRadius: '50%',
+                width: '18px',
+                height: '18px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                zIndex: 10,
+                transition: 'all 0.2s ease',
+                '&:hover': {
+                  backgroundColor: '#dc2626',
+                  transform: 'scale(1.1)'
+                }
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onDelete) {
+                  onDelete();
+                }
+              }}
+              title="Eliminar imagen"
+            >
+              <FaTimes size={10} color="white" />
+            </Box>
+          )}
+
+          {/* Indicador de estado (esquina superior derecha) */}
           <Box
             css={{
               position: 'absolute',
               top: '4px',
               right: '4px',
-              backgroundColor: '#10b981',
+              backgroundColor: isError ? '#ef4444' : '#10b981',
               borderRadius: '50%',
-              width: '16px',
-              height: '16px',
+              width: '18px',
+              height: '18px',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
+              cursor: 'pointer',
+              zIndex: 10,
+              transition: 'all 0.2s ease',
+              '&:hover': {
+                backgroundColor: isError ? '#dc2626' : '#059669',
+                transform: 'scale(1.1)'
+              }
             }}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onMarkAsError) {
+                if (isError) {
+                  // Si ya está marcado como error, quitar el error
+                  onMarkAsError(false);
+                } else {
+                  // Mostrar input para descripción del error
+                  setShowErrorInput(true);
+                }
+              }
+            }}
+            title={isError ? 'Quitar error' : 'Marcar como error'}
           >
-            <FaCheck size={8} color="white" />
+            {isError ? <FaExclamationTriangle size={9} color="white" /> : <FaCheck size={9} color="white" />}
           </Box>
+
+          {/* Input para descripción del error */}
+          {showErrorInput && (
+            <Box
+              css={{
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                backgroundColor: 'white',
+                border: '2px solid #ef4444',
+                borderRadius: '8px',
+                padding: '12px',
+                zIndex: 20,
+                width: '200px',
+                boxShadow: '0 10px 25px rgba(0, 0, 0, 0.3)'
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Text size="small" weight="semibold" marginBottom="small" color="red700">
+                Marcar como error
+              </Text>
+              <textarea
+                placeholder="Descripción del error..."
+                value={errorInput}
+                onChange={(e) => setErrorInput(e.target.value)}
+                css={{
+                  width: '100%',
+                  minHeight: '60px',
+                  padding: '8px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  resize: 'vertical',
+                  marginBottom: '8px'
+                }}
+              />
+              <Box css={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setShowErrorInput(false);
+                    setErrorInput(errorDescription);
+                  }}
+                  css={{
+                    padding: '4px 8px',
+                    fontSize: '10px',
+                    backgroundColor: '#6b7280',
+                    '&:hover': { backgroundColor: '#4b5563' }
+                  }}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    if (onMarkAsError) {
+                      onMarkAsError(true, errorInput.trim());
+                      setShowErrorInput(false);
+                    }
+                  }}
+                  css={{
+                    padding: '4px 8px',
+                    fontSize: '10px',
+                    backgroundColor: '#ef4444',
+                    '&:hover': { backgroundColor: '#dc2626' }
+                  }}
+                >
+                  Confirmar
+                </Button>
+              </Box>
+            </Box>
+          )}
         </>
       ) : (
         /* Estado vacío */
