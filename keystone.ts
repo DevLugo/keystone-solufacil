@@ -76,6 +76,15 @@ export default withAuth(
     },
     ui: {
       isAccessAllowed: ({ session }) => !!session,
+      getAdditionalFiles: [
+        () => [
+          {
+            mode: 'write',
+            src: 'src/components/CustomNavigation.tsx',
+            outputPath: 'admin/components/CustomNavigation.tsx',
+          },
+        ],
+      ],
     },
     session,
     server: {
