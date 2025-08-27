@@ -18,81 +18,114 @@ interface MenuSection {
 const menuSections: MenuSection[] = [
   {
     title: 'Clientes',
-    roles: ['normal', 'admin'],
+    roles: ['NORMAL', 'ADMIN'],
     items: [
       {
         label: 'Historial de Clientes',
         href: '/historial-cliente',
-        roles: ['normal', 'admin']
+        roles: ['NORMAL', 'ADMIN']
       },
       {
         label: 'Carga de Documentos',
         href: '/documentos-personales',
-        roles: ['normal', 'admin']
+        roles: ['NORMAL', 'ADMIN']
       },
       {
         label: 'Limpieza de Cartera',
         href: '/limpieza-cartera',
-        roles: ['admin']
+        roles: ['ADMIN']
       }
     ]
   },
   {
     title: 'Operaciones',
-    roles: ['normal', 'admin'],
+    roles: ['NORMAL', 'ADMIN'],
     items: [
       {
         label: 'Captura Semanal',
         href: '/transacciones',
-        roles: ['normal', 'captura', 'admin']
+        roles: ['NORMAL', 'CAPTURA', 'ADMIN']
       },
       {
         label: 'Carga Gastos Toka',
         href: '/gastos-toka',
-        roles: ['admin']
+        roles: ['ADMIN']
       }
     ]
   },
   {
     title: 'Reportes',
-    roles: ['normal', 'admin'],
+    roles: ['NORMAL', 'ADMIN'],
     items: [
       {
         label: 'Reporte Finanzas',
         href: '/reporte-finanzas',
-        roles: ['admin']
+        roles: ['ADMIN']
       },
       {
         label: 'Reporte Cobranza',
         href: '/reporte-cobranza',
-        roles: ['normal', 'admin']
+        roles: ['NORMAL', 'ADMIN']
       }
     ]
   },
   {
     title: 'Administración del Sistema',
-    roles: ['admin'],
+    roles: ['ADMIN'],
     items: [
       {
         label: 'Todas las Listas',
         href: '/',
-        roles: ['admin']
+        roles: ['ADMIN']
       }
     ]
   }
 ];
 
 export function CustomNavigation({ authenticatedItem, lists }: NavigationProps) {
-  const [userRole, setUserRole] = useState<string>('normal');
+  const [userRole, setUserRole] = useState<string>('NORMAL');
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const [showKeystoneLists, setShowKeystoneLists] = useState<boolean>(false);
 
   useEffect(() => {
     // Obtener el rol del usuario desde la sesión
-    // Por ahora usamos 'admin' como default para testing
     if (authenticatedItem && 'id' in authenticatedItem) {
-      // Aquí puedes hacer una consulta para obtener el rol del usuario
-      setUserRole('admin'); // Cambiar por la lógica real
+      // Hacer una consulta GraphQL para obtener el rol del usuario
+      const fetchUserRole = async () => {
+        try {
+          // Usar la API de Keystone para obtener el usuario actual
+          const response = await fetch('/api/graphql', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              query: `
+                query GetCurrentUser($id: ID!) {
+                  user(where: { id: $id }) {
+                    id
+                    role
+                  }
+                }
+              `,
+              variables: {
+                id: authenticatedItem.id
+              }
+            })
+          });
+
+          const result = await response.json();
+          if (result.data?.user?.role) {
+            setUserRole(result.data.user.role);
+          }
+        } catch (error) {
+          console.error('Error fetching user role:', error);
+          // Fallback al rol por defecto
+          setUserRole('NORMAL');
+        }
+      };
+
+      fetchUserRole();
     }
   }, [authenticatedItem]);
 
@@ -161,7 +194,7 @@ export function CustomNavigation({ authenticatedItem, lists }: NavigationProps) 
       ))}
 
       {/* Mostrar listas nativas de Keystone cuando se solicite */}
-      {showKeystoneLists && userRole === 'admin' && (
+      {showKeystoneLists && userRole === 'ADMIN' && (
         <div className="keystone-lists-section">
           <div className="keystone-lists-header">
             <span>Listas del Sistema</span>
