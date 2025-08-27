@@ -69,18 +69,30 @@ const menuSections: MenuSection[] = [
       }
     ]
   },
+  {
+    title: 'Administración del Sistema',
+    roles: ['admin'],
+    items: [
+      {
+        label: 'Todas las Listas',
+        href: '/',
+        roles: ['admin']
+      }
+    ]
+  }
 ];
 
 export function CustomNavigation({ authenticatedItem, lists }: NavigationProps) {
   const [userRole, setUserRole] = useState<string>('normal');
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+  const [showKeystoneLists, setShowKeystoneLists] = useState<boolean>(false);
 
   useEffect(() => {
     // Obtener el rol del usuario desde la sesión
-    // Por ahora usamos 'normal' como default, pero puedes implementar la lógica real
+    // Por ahora usamos 'admin' como default para testing
     if (authenticatedItem && 'id' in authenticatedItem) {
       // Aquí puedes hacer una consulta para obtener el rol del usuario
-      setUserRole('normal'); // Cambiar por la lógica real
+      setUserRole('admin'); // Cambiar por la lógica real
     }
   }, [authenticatedItem]);
 
@@ -100,6 +112,10 @@ export function CustomNavigation({ authenticatedItem, lists }: NavigationProps) 
   };
 
   const isSectionExpanded = (sectionTitle: string) => expandedSections.has(sectionTitle);
+
+  const handleShowKeystoneLists = () => {
+    setShowKeystoneLists(!showKeystoneLists);
+  };
 
   return (
     <NavigationContainer authenticatedItem={authenticatedItem}>
@@ -124,14 +140,41 @@ export function CustomNavigation({ authenticatedItem, lists }: NavigationProps) 
               {section.items
                 .filter(item => item.roles.includes(userRole))
                 .map((item, itemIndex) => (
-                  <NavItem key={itemIndex} href={item.href}>
-                    {item.label}
-                  </NavItem>
+                  <div key={itemIndex}>
+                    {item.label === 'Todas las Listas' ? (
+                      <div 
+                        className="keystone-lists-toggle"
+                        onClick={handleShowKeystoneLists}
+                      >
+                        {item.label}
+                      </div>
+                    ) : (
+                      <NavItem href={item.href}>
+                        {item.label}
+                      </NavItem>
+                    )}
+                  </div>
                 ))}
             </div>
           )}
         </div>
       ))}
+
+      {/* Mostrar listas nativas de Keystone cuando se solicite */}
+      {showKeystoneLists && userRole === 'admin' && (
+        <div className="keystone-lists-section">
+          <div className="keystone-lists-header">
+            <span>Listas del Sistema</span>
+            <button 
+              className="close-keystone-lists"
+              onClick={() => setShowKeystoneLists(false)}
+            >
+              ✕
+            </button>
+          </div>
+          <ListNavItems lists={lists} />
+        </div>
+      )}
     </NavigationContainer>
   );
 }

@@ -84,6 +84,64 @@
   border-color: #adb5bd;
 }
 
+/* Estilos para el toggle de listas de Keystone */
+.keystone-lists-toggle {
+  display: block;
+  padding: 0.5rem 0.75rem;
+  color: #495057;
+  text-decoration: none;
+  font-size: 0.875rem;
+  border-radius: 0.25rem;
+  transition: all 0.15s ease;
+  margin: 0.125rem 0;
+  cursor: pointer;
+  background: #e3f2fd;
+  border: 1px solid #bbdefb;
+  color: #1565c0;
+}
+
+.keystone-lists-toggle:hover {
+  background: #bbdefb;
+  border-color: #90caf9;
+  color: #0d47a1;
+}
+
+/* Sección de listas de Keystone */
+.keystone-lists-section {
+  margin: 1rem 0;
+  padding: 1rem;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 0.5rem;
+  border-left: 4px solid #007bff;
+}
+
+.keystone-lists-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #dee2e6;
+  font-weight: 600;
+  color: #495057;
+}
+
+.close-keystone-lists {
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+  transition: background-color 0.15s ease;
+}
+
+.close-keystone-lists:hover {
+  background: #c82333;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .section-header {
@@ -96,5 +154,10 @@
   
   .section-items a {
     padding: 0.5rem 0.625rem;
+  }
+  
+  .keystone-lists-section {
+    margin: 0.5rem 0;
+    padding: 0.75rem;
   }
 }
