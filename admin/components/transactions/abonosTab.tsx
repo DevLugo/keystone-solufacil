@@ -419,7 +419,8 @@ export const CreatePaymentForm = ({
         },
         pendingAmountStored: {
           gt: "0"
-        }
+        },
+        excludedByCleanup: null
       }
     },
     skip: !selectedLead,
@@ -1161,7 +1162,7 @@ export const CreatePaymentForm = ({
             </div>
           </div>
 
-          <table css={styles.table}>
+          <table style={styles.table}>
             <thead>
               <tr>
                 <th style={{ 

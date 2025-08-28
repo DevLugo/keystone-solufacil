@@ -1520,6 +1520,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
             
             // Usar transacción para garantizar atomicidad
             return await context.prisma.$transaction(async (tx) => {
+              // 0) Obtener el préstamo original ANTES de actualizar para calcular delta en la cuenta
+              const originalLoan = await tx.loan.findUnique({ where: { id: where } });
+
               // 1. Actualizar el préstamo básico
               const loanUpdateData: any = {};
               
@@ -1533,7 +1536,95 @@ export const extendGraphqlSchema = graphql.extend(base => {
               });
               
               console.log('✅ Préstamo básico actualizado:', updatedLoan.id);
-              
+
+              // 1.1 Actualizar transacciones asociadas LOAN_GRANTED y LOAN_GRANTED_COMISSION si cambian montos/fecha
+              try {
+                const existingTransactions = await context.db.Transaction.findMany({
+                  where: {
+                    loan: { id: { equals: updatedLoan.id } },
+                    type: { equals: 'EXPENSE' },
+                    OR: [
+                      { expenseSource: { equals: 'LOAN_GRANTED' } },
+                      { expenseSource: { equals: 'LOAN_GRANTED_COMISSION' } }
+                    ]
+                  }
+                });
+
+                const signDateToUse = (data as any).signDate || updatedLoan.signDate;
+                const ops: Promise<any>[] = [];
+
+                for (const tr of (existingTransactions || [])) {
+                  if (tr.expenseSource === 'LOAN_GRANTED') {
+                    ops.push(context.db.Transaction.updateOne({
+                      where: { id: tr.id.toString() },
+                      data: {
+                        amount: (parseFloat((data.amountGived ?? updatedLoan.amountGived) as any).toFixed(2)).toString(),
+                        date: signDateToUse
+                      }
+                    }));
+                  } else if (tr.expenseSource === 'LOAN_GRANTED_COMISSION') {
+                    ops.push(context.db.Transaction.updateOne({
+                      where: { id: tr.id.toString() },
+                      data: {
+                        amount: (parseFloat((data.comissionAmount ?? updatedLoan.comissionAmount) as any).toFixed(2)).toString(),
+                        date: signDateToUse
+                      }
+                    }));
+                  }
+                }
+
+                if (ops.length) {
+                  await Promise.all(ops);
+                  console.log('🔁 Transacciones LOAN_GRANTED(_COMISSION) actualizadas');
+                }
+              } catch (e) {
+                console.error('⚠️ No se pudo actualizar transacciones asociadas:', e);
+              }
+
+              // 1.2 Actualizar balance de cuenta EMPLOYEE_CASH_FUND según delta de montos (usar originalLoan)
+              try {
+                if (originalLoan) {
+                  const lead = await context.db.Employee.findOne({ where: { id: (originalLoan as any).leadId } });
+                  const account = await context.prisma.account.findFirst({
+                    where: {
+                      routeId: (lead as any)?.routesId,
+                      type: 'EMPLOYEE_CASH_FUND'
+                    }
+                  });
+
+                  if (account) {
+                    const parseAmountNum = (v: any) => parseFloat((v ?? '0').toString());
+
+                    const oldAmount = parseAmountNum((originalLoan as any).amountGived);
+                    const oldCommission = parseAmountNum((originalLoan as any).comissionAmount);
+                    const newAmount = parseAmountNum((data as any).amountGived ?? updatedLoan.amountGived);
+                    const newCommission = parseAmountNum((data as any).comissionAmount ?? updatedLoan.comissionAmount);
+
+                    const oldTotal = oldAmount + oldCommission;
+                    const newTotal = newAmount + newCommission;
+                    const balanceChange = oldTotal - newTotal; // mismo criterio que schema.ts
+
+                    const currentAmount = parseFloat(account.amount.toString());
+                    const updatedAmount = currentAmount + balanceChange;
+
+                    await context.db.Account.updateOne({
+                      where: { id: account.id },
+                      data: { amount: updatedAmount.toString() }
+                    });
+
+                    console.log('💰 Cuenta EMPLOYEE_CASH_FUND actualizada:', {
+                      accountId: account.id,
+                      oldTotal,
+                      newTotal,
+                      balanceChange,
+                      updatedAmount
+                    });
+                  }
+                }
+              } catch (e) {
+                console.error('⚠️ No se pudo actualizar la cuenta asociada:', e);
+              }
+
               // 2. Manejar la lógica de avales
               if (data.avalData?.action && data.avalData.action !== 'clear') {
                 const avalData = data.avalData;
@@ -1749,6 +1840,53 @@ export const extendGraphqlSchema = graphql.extend(base => {
               
               console.log('✅ Préstamo actualizado exitosamente con avales:', finalLoan?.id);
               
+              // 1.2 Actualizar balance de cuenta EMPLOYEE_CASH_FUND según delta de montos
+              try {
+                // Obtener préstamo original para calcular delta
+                const originalLoan = await tx.loan.findUnique({ where: { id: where } });
+                if (originalLoan) {
+                  // Buscar lead y cuenta
+                  const lead = await context.db.Employee.findOne({ where: { id: (originalLoan as any).leadId } });
+                  const account = await context.prisma.account.findFirst({
+                    where: {
+                      routeId: (lead as any)?.routesId,
+                      type: 'EMPLOYEE_CASH_FUND'
+                    }
+                  });
+
+                  if (account) {
+                    const parseAmount = (v: any) => parseFloat((v ?? '0').toString());
+
+                    const oldAmount = parseAmount((originalLoan as any).amountGived);
+                    const oldCommission = parseAmount((originalLoan as any).comissionAmount);
+                    const newAmount = parseAmount((data as any).amountGived ?? updatedLoan.amountGived);
+                    const newCommission = parseAmount((data as any).comissionAmount ?? updatedLoan.comissionAmount);
+
+                    const oldTotal = oldAmount + oldCommission;
+                    const newTotal = newAmount + newCommission;
+                    const balanceChange = oldTotal - newTotal; // mismo signo que schema.ts
+
+                    const currentAmount = parseFloat(account.amount.toString());
+                    const updatedAmount = currentAmount + balanceChange;
+
+                    await context.db.Account.updateOne({
+                      where: { id: account.id },
+                      data: { amount: updatedAmount.toString() }
+                    });
+
+                    console.log('💰 Cuenta EMPLOYEE_CASH_FUND actualizada:', {
+                      accountId: account.id,
+                      oldTotal,
+                      newTotal,
+                      balanceChange,
+                      updatedAmount
+                    });
+                  }
+                }
+              } catch (e) {
+                console.error('⚠️ No se pudo actualizar la cuenta asociada:', e);
+              }
+
               return {
                 success: true,
                 loan: finalLoan,

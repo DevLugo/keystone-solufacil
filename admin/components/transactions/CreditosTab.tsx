@@ -290,18 +290,18 @@ const GET_PREVIOUS_LOANS = gql`
   query GetPreviousLoansOptimized($leadId: ID!) {
     loans(
       where: {
-        AND: [
-          { lead: { id: { equals: $leadId } } }
-          { finishedDate: { equals: null } }
-        ]
+        lead: { id: { equals: $leadId } }
       }
       orderBy: { signDate: desc }
-      take: 50
+      take: 100
     ) {
       id
       requestedAmount
       amountGived
       signDate
+      finishedDate
+      renewedDate
+      status
       loantype {
         id
         name
@@ -505,7 +505,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
 
       console.log('🚫 Clientes ya renovados hoy:', Array.from(renewedTodayBorrowerIds));
 
-      // Agrupar préstamos por borrower para obtener solo el más reciente de cada cliente
+      // ✅ MODIFICADO: Incluir SOLO préstamos terminados para renovación (último crédito cerrado)
       const borrowerLoans = previousLoansData.loans.reduce((acc: { [key: string]: any }, loan: any) => {
         const borrowerId = loan.borrower?.id;
         if (!borrowerId) return acc;
@@ -516,8 +516,12 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
           return acc;
         }
         
-        if (!acc[borrowerId] || new Date(loan.signDate) > new Date(acc[borrowerId].signDate)) {
-          acc[borrowerId] = loan;
+        // ✅ MODIFICADO: Solo incluir préstamos TERMINADOS (finishedDate no es null)
+        if (loan.finishedDate && loan.finishedDate !== null) {
+          // ✅ NUEVO: Solo incluir el préstamo más reciente TERMINADO de cada cliente
+          if (!acc[borrowerId] || new Date(loan.signDate) > new Date(acc[borrowerId].signDate)) {
+            acc[borrowerId] = loan;
+          }
         }
         return acc;
       }, {});
@@ -529,15 +533,22 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         return nameA.localeCompare(nameB);
       });
 
-      options.push(
-        ...sortedLoans.map((loan: any) => {
-          const pendingAmount = calculateLocalPendingAmount(loan);
-          return {
-            value: loan.id,
-            label: `${loan.borrower?.personalData?.fullName || 'Sin nombre'} ($${pendingAmount.toFixed(2)})`
-          };
-        })
-      );
+      // ✅ MODIFICADO: Crear opciones con información del último crédito cerrado
+      sortedLoans.forEach((loan: any) => {
+        const borrowerName = loan.borrower?.personalData?.fullName || 'Sin nombre';
+        const isRenewed = loan.renewedDate && loan.renewedDate !== null;
+        const status = isRenewed ? 'Renovado' : 'Terminado';
+        const finishDate = loan.finishedDate ? new Date(loan.finishedDate).toLocaleDateString('es-MX') : 'N/A';
+        
+        const label = `${borrowerName} - Último crédito ${status} (${finishDate})`;
+        
+        options.push({
+          value: loan.id,
+          label: label
+        });
+      });
+
+      console.log('✅ Opciones de préstamos previos generadas:', options.length - 1);
     }
 
     return options;
@@ -1507,6 +1518,7 @@ avalPhone: loan.avalData?.avalPhone || '',
         requestedAmount: editingLoan.requestedAmount,
         amountGived: editingLoan.amountGived,
         comissionAmount: editingLoan.comissionAmount,
+        // signDate eliminado; backend usará la fecha del préstamo
         avalData: {
           name: editingLoan.avalName || '',
           phone: editingLoan.avalPhone || '',
