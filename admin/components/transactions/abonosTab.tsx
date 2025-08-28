@@ -1,5 +1,4 @@
-/** @jsxRuntime classic */
-/** @jsx jsx */
+/** @jsxRuntime automatic */
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { gql, useQuery, useMutation, useLazyQuery } from '@apollo/client';
@@ -384,7 +383,7 @@ export const CreatePaymentForm = ({
         
         if (data?.loanPayments) {
           // ✅ AGREGAR: Cargar comisiones por defecto automáticamente
-          const paymentsWithDefaultCommissions = data.loanPayments.map(payment => {
+          const paymentsWithDefaultCommissions = data.loanPayments.map((payment: any) => {
             const defaultCommission = payment.loan?.loantype?.loanPaymentComission;
             if (defaultCommission && parseFloat(defaultCommission) > 0) {
               return {
@@ -396,7 +395,7 @@ export const CreatePaymentForm = ({
           });
           
           // ✅ AGREGAR: Ordenar abonos por fecha de creación del crédito (más viejo primero)
-          const sortedPayments = paymentsWithDefaultCommissions.sort((a, b) => {
+          const sortedPayments = paymentsWithDefaultCommissions.sort((a: any, b: any) => {
             const dateA = new Date(a.loan?.signDate || '1970-01-01');
             const dateB = new Date(b.loan?.signDate || '1970-01-01');
             return dateA.getTime() - dateB.getTime(); // Ascendente: crédito más viejo arriba
@@ -418,7 +417,6 @@ export const CreatePaymentForm = ({
         finishedDate: {
           equals: null
         },
-        // ✅ AGREGAR: Filtrar préstamos con deuda pendiente mayor a 0
         pendingAmountStored: {
           gt: "0"
         }
@@ -457,8 +455,21 @@ export const CreatePaymentForm = ({
     try {
       // Agrupar los pagos por leadPaymentReceived (excluyendo los eliminados)
       const paymentsByLeadPayment = existingPayments
-        .filter(payment => !deletedPaymentIds.includes(payment.id))
-        .reduce((acc, payment) => {
+        .filter((payment: any) => !deletedPaymentIds.includes(payment.id))
+        .reduce((acc: Record<string, {
+          payments: Array<{
+            amount: number;
+            comission: number;
+            loanId: string;
+            type: string;
+            paymentMethod: string;
+          }>;
+          expectedAmount: number;
+          cashPaidAmount: number;
+          bankPaidAmount: number;
+          falcoAmount: number;
+          paymentDate: string;
+        }>, payment: any) => {
         const leadPaymentId = payment.leadPaymentReceived?.id;
         if (!leadPaymentId) return acc;
 
@@ -638,7 +649,7 @@ export const CreatePaymentForm = ({
       }));
       
       // ✅ AGREGAR: Ordenar pagos por fecha de creación del crédito (más viejo primero)
-      const sortedNewPayments = newPayments.sort((a, b) => {
+      const sortedNewPayments = newPayments.sort((a: any, b: any) => {
         const dateA = new Date(a.loan?.signDate || '1970-01-01');
         const dateB = new Date(b.loan?.signDate || '1970-01-01');
         return dateA.getTime() - dateB.getTime(); // Ascendente: crédito más viejo arriba
@@ -743,8 +754,8 @@ export const CreatePaymentForm = ({
   // Calcular totales de pagos existentes (considerando ediciones y eliminaciones)
   const totalExistingAmount = useMemo(() => {
     return existingPayments
-      .filter(payment => !deletedPaymentIds.includes(payment.id))
-      .reduce((sum, payment) => {
+      .filter((payment: any) => !deletedPaymentIds.includes(payment.id))
+      .reduce((sum: number, payment: any) => {
         const editedPayment = editedPayments[payment.id] || payment;
         return sum + parseFloat(editedPayment.amount || '0');
       }, 0);
@@ -752,8 +763,8 @@ export const CreatePaymentForm = ({
 
   const totalExistingComission = useMemo(() => {
     return existingPayments
-      .filter(payment => !deletedPaymentIds.includes(payment.id))
-      .reduce((sum, payment) => {
+      .filter((payment: any) => !deletedPaymentIds.includes(payment.id))
+      .reduce((sum: number, payment: any) => {
         const editedPayment = editedPayments[payment.id] || payment;
         return sum + parseFloat(editedPayment.comission || '0');
       }, 0);
@@ -770,7 +781,7 @@ export const CreatePaymentForm = ({
 
   // Contar pagos existentes (considerando eliminaciones)
   const existingPaymentsCount = useMemo(() => {
-    return existingPayments.filter(payment => !deletedPaymentIds.includes(payment.id)).length;
+    return existingPayments.filter((payment: any) => !deletedPaymentIds.includes(payment.id)).length;
   }, [existingPayments, deletedPaymentIds]);
 
 
@@ -1178,7 +1189,7 @@ export const CreatePaymentForm = ({
             <tbody>
               {/* Pagos Registrados */}
               {existingPayments
-                .filter(payment => !deletedPaymentIds.includes(payment.id))
+                .filter((payment: any) => !deletedPaymentIds.includes(payment.id))
                 .map((payment, index) => {
                 const editedPayment = editedPayments[payment.id] || payment;
                 return (
