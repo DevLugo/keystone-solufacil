@@ -12,7 +12,7 @@ import { GET_ROUTES_SIMPLE } from '../graphql/queries/routes-optimized';
 import RouteLeadSelector from '../components/routes/RouteLeadSelector';
 import type { Route, Employee } from '../types/transaction';
 import type { RouteWithEmployees, EmployeeWithTypename } from '../types/components';
-import { CreateExpensesForm } from './gastos';
+import { CreateExpensesForm } from '../components/transactions/gastosTab';
 import { CreditosTab } from '../components/transactions/CreditosTab';
 import { CreatePaymentForm } from '../components/transactions/abonosTab';
 import { SummaryTab } from '../components/transactions/SummaryTab';

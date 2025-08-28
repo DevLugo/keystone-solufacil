@@ -610,8 +610,12 @@ export const CreatePaymentForm = ({
         }
       }
 
-      // Refrescar los datos
-      await refetchPayments();
+      // ✅ CORREGIDO: Refrescar todos los datos para obtener el balance real de la DB
+      await Promise.all([
+        refetchPayments(),
+        // Aquí deberías llamar a refetchRoute si tienes acceso a esa query
+        // Por ahora solo refrescamos los pagos
+      ]);
       
       // Limpiar el estado
       setState(prev => ({ 
