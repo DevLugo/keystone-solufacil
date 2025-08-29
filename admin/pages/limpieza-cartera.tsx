@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useLazyQuery } from '@apollo/client';
 import { PageContainer } from '@keystone-6/core/admin-ui/components';
-import { Select, TextInput } from '@keystone-ui/fields';
+import { Select, TextInput, DatePicker } from '@keystone-ui/fields';
 import { Button } from '@keystone-ui/button';
 import { LoadingDots } from '@keystone-ui/loading';
 import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
@@ -18,7 +18,7 @@ const GET_ROUTES = gql`
   }
 `;
 
-// Query para obtener préstamos de una ruta
+// Query para obtener préstamos de una ruta (optimizada)
 const GET_LOANS_FOR_CLEANUP = gql`
   query GetLoansForCleanup($routeId: ID!) {
     loans(where: { lead: { routes: { id: { equals: $routeId } } } }) {
@@ -47,7 +47,7 @@ const GET_LOANS_FOR_CLEANUP = gql`
   }
 `;
 
-// Preview limpieza masiva
+// Preview limpieza masiva (OPTIMIZADO - solo conteo y monto total)
 const PREVIEW_BULK_CLEANUP = gql`
   query PreviewBulkPortfolioCleanup($routeId: String!, $fromDate: String!, $toDate: String!, $weeksWithoutPaymentThreshold: Int) {
     previewBulkPortfolioCleanup(routeId: $routeId, fromDate: $fromDate, toDate: $toDate, weeksWithoutPaymentThreshold: $weeksWithoutPaymentThreshold)
@@ -243,10 +243,11 @@ export default function LimpiezaCarteraPage() {
     description: '',
     fromDate: '',
     toDate: '',
+    cleanupDate: new Date().toISOString().split('T')[0], // Fecha de creación por defecto
     weeksWithoutPaymentThreshold: 0,
     includeAll: true,
   });
-  const [preview, setPreview] = useState<{count: number; totalAmount: number; loans: any[]}|null>(null);
+  const [preview, setPreview] = useState<{count: number; totalAmount: number}|null>(null);
 
   // Query para obtener rutas
   const { data: routesData, loading: routesLoading } = useQuery(GET_ROUTES);
@@ -263,9 +264,9 @@ export default function LimpiezaCarteraPage() {
     onCompleted: (data) => {
       const res = data?.previewBulkPortfolioCleanup;
       if (res?.success) {
-        setPreview({ count: res.count, totalAmount: res.totalAmount, loans: res.loans || [] });
+        setPreview({ count: res.count, totalAmount: res.totalAmount });
       } else {
-        setPreview({ count: 0, totalAmount: 0, loans: [] });
+        setPreview({ count: 0, totalAmount: 0 });
       }
     }
   });
@@ -312,7 +313,14 @@ export default function LimpiezaCarteraPage() {
       return;
     }
     const threshold = bulkCleanupForm.includeAll ? 0 : (bulkCleanupForm.weeksWithoutPaymentThreshold || 0);
-    await runPreview({ variables: { routeId: selectedRoute, fromDate: bulkCleanupForm.fromDate, toDate: bulkCleanupForm.toDate, weeksWithoutPaymentThreshold: threshold } });
+    await runPreview({ 
+      variables: { 
+        routeId: selectedRoute, 
+        fromDate: bulkCleanupForm.fromDate, 
+        toDate: bulkCleanupForm.toDate, 
+        weeksWithoutPaymentThreshold: threshold 
+      } 
+    });
   };
 
   useEffect(() => {
@@ -384,7 +392,7 @@ export default function LimpiezaCarteraPage() {
         variables: {
           name: bulkCleanupForm.name,
           description: bulkCleanupForm.description,
-          cleanupDate: new Date().toISOString(),
+          cleanupDate: bulkCleanupForm.cleanupDate,
           routeId: selectedRoute,
           fromDate: bulkCleanupForm.fromDate,
           toDate: bulkCleanupForm.toDate,
@@ -399,7 +407,8 @@ export default function LimpiezaCarteraPage() {
           description: '',
           fromDate: '',
           toDate: '',
-          weeksWithoutPaymentThreshold: 2,
+          cleanupDate: new Date().toISOString().split('T')[0],
+          weeksWithoutPaymentThreshold: 0,
           includeAll: true,
         });
         setShowBulkCleanupForm(false);
@@ -442,9 +451,9 @@ export default function LimpiezaCarteraPage() {
                 Ruta
               </label>
               <Select
-                value={routeOptions.find(opt => opt.value === selectedRoute) || null}
+                value={routeOptions.find((opt: any) => opt.value === selectedRoute) || null}
                 options={routeOptions}
-                onChange={(option) => setSelectedRoute(option?.value || '')}
+                onChange={(option: any) => setSelectedRoute(option?.value || '')}
                 placeholder="Seleccionar ruta..."
               />
             </div>
@@ -624,17 +633,10 @@ export default function LimpiezaCarteraPage() {
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
                   Fecha de Inicio *
                 </label>
-                <input
-                  type="date"
+                <DatePicker
                   value={bulkCleanupForm.fromDate}
-                  onChange={(e) => setBulkCleanupForm({ ...bulkCleanupForm, fromDate: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '14px'
-                  }}
+                  onUpdate={(date: string) => setBulkCleanupForm({ ...bulkCleanupForm, fromDate: date })}
+                  onClear={() => setBulkCleanupForm({ ...bulkCleanupForm, fromDate: '' })}
                 />
               </div>
 
@@ -642,17 +644,21 @@ export default function LimpiezaCarteraPage() {
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
                   Fecha de Fin *
                 </label>
-                <input
-                  type="date"
+                <DatePicker
                   value={bulkCleanupForm.toDate}
-                  onChange={(e) => setBulkCleanupForm({ ...bulkCleanupForm, toDate: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '14px'
-                  }}
+                  onUpdate={(date: string) => setBulkCleanupForm({ ...bulkCleanupForm, toDate: date })}
+                  onClear={() => setBulkCleanupForm({ ...bulkCleanupForm, toDate: '' })}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
+                  Fecha de Creación *
+                </label>
+                <DatePicker
+                  value={bulkCleanupForm.cleanupDate}
+                  onUpdate={(date: string) => setBulkCleanupForm({ ...bulkCleanupForm, cleanupDate: date })}
+                  onClear={() => setBulkCleanupForm({ ...bulkCleanupForm, cleanupDate: new Date().toISOString().split('T')[0] })}
                 />
               </div>
 
@@ -701,46 +707,11 @@ export default function LimpiezaCarteraPage() {
                   Buscar
                 </Button>
               </div>
-              {preview?.loans?.length > 0 && (
-                <div style={{ marginTop: 8, maxHeight: 380, overflow: 'auto', fontSize: 12, color: '#374151' }}>
-                  {(() => {
-                    // Agrupar por localidad del líder
-                    const grouped: Record<string, any[]> = {};
-                    (preview.loans as any[]).forEach(l => {
-                      const key = l.leaderLocality || 'Sin localidad';
-                      if (!grouped[key]) grouped[key] = [];
-                      grouped[key].push(l);
-                    });
-                    const localities = Object.keys(grouped).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
-                    return (
-                      <div>
-                        {localities.map(loc => {
-                          const items = grouped[loc].sort((a, b) => (a.clientName || '').localeCompare(b.clientName || '', 'es', { sensitivity: 'base' }));
-                          const count = items.length;
-                          const total = items.reduce((sum, it) => sum + (Number(it.amountGived) || 0), 0);
-                          return (
-                            <div key={loc} style={{ marginBottom: 12 }}>
-                              <div style={{
-                                position: 'sticky', top: 0, background: '#f8fafc',
-                                fontSize: 12, fontWeight: 700, color: '#374151',
-                                padding: '6px 0', borderBottom: '1px solid #e5e7eb'
-                              }}>
-                                {loc} — {count} clientes ({formatCurrency(total)})
-                              </div>
-                              {items.map((l: any) => (
-                                <div key={l.id} style={{ display: 'flex', gap: 8, justifyContent: 'space-between', borderBottom: '1px dashed #e5e7eb', padding: '6px 0' }}>
-                                  <div style={{ flex: 2 }}>{l.clientName}</div>
-                                  <div style={{ flex: 2, color: '#6b7280' }}>{l.leaderName}</div>
-                                  <div style={{ flex: 1, textAlign: 'right' }}>{formatCurrency(l.amountGived)}</div>
-                                  <div style={{ flex: 1, textAlign: 'right', color: '#6b7280' }}>{formatDate(l.signDate)}</div>
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
+              {preview && preview.count > 0 && (
+                <div style={{ marginTop: 8, padding: '8px 12px', backgroundColor: '#ecfdf5', borderRadius: '6px', fontSize: 12, color: '#065f46' }}>
+                  ✅ Se encontraron {preview.count} préstamos que cumplen con los criterios de limpieza.
+                  <br />
+                  💰 Monto total a excluir: {formatCurrency(preview.totalAmount)}
                 </div>
               )}
             </div>
