@@ -31,16 +31,16 @@ const GET_ROUTES = gql`
 
 // Query para obtener el reporte financiero
 const GET_FINANCIAL_REPORT = gql`
-  query GetFinancialReport($routeId: String!, $year: Int!) {
-    getFinancialReport(routeId: $routeId, year: $year)
+  query GetFinancialReport($routeIds: [String!]!, $year: Int!) {
+    getFinancialReport(routeIds: $routeIds, year: $year)
   }
 `;
 
 interface FinancialReportData {
-  route: {
+  routes: {
     id: string;
     name: string;
-  };
+  }[];
   year: number;
   months: string[];
   data: {
@@ -170,7 +170,7 @@ const styles = {
 };
 
 export default function ReporteFinancieroPage() {
-  const [selectedRoute, setSelectedRoute] = useState<string>('');
+  const [selectedRoutes, setSelectedRoutes] = useState<string[]>([]);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   
   // Query para rutas
@@ -183,14 +183,14 @@ export default function ReporteFinancieroPage() {
     error: reportError,
     refetch: refetchReport 
   } = useQuery(GET_FINANCIAL_REPORT, {
-    variables: { routeId: selectedRoute, year: selectedYear },
-    skip: !selectedRoute
+    variables: { routeIds: selectedRoutes, year: selectedYear },
+    skip: !selectedRoutes.length
   });
 
   const processedData: FinancialReportData | null = reportData?.getFinancialReport || null;
 
   const handleGenerateReport = () => {
-    if (selectedRoute) {
+    if (selectedRoutes.length > 0) {
       refetchReport();
     }
   };
@@ -232,23 +232,158 @@ export default function ReporteFinancieroPage() {
     return { label: year.toString(), value: year.toString() };
   });
 
+  const getSelectedRoutesDisplay = () => {
+    if (selectedRoutes.length === 0) return 'Ninguna ruta seleccionada';
+    if (selectedRoutes.length === 1) {
+      const route = routeOptions.find((r: any) => r.value === selectedRoutes[0]);
+      return route ? `${route.label} (${selectedRoutes.length} ruta)` : 'Ruta seleccionada';
+    }
+    if (selectedRoutes.length === routeOptions.length) return 'Todas las rutas';
+    return `${selectedRoutes.length} rutas seleccionadas`;
+  };
+
+  const getReportTitle = () => {
+    if (!processedData) return '';
+    if (processedData.routes.length === 1) {
+      return `${processedData.routes[0].name} - ${processedData.year}`;
+    }
+    if (processedData.routes.length === routeOptions.length) {
+      return `Todas las Rutas - ${processedData.year}`;
+    }
+    return `${processedData.routes.length} Rutas Combinadas - ${processedData.year}`;
+  };
+
+  const getRoutesSummary = () => {
+    if (!processedData) return '';
+    if (processedData.routes.length === 1) {
+      return processedData.routes[0].name;
+    }
+    if (processedData.routes.length === routeOptions.length) {
+      return 'Todas las rutas del sistema';
+    }
+    return processedData.routes.map(route => route.name).join(', ');
+  };
+
   return (
     <PageContainer header="📊 Reporte Financiero - Gastos vs Ganancias">
       <div style={styles.container}>
         {/* Filtros */}
         <div style={styles.filtersCard}>
+          {/* Mensaje de ayuda */}
+          <div style={{ 
+            marginBottom: '16px', 
+            padding: '12px 16px', 
+            backgroundColor: '#f0f9ff', 
+            borderRadius: '8px', 
+            border: '1px solid #e0f2fe',
+            fontSize: '13px',
+            color: '#0369a1'
+          }}>
+            💡 <strong>Nueva funcionalidad:</strong> Ahora puedes seleccionar múltiples rutas para obtener reportes financieros combinados. 
+            Usa los checkboxes para seleccionar las rutas que desees incluir en el análisis.
+          </div>
+          
           <div style={styles.filtersGrid}>
             <div>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-                Ruta
+                Rutas
               </label>
-              <Select
-                value={routeOptions.find((opt: any) => opt.value === selectedRoute) || null}
-                options={routeOptions}
-                onChange={(option: any) => setSelectedRoute(option?.value || '')}
-                placeholder="Seleccionar ruta..."
-                isLoading={routesLoading}
-              />
+              <div style={{ 
+                maxHeight: '200px', 
+                overflowY: 'auto', 
+                border: '1px solid #d1d5db', 
+                borderRadius: '6px', 
+                padding: '8px',
+                backgroundColor: '#f9fafb'
+              }}>
+                {routesLoading ? (
+                  <div style={{ textAlign: 'center', padding: '16px' }}>
+                    <LoadingDots label="Cargando rutas..." />
+                  </div>
+                ) : (
+                  <>
+                    {/* Botones de selección masiva */}
+                    <div style={{ 
+                      display: 'flex', 
+                      gap: '8px', 
+                      marginBottom: '12px',
+                      paddingBottom: '8px',
+                      borderBottom: '1px solid #e5e7eb'
+                    }}>
+                      <Button
+                        size="small"
+                        tone="passive"
+                        onClick={() => setSelectedRoutes(routeOptions.map((r: any) => r.value))}
+                        style={{ fontSize: '11px', padding: '4px 8px' }}
+                      >
+                        Seleccionar Todas
+                      </Button>
+                      <Button
+                        size="small"
+                        tone="passive"
+                        onClick={() => setSelectedRoutes([])}
+                        style={{ fontSize: '11px', padding: '4px 8px' }}
+                      >
+                        Deseleccionar Todas
+                      </Button>
+                    </div>
+                    
+                    {/* Lista de rutas */}
+                    {routeOptions.map((route: any) => (
+                      <label key={route.value} style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '8px', 
+                        padding: '6px 0',
+                        cursor: 'pointer',
+                        fontSize: '14px'
+                      }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedRoutes.includes(route.value)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedRoutes([...selectedRoutes, route.value]);
+                            } else {
+                              setSelectedRoutes(selectedRoutes.filter(id => id !== route.value));
+                            }
+                          }}
+                          style={{ margin: 0 }}
+                        />
+                        <span>{route.label}</span>
+                      </label>
+                    ))}
+                  </>
+                )}
+              </div>
+              {selectedRoutes.length > 0 && (
+                <div style={{ 
+                  marginTop: '8px', 
+                  fontSize: '12px', 
+                  color: '#059669',
+                  fontStyle: 'italic',
+                  padding: '8px 12px',
+                  backgroundColor: '#ecfdf5',
+                  borderRadius: '6px',
+                  border: '1px solid #a7f3d0'
+                }}>
+                  ✅ {getSelectedRoutesDisplay()}
+                </div>
+              )}
+              {selectedRoutes.length === 0 && (
+                <div style={{ 
+                  marginTop: '8px', 
+                  fontSize: '12px', 
+                  color: '#92400e',
+                  fontStyle: 'italic',
+                  padding: '8px 12px',
+                  backgroundColor: '#fef3c7',
+                  borderRadius: '6px',
+                  border: '1px solid #f59e0b'
+                }}>
+                  💡 Selecciona una o más rutas para generar el reporte financiero
+                </div>
+              )}
             </div>
 
             <div>
@@ -266,9 +401,29 @@ export default function ReporteFinancieroPage() {
               size="small"
               tone="active"
               onClick={handleGenerateReport}
-              isDisabled={!selectedRoute || reportLoading}
+              isDisabled={!selectedRoutes.length || reportLoading}
+              style={{ 
+                minWidth: '160px',
+                position: 'relative'
+              }}
             >
-              {reportLoading ? 'Generando...' : 'Generar Reporte'}
+              {reportLoading ? 'Generando...' : (
+                <>
+                  Generar Reporte
+                  {selectedRoutes.length > 0 && (
+                    <span style={{
+                      marginLeft: '8px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      fontSize: '11px',
+                      fontWeight: '500'
+                    }}>
+                      {selectedRoutes.length} ruta{selectedRoutes.length !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                </>
+              )}
             </Button>
           </div>
         </div>
@@ -283,8 +438,30 @@ export default function ReporteFinancieroPage() {
           <div style={styles.reportCard}>
             <div style={{ padding: '20px', borderBottom: '1px solid #e2e8f0' }}>
               <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '600' }}>
-                {processedData.route.name} - {processedData.year}
+                {getReportTitle()}
               </h2>
+              {processedData.routes.length > 1 && (
+                <div style={{ 
+                  marginTop: '8px', 
+                  fontSize: '13px', 
+                  color: '#059669',
+                  fontStyle: 'italic',
+                  padding: '6px 12px',
+                  backgroundColor: '#ecfdf5',
+                  borderRadius: '6px',
+                  border: '1px solid #a7f3d0',
+                  display: 'inline-block'
+                }}>
+                  🔗 Reporte combinado de {processedData.routes.length} rutas
+                </div>
+              )}
+              <div style={{ 
+                marginTop: '8px', 
+                fontSize: '14px', 
+                color: '#6b7280'
+              }}>
+                📍 {getRoutesSummary()}
+              </div>
             </div>
 
             <div style={{ overflowX: 'auto' }}>
@@ -1103,15 +1280,43 @@ export default function ReporteFinancieroPage() {
         )}
 
         {/* Estado sin datos */}
-        {!reportLoading && !processedData && selectedRoute && (
+        {!reportLoading && !processedData && selectedRoutes.length > 0 && (
           <div style={{
             textAlign: 'center',
             padding: '40px',
             backgroundColor: 'white',
             borderRadius: '12px',
-            color: '#718096'
+            border: '1px solid #e2e8f0',
+            color: '#6b7280'
           }}>
-            No hay datos disponibles para el período seleccionado
+            <div style={{ fontSize: '18px', marginBottom: '8px' }}>
+              📊 Reporte Financiero
+            </div>
+            <div style={{ fontSize: '14px' }}>
+              Selecciona las rutas y el año para generar el reporte financiero
+            </div>
+          </div>
+        )}
+
+        {/* Estado sin rutas seleccionadas */}
+        {!reportLoading && !processedData && selectedRoutes.length === 0 && (
+          <div style={{
+            textAlign: 'center',
+            padding: '40px',
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            border: '1px solid #e2e8f0',
+            color: '#6b7280'
+          }}>
+            <div style={{ fontSize: '18px', marginBottom: '8px' }}>
+              🎯 Selecciona Rutas
+            </div>
+            <div style={{ fontSize: '14px' }}>
+              Usa los checkboxes de arriba para seleccionar una o más rutas
+            </div>
+            <div style={{ fontSize: '12px', marginTop: '8px', color: '#9ca3af' }}>
+              Puedes seleccionar múltiples rutas para obtener reportes combinados
+            </div>
           </div>
         )}
       </div>

@@ -4032,24 +4032,28 @@ export const extendGraphqlSchema = graphql.extend(base => {
       getFinancialReport: graphql.field({
         type: graphql.nonNull(graphql.JSON),
         args: {
-          routeId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          routeIds: graphql.arg({ type: graphql.nonNull(graphql.list(graphql.nonNull(graphql.String))) }),
           year: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
         },
-        resolve: async (root, { routeId, year }, context: Context) => {
+        resolve: async (root, { routeIds, year }, context: Context) => {
           try {
-            // Obtener información de la ruta
-            const route = await context.prisma.route.findUnique({
-              where: { id: routeId }
+            // Obtener información de las rutas
+            const routes = await context.prisma.route.findMany({
+              where: { id: { in: routeIds } }
             });
 
-            if (!route) {
-              throw new Error('Ruta no encontrada');
+            if (routes.length === 0) {
+              throw new Error('No se encontraron rutas');
             }
 
-            // Obtener todas las transacciones del año para esta ruta
+            if (routes.length !== routeIds.length) {
+              throw new Error('Algunas rutas no fueron encontradas');
+            }
+
+            // Obtener todas las transacciones del año para las rutas seleccionadas
             const transactions = await context.prisma.transaction.findMany({
               where: {
-                routeId: routeId,
+                routeId: { in: routeIds },
                 date: {
                   gte: new Date(`${year}-01-01`),
                   lte: new Date(`${year}-12-31`),
@@ -4124,13 +4128,11 @@ export const extendGraphqlSchema = graphql.extend(base => {
             });
             console.log(`⛽ getFinancialReport - Todas las transacciones de gasolina:`, allGasolinaTransactions);
 
-            // Obtener TODOS los préstamos de la ruta (sin filtrar por signDate)
+            // Obtener TODOS los préstamos de las rutas seleccionadas (sin filtrar por signDate)
             const loans = await context.prisma.loan.findMany({
               where: {
                 lead: {
-                  routes: {
-                    id: routeId
-                  }
+                  routesId: { in: routeIds }
                 }
               },
               include: {
@@ -4280,7 +4282,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                                 // Obtener transacciones de gasolina para este mes
                 const gasolinaTransactions = await context.prisma.transaction.findMany({
                   where: {
-                    routeId: routeId,
+                    routeId: { in: routeIds },
                     date: {
                       gte: monthStart,
                       lte: monthEnd,
@@ -4607,10 +4609,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
             }
 
             return {
-              route: {
+              routes: routes.map(route => ({
                 id: route.id,
                 name: route.name
-              },
+              })),
               year,
               months: [
                 'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
@@ -4650,13 +4652,11 @@ export const extendGraphqlSchema = graphql.extend(base => {
               throw new Error('Ruta no encontrada');
             }
 
-            // Obtener TODOS los préstamos de la ruta (incluyendo info de limpieza de cartera)
+            // Obtener TODOS los préstamos de las rutas seleccionadas (incluyendo info de limpieza de cartera)
             const loans = await (context.prisma as any).loan.findMany({
               where: {
                 lead: {
-                  routes: {
-                    id: routeId
-                  }
+                  routesId: { in: routeIds }
                 }
               },
               include: {
