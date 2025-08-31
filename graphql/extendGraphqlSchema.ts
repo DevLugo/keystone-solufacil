@@ -6889,13 +6889,14 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
     const rowHeight = 50; // Aumentar altura para acomodar texto en múltiples líneas
     let currentY = doc.y;
     
-    // Configuración de columnas mejorada
+    // Configuración de columnas mejorada con Ruta al principio
     const columns = [
+      { header: 'Ruta', width: 60, align: 'left' },
       { header: 'Localidad', width: 70, align: 'left' },
-      { header: 'Cliente', width: 90, align: 'left' },
-      { header: 'Tipo', width: 50, align: 'center' },
-      { header: 'Descripción del Problema', width: 160, align: 'left' },
-      { header: 'Observaciones', width: 130, align: 'left' }
+      { header: 'Cliente', width: 85, align: 'left' },
+      { header: 'Tipo', width: 45, align: 'center' },
+      { header: 'Descripción del Problema', width: 140, align: 'left' },
+      { header: 'Observaciones', width: 100, align: 'left' }
     ];
     
     // Función para dibujar header de tabla
@@ -6944,6 +6945,7 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
       let x = startX;
       
       const cellData = [
+        data.routeName || 'N/A',
         data.locality || 'N/A',
         data.clientName || 'N/A',
         data.problemType || 'N/A',
@@ -6960,8 +6962,8 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
         
         let cellText = cellData[index];
         
-        // Manejo especial para la columna de problemas (índice 3)
-        if (index === 3) {
+        // Manejo especial para la columna de problemas (índice 4)
+        if (index === 4) {
           // Separar problemas en líneas
           const problems = cellText.split(';').map(p => p.trim()).filter(p => p.length > 0);
           
@@ -6973,19 +6975,19 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
               // Determinar el tipo de problema
               if (problem.includes('con error')) {
                 doc.fillColor('#dc2626'); // Rojo para errores
-                doc.text(`❌ ${problem}`, x + 3, textY, { 
+                doc.text(`ERROR: ${problem}`, x + 3, textY, { 
                   width: col.width - 6,
                   lineBreak: false
                 });
               } else if (problem.includes('faltante')) {
                 doc.fillColor('#f59e0b'); // Naranja para faltantes
-                doc.text(`⚠️ ${problem}`, x + 3, textY, { 
+                doc.text(`FALTA: ${problem}`, x + 3, textY, { 
                   width: col.width - 6,
                   lineBreak: false
                 });
               } else {
                 doc.fillColor('black');
-                doc.text(`• ${problem}`, x + 3, textY, { 
+                doc.text(`- ${problem}`, x + 3, textY, { 
                   width: col.width - 6,
                   lineBreak: false
                 });
@@ -6994,7 +6996,7 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
             }
           });
           
-        } else if (index === 4) { // Columna de observaciones
+        } else if (index === 5) { // Columna de observaciones
           // Manejo especial para observaciones con saltos de línea
           doc.fillColor('#374151').fontSize(7);
           
@@ -7030,7 +7032,7 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
         } else {
           // Para otras columnas, usar el manejo normal
           // Color especial para el tipo de problema
-          if (index === 2) { // Columna "Tipo"
+          if (index === 3) { // Columna "Tipo" (ahora índice 3)
             doc.fillColor(cellText === 'CLIENTE' ? '#059669' : '#dc2626');
             doc.fontSize(9); // Tamaño más grande para el tipo
           } else {
@@ -7038,8 +7040,8 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
             doc.fontSize(8);
           }
           
-          // Para localidad y cliente, permitir texto en múltiples líneas
-          if (index === 0 || index === 1) {
+          // Para ruta, localidad y cliente, permitir texto en múltiples líneas
+          if (index === 0 || index === 1 || index === 2) {
             doc.text(cellText, x + 4, y + 8, { 
               width: col.width - 8, 
               height: rowHeight - 8,
@@ -7095,7 +7097,7 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
       doc.strokeColor('#64748b').lineWidth(1).rect(startX, currentY, pageWidth, 20).stroke();
       
       doc.fontSize(10).fillColor('#1e40af');
-      const weekText = `📅 Semana del ${weekStart.toLocaleDateString('es-ES')} (${weekData.length} registros)`;
+      const weekText = `Semana del ${weekStart.toLocaleDateString('es-ES')} - ${weekData.length} registros`;
       doc.text(weekText, startX + 10, currentY + 6);
       doc.fillColor('black');
       currentY += 20;
@@ -7118,7 +7120,7 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
           doc.fillColor('#f1f5f9').rect(startX, currentY, pageWidth, 20).fill();
           doc.strokeColor('#64748b').lineWidth(1).rect(startX, currentY, pageWidth, 20).stroke();
           doc.fontSize(10).fillColor('#1e40af');
-          doc.text(`${weekText} (continuación)`, startX + 10, currentY + 6);
+          doc.text(`${weekText} - continuacion`, startX + 10, currentY + 6);
           doc.fillColor('black');
           currentY += 20;
         }
