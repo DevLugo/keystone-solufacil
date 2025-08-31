@@ -1943,10 +1943,15 @@ export const extendGraphqlSchema = graphql.extend(base => {
         },
         resolve: async (root, { chatId, reportType, routeIds }, context: Context) => {
           try {
-            console.log('🚀 sendReportWithPDF llamado con:', { chatId, reportType, routeIds });
+            console.log('🚀🚀🚀 MUTACIÓN sendReportWithPDF LLAMADA 🚀🚀🚀');
+            console.log('📋 Parámetros recibidos:', { chatId, reportType, routeIds });
+            console.log('📋 Tipo de reporte exacto:', `"${reportType}"`);
+            console.log('📋 ¿Es créditos con errores?', reportType === 'creditos_con_errores');
             
             // Generar PDF del reporte usando la función con streams y datos reales
+            console.log('📋 Llamando generatePDFWithStreams...');
             const pdfBuffer = await generatePDFWithStreams(reportType, context, routeIds);
+            console.log('📋 PDF generado, tamaño:', pdfBuffer.length, 'bytes');
             const filename = `reporte_${reportType}_${Date.now()}.pdf`;
             const caption = `📊 <b>REPORTE AUTOMÁTICO</b>\n\nTipo: ${reportType}\nGenerado: ${new Date().toLocaleString('es-ES')}\n\n✅ Enviado desde Keystone Admin`;
             
@@ -6467,12 +6472,16 @@ async function generatePDFWithStreams(reportType: string, context: Context, rout
       doc.moveDown(2);
       
       // Agregar contenido específico según el tipo de reporte
+      console.log('🎯 Determinando tipo de reporte:', `"${reportType}"`);
       switch (reportType) {
         case 'creditos_con_errores':
+          console.log('✅ ENTRANDO A CASO creditos_con_errores');
           await generateCreditsWithDocumentErrorsReport(doc, context, routeIds);
+          console.log('✅ FUNCIÓN generateCreditsWithDocumentErrorsReport COMPLETADA');
           break;
           
         default:
+          console.log('⚠️ USANDO CASO DEFAULT para tipo:', reportType);
           doc.fontSize(14).text(`📊 REPORTE: ${reportType.toUpperCase()}`);
           doc.moveDown();
           doc.fontSize(12).text('Reporte generado automáticamente por el sistema.');
@@ -6495,6 +6504,7 @@ async function generatePDFWithStreams(reportType: string, context: Context, rout
 // ✅ FUNCIÓN PARA GENERAR REPORTE DE CRÉDITOS CON DOCUMENTOS CON ERROR
 async function generateCreditsWithDocumentErrorsReport(doc: any, context: Context, routeIds: string[] = []) {
   try {
+    console.log('🎯🎯🎯 FUNCIÓN generateCreditsWithDocumentErrorsReport INICIADA 🎯🎯🎯');
     console.log('📋 Generando reporte de créditos con documentos con error para rutas:', routeIds);
     
     // Calcular fecha de hace 2 meses
@@ -6557,9 +6567,11 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
     });
 
     console.log(`📊 Encontrados ${allRecentCredits.length} créditos en los últimos 2 meses`);
+    console.log('🔍 Filtros aplicados:', { twoMonthsAgo: twoMonthsAgo.toISOString(), routeFilter });
 
     // Procesar y organizar datos para la tabla
     const tableData = [];
+    console.log('📊 Iniciando procesamiento de datos para tabla...');
     
     for (const credit of allRecentCredits) {
       const locality = credit.borrower?.personalData?.addresses?.[0]?.location?.name ||
@@ -6590,6 +6602,7 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
       const hasAvalProblems = avalDocErrors.length > 0 || avalMissingDocs.length > 0;
       
       if (hasClientProblems || hasAvalProblems) {
+        console.log(`📋 Crédito con problemas encontrado: ${credit.id} - Cliente: ${clientName}`);
         // Agregar fila para problemas del cliente
         if (hasClientProblems) {
           const errors = [
@@ -6650,11 +6663,11 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
       weekGroups.get(weekKey).push(row);
     });
 
-    // Generar header con logo
-    await addCompanyHeader(doc);
+    console.log('🎨 Generando header del reporte...');
     
-    // Título del reporte
-    doc.fontSize(16).text('REPORTE DE CRÉDITOS CON DOCUMENTOS CON ERROR', { align: 'center' });
+    // Header simplificado para debug
+    doc.fontSize(20).fillColor('#1e40af').text('SOLUFÁCIL', { align: 'center' });
+    doc.fontSize(16).fillColor('black').text('REPORTE DE CRÉDITOS CON DOCUMENTOS CON ERROR', { align: 'center' });
     doc.moveDown();
     
     // Calcular fecha para mostrar en el título
@@ -6662,111 +6675,77 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
     reportStartDate.setMonth(reportStartDate.getMonth() - 2);
     doc.fontSize(12).text(`Período: ${reportStartDate.toLocaleDateString('es-ES')} - ${new Date().toLocaleDateString('es-ES')}`, { align: 'center' });
     doc.moveDown(2);
+    
+    console.log('✅ Header generado correctamente');
 
     if (tableData.length === 0) {
+      console.log('⚠️ No se encontraron datos, pero generando reporte de prueba...');
       doc.fontSize(12).text('✅ No se encontraron créditos con documentos con error en el período especificado.', { align: 'center' });
+      doc.moveDown(2);
+      
+      // Agregar datos de prueba para verificar que la función se ejecuta
+      doc.fontSize(18).fillColor('#dc2626').text('🧪 NUEVA FUNCIÓN EJECUTÁNDOSE CORRECTAMENTE', { align: 'center' });
+      doc.moveDown(2);
+      doc.fontSize(14).fillColor('#1e40af').text('✅ Esta es la función mejorada con formato de tabla', { align: 'center' });
+      doc.moveDown();
+      doc.fontSize(12).fillColor('black').text('Si ves este mensaje, significa que:', { align: 'center' });
+      doc.text('1. La mutación sendReportWithPDF se está ejecutando', { align: 'center' });
+      doc.text('2. La función generateCreditsWithDocumentErrorsReport funciona', { align: 'center' });
+      doc.text('3. El PDF se está generando con la nueva lógica', { align: 'center' });
+      doc.moveDown(2);
+      doc.fontSize(10).text(`Fecha de consulta: ${twoMonthsAgo.toLocaleDateString('es-ES')} - ${new Date().toLocaleDateString('es-ES')}`, { align: 'center' });
+      doc.text(`Rutas consultadas: ${routeIds?.length || 0} rutas`, { align: 'center' });
+      doc.text(`Timestamp: ${new Date().toISOString()}`, { align: 'center' });
+      
       return;
     }
 
-    // Generar tabla
-    await generateDocumentErrorTableContent(doc, tableData, weekGroups);
-
-    // Generar página de resumen ejecutivo
-    doc.addPage();
-    await addCompanyHeader(doc);
+    console.log('📊 Generando tabla con', tableData.length, 'registros...');
     
-    // Título del resumen
-    doc.fontSize(18).fillColor('#1e40af').text('RESUMEN EJECUTIVO', { align: 'center' });
+    // Tabla simplificada para debug
+    doc.fontSize(14).text('TABLA DE CRÉDITOS CON PROBLEMAS', { underline: true });
+    doc.moveDown();
+    
+    // Headers simples
+    doc.fontSize(10).text('LOCALIDAD | CLIENTE | PROBLEMA | DESCRIPCIÓN | OBSERVACIONES');
+    doc.text('─'.repeat(80));
+    doc.moveDown();
+    
+    // Datos en formato simple
+    tableData.slice(0, 20).forEach((row, index) => { // Limitar a 20 para debug
+      doc.fontSize(8);
+      const line = `${row.locality} | ${row.clientName.substring(0, 20)} | ${row.problemType} | ${row.problemDescription.substring(0, 30)} | ${row.observations.substring(0, 25)}`;
+      doc.text(line);
+      
+      if (index % 5 === 4) { // Línea cada 5 registros para simular semanas
+        doc.text('─'.repeat(80));
+      }
+    });
+    
+    if (tableData.length > 20) {
+      doc.moveDown();
+      doc.text(`... y ${tableData.length - 20} registros más`);
+    }
+    
+    console.log('✅ Tabla generada correctamente');
+
+    // Generar página de resumen ejecutivo simplificada
+    doc.addPage();
+    doc.fontSize(16).text('RESUMEN EJECUTIVO', { align: 'center' });
     doc.moveDown(2);
     
-    // Estadísticas principales
+    // Resumen simplificado para debug
     const totalCredits = new Set(tableData.map(row => row.clientName.split(' (Aval:')[0])).size;
     const totalWithClientErrors = tableData.filter(row => row.problemType === 'CLIENTE').length;
     const totalWithAvalErrors = tableData.filter(row => row.problemType === 'AVAL').length;
-    const totalLocalities = new Set(tableData.map(row => row.locality)).size;
-    const totalRoutes = new Set(tableData.map(row => row.routeName)).size;
     
-    // Crear tabla de resumen
-    doc.fillColor('black');
+    doc.fontSize(12);
+    doc.text(`Total de clientes con problemas: ${totalCredits}`);
+    doc.text(`Problemas en documentos de clientes: ${totalWithClientErrors}`);
+    doc.text(`Problemas en documentos de avales: ${totalWithAvalErrors}`);
+    doc.text(`Total de registros procesados: ${tableData.length}`);
     
-    // Caja de estadísticas principales
-    doc.fillColor('#f8fafc').rect(50, doc.y, 500, 120).fill();
-    doc.strokeColor('#e2e8f0').rect(50, doc.y, 500, 120).stroke();
-    
-    doc.fontSize(14).fillColor('#1e40af').text('ESTADÍSTICAS PRINCIPALES', 60, doc.y + 10);
-    
-    const statsY = doc.y + 35;
-    doc.fontSize(11).fillColor('black');
-    doc.text(`• Total de clientes afectados: ${totalCredits}`, 60, statsY);
-    doc.text(`• Problemas en documentos de clientes: ${totalWithClientErrors}`, 60, statsY + 20);
-    doc.text(`• Problemas en documentos de avales: ${totalWithAvalErrors}`, 60, statsY + 40);
-    doc.text(`• Localidades con problemas: ${totalLocalities}`, 300, statsY);
-    doc.text(`• Rutas analizadas: ${totalRoutes}`, 300, statsY + 20);
-    doc.text(`• Total de registros: ${tableData.length}`, 300, statsY + 40);
-    
-    doc.y = statsY + 80;
-    doc.moveDown(2);
-    
-    // Desglose por tipo de problema
-    doc.fontSize(14).fillColor('#1e40af').text('DESGLOSE POR TIPO DE PROBLEMA');
-    doc.moveDown();
-    
-    const problemTypes = ['INE', 'DOMICILIO', 'PAGARE'];
-    problemTypes.forEach(docType => {
-      const clientProblems = tableData.filter(row => 
-        row.problemType === 'CLIENTE' && row.problemDescription.includes(docType)
-      ).length;
-      const avalProblems = tableData.filter(row => 
-        row.problemType === 'AVAL' && row.problemDescription.includes(docType)
-      ).length;
-      
-      if (clientProblems > 0 || avalProblems > 0) {
-        doc.fontSize(10).fillColor('black');
-        doc.text(`• ${docType}: ${clientProblems} clientes, ${avalProblems} avales`);
-      }
-    });
-    
-    doc.moveDown(2);
-    
-    // Desglose por localidad
-    doc.fontSize(14).fillColor('#1e40af').text('DESGLOSE POR LOCALIDAD');
-    doc.moveDown();
-    
-    const localityStats = new Map();
-    tableData.forEach(row => {
-      if (!localityStats.has(row.locality)) {
-        localityStats.set(row.locality, { client: 0, aval: 0 });
-      }
-      if (row.problemType === 'CLIENTE') {
-        localityStats.get(row.locality).client++;
-      } else {
-        localityStats.get(row.locality).aval++;
-      }
-    });
-    
-    const sortedLocalities = Array.from(localityStats.entries()).sort(([a], [b]) => a.localeCompare(b));
-    sortedLocalities.forEach(([locality, stats]) => {
-      doc.fontSize(10).fillColor('black');
-      doc.text(`• ${locality}: ${stats.client} problemas de clientes, ${stats.aval} problemas de avales`);
-    });
-    
-    doc.moveDown(3);
-    
-    // Nota importante con mejor estilo
-    doc.fillColor('#fef2f2').rect(50, doc.y, 500, 80).fill();
-    doc.strokeColor('#dc2626').lineWidth(2).rect(50, doc.y, 500, 80).stroke();
-    
-    doc.fontSize(12).fillColor('#dc2626').text('⚠️ ACCIÓN REQUERIDA', 60, doc.y + 15);
-    doc.fontSize(10).fillColor('black');
-    doc.text('Este reporte requiere seguimiento inmediato. Los créditos listados no pueden', 60, doc.y + 35);
-    doc.text('proceder sin la documentación completa y correcta. Contacte a los clientes', 60, doc.y + 50);
-    doc.text('para completar o corregir la documentación faltante.', 60, doc.y + 65);
-    
-    // Resetear colores
-    doc.fillColor('black');
-    
-    // Agregar footer profesional
-    await addProfessionalFooter(doc);
+    console.log('✅ Resumen generado correctamente');
 
   } catch (error) {
     console.error('❌ Error generando reporte de créditos con errores:', error);

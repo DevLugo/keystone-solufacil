@@ -535,7 +535,11 @@ export default function ConfiguracionReportesPage() {
 
   const handleSendNow = async (configId: string) => {
     try {
+      console.log('🔥 FUNCIÓN handleSendNow LLAMADA con configId:', configId);
+      
       const config = configs.find(c => c.id === configId);
+      console.log('📋 Configuración encontrada:', config);
+      
       if (!config) { 
         alert('Configuración no encontrada'); 
         return; 
@@ -553,6 +557,13 @@ export default function ConfiguracionReportesPage() {
 
       // Obtener IDs de rutas configuradas
       const routeIds = config.routes.map(route => route.id);
+      console.log(`📋 Configuración del reporte:`, {
+        id: config.id,
+        name: config.name,
+        reportType: config.reportType,
+        routeIds: routeIds,
+        recipientsCount: config.telegramRecipients?.length || 0
+      });
 
       // Enviar a todos los destinatarios de Telegram
       let sentCount = 0;
@@ -565,9 +576,17 @@ export default function ConfiguracionReportesPage() {
           try {
             let sent = false;
             
+            console.log(`🔍 Verificando tipo de reporte: "${config.reportType}" === "creditos_con_errores"?`, config.reportType === 'creditos_con_errores');
+            
             // Para créditos con errores, usar la nueva mutación con PDF
             if (config.reportType === 'creditos_con_errores') {
+              console.log(`📋 DETECTADO REPORTE DE CRÉDITOS CON ERRORES`);
+              console.log(`📋 Tipo de reporte: "${config.reportType}"`);
+              console.log(`📋 Route IDs: [${routeIds.join(', ')}]`);
+              console.log(`📋 Chat ID: ${recipient.chatId}`);
               console.log(`📋 Enviando reporte PDF de créditos con errores a ${recipient.name}`);
+              console.log(`📋 Función sendReportWithPDF disponible:`, typeof sendReportWithPDF);
+              
               const result = await sendReportWithPDF({
                 variables: { 
                   chatId: recipient.chatId, 
@@ -576,12 +595,19 @@ export default function ConfiguracionReportesPage() {
                 }
               });
               
+              console.log(`📋 Mutación ejecutada, esperando respuesta...`);
+              
+              console.log(`📋 Resultado completo de la mutación:`, result);
+              
               if (result.data?.sendReportWithPDF) {
                 const response = result.data.sendReportWithPDF;
                 sent = response.includes('✅');
                 console.log(`📋 Respuesta PDF: ${response}`);
+              } else if (result.errors) {
+                console.error(`❌ Errores en la mutación:`, result.errors);
               }
             } else {
+              console.log(`📝 USANDO MÉTODO ANTERIOR para tipo: "${config.reportType}"`);
               // Para otros tipos de reporte, usar el método anterior (mensaje de texto)
               let reportContent = '';
               switch (config.reportType) {
