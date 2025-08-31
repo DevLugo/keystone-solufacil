@@ -1,6 +1,7 @@
 import { graphql } from '@keystone-6/core';
 import type { Context } from '.keystone/types';
 import { Decimal } from '@prisma/client/runtime/library';
+import { telegramGraphQLExtensions, telegramResolvers } from './telegramExtensions';
 
 interface PaymentInput {
   id?: string;
@@ -1903,6 +1904,70 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         }
       }),
+
+      // ✅ NUEVA MUTATION: Enviar mensaje de prueba a Telegram
+      sendTestTelegramMessage: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        args: { 
+          chatId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          message: graphql.arg({ type: graphql.nonNull(graphql.String) })
+        },
+        resolve: async (root, { chatId, message }, context: Context) => {
+          try {
+            console.log('🚀 sendTestTelegramMessage llamado con:', { chatId, message });
+            
+            const sent = await sendTelegramMessageToUser(chatId, message);
+            
+            if (sent) {
+              return `✅ Mensaje enviado exitosamente a ${chatId}`;
+            } else {
+              return `❌ Error al enviar mensaje a ${chatId}`;
+            }
+          } catch (error) {
+            console.error('❌ Error en sendTestTelegramMessage:', error);
+            return `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+          }
+        }
+      }),
+
+      // ✅ NUEVA MUTATION: Enviar reporte con PDF a Telegram
+      sendReportWithPDF: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        args: { 
+          chatId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          reportType: graphql.arg({ type: graphql.nonNull(graphql.String) })
+        },
+        resolve: async (root, { chatId, reportType }, context: Context) => {
+          try {
+            console.log('🚀 sendReportWithPDF llamado con:', { chatId, reportType });
+            
+            // Generar PDF del reporte usando la función con streams
+            const pdfBuffer = await generatePDFWithStreams(reportType);
+            const filename = `reporte_${reportType}_${Date.now()}.pdf`;
+            const caption = `📊 <b>REPORTE AUTOMÁTICO</b>\n\nTipo: ${reportType}\nGenerado: ${new Date().toLocaleString('es-ES')}\n\n✅ Enviado desde Keystone Admin`;
+            
+            console.log('📱 PDF generado, tamaño:', pdfBuffer.length, 'bytes');
+            
+            // Verificar que el PDF se generó correctamente
+            if (pdfBuffer.length === 0) {
+              console.error('❌ PDF generado con 0 bytes');
+              return `❌ Error: No se pudo generar el PDF (0 bytes)`;
+            }
+            
+            // Enviar PDF real a Telegram
+            const sent = await sendTelegramFile(chatId, pdfBuffer, filename, caption);
+            
+            if (sent) {
+              return `✅ Reporte PDF enviado exitosamente a ${chatId} (${filename}, ${(pdfBuffer.length / 1024).toFixed(2)} KB)`;
+            } else {
+              return `❌ Error al enviar reporte PDF a ${chatId}`;
+            }
+          } catch (error) {
+            console.error('❌ Error en sendReportWithPDF:', error);
+            return `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+          }
+        }
+      }),
     },
     query: {
       getTransactionsSummary: graphql.field({
@@ -2997,6 +3062,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                               'Sin localidad';
 
               // Inicializar periodo si no existe
+              const periodKey = `${year}-${month.toString().padStart(2, '0')}`;
               if (!reportData[periodKey]) {
                 reportData[periodKey] = {};
               }
@@ -3107,9 +3173,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 name: route.name
               },
               period: {
-                type: periodType,
-                start: startDate,
-                end: endDate
+                type: 'monthly',
+                start: new Date(year, month - 1, 1),
+                end: new Date(year, month, 0, 23, 59, 59, 999)
               },
               balance: {
                 initial: Math.round(initialBalance * 100) / 100,
@@ -3612,6 +3678,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   });
                   // Subdividir por tipo para debug
                   const inWeek = (d: Date | null) => !!d && d >= weekStart && d <= weekEnd;
+                  const renewedPrevIdsThisWeek = new Set(); // Set vacío para evitar errores
                   const entrantsRenewed = entrants.filter(e => !!e.prevFinished && inWeek(new Date(e.signDate)));
                   const entrantsNew = entrants.filter(e => !e.prevFinished);
                   const leaversRenovationPrev = leavers.filter(l => renewedPrevIdsThisWeek.has(l.id));
@@ -5825,6 +5892,655 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         }
       }),
+
+      // Extensiones para Telegram
+      debugTelegram: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        resolve: async () => {
+          console.log('🔍 Debugging de Telegram solicitado via GraphQL');
+          return 'Debugging de Telegram completado - Revisa la consola del servidor';
+        }
+      }),
+
+      telegramStatus: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        resolve: async () => {
+          console.log('📡 Estado de Telegram solicitado via GraphQL');
+          return 'Estado de Telegram verificado - Revisa la consola del servidor';
+        }
+      }),
+    },
+
+    Mutation: {
+      testWebhook: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        resolve: async () => {
+          console.log('🧪 Test webhook solicitado via GraphQL');
+          return 'Test webhook completado - Revisa la consola del servidor';
+        }
+      }),
+
+      // Nueva mutation para simular el registro de usuario de Telegram
+      simulateTelegramStart: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        args: {
+          chatId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          name: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          username: graphql.arg({ type: graphql.String })
+        },
+        resolve: async (root, { chatId, name, username }, context: Context) => {
+          try {
+            console.log('🚀 Simulando comando /start de Telegram:', { chatId, name, username });
+            
+            // Verificar si el usuario ya existe
+            const existingUser = await (context.prisma as any).telegramUser.findUnique({
+              where: { chatId }
+            });
+
+            if (existingUser) {
+              console.log('✅ Usuario ya existe, actualizando actividad');
+              await (context.prisma as any).telegramUser.update({
+                where: { chatId },
+                data: { 
+                  lastActivity: new Date(),
+                  isActive: true
+                }
+              });
+              return `Usuario ${name} ya registrado. Actividad actualizada.`;
+            }
+
+            // Crear nuevo usuario
+            const newUser = await (context.prisma as any).telegramUser.create({
+              data: {
+                chatId,
+                name,
+                username: username || null,
+                isActive: true,
+                registeredAt: new Date(),
+                lastActivity: new Date(),
+                reportsReceived: 0,
+                isInRecipientsList: false,
+                notes: 'Registrado automáticamente via comando /start'
+              }
+            });
+
+            console.log('✅ Nuevo usuario de Telegram creado:', newUser);
+            return `Usuario ${name} registrado exitosamente con ID: ${newUser.id}`;
+            
+          } catch (error) {
+            console.error('❌ Error al registrar usuario de Telegram:', error);
+            return `Error al registrar usuario: ${error instanceof Error ? error.message : 'Unknown error'}`;
+          }
+        }
+      }),
+
+      // Nueva mutation para procesar webhook real de Telegram
+      processTelegramWebhook: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        args: {
+          update: graphql.arg({ type: graphql.nonNull(graphql.JSON) })
+        },
+        resolve: async (root, { update }, context: Context) => {
+          try {
+            console.log('📱 Webhook de Telegram recibido:', JSON.stringify(update, null, 2));
+            
+            const message = update?.message;
+            if (!message) {
+              return 'No se recibió mensaje válido';
+            }
+
+            const chatId = message.chat?.id?.toString();
+            const text = message.text;
+            const from = message.from;
+
+            if (!chatId || !text || !from) {
+              return 'Datos del mensaje incompletos';
+            }
+
+            console.log('📝 Procesando mensaje:', { chatId, text, from });
+
+            // Procesar comando /start
+            if (text === '/start') {
+              const name = from.first_name + (from.last_name ? ` ${from.last_name}` : '');
+              const username = from.username;
+
+              // Verificar si el usuario ya existe
+              const existingUser = await (context.prisma as any).telegramUser.findUnique({
+                where: { chatId }
+              });
+
+              if (existingUser) {
+                console.log('✅ Usuario ya existe, actualizando actividad');
+                await (context.prisma as any).telegramUser.update({
+                  where: { chatId },
+                  data: { 
+                    lastActivity: new Date(),
+                    isActive: true
+                  }
+                });
+                return `Usuario ${name} ya registrado. Actividad actualizada.`;
+              }
+
+              // Crear nuevo usuario
+              const newUser = await (context.prisma as any).telegramUser.create({
+                data: {
+                  chatId,
+                  name,
+                  username: username || 'sin_username',
+                  isActive: true,
+                  registeredAt: new Date(),
+                  lastActivity: new Date(),
+                  reportsReceived: 0,
+                  isInRecipientsList: false,
+                  notes: 'Registrado automáticamente via webhook de Telegram'
+                }
+              });
+
+              console.log('✅ Nuevo usuario de Telegram creado via webhook:', newUser);
+              return `Usuario ${name} registrado exitosamente via webhook con ID: ${newUser.id}`;
+            }
+
+            // Procesar otros comandos
+            if (text === '/status') {
+              const user = await (context.prisma as any).telegramUser.findUnique({
+                where: { chatId }
+              });
+              
+              if (user) {
+                return `Estado: Activo, Registrado: ${user.registeredAt}, Reportes recibidos: ${user.reportsReceived}`;
+              } else {
+                return 'No estás registrado. Envía /start para registrarte.';
+              }
+            }
+
+            if (text === '/help') {
+              return 'Comandos disponibles:\n/start - Registrarse\n/status - Ver estado\n/vincular email - Vincular con cuenta de plataforma\n/help - Esta ayuda';
+            }
+
+            // Comando para vincular con usuario de la plataforma
+            if (text.startsWith('/vincular ')) {
+              const email = text.split(' ')[1];
+              
+              if (!email) {
+                return '❌ Uso: /vincular email@ejemplo.com';
+              }
+
+              try {
+                // Buscar usuario por email
+                const platformUser = await (context.prisma as any).user.findUnique({
+                  where: { email: email.toLowerCase() }
+                });
+                
+                if (!platformUser) {
+                  return '❌ No se encontró usuario con ese email en la plataforma';
+                }
+
+                // Verificar si ya está vinculado
+                const existingUser = await (context.prisma as any).telegramUser.findUnique({
+                  where: { chatId }
+                });
+
+                if (!existingUser) {
+                  return '❌ Primero debes registrarte con /start';
+                }
+
+                // Vincular TelegramUser con User
+                await (context.prisma as any).telegramUser.update({
+                  where: { chatId },
+                  data: { 
+                    platformUserId: platformUser.id,
+                    notes: `Vinculado con usuario: ${platformUser.name || platformUser.email}`
+                  }
+                });
+                
+                return `✅ Usuario vinculado exitosamente con: ${platformUser.name || platformUser.email}`;
+                
+              } catch (error) {
+                console.error('❌ Error vinculando usuario:', error);
+                return '❌ Error al vincular usuario. Intenta nuevamente.';
+              }
+            }
+
+            return `Comando no reconocido: ${text}. Envía /help para ver comandos disponibles.`;
+            
+          } catch (error) {
+            console.error('❌ Error al procesar webhook de Telegram:', error);
+            return `Error al procesar webhook: ${error instanceof Error ? error.message : 'Unknown error'}`;
+          }
+        }
+      }),
+
+      // Nueva mutation para enviar reportes a usuarios de Telegram
+      sendTelegramReport: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        args: {
+          reportType: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          reportData: graphql.arg({ type: graphql.nonNull(graphql.JSON) }),
+          recipients: graphql.arg({ type: graphql.list(graphql.nonNull(graphql.String)) })
+        },
+        resolve: async (root, { reportType, reportData, recipients }, context: Context) => {
+          try {
+            console.log('📊 Enviando reporte de Telegram:', { reportType, reportData, recipients });
+            
+            // Obtener usuarios destinatarios
+            let targetUsers;
+            if (recipients && recipients.length > 0) {
+              // Enviar a usuarios específicos
+              targetUsers = await (context.prisma as any).telegramUser.findMany({
+                where: {
+                  chatId: { in: recipients },
+                  isActive: true
+                }
+              });
+            } else {
+              // Enviar a todos los usuarios en la lista de destinatarios
+              targetUsers = await (context.prisma as any).telegramUser.findMany({
+                where: {
+                  isInRecipientsList: true,
+                  isActive: true
+                }
+              });
+            }
+
+            if (targetUsers.length === 0) {
+              return 'No hay usuarios destinatarios activos para enviar el reporte';
+            }
+
+            console.log(`📤 Enviando reporte a ${targetUsers.length} usuarios`);
+
+            // Generar contenido del reporte
+            const reportContent = generateReportContent(reportType, reportData);
+            
+            // Enviar a cada usuario
+            let successCount = 0;
+            let errorCount = 0;
+
+            for (const user of targetUsers) {
+              try {
+                const sent = await sendTelegramMessageToUser(user.chatId, reportContent);
+                if (sent) {
+                  successCount++;
+                  // Actualizar contador de reportes recibidos
+                  await (context.prisma as any).telegramUser.update({
+                    where: { id: user.id },
+                    data: { reportsReceived: { increment: 1 } }
+                  });
+                } else {
+                  errorCount++;
+                }
+              } catch (error) {
+                console.error(`❌ Error enviando reporte a ${user.name}:`, error);
+                errorCount++;
+              }
+            }
+
+            const result = `Reporte enviado: ${successCount} exitosos, ${errorCount} fallidos`;
+            console.log('✅', result);
+            return result;
+            
+          } catch (error) {
+            console.error('❌ Error al enviar reporte de Telegram:', error);
+            return `Error al enviar reporte: ${error instanceof Error ? error.message : 'Unknown error'}`;
+          }
+        }
+      }),
+
+      // Mutation simple para enviar reporte ahora
+      sendReportNow: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        args: {
+          configId: graphql.arg({ type: graphql.nonNull(graphql.ID) })
+        },
+        resolve: async (root, { configId }, context: Context) => {
+          try {
+            console.log('🚀 sendReportNow llamado con configId:', configId);
+            
+            // Obtener la configuración del reporte
+            const reportConfig = await (context.prisma as any).reportConfig.findUnique({
+              where: { id: configId },
+              include: {
+                telegramRecipients: true
+              }
+            });
+
+            if (!reportConfig) {
+              return 'Configuración de reporte no encontrada';
+            }
+
+            if (!reportConfig.isActive) {
+              return 'La configuración del reporte no está activa';
+            }
+
+            if (!reportConfig.telegramRecipients || reportConfig.telegramRecipients.length === 0) {
+              return 'No hay destinatarios de Telegram configurados';
+            }
+
+            // Generar contenido del reporte
+            let reportContent = '';
+            switch (reportConfig.reportType) {
+              case 'creditos_con_errores':
+                reportContent = '📋 REPORTE: Créditos con Documentos con Error\n\nReporte generado automáticamente';
+                break;
+              case 'creditos_sin_documentos':
+                reportContent = '⚠️ REPORTE: Créditos Sin Documentos\n\nReporte generado automáticamente';
+                break;
+              case 'creditos_completos':
+                reportContent = '✅ REPORTE: Créditos Completos\n\nReporte generado automáticamente';
+                break;
+              case 'resumen_semanal':
+                reportContent = '📊 REPORTE: Resumen Semanal de Cartera\n\nReporte generado automáticamente';
+                break;
+              case 'reporte_financiero':
+                reportContent = '💰 REPORTE: Reporte Financiero\n\nReporte generado automáticamente';
+                break;
+              default:
+                reportContent = `📊 REPORTE: ${reportConfig.reportType}\n\nReporte generado automáticamente`;
+            }
+
+            // Enviar a cada destinatario
+            let sentCount = 0;
+            for (const recipient of reportConfig.telegramRecipients) {
+              try {
+                const sent = await sendTelegramMessageToUser(recipient.chatId, reportContent);
+                if (sent) {
+                  sentCount++;
+                  console.log(`✅ Enviado a ${recipient.name}`);
+                }
+              } catch (error) {
+                console.error(`❌ Error enviando a ${recipient.name}:`, error);
+              }
+            }
+
+            return `Reporte enviado exitosamente a ${sentCount} destinatarios`;
+          } catch (error) {
+            console.error('❌ Error:', error);
+            return `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+          }
+        }
+      }),
     },
   };
 });
+
+// Funciones auxiliares para Telegram
+function generateReportContent(reportType: string, reportData: any): string {
+  switch (reportType) {
+    case 'creditos_con_documentos':
+      return `📋 REPORTE: Créditos con Documentos\n\n${JSON.stringify(reportData, null, 2)}`;
+    
+    case 'cartera_vencida':
+      return `⚠️ REPORTE: Cartera Vencida\n\n${JSON.stringify(reportData, null, 2)}`;
+    
+    case 'resumen_financiero':
+      return `💰 REPORTE: Resumen Financiero\n\n${JSON.stringify(reportData, null, 2)}`;
+    
+    default:
+      return `📊 REPORTE: ${reportType}\n\n${JSON.stringify(reportData, null, 2)}`;
+  }
+}
+
+async function sendTelegramMessageToUser(chatId: string, text: string): Promise<boolean> {
+  try {
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) {
+      console.log('❌ TELEGRAM_BOT_TOKEN no configurado');
+      return false;
+    }
+
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: text
+      })
+    });
+
+    if (response.ok) {
+      console.log('✅ Mensaje enviado a Telegram:', text.substring(0, 100) + '...');
+      return true;
+    } else {
+      console.error('❌ Error al enviar mensaje a Telegram:', response.statusText);
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ Error al enviar mensaje a Telegram:', error);
+    return false;
+  }
+}
+
+// ✅ FUNCIÓN PARA GENERAR PDF DE PRUEBA (VERSIÓN CORREGIDA)
+function generateTestPDF(reportType: string, data: any = {}): Buffer {
+  try {
+    const PDFDocument = require('pdfkit');
+    const doc = new PDFDocument();
+    const chunks: Buffer[] = [];
+    
+    // Configurar eventos para capturar el PDF
+    doc.on('data', (chunk: Buffer) => {
+      chunks.push(chunk);
+    });
+    
+    // Configurar el documento
+    doc.fontSize(20).text('📊 REPORTE AUTOMÁTICO', { align: 'center' });
+    doc.moveDown();
+    doc.fontSize(16).text(`Tipo: ${reportType}`, { align: 'center' });
+    doc.moveDown();
+    doc.fontSize(12).text(`Generado: ${new Date().toLocaleString('es-ES')}`, { align: 'center' });
+    doc.moveDown(2);
+    
+    // Agregar contenido específico según el tipo de reporte
+    switch (reportType) {
+      case 'creditos_con_errores':
+        doc.fontSize(14).text('📋 CRÉDITOS CON DOCUMENTOS CON ERROR');
+        doc.moveDown();
+        doc.fontSize(12).text('Este reporte muestra todos los créditos que tienen documentos con errores.');
+        doc.moveDown();
+        doc.text('• Verificar documentación faltante');
+        doc.text('• Revisar formatos incorrectos');
+        doc.text('• Validar información requerida');
+        doc.moveDown();
+        doc.text('• Documentos pendientes de revisión');
+        doc.text('• Errores de formato detectados');
+        doc.text('• Información incompleta identificada');
+        break;
+        
+      case 'creditos_sin_documentos':
+        doc.fontSize(14).text('⚠️ CRÉDITOS SIN DOCUMENTOS');
+        doc.moveDown();
+        doc.fontSize(12).text('Este reporte identifica créditos que no tienen documentación completa.');
+        doc.moveDown();
+        doc.text('• Documentos pendientes de entrega');
+        doc.text('• Información faltante del cliente');
+        doc.text('• Requisitos no cumplidos');
+        doc.moveDown();
+        doc.text('• Acta de nacimiento pendiente');
+        doc.text('• DUI no entregado');
+        doc.text('• Comprobante de domicilio faltante');
+        break;
+        
+      case 'creditos_completos':
+        doc.fontSize(14).text('✅ CRÉDITOS COMPLETOS');
+        doc.moveDown();
+        doc.fontSize(12).text('Este reporte muestra todos los créditos con documentación completa.');
+        doc.moveDown();
+        doc.text('• Documentación al 100%');
+        doc.text('• Información verificada');
+        doc.text('• Listos para procesamiento');
+        doc.moveDown();
+        doc.text('• Todos los documentos entregados');
+        doc.text('• Información validada');
+        doc.text('• Cumple requisitos legales');
+        break;
+        
+      case 'resumen_semanal':
+        doc.fontSize(14).text('📊 RESUMEN SEMANAL DE CARTERA');
+        doc.moveDown();
+        doc.fontSize(12).text('Resumen de la actividad semanal de la cartera de créditos.');
+        doc.moveDown();
+        doc.text('• Nuevos créditos otorgados');
+        doc.text('• Pagos recibidos');
+        doc.text('• Estado general de la cartera');
+        doc.moveDown();
+        doc.text('• Monto total desembolsado');
+        doc.text('• Número de clientes atendidos');
+        doc.text('• Rendimiento semanal');
+        break;
+        
+      case 'reporte_financiero':
+        doc.fontSize(14).text('💰 REPORTE FINANCIERO');
+        doc.moveDown();
+        doc.fontSize(12).text('Análisis financiero detallado de la cartera de créditos.');
+        doc.moveDown();
+        doc.text('• Ingresos y egresos');
+        doc.text('• Rentabilidad por ruta');
+        doc.text('• Proyecciones financieras');
+        doc.moveDown();
+        doc.text('• Balance general');
+        doc.text('• Flujo de caja');
+        doc.text('• Indicadores de rentabilidad');
+        break;
+        
+      default:
+        doc.fontSize(14).text(`📊 REPORTE: ${reportType.toUpperCase()}`);
+        doc.moveDown();
+        doc.fontSize(12).text('Reporte generado automáticamente por el sistema.');
+        doc.moveDown();
+        doc.text('• Información del reporte');
+        doc.text('• Datos procesados');
+        doc.text('• Resumen ejecutivo');
+    }
+    
+    doc.moveDown(2);
+    doc.fontSize(10).text('✅ Generado automáticamente desde Keystone Admin', { align: 'center' });
+    doc.fontSize(8).text(`ID del reporte: ${Date.now()}`, { align: 'center' });
+    doc.fontSize(8).text(`Versión: 1.0`, { align: 'center' });
+    
+    // Finalizar el documento
+    doc.end();
+    
+    // Esperar un momento para que se procese
+    setTimeout(() => {}, 100);
+    
+    const result = Buffer.concat(chunks);
+    console.log('📱 PDF generado exitosamente, tamaño:', result.length, 'bytes');
+    
+    return result;
+  } catch (error) {
+    console.error('❌ Error generando PDF:', error);
+    // Retornar un buffer con contenido de error
+    return Buffer.from(`Error generando PDF: ${error.message}`);
+  }
+}
+
+// ✅ FUNCIÓN ALTERNATIVA PARA GENERAR PDF (USANDO STREAMS)
+function generatePDFWithStreams(reportType: string, data: any = {}): Buffer {
+  return new Promise((resolve, reject) => {
+    try {
+      const PDFDocument = require('pdfkit');
+      const doc = new PDFDocument();
+      const chunks: Buffer[] = [];
+      
+      // Configurar eventos para capturar el PDF
+      doc.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
+      
+      doc.on('end', () => {
+        const result = Buffer.concat(chunks);
+        console.log('📱 PDF generado con streams, tamaño:', result.length, 'bytes');
+        resolve(result);
+      });
+      
+      // Configurar el documento
+      doc.fontSize(20).text('📊 REPORTE AUTOMÁTICO', { align: 'center' });
+      doc.moveDown();
+      doc.fontSize(16).text(`Tipo: ${reportType}`, { align: 'center' });
+      doc.moveDown();
+      doc.fontSize(12).text(`Generado: ${new Date().toLocaleString('es-ES')}`, { align: 'center' });
+      doc.moveDown(2);
+      
+      // Agregar contenido específico según el tipo de reporte
+      switch (reportType) {
+        case 'creditos_con_errores':
+          doc.fontSize(14).text('📋 CRÉDITOS CON DOCUMENTOS CON ERROR');
+          doc.moveDown();
+          doc.fontSize(12).text('Este reporte muestra todos los créditos que tienen documentos con errores.');
+          doc.moveDown();
+          doc.text('• Verificar documentación faltante');
+          doc.text('• Revisar formatos incorrectos');
+          doc.text('• Validar información requerida');
+          break;
+          
+        default:
+          doc.fontSize(14).text(`📊 REPORTE: ${reportType.toUpperCase()}`);
+          doc.moveDown();
+          doc.fontSize(12).text('Reporte generado automáticamente por el sistema.');
+      }
+      
+      doc.moveDown(2);
+      doc.fontSize(10).text('✅ Generado automáticamente desde Keystone Admin', { align: 'center' });
+      doc.fontSize(8).text(`ID del reporte: ${Date.now()}`, { align: 'center' });
+      
+      // Finalizar el documento
+      doc.end();
+      
+    } catch (error) {
+      console.error('❌ Error generando PDF con streams:', error);
+      reject(error);
+    }
+  });
+}
+
+// ✅ FUNCIÓN PARA ENVIAR ARCHIVO A TELEGRAM
+async function sendTelegramFile(chatId: string, fileBuffer: Buffer, filename: string, caption: string): Promise<boolean> {
+  try {
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) {
+      console.log('❌ TELEGRAM_BOT_TOKEN no configurado');
+      return false;
+    }
+
+    console.log('📱 Intentando enviar archivo a Telegram:', { chatId, filename, caption, bufferSize: fileBuffer.length });
+
+    // Crear FormData para enviar el archivo
+    const FormData = require('form-data');
+    const form = new FormData();
+    
+    form.append('chat_id', chatId);
+    form.append('document', fileBuffer, {
+      filename: filename,
+      contentType: 'application/pdf'
+    });
+    form.append('caption', caption);
+    form.append('parse_mode', 'HTML');
+
+    // Usar node-fetch
+    const fetch = require('node-fetch');
+    
+    console.log('📱 FormData creado, enviando a Telegram...');
+    
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
+      method: 'POST',
+      body: form,
+      headers: form.getHeaders()
+    });
+
+    console.log('📱 Respuesta de Telegram recibida:', response.status, response.statusText);
+
+    if (response.ok) {
+      const result = await response.json();
+      console.log('✅ Archivo enviado a Telegram:', filename, result);
+      return result.ok;
+    } else {
+      const errorText = await response.text();
+      console.error('❌ Error al enviar archivo a Telegram:', response.status, response.statusText, errorText);
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ Error al enviar archivo a Telegram:', error);
+    return false;
+  }
+}

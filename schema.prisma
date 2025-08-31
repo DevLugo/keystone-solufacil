@@ -12,15 +12,19 @@ generator client {
 }
 
 model User {
-  id                 String             @id @default(cuid())
-  name               String             @default("")
-  email              String             @unique @default("")
-  password           String?
-  role               String?            @default("NORMAL")
-  portfolioCleanups  PortfolioCleanup[] @relation("PortfolioCleanup_executedBy")
-  documentPhotos     DocumentPhoto[]    @relation("DocumentPhoto_uploadedBy")
-  createdAt          DateTime?          @default(now())
-  from_AuditLog_user AuditLog[]         @relation("AuditLog_user")
+  id                     String             @id @default(cuid())
+  name                   String             @default("")
+  email                  String             @unique @default("")
+  password               String?
+  role                   String?            @default("NORMAL")
+  portfolioCleanups      PortfolioCleanup[] @relation("PortfolioCleanup_executedBy")
+  documentPhotos         DocumentPhoto[]    @relation("DocumentPhoto_uploadedBy")
+  reportConfigsCreated   ReportConfig[]     @relation("ReportConfig_createdBy")
+  reportConfigsUpdated   ReportConfig[]     @relation("ReportConfig_updatedBy")
+  reportConfigRecipients ReportConfig[]     @relation("ReportConfig_recipients")
+  telegramUsers          TelegramUser[]     @relation("TelegramUser_platformUser")
+  createdAt              DateTime?          @default(now())
+  from_AuditLog_user     AuditLog[]         @relation("AuditLog_user")
 }
 
 model Employee {
@@ -49,6 +53,7 @@ model Route {
   accounts          Account[]          @relation("Account_route")
   transactions      Transaction[]      @relation("Transaction_route")
   portfolioCleanups PortfolioCleanup[] @relation("PortfolioCleanup_route")
+  reportConfigs     ReportConfig[]     @relation("ReportConfig_routes")
 }
 
 model Location {
@@ -382,9 +387,62 @@ model DocumentPhoto {
   @@index([uploadedById])
 }
 
+model ReportConfig {
+  id                 String                     @id @default(cuid())
+  name               String                     @default("")
+  reportType         ReportConfigReportTypeType
+  schedule           Json?                      @default("{\"days\":[],\"hour\":\"09\",\"timezone\":\"America/Mexico_City\"}")
+  routes             Route[]                    @relation("ReportConfig_routes")
+  recipients         User[]                     @relation("ReportConfig_recipients")
+  telegramRecipients TelegramUser[]             @relation("ReportConfig_telegramRecipients")
+  channel            ReportConfigChannelType
+  isActive           Boolean                    @default(true)
+  createdAt          DateTime?                  @default(now())
+  updatedAt          DateTime?
+  createdBy          User?                      @relation("ReportConfig_createdBy", fields: [createdById], references: [id])
+  createdById        String?                    @map("createdBy")
+  updatedBy          User?                      @relation("ReportConfig_updatedBy", fields: [updatedById], references: [id])
+  updatedById        String?                    @map("updatedBy")
+
+  @@index([createdById])
+  @@index([updatedById])
+}
+
+model TelegramUser {
+  id                 String         @id @default(cuid())
+  chatId             String         @unique @default("")
+  name               String         @default("")
+  username           String         @default("")
+  isActive           Boolean        @default(true)
+  registeredAt       DateTime?      @default(now())
+  lastActivity       DateTime?      @default(now())
+  reportsReceived    Int?           @default(0)
+  isInRecipientsList Boolean        @default(false)
+  notes              String         @default("")
+  platformUser       User?          @relation("TelegramUser_platformUser", fields: [platformUserId], references: [id])
+  platformUserId     String?        @map("platformUser")
+  reportConfigs      ReportConfig[] @relation("ReportConfig_telegramRecipients")
+
+  @@index([platformUserId])
+}
+
 enum DocumentPhotoDocumentTypeType {
   INE
   DOMICILIO
   PAGARE
   OTRO
+}
+
+enum ReportConfigReportTypeType {
+  creditos_con_errores
+  creditos_sin_documentos
+  creditos_completos
+  resumen_semanal
+  reporte_financiero
+}
+
+enum ReportConfigChannelType {
+  telegram
+  email
+  whatsapp
 }

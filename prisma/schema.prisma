@@ -1,0 +1,504 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String?
+  email     String   @unique
+  password  Password?
+  role      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy User?    @relation("UserCreatedBy", fields: [createdById], references: [id])
+  updatedBy User?    @relation("UserUpdatedBy", fields: [updatedById], references: [id])
+  createdById String?
+  updatedById String?
+  createdUsers User[] @relation("UserCreatedBy")
+  updatedUsers User[] @relation("UserUpdatedBy")
+  routes Route[]
+  employees Employee[]
+  personalData PersonalData[]
+  addresses Address[]
+  locations Location[]
+  phones Phone[]
+  loans Loan[]
+  documentPhotos DocumentPhoto[]
+  transactions Transaction[]
+  accounts Account[]
+  loanTypes LoanType[]
+  portfolioCleanups PortfolioCleanup[]
+  reportConfigsCreated ReportConfig[] @relation("ReportConfigCreatedBy")
+  reportConfigsUpdated ReportConfig[] @relation("ReportConfigUpdatedBy")
+  reportConfigRecipients ReportConfig[] @relation("ReportConfigRecipients")
+  
+  // Relación con usuarios de Telegram
+  telegramUsers TelegramUser[] @relation("TelegramUserPlatformUser")
+
+  @@map("users")
+}
+
+model Password {
+  id     String @id @default(cuid())
+  isSet  Boolean
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String @unique
+
+  @@map("passwords")
+}
+
+model Route {
+  id        String   @id @default(cuid())
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy User?    @relation(fields: [createdById], references: [id])
+  updatedBy User?    @relation(fields: [updatedById], references: [id])
+  createdById String?
+  updatedById String?
+  employees Employee[]
+  accounts Account[]
+  transactions Transaction[]
+  portfolioCleanups PortfolioCleanup[]
+  reportConfigs ReportConfig[]
+
+  @@map("routes")
+}
+
+model Employee {
+  id        String   @id @default(cuid())
+  type      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy User?    @relation(fields: [createdById], references: [id])
+  updatedBy User?    @relation(fields: [updatedById], references: [id])
+  createdById String?
+  updatedById String?
+  personalData PersonalData?
+  routes Route?
+  transactions Transaction[]
+  loans Loan[]
+  commissionPayments CommissionPayment[]
+  leadManagedLoans Loan[] @relation("LeadManagedLoans")
+  leadPaymentReceivedLead LeadPaymentReceived[] @relation("LeadPaymentReceivedLead")
+  leadPaymentsReceivedAgent LeadPaymentReceived[] @relation("LeadPaymentsReceivedAgent")
+
+  @@map("employees")
+}
+
+model PersonalData {
+  id        String   @id @default(cuid())
+  fullName  String?
+  clientCode String? @unique
+  birthDate DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy User?    @relation(fields: [createdById], references: [id])
+  updatedBy User?    @relation(fields: [updatedById], references: [id])
+  createdById String?
+  updatedById String?
+  employee Employee?
+  borrower Borrower?
+  addresses Address[]
+  phones Phone[]
+  loansAsCollateral Loan[] @relation("LoansAsCollateral")
+  documentPhotos DocumentPhoto[]
+
+  @@map("personalData")
+}
+
+model Address {
+  id              String   @id @default(cuid())
+  street          String?
+  exteriorNumber  String?
+  interiorNumber  String?
+  postalCode      String?
+  references      String?
+  city            String?
+  state           String?
+  zipCode         String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdBy       User?    @relation(fields: [createdById], references: [id])
+  updatedBy       User?    @relation(fields: [updatedById], references: [id])
+  createdById     String?
+  updatedById     String?
+  location        Location?
+  personalData    PersonalData?
+
+  @@map("addresses")
+}
+
+model Location {
+  id        String   @id @default(cuid())
+  name      String?
+  municipality Municipality?
+  route     Route?
+  addresses Address[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy User?    @relation(fields: [createdById], references: [id])
+  updatedBy User?    @relation(fields: [updatedById], references: [id])
+  createdById String?
+  updatedById String?
+
+  @@map("locations")
+}
+
+model Municipality {
+  id        String   @id @default(cuid())
+  name      String?
+  state     State?
+  locations Location[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("municipalities")
+}
+
+model State {
+  id            String        @id @default(cuid())
+  name          String?
+  municipalities Municipality[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@map("states")
+}
+
+model Phone {
+  id        String   @id @default(cuid())
+  number    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy User?    @relation(fields: [createdById], references: [id])
+  updatedBy User?    @relation(fields: [updatedById], references: [id])
+  createdById String?
+  updatedById String?
+  personalData PersonalData?
+
+  @@map("phones")
+}
+
+model Borrower {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy User?    @relation(fields: [createdById], references: [id])
+  updatedBy User?    @relation(fields: [updatedById], references: [id])
+  createdById String?
+  updatedById String?
+  personalData PersonalData?
+  loans Loan[]
+  loanFinishedCount Int @default(0)
+  fullName String?
+
+  @@map("borrowers")
+}
+
+model Loan {
+  id        String   @id @default(cuid())
+  oldId     String?
+  requestedAmount Decimal?
+  amountGived Decimal?
+  signDate  DateTime?
+  badDebtDate DateTime?
+  profitAmount Decimal?
+  totalDebtAcquired Decimal?
+  expectedWeeklyPayment Decimal?
+  totalPaid Decimal?
+  pendingAmountStored Decimal?
+  comissionAmount Decimal?
+  finishedDate DateTime?
+  renewedDate DateTime?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  createdBy User?    @relation(fields: [createdById], references: [id])
+  updatedBy User?    @relation(fields: [updatedById], references: [id])
+  createdById String?
+  updatedById String?
+  loantype   Loantype?
+  borrower   Borrower?
+  grantor    Employee?
+  lead       Employee?
+  snapshotLeadId String?
+  snapshotLeadAssignedAt DateTime?
+  previousLoan Loan? @relation("PreviousLoan", fields: [previousLoanId], references: [id])
+  previousLoanId String?
+  nextLoan   Loan[] @relation("PreviousLoan")
+  collaterals PersonalData[] @relation("LoansAsCollateral")
+  payments   LoanPayment[]
+  transactions Transaction[]
+  commissionPayments CommissionPayment[]
+  documentPhotos DocumentPhoto[]
+  status String?
+  snapshotRouteId String?
+  snapshotRouteName String?
+  excludedByCleanup PortfolioCleanup?
+
+  @@map("loans")
+}
+
+model LoanPayment {
+  id        String   @id @default(cuid())
+  amount    Decimal?
+  comission Decimal?
+  receivedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy User?    @relation(fields: [createdById], references: [id])
+  updatedBy User?    @relation(fields: [updatedById], references: [id])
+  createdById String?
+  updatedById String?
+  oldLoanId  String?
+  loan       Loan?
+  transactions Transaction[]
+  type       String?
+  leadPaymentReceived LeadPaymentReceived?
+  paymentMethod String?
+
+  @@map("loanPayments")
+}
+
+model Transaction {
+  id        String   @id @default(cuid())
+  amount    Decimal?
+  date      DateTime?
+  type      String?
+  incomeSource String?
+  expenseSource String?
+  description String?
+  route     Route?
+  lead      Employee?
+  snapshotLeadId String?
+  sourceAccount Account? @relation("SourceAccount", fields: [sourceAccountId], references: [id])
+  sourceAccountId String?
+  destinationAccount Account? @relation("DestinationAccount", fields: [destinationAccountId], references: [id])
+  destinationAccountId String?
+  loan      Loan?
+  loanPayment LoanPayment?
+  profitAmount Decimal?
+  returnToCapital Decimal?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy User?    @relation(fields: [createdById], references: [id])
+  updatedBy User?    @relation(fields: [updatedById], references: [id])
+  createdById String?
+  updatedById String?
+  account   Account?
+
+  @@map("transactions")
+}
+
+model Account {
+  id        String   @id @default(cuid())
+  name      String?
+  type      String?
+  amount    Decimal?
+  balance   Decimal?
+  accountBalance Float?
+  transactions Transaction[] @relation("SourceAccount")
+  receivedTransactions Transaction[] @relation("DestinationAccount")
+  route     Route?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  createdBy User?    @relation(fields: [createdById], references: [id])
+  updatedBy User?    @relation(fields: [updatedById], references: [id])
+  createdById String?
+  updatedById String?
+
+  @@map("accounts")
+}
+
+model Loantype {
+  id        String   @id @default(cuid())
+  name      String?
+  weekDuration Int?
+  rate      Decimal?
+  loanPaymentComission Decimal?
+  loanGrantedComission Decimal?
+  interestRate Decimal?
+  maxAmount Decimal?
+  maxTerm   Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy User?    @relation(fields: [createdById], references: [id])
+  updatedBy User?    @relation(fields: [updatedById], references: [id])
+  createdById String?
+  updatedById String?
+  loans     Loan[]
+
+  @@map("loantypes")
+}
+
+model CommissionPayment {
+  id        String   @id @default(cuid())
+  amount    Decimal?
+  loan      Loan?
+  employee  Employee?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy User?    @relation(fields: [createdById], references: [id])
+  updatedBy User?    @relation(fields: [updatedById], references: [id])
+  createdById String?
+  updatedById String?
+
+  @@map("commissionPayments")
+}
+
+model LeadPaymentType {
+  id        String   @id @default(cuid())
+  type      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("leadPaymentTypes")
+}
+
+model LeadPaymentReceived {
+  id        String   @id @default(cuid())
+  expectedAmount Decimal?
+  paidAmount Decimal?
+  cashPaidAmount Decimal?
+  bankPaidAmount Decimal?
+  falcoAmount Decimal?
+  paymentStatus String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy User?    @relation(fields: [createdById], references: [id])
+  updatedBy User?    @relation(fields: [updatedById], references: [id])
+  createdById String?
+  updatedById String?
+  agent     Employee? @relation("LeadPaymentsReceivedAgent", fields: [agentId], references: [id])
+  agentId   String?
+  lead      Employee? @relation("LeadPaymentReceivedLead", fields: [leadId], references: [id])
+  leadId    String?
+  falcoCompensatoryPayments FalcoCompensatoryPayment[]
+  payments  LoanPayment[]
+
+  @@map("leadPaymentsReceived")
+}
+
+model FalcoCompensatoryPayment {
+  id        String   @id @default(cuid())
+  amount    Decimal?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy User?    @relation(fields: [createdById], references: [id])
+  updatedBy User?    @relation(fields: [updatedById], references: [id])
+  createdById String?
+  updatedById String?
+  leadPaymentReceived LeadPaymentReceived?
+
+  @@map("falcoCompensatoryPayments")
+}
+
+model PortfolioCleanup {
+  id        String   @id @default(cuid())
+  name      String?
+  description String?
+  cleanupDate DateTime?
+  fromDate  DateTime?
+  toDate    DateTime?
+  excludedLoansCount Int?
+  excludedAmount Decimal?
+  route     Route?
+  executedBy User?    @relation(fields: [executedById], references: [id])
+  executedById String?
+  loansExcluded Loan[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy User?    @relation(fields: [createdById], references: [id])
+  updatedBy User?    @relation(fields: [updatedById], references: [id])
+  createdById String?
+  updatedById String?
+
+  @@map("portfolioCleanups")
+}
+
+model DocumentPhoto {
+  id        String   @id @default(cuid())
+  title     String?
+  description String?
+  photoUrl  String?
+  publicId  String?
+  documentType String?
+  isError   Boolean?
+  errorDescription String?
+  personalData PersonalData?
+  loan      Loan?
+  uploadedBy User?    @relation(fields: [uploadedById], references: [id])
+  uploadedById String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy User?    @relation(fields: [createdById], references: [id])
+  updatedBy User?    @relation(fields: [updatedById], references: [id])
+  createdById String?
+  updatedById String?
+
+  @@map("documentPhotos")
+}
+
+enum ReportType {
+  creditos_con_errores
+  creditos_sin_documentos
+  creditos_completos
+  resumen_semanal
+  reporte_financiero
+}
+
+enum Channel {
+  telegram
+  email
+  whatsapp
+}
+
+model TelegramUser {
+  id                    String   @id @default(cuid())
+  chatId                String   @unique
+  name                  String
+  username              String?
+  isActive              Boolean  @default(true)
+  registeredAt          DateTime @default(now())
+  lastActivity          DateTime @default(now())
+  reportsReceived       Int      @default(0)
+  isInRecipientsList    Boolean  @default(false)
+  notes                 String?
+  
+  // Relación con usuario de la plataforma
+  platformUserId        String?
+  platformUser          User?    @relation("TelegramUserPlatformUser", fields: [platformUserId], references: [id])
+  
+  // Relaciones
+  reportConfigs         ReportConfig[] @relation("TelegramUserRecipients")
+  
+  @@map("telegram_users")
+}
+
+model ReportConfig {
+  id        String   @id @default(cuid())
+  name      String?
+  reportType ReportType?
+  schedule  Json?
+  routes    Route[]
+  recipients User[] @relation("ReportConfigRecipients")
+  telegramRecipients TelegramUser[] @relation("TelegramUserRecipients")
+  channel   Channel?
+  isActive  Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy User?    @relation("ReportConfigCreatedBy", fields: [createdById], references: [id])
+  updatedBy User?    @relation("ReportConfigUpdatedBy", fields: [updatedById], references: [id])
+  createdById String?
+  updatedById String?
+
+  @@map("reportConfigs")
+}

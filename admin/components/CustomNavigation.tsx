@@ -85,6 +85,16 @@ const menuSections: MenuSection[] = [
                     roles: ['ADMIN']
                   },
                   {
+                    label: 'Configuración de Reportes',
+                    href: '/configuracion-reportes',
+                    roles: ['ADMIN']
+                  },
+                  {
+                    label: 'Usuarios de Telegram',
+                    href: '/telegram-users',
+                    roles: ['ADMIN']
+                  },
+                  {
                     label: 'Todas las Listas',
                     href: '/',
                     roles: ['ADMIN']
