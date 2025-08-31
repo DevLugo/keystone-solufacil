@@ -3,6 +3,9 @@ import type { Context } from '.keystone/types';
 import { Decimal } from '@prisma/client/runtime/library';
 import { telegramGraphQLExtensions, telegramResolvers } from './telegramExtensions';
 
+// Import fetch for Telegram API calls
+const fetch = require('node-fetch');
+
 interface PaymentInput {
   id?: string;
   amount: number;
@@ -1935,14 +1938,15 @@ export const extendGraphqlSchema = graphql.extend(base => {
         type: graphql.nonNull(graphql.String),
         args: { 
           chatId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
-          reportType: graphql.arg({ type: graphql.nonNull(graphql.String) })
+          reportType: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          routeIds: graphql.arg({ type: graphql.list(graphql.nonNull(graphql.String)) })
         },
-        resolve: async (root, { chatId, reportType }, context: Context) => {
+        resolve: async (root, { chatId, reportType, routeIds }, context: Context) => {
           try {
-            console.log('🚀 sendReportWithPDF llamado con:', { chatId, reportType });
+            console.log('🚀 sendReportWithPDF llamado con:', { chatId, reportType, routeIds });
             
-            // Generar PDF del reporte usando la función con streams
-            const pdfBuffer = await generatePDFWithStreams(reportType);
+            // Generar PDF del reporte usando la función con streams y datos reales
+            const pdfBuffer = await generatePDFWithStreams(reportType, context, routeIds);
             const filename = `reporte_${reportType}_${Date.now()}.pdf`;
             const caption = `📊 <b>REPORTE AUTOMÁTICO</b>\n\nTipo: ${reportType}\nGenerado: ${new Date().toLocaleString('es-ES')}\n\n✅ Enviado desde Keystone Admin`;
             
@@ -6436,8 +6440,8 @@ function generateTestPDF(reportType: string, data: any = {}): Buffer {
 }
 
 // ✅ FUNCIÓN ALTERNATIVA PARA GENERAR PDF (USANDO STREAMS)
-function generatePDFWithStreams(reportType: string, data: any = {}): Buffer {
-  return new Promise((resolve, reject) => {
+async function generatePDFWithStreams(reportType: string, context: Context, routeIds: string[] = []): Promise<Buffer> {
+  return new Promise(async (resolve, reject) => {
     try {
       const PDFDocument = require('pdfkit');
       const doc = new PDFDocument();
@@ -6465,13 +6469,7 @@ function generatePDFWithStreams(reportType: string, data: any = {}): Buffer {
       // Agregar contenido específico según el tipo de reporte
       switch (reportType) {
         case 'creditos_con_errores':
-          doc.fontSize(14).text('📋 CRÉDITOS CON DOCUMENTOS CON ERROR');
-          doc.moveDown();
-          doc.fontSize(12).text('Este reporte muestra todos los créditos que tienen documentos con errores.');
-          doc.moveDown();
-          doc.text('• Verificar documentación faltante');
-          doc.text('• Revisar formatos incorrectos');
-          doc.text('• Validar información requerida');
+          await generateCreditsWithDocumentErrorsReport(doc, context, routeIds);
           break;
           
         default:
@@ -6492,6 +6490,253 @@ function generatePDFWithStreams(reportType: string, data: any = {}): Buffer {
       reject(error);
     }
   });
+}
+
+// ✅ FUNCIÓN PARA GENERAR REPORTE DE CRÉDITOS CON DOCUMENTOS CON ERROR
+async function generateCreditsWithDocumentErrorsReport(doc: any, context: Context, routeIds: string[] = []) {
+  try {
+    console.log('📋 Generando reporte de créditos con documentos con error para rutas:', routeIds);
+    
+    // Calcular fecha de hace 2 meses
+    const twoMonthsAgo = new Date();
+    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+    
+    // Construir filtros de ruta
+    const routeFilter = routeIds && routeIds.length > 0 ? {
+      lead: {
+        routesId: { in: routeIds }
+      }
+    } : {};
+    
+    // Obtener todos los créditos de los últimos 2 meses
+    const allRecentCredits = await context.prisma.loan.findMany({
+      where: {
+        signDate: {
+          gte: twoMonthsAgo
+        },
+        ...routeFilter
+      },
+      include: {
+        borrower: {
+          include: {
+            personalData: {
+              include: {
+                addresses: {
+                  include: {
+                    location: true
+                  }
+                }
+              }
+            }
+          }
+        },
+        lead: {
+          include: {
+            routes: true,
+            personalData: {
+              include: {
+                addresses: {
+                  include: {
+                    location: true
+                  }
+                }
+              }
+            }
+          }
+        },
+        documentPhotos: true
+      },
+      orderBy: [
+        { signDate: 'desc' }
+      ]
+    });
+
+    console.log(`📊 Encontrados ${allRecentCredits.length} créditos en los últimos 2 meses`);
+
+    // Filtrar créditos que tengan documentos con problemas
+    const creditsWithDocumentIssues = [];
+    
+    for (const credit of allRecentCredits) {
+      const hasErrorDocuments = credit.documentPhotos.some(doc => doc.isError);
+      
+      // Verificar documentos faltantes
+      const requiredDocTypes = ['INE', 'DOMICILIO', 'PAGARE'];
+      const availableDocTypes = credit.documentPhotos.map(doc => doc.documentType);
+      const missingDocuments = requiredDocTypes.filter(docType => !availableDocTypes.includes(docType));
+      
+      // Incluir si tiene documentos con error O documentos faltantes
+      if (hasErrorDocuments || missingDocuments.length > 0) {
+        creditsWithDocumentIssues.push(credit);
+      }
+    }
+
+    console.log(`📊 Filtrados ${creditsWithDocumentIssues.length} créditos con problemas de documentos`);
+
+    // Agrupar por ruta y localidad
+    const groupedData = new Map<string, Map<string, any[]>>();
+    
+    // Obtener información de rutas para mapear IDs a nombres
+    const routesInfo = routeIds && routeIds.length > 0 ? await context.prisma.route.findMany({
+      where: { id: { in: routeIds } },
+      select: { id: true, name: true }
+    }) : [];
+    
+    const routeIdToName = new Map(routesInfo.map(route => [route.id, route.name]));
+    
+    for (const credit of creditsWithDocumentIssues) {
+      // Obtener información de localidad
+      const locality = credit.borrower?.personalData?.addresses?.[0]?.location?.name ||
+                      credit.lead?.personalData?.addresses?.[0]?.location?.name ||
+                      'Sin localidad';
+      
+      // Obtener información de ruta desde el lead
+      let routeName = 'Sin ruta asignada';
+      if (credit.lead?.routes?.name) {
+        routeName = credit.lead.routes.name;
+      } else if (credit.lead?.routesId) {
+        routeName = routeIdToName.get(credit.lead.routesId) || `Ruta ${credit.lead.routesId}`;
+      }
+      
+      // Inicializar estructuras de agrupación
+      if (!groupedData.has(routeName)) {
+        groupedData.set(routeName, new Map());
+      }
+      
+      if (!groupedData.get(routeName)!.has(locality)) {
+        groupedData.get(routeName)!.set(locality, []);
+      }
+      
+      // Clasificar documentos
+      const documentsWithError = credit.documentPhotos.filter(doc => doc.isError);
+      
+      // Verificar documentos requeridos
+      const requiredDocTypes = ['INE', 'DOMICILIO', 'PAGARE'];
+      const availableDocTypes = credit.documentPhotos.map(doc => doc.documentType);
+      const missingDocuments = requiredDocTypes.filter(docType => !availableDocTypes.includes(docType));
+      
+      groupedData.get(routeName)!.get(locality)!.push({
+        id: credit.id,
+        signDate: credit.signDate,
+        borrowerName: credit.borrower?.personalData?.fullName || 'Sin nombre',
+        amountGived: credit.amountGived,
+        documentsWithError,
+        missingDocuments,
+        totalDocuments: credit.documentPhotos.length
+      });
+    }
+
+    // Generar contenido del PDF
+    doc.fontSize(14).text('📋 CRÉDITOS CON DOCUMENTOS CON ERROR', { align: 'center' });
+    doc.moveDown();
+    doc.fontSize(12).text(`Período: Últimos 2 meses (desde ${twoMonthsAgo.toLocaleDateString('es-ES')})`, { align: 'center' });
+    doc.moveDown(2);
+
+    if (groupedData.size === 0) {
+      doc.fontSize(12).text('✅ No se encontraron créditos con documentos con error en el período especificado.', { align: 'center' });
+      doc.moveDown(2);
+      doc.fontSize(10).text(`Período analizado: ${twoMonthsAgo.toLocaleDateString('es-ES')} - ${new Date().toLocaleDateString('es-ES')}`, { align: 'center' });
+      if (routeIds && routeIds.length > 0) {
+        doc.text(`Rutas analizadas: ${routeIds.length}`, { align: 'center' });
+      }
+      return;
+    }
+
+    let totalCredits = 0;
+    let totalWithErrors = 0;
+    let totalMissing = 0;
+
+    // Generar contenido por ruta y localidad (ordenado)
+    const sortedRoutes = Array.from(groupedData.entries()).sort(([a], [b]) => a.localeCompare(b));
+    
+    for (const [routeName, localitiesMap] of sortedRoutes) {
+      doc.fontSize(14).text(`🚛 RUTA: ${routeName.toUpperCase()}`, { underline: true });
+      doc.moveDown();
+      
+      // Ordenar localidades alfabéticamente
+      const sortedLocalities = Array.from(localitiesMap.entries()).sort(([a], [b]) => a.localeCompare(b));
+      
+      for (const [locality, credits] of sortedLocalities) {
+        doc.fontSize(12).text(`📍 ${locality}`, { underline: true });
+        doc.moveDown(0.5);
+        
+        // Ordenar créditos por fecha (más recientes primero)
+        const sortedCredits = credits.sort((a, b) => new Date(b.signDate).getTime() - new Date(a.signDate).getTime());
+        
+        for (const credit of sortedCredits) {
+          totalCredits++;
+          
+          doc.fontSize(10);
+          doc.text(`• Cliente: ${credit.borrowerName}`);
+          doc.text(`  Monto: $${Number(credit.amountGived).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`, { indent: 20 });
+          doc.text(`  Fecha: ${new Date(credit.signDate).toLocaleDateString('es-ES')}`, { indent: 20 });
+          doc.text(`  ID: ${credit.id.substring(0, 8)}...`, { indent: 20 });
+          
+          // Documentos con error
+          if (credit.documentsWithError.length > 0) {
+            totalWithErrors++;
+            doc.text(`  ❌ Documentos con error (${credit.documentsWithError.length}):`, { indent: 20 });
+            for (const errorDoc of credit.documentsWithError) {
+              doc.text(`    - ${errorDoc.documentType}: ${errorDoc.title}`, { indent: 40 });
+              if (errorDoc.errorDescription) {
+                doc.text(`      Comentario: ${errorDoc.errorDescription}`, { indent: 60 });
+              }
+            }
+          }
+          
+          // Documentos faltantes
+          if (credit.missingDocuments.length > 0) {
+            totalMissing++;
+            doc.text(`  ⚠️ Documentos faltantes (${credit.missingDocuments.length}):`, { indent: 20 });
+            for (const missingDoc of credit.missingDocuments) {
+              doc.text(`    - ${missingDoc}`, { indent: 40 });
+            }
+          }
+          
+          doc.moveDown(0.5);
+        }
+        
+        doc.moveDown();
+      }
+      
+      doc.moveDown();
+    }
+
+    // Resumen final
+    doc.addPage();
+    doc.fontSize(16).text('📊 RESUMEN DEL REPORTE', { align: 'center', underline: true });
+    doc.moveDown(2);
+    
+    doc.fontSize(12);
+    doc.text(`Total de créditos con problemas: ${totalCredits}`);
+    doc.text(`Créditos con documentos marcados como error: ${totalWithErrors}`);
+    doc.text(`Créditos con documentos faltantes: ${totalMissing}`);
+    doc.text(`Rutas analizadas: ${groupedData.size}`);
+    
+    const totalLocalities = Array.from(groupedData.values()).reduce((sum, localitiesMap) => sum + localitiesMap.size, 0);
+    doc.text(`Localidades con problemas: ${totalLocalities}`);
+    
+    doc.moveDown(2);
+    doc.fontSize(12).text('📋 DETALLES POR RUTA:', { underline: true });
+    doc.moveDown();
+    
+    // Mostrar resumen por ruta
+    for (const [routeName, localitiesMap] of sortedRoutes) {
+      const routeCredits = Array.from(localitiesMap.values()).flat().length;
+      doc.fontSize(10);
+      doc.text(`• ${routeName}: ${routeCredits} créditos con problemas`);
+      
+      for (const [locality, credits] of Array.from(localitiesMap.entries()).sort(([a], [b]) => a.localeCompare(b))) {
+        doc.text(`  - ${locality}: ${credits.length} créditos`, { indent: 20 });
+      }
+    }
+    
+    doc.moveDown(2);
+    doc.fontSize(10).text('Nota: Los créditos listados requieren atención inmediata para completar o corregir la documentación requerida.', { align: 'justify' });
+
+  } catch (error) {
+    console.error('❌ Error generando reporte de créditos con errores:', error);
+    doc.fontSize(12).text(`❌ Error generando reporte: ${error instanceof Error ? error.message : 'Unknown error'}`, { align: 'center' });
+  }
 }
 
 // ✅ FUNCIÓN PARA ENVIAR ARCHIVO A TELEGRAM
@@ -6517,8 +6762,7 @@ async function sendTelegramFile(chatId: string, fileBuffer: Buffer, filename: st
     form.append('caption', caption);
     form.append('parse_mode', 'HTML');
 
-    // Usar node-fetch
-    const fetch = require('node-fetch');
+    // Usar node-fetch (ya importado al inicio del archivo)
     
     console.log('📱 FormData creado, enviando a Telegram...');
     
