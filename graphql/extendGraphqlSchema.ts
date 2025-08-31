@@ -6908,7 +6908,7 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
     const pageWidth = 500;
     const startX = 50;
     const headerHeight = 30;
-    const rowHeight = 40;
+    const rowHeight = 50; // Altura mayor para múltiples líneas
     let currentY = doc.y;
     
     // Configuración de columnas simplificada
@@ -6984,24 +6984,82 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
           
           let cellText = cellData[index];
           
-          // Color para tipo de problema
-          if (index === 3) { // Tipo
-            doc.fillColor(cellText === 'CLIENTE' ? '#059669' : '#dc2626');
-            doc.fontSize(9);
+          // Manejo especial para la columna de problemas (índice 4)
+          if (index === 4) {
+            // Separar problemas en líneas
+            const problems = cellText.split(';').map(p => p.trim()).filter(p => p.length > 0);
+            
+            doc.fillColor('black').fontSize(7);
+            let textY = y + 6;
+            
+            problems.forEach((problem) => {
+              if (textY < y + rowHeight - 8) {
+                if (problem.includes('con error')) {
+                  doc.fillColor('#dc2626');
+                  doc.text(`ERROR: ${problem.replace('con error', '').trim()}`, x + 3, textY, { 
+                    width: col.width - 6
+                  });
+                } else if (problem.includes('faltante')) {
+                  doc.fillColor('#f59e0b');
+                  doc.text(`FALTA: ${problem.replace('faltante', '').trim()}`, x + 3, textY, { 
+                    width: col.width - 6
+                  });
+                } else {
+                  doc.fillColor('black');
+                  doc.text(problem, x + 3, textY, { 
+                    width: col.width - 6
+                  });
+                }
+                textY += 9;
+              }
+            });
+            
+          } else if (index === 5) { // Columna de observaciones
+            // Múltiples líneas para observaciones
+            doc.fillColor('black').fontSize(7);
+            
+            const words = cellText.split(' ');
+            let currentLine = '';
+            let textY = y + 6;
+            const maxCharsPerLine = 18;
+            
+            words.forEach(word => {
+              if ((currentLine + word).length <= maxCharsPerLine) {
+                currentLine += (currentLine ? ' ' : '') + word;
+              } else {
+                if (currentLine && textY < y + rowHeight - 8) {
+                  doc.text(currentLine, x + 3, textY, { 
+                    width: col.width - 6
+                  });
+                  textY += 9;
+                }
+                currentLine = word;
+              }
+            });
+            
+            if (currentLine && textY < y + rowHeight - 8) {
+              doc.text(currentLine, x + 3, textY, { 
+                width: col.width - 6
+              });
+            }
+            
           } else {
-            doc.fillColor('black');
-            doc.fontSize(8);
+            // Para otras columnas
+            if (index === 3) { // Tipo
+              doc.fillColor(cellText === 'CLIENTE' ? '#059669' : '#dc2626');
+              doc.fontSize(9);
+            } else {
+              doc.fillColor('black');
+              doc.fontSize(8);
+            }
+            
+            // Texto normal para otras columnas
+            doc.text(cellText, x + 3, y + 12, { 
+              width: col.width - 6,
+              align: 'left',
+              lineBreak: true
+            });
           }
-          
-          // Texto simple sin complicaciones
-          if (cellText.length > 20) {
-            cellText = cellText.substring(0, 17) + '...';
-          }
-          
-          doc.text(cellText, x + 3, y + 12, { 
-            width: col.width - 6,
-            align: 'left'
-          });
           
           x += col.width;
         });
