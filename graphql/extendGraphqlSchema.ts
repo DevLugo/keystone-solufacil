@@ -6781,60 +6781,9 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
       doc.y += 40;
     }
     
-    // Tabla simplificada que funciona
-    doc.fontSize(14).text('CREDITOS CON PROBLEMAS DE DOCUMENTOS');
-    doc.moveDown();
-    
-    // Headers simples
-    doc.fontSize(10);
-    doc.text('RUTA | LOCALIDAD | CLIENTE | TIPO | PROBLEMA | OBSERVACIONES');
-    doc.text('─'.repeat(80));
-    doc.moveDown();
-    
-    // Datos en tabla simple pero con múltiples líneas para problemas
-    tableData.forEach((row, index) => {
-      doc.fontSize(9);
-      doc.text(`${row.routeName || 'N/A'} | ${row.locality} | ${row.clientName}`);
-      
-      // Tipo con color
-      if (row.problemType === 'CLIENTE') {
-        doc.fillColor('#059669');
-      } else {
-        doc.fillColor('#dc2626');
-      }
-      doc.text(`Tipo: ${row.problemType}`);
-      doc.fillColor('black');
-      
-      // Problemas en múltiples líneas
-      doc.fontSize(8);
-      const problems = row.problemDescription.split(';');
-      problems.forEach(problem => {
-        if (problem.trim()) {
-          if (problem.includes('con error')) {
-            doc.fillColor('#dc2626');
-            doc.text(`  ERROR: ${problem.replace('con error', '').trim()}`);
-          } else if (problem.includes('faltante')) {
-            doc.fillColor('#f59e0b');
-            doc.text(`  FALTA: ${problem.replace('faltante', '').trim()}`);
-          } else {
-            doc.fillColor('black');
-            doc.text(`  ${problem.trim()}`);
-          }
-        }
-      });
-      
-      // Observaciones
-      doc.fillColor('black');
-      doc.text(`  Observaciones: ${row.observations}`);
-      doc.moveDown(0.3);
-      
-      // Línea separadora cada 5 registros (simular semanas)
-      if ((index + 1) % 5 === 0) {
-        doc.text('─'.repeat(80));
-      }
-    });
-    
-    console.log('✅ Tabla simplificada generada correctamente');
+    // Generar tabla REAL con bordes y estructura
+    await generateRealDocumentErrorTable(doc, tableData, weekGroups);
+    console.log('✅ Tabla REAL generada correctamente');
 
     // Generar página de resumen ejecutivo simplificada
     doc.addPage();
@@ -6963,16 +6912,16 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
     const pageWidth = 500;
     const startX = 50;
     const headerHeight = 30;
-    const rowHeight = 50; // Altura mayor para múltiples líneas
+    const rowHeight = 45;
     let currentY = doc.y;
     
-    // Configuración de columnas simplificada
+    // Configuración de columnas con Ruta incluida
     const columns = [
       { header: 'Ruta', width: 60 },
       { header: 'Localidad', width: 70 },
-      { header: 'Cliente', width: 90 },
-      { header: 'Tipo', width: 50 },
-      { header: 'Problema', width: 130 },
+      { header: 'Cliente', width: 85 },
+      { header: 'Tipo', width: 45 },
+      { header: 'Problema', width: 140 },
       { header: 'Observaciones', width: 100 }
     ];
     
@@ -7005,101 +6954,86 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
       return y + headerHeight;
     };
     
-    // Función para dibujar fila de datos (corregida)
+    // Función para dibujar fila de datos con tabla real
     const drawTableRow = (data: any, y: number, isShaded: boolean = false) => {
-      try {
-        // Color de fondo alternado
-        if (isShaded) {
-          doc.fillColor('#e0f2fe').rect(startX, y, pageWidth, rowHeight).fill();
-        } else {
-          doc.fillColor('white').rect(startX, y, pageWidth, rowHeight).fill();
+      // Color de fondo alternado
+      if (isShaded) {
+        doc.fillColor('#e0f2fe').rect(startX, y, pageWidth, rowHeight).fill();
+      } else {
+        doc.fillColor('white').rect(startX, y, pageWidth, rowHeight).fill();
+      }
+      
+      // Bordes de la fila
+      doc.strokeColor('#374151').lineWidth(1).rect(startX, y, pageWidth, rowHeight).stroke();
+      
+      // Datos de las celdas
+      const cellData = [
+        data.routeName || 'N/A',
+        data.locality || 'N/A', 
+        data.clientName || 'N/A',
+        data.problemType || 'N/A',
+        data.problemDescription || 'N/A',
+        data.observations || 'Sin observaciones'
+      ];
+      
+      // Dibujar contenido de cada celda
+      let x = startX;
+      columns.forEach((col, index) => {
+        // Líneas verticales entre columnas
+        if (index > 0) {
+          doc.strokeColor('#374151').lineWidth(0.5);
+          doc.moveTo(x, y).lineTo(x, y + rowHeight).stroke();
         }
         
-        // Bordes de la fila
-        doc.strokeColor('#374151').lineWidth(1).rect(startX, y, pageWidth, rowHeight).stroke();
+        let cellText = cellData[index];
         
-        // Datos de las celdas
-        const cellData = [
-          data.routeName || 'N/A',
-          data.locality || 'N/A', 
-          data.clientName || 'N/A',
-          data.problemType || 'N/A',
-          data.problemDescription || 'N/A',
-          data.observations || 'Sin observaciones'
-        ];
-        
-        // Dibujar contenido de cada celda
-        let x = startX;
-        columns.forEach((col, index) => {
-          // Líneas verticales
-          if (index > 0) {
-            doc.strokeColor('#374151').lineWidth(0.5);
-            doc.moveTo(x, y).lineTo(x, y + rowHeight).stroke();
-          }
+        // Columna de problemas con múltiples líneas
+        if (index === 4) {
+          const problems = cellText.split(';').map(p => p.trim()).filter(p => p.length > 0);
+          doc.fontSize(7);
+          let textY = y + 5;
           
-          let cellText = cellData[index];
-          
-          // Manejo especial para la columna de problemas (índice 4)
-          if (index === 4) {
-            // Separar problemas en líneas
-            const problems = cellText.split(';').map(p => p.trim()).filter(p => p.length > 0);
-            
-            doc.fontSize(7);
-            let textY = y + 6;
-            
-            problems.forEach((problem) => {
-              if (textY < y + rowHeight - 8) {
-                if (problem.includes('con error')) {
-                  doc.fillColor('#dc2626');
-                  doc.text(`ERROR: ${problem.replace('con error', '').trim()}`, x + 3, textY, { 
-                    width: col.width - 6
-                  });
-                } else if (problem.includes('faltante')) {
-                  doc.fillColor('#f59e0b');
-                  doc.text(`FALTA: ${problem.replace('faltante', '').trim()}`, x + 3, textY, { 
-                    width: col.width - 6
-                  });
-                } else {
-                  doc.fillColor('black');
-                  doc.text(problem, x + 3, textY, { 
-                    width: col.width - 6
-                  });
-                }
-                textY += 9;
+          problems.forEach((problem) => {
+            if (textY < y + rowHeight - 5) {
+              if (problem.includes('con error')) {
+                doc.fillColor('#dc2626');
+                doc.text(`ERROR: ${problem.replace('con error', '').trim()}`, x + 2, textY);
+              } else if (problem.includes('faltante')) {
+                doc.fillColor('#f59e0b');
+                doc.text(`FALTA: ${problem.replace('faltante', '').trim()}`, x + 2, textY);
+              } else {
+                doc.fillColor('black');
+                doc.text(problem, x + 2, textY);
               }
-            });
-            
+              textY += 8;
+            }
+          });
+        } else {
+          // Otras columnas
+          if (index === 3) { // Tipo
+            doc.fillColor(cellText === 'CLIENTE' ? '#059669' : '#dc2626');
+            doc.fontSize(9);
           } else {
-            // Para todas las demás columnas
-            if (index === 3) { // Tipo
-              doc.fillColor(cellText === 'CLIENTE' ? '#059669' : '#dc2626');
-              doc.fontSize(9);
-            } else {
-              doc.fillColor('black');
-              doc.fontSize(8);
-            }
-            
-            // Truncar texto si es necesario
-            if (cellText && cellText.length > 20) {
-              cellText = cellText.substring(0, 17) + '...';
-            }
-            
-            doc.text(cellText || '', x + 3, y + 15, { 
-              width: col.width - 6,
-              align: 'left'
-            });
+            doc.fillColor('black');
+            doc.fontSize(8);
           }
           
-          x += col.width;
-        });
+          // Truncar si es muy largo
+          if (cellText.length > 18) {
+            cellText = cellText.substring(0, 15) + '...';
+          }
+          
+          doc.text(cellText, x + 2, y + 15, { 
+            width: col.width - 4,
+            align: 'left'
+          });
+        }
         
-        doc.fillColor('black');
-        return y + rowHeight;
-        
-      } catch (error) {
-        console.error('Error en drawTableRow:', error);
-        return y + rowHeight;
-      }
+        x += col.width;
+      });
+      
+      doc.fillColor('black');
+      return y + rowHeight;
     };
     
     // Dibujar header inicial
@@ -7121,8 +7055,8 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
       // Verificar si necesitamos nueva página
       if (currentY > 700) {
         doc.addPage();
-        doc.fontSize(20).fillColor('#1e40af').text('SOLUFÁCIL', { align: 'center' });
-        doc.fontSize(14).fillColor('black').text('REPORTE DE CRÉDITOS CON DOCUMENTOS CON ERROR (Continuación)', { align: 'center' });
+        doc.fontSize(20).fillColor('#1e40af').text('SOLUFACIL', { align: 'center' });
+        doc.fontSize(14).fillColor('black').text('REPORTE DE CREDITOS CON DOCUMENTOS CON ERROR (Continuacion)', { align: 'center' });
         doc.moveDown(2);
         currentY = doc.y;
         currentY = drawTableHeader(currentY);
@@ -7143,8 +7077,8 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
         // Verificar si necesitamos nueva página
         if (currentY > 700) {
           doc.addPage();
-          doc.fontSize(20).fillColor('#1e40af').text('SOLUFÁCIL', { align: 'center' });
-          doc.fontSize(14).fillColor('black').text('REPORTE DE CRÉDITOS CON DOCUMENTOS CON ERROR (Continuación)', { align: 'center' });
+          doc.fontSize(20).fillColor('#1e40af').text('SOLUFACIL', { align: 'center' });
+          doc.fontSize(14).fillColor('black').text('REPORTE DE CREDITOS CON DOCUMENTOS CON ERROR (Continuacion)', { align: 'center' });
           doc.moveDown(2);
           currentY = doc.y;
           currentY = drawTableHeader(currentY);
