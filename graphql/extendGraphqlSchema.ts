@@ -6904,6 +6904,25 @@ async function addProfessionalFooter(doc: any) {
   }
 }
 
+// ✅ FUNCIÓN AUXILIAR PARA LIMPIAR TEXTO PROBLEMÁTICO
+function sanitizeText(text: string): string {
+  if (!text) return 'N/A';
+  
+  return text
+    .replace(/[áéíóúñü]/g, (match) => { // Reemplazar acentos específicamente
+      const map: any = { 'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u', 'ñ': 'n', 'ü': 'u' };
+      return map[match] || match;
+    })
+    .replace(/[ÁÉÍÓÚÑÜ]/g, (match) => { // Reemplazar acentos mayúsculas
+      const map: any = { 'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U', 'Ñ': 'N', 'Ü': 'U' };
+      return map[match] || match;
+    })
+    .replace(/[^\w\s\-\.,\(\):]/g, '') // Eliminar otros caracteres especiales
+    .replace(/\s+/g, ' ') // Normalizar espacios múltiples
+    .trim()
+    .substring(0, 80); // Limitar longitud
+}
+
 // ✅ FUNCIÓN PARA GENERAR TABLA REAL DE DOCUMENTOS CON ERROR
 async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGroups: Map<string, any[]>) {
   try {
@@ -6956,77 +6975,152 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
     
     // Función para dibujar fila de datos con tabla real
     const drawTableRow = (data: any, y: number, isShaded: boolean = false) => {
-      // Color de fondo alternado
-      if (isShaded) {
-        doc.fillColor('#e0f2fe').rect(startX, y, pageWidth, rowHeight).fill();
-      } else {
-        doc.fillColor('white').rect(startX, y, pageWidth, rowHeight).fill();
-      }
-      
-      // Bordes de la fila
-      doc.strokeColor('#374151').lineWidth(1).rect(startX, y, pageWidth, rowHeight).stroke();
-      
-      // Datos de las celdas
-      const cellData = [
-        data.routeName || 'N/A',
-        data.locality || 'N/A', 
-        data.clientName || 'N/A',
-        data.problemType || 'N/A',
-        data.problemDescription || 'N/A',
-        data.observations || 'Sin observaciones'
-      ];
-      
-      // Dibujar contenido de cada celda
-      let x = startX;
-      columns.forEach((col, index) => {
-        // Líneas verticales entre columnas
-        if (index > 0) {
-          doc.strokeColor('#374151').lineWidth(0.5);
-          doc.moveTo(x, y).lineTo(x, y + rowHeight).stroke();
+      try {
+        // Validar que tenemos datos válidos
+        if (!data) {
+          console.warn('Datos de fila inválidos, saltando...');
+          return y + rowHeight;
         }
         
-        let cellText = cellData[index];
-        
-        // Columna de problemas con múltiples líneas
-        if (index === 4) {
-          const problems = cellText.split(';').map(p => p.trim()).filter(p => p.length > 0);
-          doc.fontSize(7);
-          let textY = y + 5;
-          
-          problems.forEach((problem) => {
-            if (textY < y + rowHeight - 5) {
-              if (problem.includes('con error')) {
-                doc.fillColor('#dc2626');
-                doc.text(`ERROR: ${problem.replace('con error', '').trim()}`, x + 2, textY);
-              } else if (problem.includes('faltante')) {
-                doc.fillColor('#f59e0b');
-                doc.text(`FALTA: ${problem.replace('faltante', '').trim()}`, x + 2, textY);
-              } else {
-                doc.fillColor('black');
-                doc.text(problem, x + 2, textY);
-              }
-              textY += 8;
-            }
-          });
+        // Color de fondo alternado
+        if (isShaded) {
+          doc.fillColor('#e0f2fe').rect(startX, y, pageWidth, rowHeight).fill();
         } else {
-          // Otras columnas
-          if (index === 3) { // Tipo
-            doc.fillColor(cellText === 'CLIENTE' ? '#059669' : '#dc2626');
-            doc.fontSize(9);
+          doc.fillColor('white').rect(startX, y, pageWidth, rowHeight).fill();
+        }
+        
+        // Bordes de la fila
+        doc.strokeColor('#374151').lineWidth(1).rect(startX, y, pageWidth, rowHeight).stroke();
+      } catch (drawError) {
+        console.error('Error dibujando fondo/bordes:', drawError);
+        return y + rowHeight;
+      }
+      
+      // Datos de las celdas (sanitizados)
+      const cellData = [
+        sanitizeText(data.routeName),
+        sanitizeText(data.locality), 
+        sanitizeText(data.clientName),
+        sanitizeText(data.problemType),
+        sanitizeText(data.problemDescription),
+        sanitizeText(data.observations)
+      ];
+      
+      // Dibujar contenido de cada celda con protección
+      let x = startX;
+      columns.forEach((col, index) => {
+        try {
+          // Validar posición X para evitar desbordamiento
+          if (x + col.width > startX + pageWidth) {
+            console.warn(`Columna ${index} se sale del límite, saltando...`);
+            return;
+          }
+          
+          // Líneas verticales entre columnas
+          if (index > 0) {
+            doc.strokeColor('#374151').lineWidth(0.5);
+            doc.moveTo(x, y).lineTo(x, y + rowHeight).stroke();
+          }
+          
+          let cellText = cellData[index];
+          
+          // Protección extra: asegurar que el texto no esté vacío o sea problemático
+          if (!cellText || cellText === 'undefined' || cellText === 'null') {
+            cellText = 'N/A';
+          }
+          // Columna de problemas con múltiples líneas (protegida)
+          if (index === 4) {
+            try {
+              const problems = cellText.split(';').map(p => sanitizeText(p)).filter(p => p && p !== 'N/A' && p.length > 0);
+              doc.fontSize(7);
+              let textY = y + 5;
+              
+              // Máximo 3 líneas para evitar desbordamiento
+              const maxLines = Math.min(problems.length, 3);
+              
+              for (let i = 0; i < maxLines; i++) {
+                const problem = problems[i];
+                if (textY < y + rowHeight - 10 && problem && problem.length > 0) {
+                  let displayText = '';
+                  
+                  if (problem.includes('con error')) {
+                    doc.fillColor('#dc2626');
+                    displayText = `ERROR: ${problem.replace('con error', '').trim().substring(0, 15)}`;
+                  } else if (problem.includes('faltante')) {
+                    doc.fillColor('#f59e0b');
+                    displayText = `FALTA: ${problem.replace('faltante', '').trim().substring(0, 15)}`;
+                  } else {
+                    doc.fillColor('black');
+                    displayText = problem.substring(0, 20);
+                  }
+                  
+                  // Dibujar texto con restricciones estrictas
+                  doc.text(displayText, x + 2, textY, { 
+                    width: col.width - 4,
+                    height: 8,
+                    ellipsis: true,
+                    lineBreak: false
+                  });
+                  textY += 8;
+                }
+              }
+              
+              if (problems.length > 3) {
+                doc.fillColor('gray').fontSize(6);
+                doc.text(`+${problems.length - 3} mas`, x + 2, textY, { 
+                  width: col.width - 4,
+                  height: 6,
+                  ellipsis: true,
+                  lineBreak: false
+                });
+              }
+            } catch (problemError) {
+              console.error('Error en columna de problemas:', problemError);
+              doc.fillColor('black').fontSize(7);
+              doc.text('Problemas multiples', x + 2, y + 15, { 
+                width: col.width - 4,
+                height: 15,
+                ellipsis: true,
+                lineBreak: false
+              });
+            }
+            
           } else {
-            doc.fillColor('black');
-            doc.fontSize(8);
+            // Otras columnas con protección
+            if (index === 3) { // Tipo
+              doc.fillColor(cellText === 'CLIENTE' ? '#059669' : '#dc2626');
+              doc.fontSize(9);
+            } else {
+              doc.fillColor('black');
+              doc.fontSize(8);
+            }
+            
+            // Limitar longitud estrictamente
+            let displayText = cellText;
+            const maxLength = Math.floor(col.width / 6); // Cálculo más conservador
+            if (displayText.length > maxLength) {
+              displayText = displayText.substring(0, maxLength - 3) + '...';
+            }
+            
+            // Texto con restricciones estrictas
+            doc.text(displayText, x + 2, y + 15, { 
+              width: col.width - 4,
+              height: 15,
+              ellipsis: true,
+              lineBreak: false // Evitar saltos de línea automáticos
+            });
           }
-          
-          // Truncar si es muy largo
-          if (cellText.length > 18) {
-            cellText = cellText.substring(0, 15) + '...';
-          }
-          
-          doc.text(cellText, x + 2, y + 15, { 
+        } catch (cellError) {
+          console.error(`Error en celda ${index}:`, cellError);
+          // Fallback seguro para celdas problemáticas
+          doc.fillColor('red').fontSize(6);
+          doc.text('ERROR', x + 2, y + 15, { 
             width: col.width - 4,
-            align: 'left'
+            height: 10,
+            ellipsis: true,
+            lineBreak: false
           });
+          doc.fillColor('black');
         }
         
         x += col.width;
@@ -7034,7 +7128,17 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
       
       doc.fillColor('black');
       return y + rowHeight;
-    };
+      
+    } catch (rowError) {
+      console.error('Error general en drawTableRow:', rowError);
+      // Fallback: dibujar fila básica
+      doc.fillColor('white').rect(startX, y, pageWidth, rowHeight).fill();
+      doc.strokeColor('#374151').lineWidth(1).rect(startX, y, pageWidth, rowHeight).stroke();
+      doc.fillColor('black').fontSize(8);
+      doc.text('Error en fila de datos', startX + 5, y + 15);
+      return y + rowHeight;
+    }
+  };
     
     // Dibujar header inicial
     currentY = drawTableHeader(currentY);
