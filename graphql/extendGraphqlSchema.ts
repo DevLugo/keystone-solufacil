@@ -6781,24 +6781,60 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
       doc.y += 40;
     }
     
-    // Generar tabla real con formato profesional
-    try {
-      await generateRealDocumentErrorTable(doc, tableData, weekGroups);
-      console.log('✅ Tabla REAL generada correctamente');
-    } catch (tableError) {
-      console.error('❌ Error en generateRealDocumentErrorTable:', tableError);
-      // Fallback: tabla simple
-      doc.fontSize(14).text('TABLA DE CREDITOS CON PROBLEMAS (Modo Fallback)');
-      doc.moveDown();
-      tableData.forEach((row, index) => {
-        doc.fontSize(10);
-        doc.text(`${index + 1}. ${row.locality} - ${row.clientName} (${row.problemType})`);
-        doc.fontSize(8);
-        doc.text(`   Problema: ${row.problemDescription}`);
-        doc.text(`   Observaciones: ${row.observations}`);
-        doc.moveDown(0.5);
+    // Tabla simplificada que funciona
+    doc.fontSize(14).text('CREDITOS CON PROBLEMAS DE DOCUMENTOS');
+    doc.moveDown();
+    
+    // Headers simples
+    doc.fontSize(10);
+    doc.text('RUTA | LOCALIDAD | CLIENTE | TIPO | PROBLEMA | OBSERVACIONES');
+    doc.text('─'.repeat(80));
+    doc.moveDown();
+    
+    // Datos en tabla simple pero con múltiples líneas para problemas
+    tableData.forEach((row, index) => {
+      doc.fontSize(9);
+      doc.text(`${row.routeName || 'N/A'} | ${row.locality} | ${row.clientName}`);
+      
+      // Tipo con color
+      if (row.problemType === 'CLIENTE') {
+        doc.fillColor('#059669');
+      } else {
+        doc.fillColor('#dc2626');
+      }
+      doc.text(`Tipo: ${row.problemType}`);
+      doc.fillColor('black');
+      
+      // Problemas en múltiples líneas
+      doc.fontSize(8);
+      const problems = row.problemDescription.split(';');
+      problems.forEach(problem => {
+        if (problem.trim()) {
+          if (problem.includes('con error')) {
+            doc.fillColor('#dc2626');
+            doc.text(`  ERROR: ${problem.replace('con error', '').trim()}`);
+          } else if (problem.includes('faltante')) {
+            doc.fillColor('#f59e0b');
+            doc.text(`  FALTA: ${problem.replace('faltante', '').trim()}`);
+          } else {
+            doc.fillColor('black');
+            doc.text(`  ${problem.trim()}`);
+          }
+        }
       });
-    }
+      
+      // Observaciones
+      doc.fillColor('black');
+      doc.text(`  Observaciones: ${row.observations}`);
+      doc.moveDown(0.3);
+      
+      // Línea separadora cada 5 registros (simular semanas)
+      if ((index + 1) % 5 === 0) {
+        doc.text('─'.repeat(80));
+      }
+    });
+    
+    console.log('✅ Tabla simplificada generada correctamente');
 
     // Generar página de resumen ejecutivo simplificada
     doc.addPage();
@@ -6969,7 +7005,7 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
       return y + headerHeight;
     };
     
-    // Función para dibujar fila de datos (simplificada)
+    // Función para dibujar fila de datos (corregida)
     const drawTableRow = (data: any, y: number, isShaded: boolean = false) => {
       try {
         // Color de fondo alternado
@@ -7008,7 +7044,7 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
             // Separar problemas en líneas
             const problems = cellText.split(';').map(p => p.trim()).filter(p => p.length > 0);
             
-            doc.fillColor('black').fontSize(7);
+            doc.fontSize(7);
             let textY = y + 6;
             
             problems.forEach((problem) => {
@@ -7034,7 +7070,7 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
             });
             
           } else {
-            // Para todas las demás columnas (manejo uniforme)
+            // Para todas las demás columnas
             if (index === 3) { // Tipo
               doc.fillColor(cellText === 'CLIENTE' ? '#059669' : '#dc2626');
               doc.fontSize(9);
@@ -7043,25 +7079,13 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
               doc.fontSize(8);
             }
             
-            // Truncar texto para evitar desbordamiento
-            let displayText = cellText;
-            if (index === 5) { // Observaciones
-              if (cellText.length > 25) {
-                displayText = cellText.substring(0, 22) + '...';
-              }
-            } else if (index === 2) { // Cliente
-              if (cellText.length > 18) {
-                displayText = cellText.substring(0, 15) + '...';
-              }
-            } else {
-              if (cellText.length > 15) {
-                displayText = cellText.substring(0, 12) + '...';
-              }
+            // Truncar texto si es necesario
+            if (cellText && cellText.length > 20) {
+              cellText = cellText.substring(0, 17) + '...';
             }
             
-            doc.text(displayText, x + 3, y + 15, { 
+            doc.text(cellText || '', x + 3, y + 15, { 
               width: col.width - 6,
-              height: 20,
               align: 'left'
             });
           }
