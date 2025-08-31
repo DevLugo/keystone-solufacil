@@ -633,10 +633,17 @@ export default function LimpiezaCarteraPage() {
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
                   Fecha de Inicio *
                 </label>
-                <DatePicker
+                <input
+                  type="date"
                   value={bulkCleanupForm.fromDate}
-                  onUpdate={(date: string) => setBulkCleanupForm({ ...bulkCleanupForm, fromDate: date })}
-                  onClear={() => setBulkCleanupForm({ ...bulkCleanupForm, fromDate: '' })}
+                  onChange={(e) => setBulkCleanupForm({ ...bulkCleanupForm, fromDate: e.target.value })}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    fontSize: '14px'
+                  }}
                 />
               </div>
 
@@ -644,10 +651,17 @@ export default function LimpiezaCarteraPage() {
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
                   Fecha de Fin *
                 </label>
-                <DatePicker
+                <input
+                  type="date"
                   value={bulkCleanupForm.toDate}
-                  onUpdate={(date: string) => setBulkCleanupForm({ ...bulkCleanupForm, toDate: date })}
-                  onClear={() => setBulkCleanupForm({ ...bulkCleanupForm, toDate: '' })}
+                  onChange={(e) => setBulkCleanupForm({ ...bulkCleanupForm, toDate: e.target.value })}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    fontSize: '14px'
+                  }}
                 />
               </div>
 
@@ -655,10 +669,17 @@ export default function LimpiezaCarteraPage() {
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
                   Fecha de Creación *
                 </label>
-                <DatePicker
+                <input
+                  type="date"
                   value={bulkCleanupForm.cleanupDate}
-                  onUpdate={(date: string) => setBulkCleanupForm({ ...bulkCleanupForm, cleanupDate: date })}
-                  onClear={() => setBulkCleanupForm({ ...bulkCleanupForm, cleanupDate: new Date().toISOString().split('T')[0] })}
+                  onChange={(e) => setBulkCleanupForm({ ...bulkCleanupForm, cleanupDate: e.target.value })}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    fontSize: '14px'
+                  }}
                 />
               </div>
 

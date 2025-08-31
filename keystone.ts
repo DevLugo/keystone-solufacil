@@ -1389,6 +1389,154 @@ export default withAuth(
             res.status(500).json({ error: 'Error interno del servidor al generar PDF' });
           }
         });
+
+        // Endpoint para generar PDF del historial del cliente
+        app.post('/api/generate-client-pdf', async (req: Request, res: Response) => {
+          try {
+            const { clientId } = req.body;
+            
+            if (!clientId) {
+              return res.status(400).json({ error: 'clientId es requerido' });
+            }
+
+            // Obtener información del cliente
+            const client = await prisma.lead.findUnique({
+              where: { id: clientId },
+              include: {
+                personalData: {
+                  include: {
+                    addresses: {
+                      include: {
+                        location: {
+                          include: {
+                            route: true
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                loans: {
+                  include: {
+                    loantype: true,
+                    borrower: {
+                      include: {
+                        personalData: true
+                      }
+                    },
+                    collaterals: {
+                      include: {
+                        personalData: true
+                      }
+                    },
+                    payments: {
+                      orderBy: { receivedAt: 'asc' }
+                    }
+                  },
+                  orderBy: { signDate: 'desc' }
+                }
+              }
+            });
+
+            if (!client) {
+              return res.status(404).json({ error: 'Cliente no encontrado' });
+            }
+
+            // Crear PDF
+            const doc = new PDFDocument({
+              size: 'A4',
+              margins: {
+                top: 50,
+                bottom: 50,
+                left: 50,
+                right: 50
+              }
+            });
+
+            // Configurar respuesta
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `attachment; filename="historial-cliente-${clientId}.pdf"`);
+            doc.pipe(res);
+
+            // Agregar contenido al PDF
+            doc.fontSize(24).text('HISTORIAL DEL CLIENTE', { align: 'center' });
+            doc.moveDown();
+            
+            doc.fontSize(16).text(`Cliente: ${client.personalData?.firstName || ''} ${client.personalData?.lastName || ''}`);
+            doc.fontSize(12).text(`Ruta: ${client.personalData?.addresses?.[0]?.location?.route?.name || 'No asignada'}`);
+            doc.moveDown();
+
+            // Información de préstamos
+            doc.fontSize(14).text('PRÉSTAMOS:', { underline: true });
+            doc.moveDown();
+
+            client.loans.forEach((loan: any, index: number) => {
+              doc.fontSize(12).text(`Préstamo ${index + 1}:`);
+              doc.fontSize(10).text(`  Fecha: ${formatDate(loan.signDate)}`);
+              doc.fontSize(10).text(`  Monto: $${loan.amountGived || 0}`);
+              doc.fontSize(10).text(`  Estado: ${loan.finishedDate ? 'Terminado' : 'Activo'}`);
+              doc.moveDown(0.5);
+            });
+
+            doc.end();
+          } catch (error) {
+            console.error('Error generando PDF del cliente:', error);
+            res.status(500).json({ error: 'Error interno del servidor' });
+          }
+        });
+
+        // Endpoint para generar PDF del reporte financiero
+        app.post('/api/generate-financial-pdf', async (req: Request, res: Response) => {
+          try {
+            const { routeId, year } = req.body;
+            
+            if (!routeId || !year) {
+              return res.status(400).json({ error: 'routeId y year son requeridos' });
+            }
+
+            // Obtener información de la ruta
+            const route = await prisma.route.findUnique({
+              where: { id: routeId }
+            });
+
+            if (!route) {
+              return res.status(404).json({ error: 'Ruta no encontrada' });
+            }
+
+            // Crear PDF
+            const doc = new PDFDocument({
+              size: 'A4',
+              margins: {
+                top: 50,
+                bottom: 50,
+                left: 50,
+                right: 50
+              }
+            });
+
+            // Configurar respuesta
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `attachment; filename="reporte-financiero-${routeId}-${year}.pdf"`);
+            doc.pipe(res);
+
+            // Agregar contenido al PDF
+            doc.fontSize(24).text('REPORTE FINANCIERO', { align: 'center' });
+            doc.moveDown();
+            
+            doc.fontSize(16).text(`Ruta: ${route.name}`);
+            doc.fontSize(12).text(`Año: ${year}`);
+            doc.moveDown();
+
+            doc.fontSize(14).text('Este es un reporte financiero básico.', { align: 'center' });
+            doc.fontSize(12).text('Para obtener el reporte completo, usa la funcionalidad del reporte financiero en la interfaz web.');
+            doc.moveDown();
+
+            doc.end();
+          } catch (error) {
+            console.error('Error generando PDF financiero:', error);
+            res.status(500).json({ error: 'Error interno del servidor' });
+          }
+        });
       },
     },
   })

@@ -4029,13 +4029,97 @@ export const extendGraphqlSchema = graphql.extend(base => {
         },
       }),
 
-      getFinancialReport: graphql.field({
-        type: graphql.nonNull(graphql.JSON),
-        args: {
-          routeIds: graphql.arg({ type: graphql.nonNull(graphql.list(graphql.nonNull(graphql.String))) }),
-          year: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
-        },
-        resolve: async (root, { routeIds, year }, context: Context) => {
+        getRouteStats: graphql.field({
+    type: graphql.nonNull(graphql.JSON),
+    args: {
+      routeId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+    },
+    resolve: async (root, { routeId }, context: Context) => {
+      try {
+        // Obtener estadísticas de la ruta
+        const route = await context.prisma.route.findUnique({
+          where: { id: routeId },
+          include: {
+            localities: {
+              include: {
+                _count: {
+                  select: { leads: true }
+                }
+              }
+            }
+          }
+        });
+
+        if (!route) {
+          throw new Error(`Ruta con ID ${routeId} no encontrada`);
+        }
+
+        // Obtener clientes activos (con préstamos activos)
+        const activeClients = await context.prisma.lead.count({
+          where: {
+            routesId: routeId,
+            loans: {
+              some: {
+                finishedDate: null,
+                excludedByCleanup: null
+              }
+            }
+          }
+        });
+
+        // Obtener clientes pagando (con pagos en las últimas 4 semanas)
+        const fourWeeksAgo = new Date();
+        fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28);
+
+        const payingClients = await context.prisma.lead.count({
+          where: {
+            routesId: routeId,
+            loans: {
+              some: {
+                finishedDate: null,
+                excludedByCleanup: null,
+                payments: {
+                  some: {
+                    receivedAt: {
+                      gte: fourWeeksAgo
+                    }
+                  }
+                }
+              }
+            }
+          }
+        });
+
+        // Obtener total de clientes
+        const totalClients = await context.prisma.lead.count({
+          where: {
+            routesId: routeId
+          }
+        });
+
+        return {
+          routeId: route.id,
+          routeName: route.name,
+          localitiesCount: route.localities.length,
+          activeClients,
+          payingClients,
+          totalClients,
+          payingPercentage: totalClients > 0 ? Math.round((payingClients / totalClients) * 100) : 0
+        };
+      } catch (error) {
+        console.error('Error en getRouteStats:', error);
+        throw error;
+      }
+    },
+  }),
+
+  getFinancialReport: graphql.field({
+    type: graphql.nonNull(graphql.JSON),
+    args: {
+      routeIds: graphql.arg({ type: graphql.nonNull(graphql.list(graphql.nonNull(graphql.String))) }),
+      year: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
+    },
+    resolve: async (root, { routeIds, year }, context: Context) => {
           try {
             // Obtener información de las rutas
             const routes = await context.prisma.route.findMany({

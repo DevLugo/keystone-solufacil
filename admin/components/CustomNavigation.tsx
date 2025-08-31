@@ -30,11 +30,7 @@ const menuSections: MenuSection[] = [
         href: '/documentos-personales',
         roles: ['NORMAL', 'ADMIN']
       },
-      {
-        label: 'Limpieza de Cartera',
-        href: '/limpieza-cartera',
-        roles: ['ADMIN']
-      }
+
     ]
   },
   {
@@ -50,6 +46,11 @@ const menuSections: MenuSection[] = [
         label: 'Carga Gastos Toka',
         href: '/gastos-toka',
         roles: ['ADMIN']
+      },
+      {
+        label: 'Listados de Rutas',
+        href: '/generar-pdf',
+        roles: ['NORMAL', 'ADMIN']
       }
     ]
   },
@@ -69,17 +70,27 @@ const menuSections: MenuSection[] = [
       }
     ]
   },
-  {
-    title: 'Administración del Sistema',
-    roles: ['ADMIN'],
-    items: [
-      {
-        label: 'Todas las Listas',
-        href: '/',
-        roles: ['ADMIN']
-      }
-    ]
-  }
+                {
+                title: 'Administración del Sistema',
+                roles: ['ADMIN'],
+                items: [
+                  {
+                    label: 'Administrar Rutas',
+                    href: '/administrar-rutas',
+                    roles: ['ADMIN']
+                  },
+                  {
+                    label: 'Limpieza de Cartera',
+                    href: '/limpieza-cartera',
+                    roles: ['ADMIN']
+                  },
+                  {
+                    label: 'Todas las Listas',
+                    href: '/',
+                    roles: ['ADMIN']
+                  }
+                ]
+              }
 ];
 
 export function CustomNavigation({ authenticatedItem, lists }: NavigationProps) {
