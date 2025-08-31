@@ -256,6 +256,13 @@ const SEND_TEST_TELEGRAM = gql`
   }
 `;
 
+// Mutation para enviar reporte con PDF a Telegram (versión temporal sin routeIds)
+const SEND_REPORT_WITH_PDF = gql`
+  mutation SendReportWithPDF($chatId: String!, $reportType: String!) {
+    sendReportWithPDF(chatId: $chatId, reportType: $reportType)
+  }
+`;
+
 // Interfaces
 interface Route {
   id: string;
@@ -286,6 +293,7 @@ interface TelegramUser {
   id: string;
   chatId: string;
   name: string;
+  username?: string;
 }
 
 interface ReportConfigForm {
@@ -331,6 +339,7 @@ export default function ConfiguracionReportesPage() {
   const [deleteReportConfig] = useMutation(DELETE_REPORT_CONFIG);
   const [sendReportNow] = useMutation(SEND_REPORT_NOW);
   const [sendTestTelegram] = useMutation(SEND_TEST_TELEGRAM);
+  const [sendReportWithPDF] = useMutation(SEND_REPORT_WITH_PDF);
 
   // Datos procesados
   const routes = routesData?.routes || [];
@@ -526,7 +535,11 @@ export default function ConfiguracionReportesPage() {
 
   const handleSendNow = async (configId: string) => {
     try {
+      console.log('🔥 FUNCIÓN handleSendNow LLAMADA con configId:', configId);
+      
       const config = configs.find(c => c.id === configId);
+      console.log('📋 Configuración encontrada:', config);
+      
       if (!config) { 
         alert('Configuración no encontrada'); 
         return; 
@@ -542,27 +555,15 @@ export default function ConfiguracionReportesPage() {
         return;
       }
 
-      // Generar contenido del reporte
-      let reportContent = '';
-      switch (config.reportType) {
-        case 'creditos_con_errores': 
-          reportContent = '📋 <b>REPORTE: Créditos con Documentos con Error</b>\n\nReporte generado automáticamente\n\n✅ <b>Enviado desde Keystone Admin</b>'; 
-          break;
-        case 'creditos_sin_documentos': 
-          reportContent = '⚠️ <b>REPORTE: Créditos Sin Documentos</b>\n\nReporte generado automáticamente\n\n✅ <b>Enviado desde Keystone Admin</b>'; 
-          break;
-        case 'creditos_completos': 
-          reportContent = '✅ <b>REPORTE: Créditos Completos</b>\n\nReporte generado automáticamente\n\n✅ <b>Enviado desde Keystone Admin</b>'; 
-          break;
-        case 'resumen_semanal': 
-          reportContent = '📊 <b>REPORTE: Resumen Semanal de Cartera</b>\n\nReporte generado automáticamente\n\n✅ <b>Enviado desde Keystone Admin</b>'; 
-          break;
-        case 'reporte_financiero': 
-          reportContent = '💰 <b>REPORTE: Reporte Financiero</b>\n\nReporte generado automáticamente\n\n✅ <b>Enviado desde Keystone Admin</b>'; 
-          break;
-        default: 
-          reportContent = `📊 <b>REPORTE: ${config.reportType}</b>\n\nReporte generado automáticamente\n\n✅ <b>Enviado desde Keystone Admin</b>`;
-      }
+      // Obtener IDs de rutas configuradas
+      const routeIds = config.routes.map(route => route.id);
+      console.log(`📋 Configuración del reporte:`, {
+        id: config.id,
+        name: config.name,
+        reportType: config.reportType,
+        routeIds: routeIds,
+        recipientsCount: config.telegramRecipients?.length || 0
+      });
 
       // Enviar a todos los destinatarios de Telegram
       let sentCount = 0;
@@ -573,13 +574,85 @@ export default function ConfiguracionReportesPage() {
         
         for (const recipient of config.telegramRecipients) {
           try {
-            const sent = await sendTelegramMessage(recipient.chatId, reportContent);
+            let sent = false;
+            
+            console.log(`🔍 Verificando tipo de reporte: "${config.reportType}" === "creditos_con_errores"?`, config.reportType === 'creditos_con_errores');
+            console.log(`🔍 Tipo de dato del reportType:`, typeof config.reportType);
+            console.log(`🔍 Comparación estricta:`, config.reportType === 'creditos_con_errores');
+            console.log(`🔍 Comparación con includes:`, config.reportType.includes('creditos_con_errores'));
+            
+            // Para créditos con errores, usar la nueva mutación con PDF
+            const isCreditsWithErrors = config.reportType === 'creditos_con_errores' || 
+                                       config.reportType.includes('creditos_con_errores') ||
+                                       config.reportType.includes('Créditos con Documentos con Error');
+            
+            console.log(`🎯 ¿Es reporte de créditos con errores?`, isCreditsWithErrors);
+            
+            // TEMPORAL: Forzar uso de PDF para debug
+            const forcePDF = true;
+            console.log(`🧪 FORZANDO USO DE PDF para debug`);
+            console.log(`🔥 ANTES DE LA CONDICIÓN - forcePDF:`, forcePDF);
+            
+            if (forcePDF) {
+              console.log(`📋 DETECTADO REPORTE DE CRÉDITOS CON ERRORES`);
+              console.log(`📋 Tipo de reporte: "${config.reportType}"`);
+              console.log(`📋 Route IDs: [${routeIds.join(', ')}]`);
+              console.log(`📋 Chat ID: ${recipient.chatId}`);
+              console.log(`📋 Enviando reporte PDF de créditos con errores a ${recipient.name}`);
+              console.log(`📋 Función sendReportWithPDF disponible:`, typeof sendReportWithPDF);
+              
+              const result = await sendReportWithPDF({
+                variables: { 
+                  chatId: recipient.chatId, 
+                  reportType: config.reportType
+                }
+              });
+              
+              console.log(`📋 Mutación ejecutada, esperando respuesta...`);
+              
+              console.log(`📋 Resultado completo de la mutación:`, result);
+              
+              if (result.data?.sendReportWithPDF) {
+                const response = result.data.sendReportWithPDF;
+                sent = response.includes('✅');
+                console.log(`📋 Respuesta PDF: ${response}`);
+              } else if (result.errors) {
+                console.error(`❌ Errores en la mutación:`, result.errors);
+              }
+            } else {
+              console.log(`📝 USANDO MÉTODO ANTERIOR para tipo: "${config.reportType}"`);
+              console.log(`❌ LA CONDICIÓN FALLÓ - No se detectó creditos_con_errores`);
+              console.log(`❌ Valor exacto recibido: [${config.reportType}]`);
+              console.log(`❌ Longitud del string: ${config.reportType.length}`);
+              console.log(`❌ Caracteres: ${config.reportType.split('').map(c => c.charCodeAt(0))}`);
+              // Para otros tipos de reporte, usar el método anterior (mensaje de texto)
+              let reportContent = '';
+              switch (config.reportType) {
+                case 'creditos_sin_documentos': 
+                  reportContent = '⚠️ <b>REPORTE: Créditos Sin Documentos</b>\n\nReporte generado automáticamente\n\n✅ <b>Enviado desde Keystone Admin</b>'; 
+                  break;
+                case 'creditos_completos': 
+                  reportContent = '✅ <b>REPORTE: Créditos Completos</b>\n\nReporte generado automáticamente\n\n✅ <b>Enviado desde Keystone Admin</b>'; 
+                  break;
+                case 'resumen_semanal': 
+                  reportContent = '📊 <b>REPORTE: Resumen Semanal de Cartera</b>\n\nReporte generado automáticamente\n\n✅ <b>Enviado desde Keystone Admin</b>'; 
+                  break;
+                case 'reporte_financiero': 
+                  reportContent = '💰 <b>REPORTE: Reporte Financiero</b>\n\nReporte generado automáticamente\n\n✅ <b>Enviado desde Keystone Admin</b>'; 
+                  break;
+                default: 
+                  reportContent = `📊 <b>REPORTE: ${config.reportType}</b>\n\nReporte generado automáticamente\n\n✅ <b>Enviado desde Keystone Admin</b>`;
+              }
+              
+              sent = await sendTelegramMessage(recipient.chatId, reportContent);
+            }
+            
             if (sent) {
               sentCount++;
-              console.log(`✅ Mensaje enviado exitosamente a ${recipient.name} (${recipient.chatId})`);
+              console.log(`✅ Reporte enviado exitosamente a ${recipient.name} (${recipient.chatId})`);
             } else {
               errorCount++;
-              console.log(`❌ Error enviando mensaje a ${recipient.name}`);
+              console.log(`❌ Error enviando reporte a ${recipient.name}`);
             }
           } catch (error) {
             console.error(`❌ Error enviando reporte a ${recipient.name}:`, error);
@@ -592,7 +665,7 @@ export default function ConfiguracionReportesPage() {
       console.log('✅', result);
       
       if (sentCount > 0) {
-        alert(`✅ ${result}\n\nRevisa tu Telegram para ver el mensaje.`);
+        alert(`✅ ${result}\n\nRevisa tu Telegram para ver el ${config.reportType === 'creditos_con_errores' ? 'PDF' : 'mensaje'}.`);
       } else {
         alert(`❌ ${result}\n\nRevisa la consola para más detalles.`);
       }

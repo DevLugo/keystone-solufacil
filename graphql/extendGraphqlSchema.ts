@@ -3,6 +3,9 @@ import type { Context } from '.keystone/types';
 import { Decimal } from '@prisma/client/runtime/library';
 import { telegramGraphQLExtensions, telegramResolvers } from './telegramExtensions';
 
+// Import fetch for Telegram API calls
+const fetch = require('node-fetch');
+
 interface PaymentInput {
   id?: string;
   amount: number;
@@ -2270,7 +2273,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
         }
       }),
 
-      // ✅ NUEVA MUTATION: Enviar reporte con PDF a Telegram
+      // ✅ NUEVA MUTATION: Enviar reporte con PDF a Telegram (versión temporal sin routeIds)
       sendReportWithPDF: graphql.field({
         type: graphql.nonNull(graphql.String),
         args: { 
@@ -2279,10 +2282,15 @@ export const extendGraphqlSchema = graphql.extend(base => {
         },
         resolve: async (root, { chatId, reportType }, context: Context) => {
           try {
-            console.log('🚀 sendReportWithPDF llamado con:', { chatId, reportType });
+            console.log('🚀🚀🚀 MUTACIÓN sendReportWithPDF LLAMADA 🚀🚀🚀');
+            console.log('📋 Parámetros recibidos:', { chatId, reportType });
+            console.log('📋 Tipo de reporte exacto:', `"${reportType}"`);
+            console.log('📋 ¿Es créditos con errores?', reportType === 'creditos_con_errores');
             
-            // Generar PDF del reporte usando la función con streams
-            const pdfBuffer = await generatePDFWithStreams(reportType);
+            // Generar PDF del reporte usando la función con streams y datos reales
+            console.log('📋 Llamando generatePDFWithStreams...');
+            const pdfBuffer = await generatePDFWithStreams(reportType, context, []);
+            console.log('📋 PDF generado, tamaño:', pdfBuffer.length, 'bytes');
             const filename = `reporte_${reportType}_${Date.now()}.pdf`;
             const caption = `📊 <b>REPORTE AUTOMÁTICO</b>\n\nTipo: ${reportType}\nGenerado: ${new Date().toLocaleString('es-ES')}\n\n✅ Enviado desde Keystone Admin`;
             
@@ -6776,8 +6784,8 @@ function generateTestPDF(reportType: string, data: any = {}): Buffer {
 }
 
 // ✅ FUNCIÓN ALTERNATIVA PARA GENERAR PDF (USANDO STREAMS)
-function generatePDFWithStreams(reportType: string, data: any = {}): Buffer {
-  return new Promise((resolve, reject) => {
+async function generatePDFWithStreams(reportType: string, context: Context, routeIds: string[] = []): Promise<Buffer> {
+  return new Promise(async (resolve, reject) => {
     try {
       const PDFDocument = require('pdfkit');
       const doc = new PDFDocument();
@@ -6794,35 +6802,34 @@ function generatePDFWithStreams(reportType: string, data: any = {}): Buffer {
         resolve(result);
       });
       
-      // Configurar el documento
-      doc.fontSize(20).text('📊 REPORTE AUTOMÁTICO', { align: 'center' });
-      doc.moveDown();
-      doc.fontSize(16).text(`Tipo: ${reportType}`, { align: 'center' });
-      doc.moveDown();
-      doc.fontSize(12).text(`Generado: ${new Date().toLocaleString('es-ES')}`, { align: 'center' });
-      doc.moveDown(2);
+      // El header específico se genera en cada función de reporte
+      // No agregar contenido genérico aquí
       
       // Agregar contenido específico según el tipo de reporte
+      console.log('🎯 Determinando tipo de reporte:', `"${reportType}"`);
       switch (reportType) {
         case 'creditos_con_errores':
-          doc.fontSize(14).text('📋 CRÉDITOS CON DOCUMENTOS CON ERROR');
-          doc.moveDown();
-          doc.fontSize(12).text('Este reporte muestra todos los créditos que tienen documentos con errores.');
-          doc.moveDown();
-          doc.text('• Verificar documentación faltante');
-          doc.text('• Revisar formatos incorrectos');
-          doc.text('• Validar información requerida');
+          console.log('✅ ENTRANDO A CASO creditos_con_errores');
+          try {
+            await generateCreditsWithDocumentErrorsReport(doc, context, routeIds);
+            console.log('✅ FUNCIÓN generateCreditsWithDocumentErrorsReport COMPLETADA');
+          } catch (reportError) {
+            console.error('❌ Error en generateCreditsWithDocumentErrorsReport:', reportError);
+            doc.fontSize(16).text('Error generando reporte detallado', { align: 'center' });
+            doc.moveDown();
+            doc.fontSize(12).text('Se produjo un error al generar el reporte.', { align: 'center' });
+            doc.text('Revisa los logs del servidor para más detalles.', { align: 'center' });
+          }
           break;
           
         default:
+          console.log('⚠️ USANDO CASO DEFAULT para tipo:', reportType);
           doc.fontSize(14).text(`📊 REPORTE: ${reportType.toUpperCase()}`);
           doc.moveDown();
           doc.fontSize(12).text('Reporte generado automáticamente por el sistema.');
       }
       
-      doc.moveDown(2);
-      doc.fontSize(10).text('✅ Generado automáticamente desde Keystone Admin', { align: 'center' });
-      doc.fontSize(8).text(`ID del reporte: ${Date.now()}`, { align: 'center' });
+      // Footer se agrega en cada función específica si es necesario
       
       // Finalizar el documento
       doc.end();
@@ -6832,6 +6839,790 @@ function generatePDFWithStreams(reportType: string, data: any = {}): Buffer {
       reject(error);
     }
   });
+}
+
+// ✅ FUNCIÓN PARA GENERAR REPORTE DE CRÉDITOS CON DOCUMENTOS CON ERROR
+async function generateCreditsWithDocumentErrorsReport(doc: any, context: Context, routeIds: string[] = []) {
+  try {
+    console.log('🎯🎯🎯 FUNCIÓN generateCreditsWithDocumentErrorsReport INICIADA 🎯🎯🎯');
+    console.log('📋 Generando reporte de créditos con documentos con error para rutas:', routeIds);
+    
+    // Calcular fecha de hace 2 meses
+    const twoMonthsAgo = new Date();
+    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+    
+    // Temporal: Sin filtro de rutas específicas, analizar todas las rutas
+    const routeFilter = {};
+    
+    // Obtener todos los créditos de los últimos 2 meses con información completa
+    const allRecentCredits = await context.prisma.loan.findMany({
+      where: {
+        signDate: {
+          gte: twoMonthsAgo
+        },
+        ...routeFilter
+      },
+      include: {
+        borrower: {
+          include: {
+            personalData: {
+              include: {
+                addresses: {
+                  include: {
+                    location: true
+                  }
+                }
+              }
+            }
+          }
+        },
+        lead: {
+          include: {
+            routes: true,
+            personalData: {
+              include: {
+                addresses: {
+                  include: {
+                    location: true
+                  }
+                }
+              }
+            }
+          }
+        },
+        documentPhotos: true,
+        collaterals: {
+          include: {
+            documentPhotos: true
+          }
+        }
+      },
+      orderBy: [
+        { signDate: 'desc' }
+      ]
+    });
+
+    console.log(`📊 Encontrados ${allRecentCredits.length} créditos en los últimos 2 meses`);
+    console.log('🔍 Filtros aplicados:', { twoMonthsAgo: twoMonthsAgo.toISOString(), routeFilter });
+
+    // Procesar y organizar datos para la tabla
+    const tableData = [];
+    console.log('📊 Iniciando procesamiento de datos para tabla...');
+    
+    for (const credit of allRecentCredits) {
+      const locality = credit.borrower?.personalData?.addresses?.[0]?.location?.name ||
+                      credit.lead?.personalData?.addresses?.[0]?.location?.name ||
+                      'Sin localidad';
+      
+      const routeName = credit.lead?.routes?.name || 'Sin ruta';
+      const clientName = credit.borrower?.personalData?.fullName || 'Sin nombre';
+      const signDate = new Date(credit.signDate);
+      
+      // Analizar documentos del cliente
+      const clientDocuments = credit.documentPhotos || [];
+      const clientDocErrors = clientDocuments.filter(doc => doc.isError);
+      
+      // Verificar documentos faltantes del cliente
+      const requiredDocTypes = ['INE', 'DOMICILIO', 'PAGARE'];
+      const clientAvailableTypes = clientDocuments.map(doc => doc.documentType);
+      const clientMissingDocs = requiredDocTypes.filter(type => !clientAvailableTypes.includes(type));
+      
+      // Analizar documentos del aval (si existe)
+      const avalDocuments = credit.collaterals?.[0]?.documentPhotos || [];
+      const avalDocErrors = avalDocuments.filter(doc => doc.isError);
+      const avalAvailableTypes = avalDocuments.map(doc => doc.documentType);
+      const avalMissingDocs = requiredDocTypes.filter(type => !avalAvailableTypes.includes(type));
+      
+      // Solo incluir si hay problemas
+      const hasClientProblems = clientDocErrors.length > 0 || clientMissingDocs.length > 0;
+      const hasAvalProblems = avalDocErrors.length > 0 || avalMissingDocs.length > 0;
+      
+      if (hasClientProblems || hasAvalProblems) {
+        console.log(`📋 Crédito con problemas encontrado: ${credit.id} - Cliente: ${clientName}`);
+        // Agregar fila para problemas del cliente
+        if (hasClientProblems) {
+          const errorDescriptions = clientDocErrors.map(doc => `${doc.documentType} con error`);
+          const missingDescriptions = clientMissingDocs.map(type => `${type} faltante`);
+          const allProblems = [...errorDescriptions, ...missingDescriptions];
+          
+          const detailedObservations = clientDocErrors
+            .map(doc => doc.errorDescription)
+            .filter(Boolean)
+            .join('; ') || 'Sin observaciones específicas';
+          
+          tableData.push({
+            locality,
+            routeName,
+            clientName,
+            signDate,
+            problemType: 'CLIENTE',
+            problemDescription: allProblems.join('; '),
+            observations: detailedObservations
+          });
+        }
+        
+        // Agregar fila para problemas del aval
+        if (hasAvalProblems && credit.collaterals?.[0]) {
+          const avalName = credit.collaterals[0].fullName || 'Aval sin nombre';
+          const avalErrorDescriptions = avalDocErrors.map(doc => `${doc.documentType} con error`);
+          const avalMissingDescriptions = avalMissingDocs.map(type => `${type} faltante`);
+          const allAvalProblems = [...avalErrorDescriptions, ...avalMissingDescriptions];
+          
+          const avalDetailedObservations = avalDocErrors
+            .map(doc => doc.errorDescription)
+            .filter(Boolean)
+            .join('; ') || 'Sin observaciones específicas';
+          
+          tableData.push({
+            locality,
+            routeName,
+            clientName: `${clientName} (Aval: ${avalName})`,
+            signDate,
+            problemType: 'AVAL',
+            problemDescription: allAvalProblems.join('; '),
+            observations: avalDetailedObservations
+          });
+        }
+      }
+    }
+
+    console.log(`📊 Procesados ${tableData.length} registros con problemas de documentos`);
+    
+    // Si no hay datos reales, agregar datos de prueba para mostrar la tabla
+    if (tableData.length === 0) {
+      console.log('🧪 Agregando datos de prueba para mostrar formato de tabla...');
+      const testData = [
+        // Semana actual
+        {
+          locality: 'Campeche Centro',
+          routeName: 'Ruta Norte',
+          clientName: 'María González López',
+          signDate: new Date(),
+          problemType: 'CLIENTE',
+          problemDescription: 'INE con error; DOMICILIO faltante',
+          observations: 'Imagen de INE borrosa, solicitar nueva foto. Pendiente comprobante domicilio.'
+        },
+        {
+          locality: 'Campeche Centro',
+          routeName: 'Ruta Norte', 
+          clientName: 'Juan Pérez Martín (Aval: Ana Pérez)',
+          signDate: new Date(Date.now() - 86400000),
+          problemType: 'AVAL',
+          problemDescription: 'DOMICILIO faltante; PAGARE con error',
+          observations: 'Aval no entregó comprobante. Pagaré con firma incorrecta.'
+        },
+        // Semana anterior
+        {
+          locality: 'Calkiní',
+          routeName: 'Ruta Sur',
+          clientName: 'Carlos Rodríguez Sánchez',
+          signDate: new Date(Date.now() - 7 * 86400000),
+          problemType: 'CLIENTE',
+          problemDescription: 'PAGARE con error',
+          observations: 'Firma ilegible en pagaré, debe rehacerse completamente.'
+        },
+        {
+          locality: 'Calkiní',
+          routeName: 'Ruta Sur',
+          clientName: 'Ana María Torres (Aval: Luis Torres)',
+          signDate: new Date(Date.now() - 8 * 86400000),
+          problemType: 'AVAL',
+          problemDescription: 'INE faltante; DOMICILIO con error',
+          observations: 'Aval sin INE. Comprobante domicilio con dirección que no coincide.'
+        },
+        // Hace 2 semanas
+        {
+          locality: 'Champotón',
+          routeName: 'Ruta Este',
+          clientName: 'Roberto Fernández Gómez',
+          signDate: new Date(Date.now() - 14 * 86400000),
+          problemType: 'CLIENTE',
+          problemDescription: 'DOMICILIO con error; INE con error',
+          observations: 'Dirección incorrecta en comprobante. INE vencida, requiere renovación.'
+        }
+      ];
+      
+      tableData.push(...testData);
+      console.log('✅ Datos de prueba agregados para demostrar formato');
+    }
+
+    // Ordenar por localidad y fecha
+    tableData.sort((a, b) => {
+      if (a.locality !== b.locality) {
+        return a.locality.localeCompare(b.locality);
+      }
+      return b.signDate.getTime() - a.signDate.getTime();
+    });
+
+    // Agrupar por semanas para las líneas sombreadas
+    const weekGroups = new Map();
+    tableData.forEach(row => {
+      const weekStart = getWeekStart(row.signDate);
+      const weekKey = weekStart.toISOString().split('T')[0];
+      if (!weekGroups.has(weekKey)) {
+        weekGroups.set(weekKey, []);
+      }
+      weekGroups.get(weekKey).push(row);
+    });
+
+    console.log('🎨 Generando header profesional del reporte...');
+    
+    // Header profesional con logo
+    await addCompanyHeader(doc);
+    
+    // Título principal del reporte (ocupando todo el ancho)
+    doc.fontSize(18).fillColor('#1e40af').text('REPORTE DE CREDITOS CON DOCUMENTOS CON ERROR', 50, doc.y, { 
+      width: 500, 
+      align: 'center' 
+    });
+    doc.moveDown();
+    
+    // Información del período (ocupando todo el ancho)
+    const reportStartDate = new Date();
+    reportStartDate.setMonth(reportStartDate.getMonth() - 2);
+    doc.fontSize(12).fillColor('black').text(`Período de Análisis: ${reportStartDate.toLocaleDateString('es-ES')} - ${new Date().toLocaleDateString('es-ES')}`, 50, doc.y, { 
+      width: 500, 
+      align: 'center' 
+    });
+    
+    // Información de rutas (temporal: todas las rutas)
+    doc.fontSize(10).fillColor('gray').text('Análisis: Todas las rutas del sistema', { align: 'center' });
+    
+    doc.moveDown(2);
+    console.log('✅ Header profesional generado correctamente');
+
+    // Verificar si tenemos datos para mostrar después del filtrado y datos de prueba
+    if (tableData.length === 0) {
+      console.log('⚠️ No se encontraron datos ni se agregaron datos de prueba...');
+      
+      // Caja de estado exitoso
+      doc.fillColor('#f0fdf4').rect(50, doc.y, 500, 80).fill();
+      doc.strokeColor('#16a34a').lineWidth(2).rect(50, doc.y, 500, 80).stroke();
+      
+      doc.fontSize(16).fillColor('#16a34a').text('EXCELENTE NOTICIA', { align: 'center' });
+      doc.moveDown();
+      doc.fontSize(12).fillColor('black').text('No se encontraron creditos con documentos con error', { align: 'center' });
+      doc.text('en el periodo especificado.', { align: 'center' });
+      doc.moveDown();
+      doc.fontSize(10).fillColor('gray').text('Todos los creditos tienen su documentacion completa y correcta.', { align: 'center' });
+      
+      return;
+    }
+
+    console.log('📊 Generando tabla REAL con', tableData.length, 'registros...');
+    
+    // Agregar nota si estamos usando datos de prueba
+    const hasTestData = tableData.some(row => row.clientName.includes('María González') || row.clientName.includes('Juan Pérez'));
+    if (hasTestData) {
+      doc.fillColor('#fff3cd').rect(50, doc.y, 500, 30).fill();
+      doc.strokeColor('#ffc107').rect(50, doc.y, 500, 30).stroke();
+      doc.fontSize(10).fillColor('#856404').text('NOTA: Se muestran datos de prueba para demostrar el formato de tabla', 60, doc.y + 10);
+      doc.fillColor('black');
+      doc.y += 40;
+    }
+    
+    // Generar tabla REAL con bordes y estructura
+    await generateRealDocumentErrorTable(doc, tableData, weekGroups);
+    console.log('✅ Tabla REAL generada correctamente');
+
+    // Generar página de resumen ejecutivo simplificada
+    doc.addPage();
+    doc.fontSize(16).text('RESUMEN EJECUTIVO', { align: 'center' });
+    doc.moveDown(2);
+    
+    // Generar resumen ejecutivo profesional
+    console.log('📊 Generando resumen ejecutivo...');
+    
+    const totalCredits = new Set(tableData.map(row => row.clientName.split(' (Aval:')[0])).size;
+    const totalWithClientErrors = tableData.filter(row => row.problemType === 'CLIENTE').length;
+    const totalWithAvalErrors = tableData.filter(row => row.problemType === 'AVAL').length;
+    const totalLocalities = new Set(tableData.map(row => row.locality)).size;
+    const totalRoutes = new Set(tableData.map(row => row.routeName)).size;
+    
+    // Caja de estadísticas principales con bordes
+    doc.fillColor('#f8fafc').rect(50, doc.y, 500, 100).fill();
+    doc.strokeColor('#1e40af').lineWidth(2).rect(50, doc.y, 500, 100).stroke();
+    
+    // Título de estadísticas
+    doc.fontSize(14).fillColor('#1e40af').text('ESTADISTICAS PRINCIPALES', 60, doc.y + 15);
+    
+    // Estadísticas en dos columnas
+    const statsStartY = doc.y + 40;
+    doc.fontSize(10).fillColor('black');
+    doc.text(`Total de clientes afectados: ${totalCredits}`, 60, statsStartY);
+    doc.text(`Problemas en documentos de clientes: ${totalWithClientErrors}`, 60, statsStartY + 15);
+    doc.text(`Problemas en documentos de avales: ${totalWithAvalErrors}`, 60, statsStartY + 30);
+    
+    doc.text(`Localidades con problemas: ${totalLocalities}`, 320, statsStartY);
+    doc.text(`Rutas analizadas: ${totalRoutes}`, 320, statsStartY + 15);
+    doc.text(`Total de registros: ${tableData.length}`, 320, statsStartY + 30);
+    
+    doc.y = statsStartY + 70;
+    doc.moveDown(2);
+    
+    // Desglose por tipo de documento (ocupando todo el ancho)
+    doc.fontSize(12).fillColor('#1e40af').text('DESGLOSE POR TIPO DE DOCUMENTO', 50, doc.y, {
+      width: 500,
+      align: 'left'
+    });
+    doc.moveDown();
+    
+    const problemTypes = ['INE', 'DOMICILIO', 'PAGARE'];
+    problemTypes.forEach(docType => {
+      const clientProblems = tableData.filter(row => 
+        row.problemType === 'CLIENTE' && row.problemDescription.includes(docType)
+      ).length;
+      const avalProblems = tableData.filter(row => 
+        row.problemType === 'AVAL' && row.problemDescription.includes(docType)
+      ).length;
+      
+      if (clientProblems > 0 || avalProblems > 0) {
+        doc.fontSize(10).fillColor('black');
+        doc.text(`${docType}: ${clientProblems} clientes, ${avalProblems} avales con problemas`, 50, doc.y, {
+          width: 500,
+          align: 'left'
+        });
+        doc.moveDown(0.5);
+      }
+    });
+    
+    doc.moveDown(2);
+    
+    // Nota de acción requerida con mejor formato
+    const actionBoxY = doc.y;
+    doc.fillColor('#fef2f2').rect(50, actionBoxY, 500, 60).fill();
+    doc.strokeColor('#dc2626').lineWidth(2).rect(50, actionBoxY, 500, 60).stroke();
+    
+    doc.fontSize(12).fillColor('#dc2626').text('ACCION REQUERIDA', 60, actionBoxY + 10, {
+      width: 480,
+      align: 'left'
+    });
+    doc.fontSize(9).fillColor('black');
+    doc.text('Contactar a los clientes listados para completar o corregir la documentacion.', 60, actionBoxY + 28, {
+      width: 480,
+      align: 'left'
+    });
+    doc.text('Los creditos no pueden proceder sin documentacion completa y correcta.', 60, actionBoxY + 42, {
+      width: 480,
+      align: 'left'
+    });
+    
+    doc.y = actionBoxY + 70;
+    
+    console.log('✅ Resumen ejecutivo generado correctamente');
+
+  } catch (error) {
+    console.error('❌ Error generando reporte de créditos con errores:', error);
+    doc.fontSize(12).text(`❌ Error generando reporte: ${error instanceof Error ? error.message : 'Unknown error'}`, { align: 'center' });
+  }
+}
+
+// ✅ FUNCIÓN PARA AGREGAR FOOTER PROFESIONAL
+async function addProfessionalFooter(doc: any) {
+  try {
+    const pageHeight = 792; // Altura estándar de página A4
+    const footerY = pageHeight - 50;
+    
+    // Línea divisoria
+    doc.strokeColor('#e2e8f0').lineWidth(1);
+    doc.moveTo(50, footerY - 10).lineTo(562, footerY - 10).stroke();
+    
+    // Información del footer
+    doc.fontSize(8).fillColor('gray');
+    doc.text('SOLUFACIL - Sistema de Gestion de Creditos', 50, footerY, { align: 'left' });
+    doc.text(`Pagina generada automaticamente - ${new Date().toLocaleDateString('es-ES')}`, 50, footerY + 12, { align: 'left' });
+    
+    // Información de contacto (lado derecho)
+    doc.text('Reporte Confidencial', 400, footerY, { align: 'right', width: 150 });
+    doc.text('Para uso interno únicamente', 400, footerY + 12, { align: 'right', width: 150 });
+    
+    // Resetear color
+    doc.fillColor('black');
+    
+  } catch (error) {
+    console.error('Error agregando footer:', error);
+  }
+}
+
+// ✅ FUNCIÓN AUXILIAR PARA LIMPIAR TEXTO PROBLEMÁTICO
+function sanitizeText(text: string): string {
+  if (!text) return 'N/A';
+  
+  return text
+    .replace(/[áéíóúñü]/g, (match) => { // Reemplazar acentos específicamente
+      const map: any = { 'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u', 'ñ': 'n', 'ü': 'u' };
+      return map[match] || match;
+    })
+    .replace(/[ÁÉÍÓÚÑÜ]/g, (match) => { // Reemplazar acentos mayúsculas
+      const map: any = { 'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U', 'Ñ': 'N', 'Ü': 'U' };
+      return map[match] || match;
+    })
+    .replace(/[^\w\s\-\.,\(\):]/g, '') // Eliminar otros caracteres especiales
+    .replace(/\s+/g, ' ') // Normalizar espacios múltiples
+    .trim()
+    .substring(0, 80); // Limitar longitud
+}
+
+// ✅ FUNCIÓN PARA GENERAR TABLA REAL DE DOCUMENTOS CON ERROR (VERSIÓN LIMPIA)
+async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGroups: Map<string, any[]>) {
+  console.log('🎨 Iniciando generación de tabla real...');
+  
+  const pageWidth = 500;
+  const startX = 50;
+  const headerHeight = 30;
+  const rowHeight = 45;
+  let currentY = doc.y;
+  
+  // Configuración de columnas
+  const columns = [
+    { header: 'Ruta', width: 60 },
+    { header: 'Localidad', width: 70 },
+    { header: 'Cliente', width: 85 },
+    { header: 'Tipo', width: 45 },
+    { header: 'Problema', width: 140 },
+    { header: 'Observaciones', width: 100 }
+  ];
+  
+  // Función para dibujar header
+  const drawTableHeader = (y: number) => {
+    doc.fillColor('#1e40af').rect(startX, y, pageWidth, headerHeight).fill();
+    doc.strokeColor('#1e40af').lineWidth(2).rect(startX, y, pageWidth, headerHeight).stroke();
+    
+    doc.fillColor('white').fontSize(10);
+    let x = startX;
+    columns.forEach((col, index) => {
+      if (index > 0) {
+        doc.strokeColor('white').lineWidth(1);
+        doc.moveTo(x, y).lineTo(x, y + headerHeight).stroke();
+      }
+      doc.text(col.header, x + 5, y + 10, { width: col.width - 10, align: 'center' });
+      x += col.width;
+    });
+    
+    doc.fillColor('black');
+    return y + headerHeight;
+  };
+  
+  // Función para dibujar fila
+  const drawTableRow = (data: any, y: number, isShaded: boolean = false) => {
+    if (!data) return y + rowHeight;
+    
+    // Fondo alternado
+    if (isShaded) {
+      doc.fillColor('#e0f2fe').rect(startX, y, pageWidth, rowHeight).fill();
+    } else {
+      doc.fillColor('white').rect(startX, y, pageWidth, rowHeight).fill();
+    }
+    
+    // Bordes
+    doc.strokeColor('#374151').lineWidth(1).rect(startX, y, pageWidth, rowHeight).stroke();
+    
+    // Datos sanitizados
+    const cellData = [
+      sanitizeText(data.routeName),
+      sanitizeText(data.locality), 
+      sanitizeText(data.clientName),
+      sanitizeText(data.problemType),
+      sanitizeText(data.problemDescription),
+      sanitizeText(data.observations)
+    ];
+    
+    // Dibujar celdas
+    let x = startX;
+    columns.forEach((col, index) => {
+      if (index > 0) {
+        doc.strokeColor('#374151').lineWidth(0.5);
+        doc.moveTo(x, y).lineTo(x, y + rowHeight).stroke();
+      }
+      
+      let cellText = cellData[index] || 'N/A';
+      
+      // Columna de problemas
+      if (index === 4) {
+        const problems = cellText.split(';').filter(p => p.trim());
+        doc.fontSize(7);
+        let textY = y + 5;
+        
+        for (let i = 0; i < Math.min(problems.length, 3); i++) {
+          const problem = problems[i].trim();
+          if (textY < y + rowHeight - 10) {
+            if (problem.includes('con error')) {
+              doc.fillColor('#dc2626');
+              doc.text(`ERROR: ${problem.replace('con error', '').trim().substring(0, 15)}`, x + 2, textY);
+            } else if (problem.includes('faltante')) {
+              doc.fillColor('#f59e0b');
+              doc.text(`FALTA: ${problem.replace('faltante', '').trim().substring(0, 15)}`, x + 2, textY);
+            } else {
+              doc.fillColor('black');
+              doc.text(problem.substring(0, 20), x + 2, textY);
+            }
+            textY += 8;
+          }
+        }
+      } else {
+        // Otras columnas
+        if (index === 3) {
+          doc.fillColor(cellText === 'CLIENTE' ? '#059669' : '#dc2626');
+          doc.fontSize(9);
+        } else {
+          doc.fillColor('black');
+          doc.fontSize(8);
+        }
+        
+        if (cellText.length > 18) {
+          cellText = cellText.substring(0, 15) + '...';
+        }
+        
+        doc.text(cellText, x + 2, y + 15, { 
+          width: col.width - 4,
+          ellipsis: true,
+          lineBreak: false
+        });
+      }
+      
+      x += col.width;
+    });
+    
+    doc.fillColor('black');
+    return y + rowHeight;
+  };
+    
+  // Dibujar header inicial
+  currentY = drawTableHeader(currentY);
+  
+  // Procesar datos por semana
+  const sortedWeeks = Array.from(weekGroups.keys()).sort().reverse();
+  let isWeekShaded = false;
+  let recordCount = 0;
+  
+  for (const weekKey of sortedWeeks) {
+    const weekData = weekGroups.get(weekKey) || [];
+    const weekStart = new Date(weekKey);
+    
+    // Nueva página si es necesario
+    if (currentY > 650) {
+      doc.addPage();
+      doc.fontSize(20).fillColor('#1e40af').text('SOLUFACIL', { align: 'center' });
+      doc.fontSize(14).fillColor('black').text('REPORTE DE CREDITOS (Continuacion)', { align: 'center' });
+      doc.moveDown(2);
+      currentY = doc.y;
+      currentY = drawTableHeader(currentY);
+    }
+    
+    // Header de semana
+    doc.fontSize(10).fillColor('#1e40af');
+    doc.text(`Semana del ${weekStart.toLocaleDateString('es-ES')} (${weekData.length} registros)`, startX, currentY + 5);
+    doc.fillColor('black');
+    currentY += 18;
+    
+    // Dibujar filas
+    weekData.forEach((rowData) => {
+      if (currentY > 650) {
+        doc.addPage();
+        doc.fontSize(20).fillColor('#1e40af').text('SOLUFACIL', { align: 'center' });
+        doc.moveDown(2);
+        currentY = doc.y;
+        currentY = drawTableHeader(currentY);
+      }
+      
+      currentY = drawTableRow(rowData, currentY, isWeekShaded);
+      recordCount++;
+    });
+    
+    // Alternar sombreado
+    isWeekShaded = !isWeekShaded;
+    
+    // Separador entre semanas
+    if (weekKey !== sortedWeeks[sortedWeeks.length - 1]) {
+      doc.strokeColor('#1e40af').lineWidth(2);
+      doc.moveTo(startX, currentY + 5).lineTo(startX + pageWidth, currentY + 5).stroke();
+      currentY += 15;
+    }
+  }
+  
+  console.log(`Tabla completada con ${recordCount} registros`);
+}
+
+// ✅ FUNCIÓN PARA AGREGAR HEADER CON LOGO DE LA EMPRESA
+async function addCompanyHeader(doc: any) {
+  try {
+    // Fondo del header
+    doc.fillColor('#1e40af').rect(0, 0, 612, 80).fill();
+    
+    // Logo y nombre de la empresa (simulado con texto estilizado)
+    doc.fontSize(24).fillColor('white').text('SOLUFACIL', 50, 25, { align: 'left' });
+    doc.fontSize(10).fillColor('white').text('SISTEMA DE GESTION DE CREDITOS', 50, 55);
+    
+    // Información de generación en la esquina derecha
+    doc.fontSize(8).fillColor('white');
+    const currentDate = new Date().toLocaleString('es-ES', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    doc.text(`Generado: ${currentDate}`, 350, 30, { align: 'right', width: 200 });
+    doc.text('Reporte Oficial', 350, 45, { align: 'right', width: 200 });
+    doc.text('Confidencial', 350, 60, { align: 'right', width: 200 });
+    
+    // Línea divisoria elegante
+    doc.strokeColor('#3b82f6').lineWidth(2).moveTo(50, 85).lineTo(562, 85).stroke();
+    
+    // Espacio después del header
+    doc.y = 100;
+    doc.fillColor('black'); // Resetear color a negro
+    
+  } catch (error) {
+    console.error('Error agregando header:', error);
+    // Fallback simple si hay error
+    doc.fontSize(16).fillColor('#1e40af').text('SOLUFÁCIL', 50, 50);
+    doc.y = 80;
+    doc.fillColor('black');
+  }
+}
+
+// ✅ FUNCIÓN PARA GENERAR TABLA DE DOCUMENTOS CON ERROR
+async function generateDocumentErrorTableContent(doc: any, tableData: any[], weekGroups: Map<string, any[]>) {
+  try {
+    const pageWidth = 500;
+    const startX = 50;
+    const rowHeight = 35;
+    let currentY = doc.y;
+    
+    // Headers de la tabla
+    const headers = ['Localidad', 'Cliente', 'Problema', 'Descripción del Error', 'Observaciones'];
+    const columnWidths = [70, 100, 60, 140, 130];
+    
+    // Función para dibujar header de tabla
+    const drawTableHeader = (y: number) => {
+      doc.fontSize(9);
+      
+      // Fondo del header
+      doc.fillColor('#1e40af').rect(startX, y, pageWidth, 25).fill();
+      
+      // Texto del header en blanco
+      doc.fillColor('white');
+      let x = startX + 5;
+      headers.forEach((header, index) => {
+        doc.text(header, x, y + 8, { width: columnWidths[index] - 10, align: 'center' });
+        x += columnWidths[index];
+      });
+      
+      // Resetear color
+      doc.fillColor('black');
+      return y + 25;
+    };
+    
+    // Función para dibujar fila de datos
+    const drawTableRow = (data: any, y: number, isShaded: boolean = false) => {
+      // Fondo de la fila
+      if (isShaded) {
+        doc.fillColor('#f1f5f9').rect(startX, y, pageWidth, rowHeight).fill();
+      } else {
+        doc.fillColor('white').rect(startX, y, pageWidth, rowHeight).fill();
+      }
+      
+      // Bordes de la fila
+      doc.strokeColor('#d1d5db').lineWidth(0.5);
+      doc.rect(startX, y, pageWidth, rowHeight).stroke();
+      
+      // Texto de la fila
+      doc.fillColor('black').fontSize(8);
+      
+      let x = startX + 3;
+      const values = [
+        data.locality,
+        data.clientName.length > 25 ? data.clientName.substring(0, 22) + '...' : data.clientName,
+        data.problemType,
+        data.problemDescription.length > 35 ? data.problemDescription.substring(0, 32) + '...' : data.problemDescription,
+        data.observations.length > 30 ? data.observations.substring(0, 27) + '...' : data.observations
+      ];
+      
+      values.forEach((value, index) => {
+        const cellWidth = columnWidths[index] - 6;
+        
+        // Texto con word wrap mejorado
+        doc.text(value || '-', x, y + 8, { 
+          width: cellWidth,
+          align: 'left',
+          lineBreak: true
+        });
+        x += columnWidths[index];
+      });
+      
+      // Resetear color
+      doc.fillColor('black');
+      return y + rowHeight;
+    };
+    
+    // Dibujar header inicial
+    currentY = drawTableHeader(currentY);
+    
+    // Procesar datos por semana con sombreado
+    const sortedWeeks = Array.from(weekGroups.keys()).sort().reverse(); // Más recientes primero
+    let isWeekShaded = false;
+    
+    for (const weekKey of sortedWeeks) {
+      const weekData = weekGroups.get(weekKey);
+      const weekStart = new Date(weekKey);
+      
+      // Verificar si necesitamos nueva página
+      if (currentY > 680) {
+        doc.addPage();
+        await addCompanyHeader(doc);
+        currentY = doc.y;
+        currentY = drawTableHeader(currentY);
+      }
+      
+      // Header de semana con estilo profesional
+      doc.fontSize(10).fillColor('#1e40af');
+      const weekText = `Semana del ${weekStart.toLocaleDateString('es-ES')} (${weekData.length} registros)`;
+      doc.text(weekText, startX, currentY + 5);
+      doc.fillColor('black');
+      currentY += 20;
+      
+      // Filas de datos de la semana
+      for (const rowData of weekData) {
+        if (currentY > 680) {
+          doc.addPage();
+          await addCompanyHeader(doc);
+          currentY = doc.y;
+          currentY = drawTableHeader(currentY);
+          
+          // Repetir header de semana en nueva página
+          doc.fontSize(10).fillColor('#1e40af');
+          doc.text(`${weekText} (continuación)`, startX, currentY + 5);
+          doc.fillColor('black');
+          currentY += 20;
+        }
+        
+        currentY = drawTableRow(rowData, currentY, isWeekShaded);
+      }
+      
+      // Alternar sombreado para la siguiente semana
+      isWeekShaded = !isWeekShaded;
+      
+      // Línea separadora entre semanas
+      doc.strokeColor('#94a3b8').lineWidth(1);
+      doc.moveTo(startX, currentY + 5).lineTo(startX + pageWidth, currentY + 5).stroke();
+      currentY += 15;
+    }
+
+  } catch (error) {
+    console.error('❌ Error generando tabla de documentos con errores:', error);
+    doc.fontSize(12).text(`❌ Error generando tabla: ${error instanceof Error ? error.message : 'Unknown error'}`, { align: 'center' });
+  }
+}
+
+// ✅ FUNCIÓN AUXILIAR PARA OBTENER EL INICIO DE LA SEMANA (LUNES)
+function getWeekStart(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Ajustar para que lunes sea el primer día
+  d.setDate(diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
 }
 
 // ✅ FUNCIÓN PARA ENVIAR ARCHIVO A TELEGRAM
@@ -6857,8 +7648,7 @@ async function sendTelegramFile(chatId: string, fileBuffer: Buffer, filename: st
     form.append('caption', caption);
     form.append('parse_mode', 'HTML');
 
-    // Usar node-fetch
-    const fetch = require('node-fetch');
+    // Usar node-fetch (ya importado al inicio del archivo)
     
     console.log('📱 FormData creado, enviando a Telegram...');
     
