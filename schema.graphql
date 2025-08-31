@@ -11,6 +11,14 @@ type User {
   portfolioCleanupsCount(where: PortfolioCleanupWhereInput! = {}): Int
   documentPhotos(where: DocumentPhotoWhereInput! = {}, orderBy: [DocumentPhotoOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: DocumentPhotoWhereUniqueInput): [DocumentPhoto!]
   documentPhotosCount(where: DocumentPhotoWhereInput! = {}): Int
+  reportConfigsCreated(where: ReportConfigWhereInput! = {}, orderBy: [ReportConfigOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ReportConfigWhereUniqueInput): [ReportConfig!]
+  reportConfigsCreatedCount(where: ReportConfigWhereInput! = {}): Int
+  reportConfigsUpdated(where: ReportConfigWhereInput! = {}, orderBy: [ReportConfigOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ReportConfigWhereUniqueInput): [ReportConfig!]
+  reportConfigsUpdatedCount(where: ReportConfigWhereInput! = {}): Int
+  reportConfigRecipients(where: ReportConfigWhereInput! = {}, orderBy: [ReportConfigOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ReportConfigWhereUniqueInput): [ReportConfig!]
+  reportConfigRecipientsCount(where: ReportConfigWhereInput! = {}): Int
+  telegramUsers(where: TelegramUserWhereInput! = {}, orderBy: [TelegramUserOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TelegramUserWhereUniqueInput): [TelegramUser!]
+  telegramUsersCount(where: TelegramUserWhereInput! = {}): Int
   createdAt: DateTime
   adjustBalance: JSON
 }
@@ -37,6 +45,10 @@ input UserWhereInput {
   role: StringNullableFilter
   portfolioCleanups: PortfolioCleanupManyRelationFilter
   documentPhotos: DocumentPhotoManyRelationFilter
+  reportConfigsCreated: ReportConfigManyRelationFilter
+  reportConfigsUpdated: ReportConfigManyRelationFilter
+  reportConfigRecipients: ReportConfigManyRelationFilter
+  telegramUsers: TelegramUserManyRelationFilter
   createdAt: DateTimeNullableFilter
 }
 
@@ -116,6 +128,18 @@ input DocumentPhotoManyRelationFilter {
   none: DocumentPhotoWhereInput
 }
 
+input ReportConfigManyRelationFilter {
+  every: ReportConfigWhereInput
+  some: ReportConfigWhereInput
+  none: ReportConfigWhereInput
+}
+
+input TelegramUserManyRelationFilter {
+  every: TelegramUserWhereInput
+  some: TelegramUserWhereInput
+  none: TelegramUserWhereInput
+}
+
 input DateTimeNullableFilter {
   equals: DateTime
   in: [DateTime!]
@@ -147,6 +171,10 @@ input UserUpdateInput {
   role: String
   portfolioCleanups: PortfolioCleanupRelateToManyForUpdateInput
   documentPhotos: DocumentPhotoRelateToManyForUpdateInput
+  reportConfigsCreated: ReportConfigRelateToManyForUpdateInput
+  reportConfigsUpdated: ReportConfigRelateToManyForUpdateInput
+  reportConfigRecipients: ReportConfigRelateToManyForUpdateInput
+  telegramUsers: TelegramUserRelateToManyForUpdateInput
   createdAt: DateTime
 }
 
@@ -164,6 +192,20 @@ input DocumentPhotoRelateToManyForUpdateInput {
   connect: [DocumentPhotoWhereUniqueInput!]
 }
 
+input ReportConfigRelateToManyForUpdateInput {
+  disconnect: [ReportConfigWhereUniqueInput!]
+  set: [ReportConfigWhereUniqueInput!]
+  create: [ReportConfigCreateInput!]
+  connect: [ReportConfigWhereUniqueInput!]
+}
+
+input TelegramUserRelateToManyForUpdateInput {
+  disconnect: [TelegramUserWhereUniqueInput!]
+  set: [TelegramUserWhereUniqueInput!]
+  create: [TelegramUserCreateInput!]
+  connect: [TelegramUserWhereUniqueInput!]
+}
+
 input UserUpdateArgs {
   where: UserWhereUniqueInput!
   data: UserUpdateInput!
@@ -176,6 +218,10 @@ input UserCreateInput {
   role: String
   portfolioCleanups: PortfolioCleanupRelateToManyForCreateInput
   documentPhotos: DocumentPhotoRelateToManyForCreateInput
+  reportConfigsCreated: ReportConfigRelateToManyForCreateInput
+  reportConfigsUpdated: ReportConfigRelateToManyForCreateInput
+  reportConfigRecipients: ReportConfigRelateToManyForCreateInput
+  telegramUsers: TelegramUserRelateToManyForCreateInput
   createdAt: DateTime
 }
 
@@ -187,6 +233,16 @@ input PortfolioCleanupRelateToManyForCreateInput {
 input DocumentPhotoRelateToManyForCreateInput {
   create: [DocumentPhotoCreateInput!]
   connect: [DocumentPhotoWhereUniqueInput!]
+}
+
+input ReportConfigRelateToManyForCreateInput {
+  create: [ReportConfigCreateInput!]
+  connect: [ReportConfigWhereUniqueInput!]
+}
+
+input TelegramUserRelateToManyForCreateInput {
+  create: [TelegramUserCreateInput!]
+  connect: [TelegramUserWhereUniqueInput!]
 }
 
 type Employee {
@@ -376,6 +432,8 @@ type Route {
   transactionsCount(where: TransactionWhereInput! = {}): Int
   portfolioCleanups(where: PortfolioCleanupWhereInput! = {}, orderBy: [PortfolioCleanupOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: PortfolioCleanupWhereUniqueInput): [PortfolioCleanup!]
   portfolioCleanupsCount(where: PortfolioCleanupWhereInput! = {}): Int
+  reportConfigs(where: ReportConfigWhereInput! = {}, orderBy: [ReportConfigOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ReportConfigWhereUniqueInput): [ReportConfig!]
+  reportConfigsCount(where: ReportConfigWhereInput! = {}): Int
 }
 
 input RouteWhereUniqueInput {
@@ -393,6 +451,7 @@ input RouteWhereInput {
   accounts: AccountManyRelationFilter
   transactions: TransactionManyRelationFilter
   portfolioCleanups: PortfolioCleanupManyRelationFilter
+  reportConfigs: ReportConfigManyRelationFilter
 }
 
 input EmployeeManyRelationFilter {
@@ -425,6 +484,7 @@ input RouteUpdateInput {
   accounts: AccountRelateToManyForUpdateInput
   transactions: TransactionRelateToManyForUpdateInput
   portfolioCleanups: PortfolioCleanupRelateToManyForUpdateInput
+  reportConfigs: ReportConfigRelateToManyForUpdateInput
 }
 
 input EmployeeRelateToManyForUpdateInput {
@@ -460,6 +520,7 @@ input RouteCreateInput {
   accounts: AccountRelateToManyForCreateInput
   transactions: TransactionRelateToManyForCreateInput
   portfolioCleanups: PortfolioCleanupRelateToManyForCreateInput
+  reportConfigs: ReportConfigRelateToManyForCreateInput
 }
 
 input EmployeeRelateToManyForCreateInput {
@@ -2178,6 +2239,241 @@ input DocumentPhotoCreateInput {
   updatedAt: DateTime
 }
 
+type ReportConfig {
+  id: ID!
+  name: String
+  reportType: ReportConfigReportTypeType
+  schedule: JSON
+  routes(where: RouteWhereInput! = {}, orderBy: [RouteOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: RouteWhereUniqueInput): [Route!]
+  routesCount(where: RouteWhereInput! = {}): Int
+  recipients(where: UserWhereInput! = {}, orderBy: [UserOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: UserWhereUniqueInput): [User!]
+  recipientsCount(where: UserWhereInput! = {}): Int
+  telegramRecipients(where: TelegramUserWhereInput! = {}, orderBy: [TelegramUserOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TelegramUserWhereUniqueInput): [TelegramUser!]
+  telegramRecipientsCount(where: TelegramUserWhereInput! = {}): Int
+  channel: ReportConfigChannelType
+  isActive: Boolean
+  createdAt: DateTime
+  updatedAt: DateTime
+  createdBy: User
+  updatedBy: User
+}
+
+enum ReportConfigReportTypeType {
+  creditos_con_errores
+  creditos_sin_documentos
+  creditos_completos
+  resumen_semanal
+  reporte_financiero
+}
+
+enum ReportConfigChannelType {
+  telegram
+  email
+  whatsapp
+}
+
+input ReportConfigWhereUniqueInput {
+  id: ID
+}
+
+input ReportConfigWhereInput {
+  AND: [ReportConfigWhereInput!]
+  OR: [ReportConfigWhereInput!]
+  NOT: [ReportConfigWhereInput!]
+  id: IDFilter
+  name: StringFilter
+  reportType: ReportConfigReportTypeTypeNullableFilter
+  routes: RouteManyRelationFilter
+  recipients: UserManyRelationFilter
+  telegramRecipients: TelegramUserManyRelationFilter
+  channel: ReportConfigChannelTypeNullableFilter
+  isActive: BooleanFilter
+  createdAt: DateTimeNullableFilter
+  updatedAt: DateTimeNullableFilter
+  createdBy: UserWhereInput
+  updatedBy: UserWhereInput
+}
+
+input ReportConfigReportTypeTypeNullableFilter {
+  equals: ReportConfigReportTypeType
+  in: [ReportConfigReportTypeType!]
+  notIn: [ReportConfigReportTypeType!]
+  not: ReportConfigReportTypeTypeNullableFilter
+}
+
+input RouteManyRelationFilter {
+  every: RouteWhereInput
+  some: RouteWhereInput
+  none: RouteWhereInput
+}
+
+input UserManyRelationFilter {
+  every: UserWhereInput
+  some: UserWhereInput
+  none: UserWhereInput
+}
+
+input ReportConfigChannelTypeNullableFilter {
+  equals: ReportConfigChannelType
+  in: [ReportConfigChannelType!]
+  notIn: [ReportConfigChannelType!]
+  not: ReportConfigChannelTypeNullableFilter
+}
+
+input ReportConfigOrderByInput {
+  id: OrderDirection
+  name: OrderDirection
+  reportType: OrderDirection
+  channel: OrderDirection
+  isActive: OrderDirection
+  createdAt: OrderDirection
+  updatedAt: OrderDirection
+}
+
+input ReportConfigUpdateInput {
+  name: String
+  reportType: ReportConfigReportTypeType
+  schedule: JSON
+  routes: RouteRelateToManyForUpdateInput
+  recipients: UserRelateToManyForUpdateInput
+  telegramRecipients: TelegramUserRelateToManyForUpdateInput
+  channel: ReportConfigChannelType
+  isActive: Boolean
+  createdAt: DateTime
+  updatedAt: DateTime
+  createdBy: UserRelateToOneForUpdateInput
+  updatedBy: UserRelateToOneForUpdateInput
+}
+
+input RouteRelateToManyForUpdateInput {
+  disconnect: [RouteWhereUniqueInput!]
+  set: [RouteWhereUniqueInput!]
+  create: [RouteCreateInput!]
+  connect: [RouteWhereUniqueInput!]
+}
+
+input UserRelateToManyForUpdateInput {
+  disconnect: [UserWhereUniqueInput!]
+  set: [UserWhereUniqueInput!]
+  create: [UserCreateInput!]
+  connect: [UserWhereUniqueInput!]
+}
+
+input ReportConfigUpdateArgs {
+  where: ReportConfigWhereUniqueInput!
+  data: ReportConfigUpdateInput!
+}
+
+input ReportConfigCreateInput {
+  name: String
+  reportType: ReportConfigReportTypeType
+  schedule: JSON
+  routes: RouteRelateToManyForCreateInput
+  recipients: UserRelateToManyForCreateInput
+  telegramRecipients: TelegramUserRelateToManyForCreateInput
+  channel: ReportConfigChannelType
+  isActive: Boolean
+  createdAt: DateTime
+  updatedAt: DateTime
+  createdBy: UserRelateToOneForCreateInput
+  updatedBy: UserRelateToOneForCreateInput
+}
+
+input RouteRelateToManyForCreateInput {
+  create: [RouteCreateInput!]
+  connect: [RouteWhereUniqueInput!]
+}
+
+input UserRelateToManyForCreateInput {
+  create: [UserCreateInput!]
+  connect: [UserWhereUniqueInput!]
+}
+
+type TelegramUser {
+  id: ID!
+  chatId: String
+  name: String
+  username: String
+  isActive: Boolean
+  registeredAt: DateTime
+  lastActivity: DateTime
+  reportsReceived: Int
+  isInRecipientsList: Boolean
+  notes: String
+  platformUser: User
+  reportConfigs(where: ReportConfigWhereInput! = {}, orderBy: [ReportConfigOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ReportConfigWhereUniqueInput): [ReportConfig!]
+  reportConfigsCount(where: ReportConfigWhereInput! = {}): Int
+}
+
+input TelegramUserWhereUniqueInput {
+  id: ID
+  chatId: String
+}
+
+input TelegramUserWhereInput {
+  AND: [TelegramUserWhereInput!]
+  OR: [TelegramUserWhereInput!]
+  NOT: [TelegramUserWhereInput!]
+  id: IDFilter
+  chatId: StringFilter
+  name: StringFilter
+  username: StringFilter
+  isActive: BooleanFilter
+  registeredAt: DateTimeNullableFilter
+  lastActivity: DateTimeNullableFilter
+  reportsReceived: IntNullableFilter
+  isInRecipientsList: BooleanFilter
+  notes: StringFilter
+  platformUser: UserWhereInput
+  reportConfigs: ReportConfigManyRelationFilter
+}
+
+input TelegramUserOrderByInput {
+  id: OrderDirection
+  chatId: OrderDirection
+  name: OrderDirection
+  username: OrderDirection
+  isActive: OrderDirection
+  registeredAt: OrderDirection
+  lastActivity: OrderDirection
+  reportsReceived: OrderDirection
+  isInRecipientsList: OrderDirection
+  notes: OrderDirection
+}
+
+input TelegramUserUpdateInput {
+  chatId: String
+  name: String
+  username: String
+  isActive: Boolean
+  registeredAt: DateTime
+  lastActivity: DateTime
+  reportsReceived: Int
+  isInRecipientsList: Boolean
+  notes: String
+  platformUser: UserRelateToOneForUpdateInput
+  reportConfigs: ReportConfigRelateToManyForUpdateInput
+}
+
+input TelegramUserUpdateArgs {
+  where: TelegramUserWhereUniqueInput!
+  data: TelegramUserUpdateInput!
+}
+
+input TelegramUserCreateInput {
+  chatId: String
+  name: String
+  username: String
+  isActive: Boolean
+  registeredAt: DateTime
+  lastActivity: DateTime
+  reportsReceived: Int
+  isInRecipientsList: Boolean
+  notes: String
+  platformUser: UserRelateToOneForCreateInput
+  reportConfigs: ReportConfigRelateToManyForCreateInput
+}
+
 """
 The `JSON` scalar type represents JSON values as specified by [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf).
 """
@@ -2316,6 +2612,18 @@ type Mutation {
   updateDocumentPhotos(data: [DocumentPhotoUpdateArgs!]!): [DocumentPhoto]
   deleteDocumentPhoto(where: DocumentPhotoWhereUniqueInput!): DocumentPhoto
   deleteDocumentPhotos(where: [DocumentPhotoWhereUniqueInput!]!): [DocumentPhoto]
+  createReportConfig(data: ReportConfigCreateInput!): ReportConfig
+  createReportConfigs(data: [ReportConfigCreateInput!]!): [ReportConfig]
+  updateReportConfig(where: ReportConfigWhereUniqueInput!, data: ReportConfigUpdateInput!): ReportConfig
+  updateReportConfigs(data: [ReportConfigUpdateArgs!]!): [ReportConfig]
+  deleteReportConfig(where: ReportConfigWhereUniqueInput!): ReportConfig
+  deleteReportConfigs(where: [ReportConfigWhereUniqueInput!]!): [ReportConfig]
+  createTelegramUser(data: TelegramUserCreateInput!): TelegramUser
+  createTelegramUsers(data: [TelegramUserCreateInput!]!): [TelegramUser]
+  updateTelegramUser(where: TelegramUserWhereUniqueInput!, data: TelegramUserUpdateInput!): TelegramUser
+  updateTelegramUsers(data: [TelegramUserUpdateArgs!]!): [TelegramUser]
+  deleteTelegramUser(where: TelegramUserWhereUniqueInput!): TelegramUser
+  deleteTelegramUsers(where: [TelegramUserWhereUniqueInput!]!): [TelegramUser]
   endSession: Boolean!
   authenticateUserWithPassword(email: String!, password: String!): UserAuthenticationWithPasswordResult
   createInitialUser(data: CreateInitialUserInput!): UserAuthenticationWithPasswordSuccess!
@@ -2327,6 +2635,7 @@ type Mutation {
   adjustAccountBalance(accountId: String!, targetAmount: Float!, counterAccountId: String, description: String): JSON!
   createMultipleLoans(loans: [MultipleLoanInput!]!): [JSON!]!
   updateLoanWithAval(where: ID!, data: UpdateLoanWithAvalInput): JSON!
+  sendTestTelegramMessage(chatId: String!, message: String!): String!
 }
 
 input TokaAssignmentInput {
@@ -2489,6 +2798,12 @@ type Query {
   documentPhoto(where: DocumentPhotoWhereUniqueInput!): DocumentPhoto
   documentPhotos(where: DocumentPhotoWhereInput! = {}, orderBy: [DocumentPhotoOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: DocumentPhotoWhereUniqueInput): [DocumentPhoto!]
   documentPhotosCount(where: DocumentPhotoWhereInput! = {}): Int
+  reportConfig(where: ReportConfigWhereUniqueInput!): ReportConfig
+  reportConfigs(where: ReportConfigWhereInput! = {}, orderBy: [ReportConfigOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ReportConfigWhereUniqueInput): [ReportConfig!]
+  reportConfigsCount(where: ReportConfigWhereInput! = {}): Int
+  telegramUser(where: TelegramUserWhereUniqueInput!): TelegramUser
+  telegramUsers(where: TelegramUserWhereInput! = {}, orderBy: [TelegramUserOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TelegramUserWhereUniqueInput): [TelegramUser!]
+  telegramUsersCount(where: TelegramUserWhereInput! = {}): Int
   keystone: KeystoneMeta!
   authenticatedItem: AuthenticatedItem
   getTransactionsSummary(startDate: String!, endDate: String!): [TransactionSummary!]!
@@ -2503,6 +2818,8 @@ type Query {
   getClientHistory(clientId: String!, routeId: String, locationId: String): JSON!
   getPortfolioCleanups(routeId: String!, year: Int!, month: Int!): JSON!
   previewBulkPortfolioCleanup(routeId: String!, fromDate: String!, toDate: String!, weeksWithoutPaymentThreshold: Int): JSON!
+  debugTelegram: String!
+  telegramStatus: String!
 }
 
 type TransactionSummary {

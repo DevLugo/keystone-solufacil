@@ -233,6 +233,14 @@ export const User = list({
         linkToItem: true
       }
     }),
+    // ✅ NUEVA FUNCIONALIDAD: Configuraciones de reportes creadas por el usuario
+    reportConfigsCreated: relationship({ ref: 'ReportConfig.createdBy', many: true }),
+    // ✅ NUEVA FUNCIONALIDAD: Configuraciones de reportes actualizadas por el usuario
+    reportConfigsUpdated: relationship({ ref: 'ReportConfig.updatedBy', many: true }),
+    // ✅ NUEVA FUNCIONALIDAD: Usuario como destinatario de reportes
+    reportConfigRecipients: relationship({ ref: 'ReportConfig.recipients', many: true }),
+    // ✅ NUEVA FUNCIONALIDAD: Usuarios de Telegram vinculados
+    telegramUsers: relationship({ ref: 'TelegramUser.platformUser', many: true }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     adjustBalance: virtual({
       ui: {
@@ -311,6 +319,8 @@ export const Route = list({
     accounts: relationship({ ref: 'Account.route', many: true }),
     transactions: relationship({ ref: 'Transaction.route', many: true }),
     portfolioCleanups: relationship({ ref: 'PortfolioCleanup.route', many: true }),
+    // ✅ NUEVA FUNCIONALIDAD: Configuraciones de reportes que incluyen esta ruta
+    reportConfigs: relationship({ ref: 'ReportConfig.routes', many: true }),
   }
 });
 
@@ -2132,6 +2142,101 @@ export const DocumentPhoto = list({
   },
 });
 
+// Modelo para configuraciones de reportes automáticos
+export const ReportConfig = list({
+  access: allowAll,
+  graphql: {
+    plural: 'ReportConfigs',
+  },
+  fields: {
+    name: text({ validation: { isRequired: true } }),
+    reportType: select({
+      type: 'enum',
+      options: [
+        { label: 'Créditos con Documentos con Error', value: 'creditos_con_errores' },
+        { label: 'Créditos Sin Documentos', value: 'creditos_sin_documentos' },
+        { label: 'Créditos Completos', value: 'creditos_completos' },
+        { label: 'Resumen Semanal de Cartera', value: 'resumen_semanal' },
+        { label: 'Reporte Financiero', value: 'reporte_financiero' }
+      ],
+      validation: { isRequired: true }
+    }),
+    schedule: json({
+      defaultValue: {
+        days: [],
+        hour: '09',
+        timezone: 'America/Mexico_City'
+      }
+    }),
+    routes: relationship({ 
+      ref: 'Route.reportConfigs',
+      many: true
+    }),
+    recipients: relationship({ 
+      ref: 'User.reportConfigRecipients',
+      many: true
+    }),
+    telegramRecipients: relationship({ 
+      ref: 'TelegramUser.reportConfigs',
+      many: true
+    }),
+    channel: select({
+      type: 'enum',
+      options: [
+        { label: 'Telegram', value: 'telegram' },
+        { label: 'Email', value: 'email' },
+        { label: 'WhatsApp', value: 'whatsapp' }
+      ],
+      validation: { isRequired: true }
+    }),
+    isActive: checkbox({ defaultValue: true }),
+    createdAt: timestamp({ defaultValue: { kind: 'now' } }),
+    updatedAt: timestamp(),
+    createdBy: relationship({ ref: 'User.reportConfigsCreated' }),
+    updatedBy: relationship({ ref: 'User.reportConfigsUpdated' }),
+  },
+  ui: {
+    listView: {
+      initialColumns: ['name', 'reportType', 'channel', 'isActive', 'createdAt'],
+    },
+  },
+});
+
+// Modelo para usuarios de Telegram
+export const TelegramUser = list({
+  access: allowAll,
+  graphql: {
+    plural: 'TelegramUsers',
+  },
+  fields: {
+    chatId: text({ 
+      validation: { isRequired: true },
+      isIndexed: 'unique'
+    }),
+    name: text({ validation: { isRequired: true } }),
+    username: text(),
+    isActive: checkbox({ defaultValue: true }),
+    registeredAt: timestamp({ defaultValue: { kind: 'now' } }),
+    lastActivity: timestamp({ defaultValue: { kind: 'now' } }),
+    reportsReceived: integer({ defaultValue: 0 }),
+    isInRecipientsList: checkbox({ defaultValue: false }),
+    notes: text(),
+    platformUser: relationship({ 
+      ref: 'User.telegramUsers',
+      many: false
+    }),
+    reportConfigs: relationship({ 
+      ref: 'ReportConfig.telegramRecipients',
+      many: true
+    }),
+  },
+  ui: {
+    listView: {
+      initialColumns: ['name', 'username', 'chatId', 'platformUser', 'isActive', 'isInRecipientsList', 'reportsReceived', 'lastActivity'],
+    },
+  },
+});
+
 export const lists = {
   User,
   Employee,
@@ -2158,4 +2263,6 @@ export const lists = {
   AuditLog,
   PortfolioCleanup,
   DocumentPhoto,
+  ReportConfig,
+  TelegramUser,
 };
