@@ -14,6 +14,9 @@ import { LoanPayment } from '../../../schema';
 import type { Employee, Option } from '../../types/transaction';
 import { FaPlus } from 'react-icons/fa';
 
+// Import components
+import DateMover from './utils/DateMover';
+
 const GET_LEADS = gql`
   query GetLeads($routeId: ID!) {
     employees(where: { routes: { id: { equals: $routeId } } }) {
@@ -820,7 +823,7 @@ export const CreatePaymentForm = ({
         {/* Stats Grid */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
+          gridTemplateColumns: 'repeat(5, 1fr)',
           gap: '1px',
           background: '#E2E8F0',
           borderRadius: '8px',
@@ -1011,32 +1014,20 @@ export const CreatePaymentForm = ({
               <span>${totalExistingComission.toFixed(2)} registradas + ${totalComission.toFixed(2)} nuevas</span>
             </div>
           </div>
-        </div>
 
-        {/* Add Payment Button */}
-        <Button
-          tone="active"
-          size="medium"
-          weight="bold"
-          onClick={handleAddPayment}
-          style={{
-            padding: '8px 12px',
-            fontSize: '13px',
-            borderRadius: '6px',
-            backgroundColor: '#0052CC',
-            transition: 'all 0.2s ease',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
-            height: '36px',
-            whiteSpace: 'nowrap',
-            alignSelf: 'center',
-            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
-          }}
-        >
-          <FaPlus size={12} style={{ marginTop: '-1px' }} />
-          <span>Nuevo Pago</span>
-        </Button>
+          {/* Quinta tarjeta - Cambiar Fecha */}
+          <DateMover
+            type="payments"
+            selectedDate={selectedDate}
+            selectedLead={selectedLead}
+            onSuccess={() => {
+              refetchPayments();
+              // Aquí deberías llamar a refetchRoute si tienes acceso a esa query
+            }}
+            itemCount={existingPayments.filter(p => !deletedPaymentIds.includes(p.id)).length + payments.length}
+            label="pago(s)"
+          />
+        </div>
       </div>
 
       <Box

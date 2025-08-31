@@ -141,6 +141,346 @@ const calculateWeeksWithoutPayment = (loanId: string, signDate: Date, analysisDa
 export const extendGraphqlSchema = graphql.extend(base => {
   return {
     mutation: {
+      moveLoansToDate: graphql.field({
+        type: graphql.nonNull(graphql.JSON),
+        args: {
+          leadId: graphql.arg({ type: graphql.nonNull(graphql.ID) }),
+          fromDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          toDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+        },
+        resolve: async (root, { leadId, fromDate, toDate }, context: Context) => {
+          try {
+            // Usar transacción para garantizar atomicidad
+            return await context.prisma.$transaction(async (tx) => {
+              // Convertir fechas para comparación
+              const from = new Date(fromDate);
+              from.setHours(0, 0, 0, 0);
+              const fromEnd = new Date(fromDate);
+              fromEnd.setHours(23, 59, 59, 999);
+              
+              const to = new Date(toDate);
+              to.setHours(12, 0, 0, 0); // Mediodía para evitar problemas de zona horaria
+              
+              // 1. Buscar todos los préstamos del líder en la fecha origen
+              const loans = await tx.loan.findMany({
+                where: {
+                  leadId: leadId,
+                  signDate: {
+                    gte: from,
+                    lte: fromEnd
+                  }
+                },
+                include: {
+                  transactions: true
+                }
+              });
+              
+              if (loans.length === 0) {
+                return {
+                  success: false,
+                  message: 'No se encontraron préstamos en la fecha origen',
+                  count: 0
+                };
+              }
+              
+              console.log(`📦 Moviendo ${loans.length} préstamos del ${from.toISOString()} al ${to.toISOString()}`);
+              
+              // 2. Actualizar fecha de firma de todos los préstamos
+              await tx.loan.updateMany({
+                where: {
+                  id: { in: loans.map(loan => loan.id) }
+                },
+                data: { signDate: to }
+              });
+              
+              // 3. Actualizar todas las transacciones asociadas a estos préstamos
+              // Esto incluye LOAN_GRANTED y LOAN_GRANTED_COMISSION
+              const loanIds = loans.map(loan => loan.id);
+              const transactionUpdateResult = await tx.transaction.updateMany({
+                where: {
+                  loanId: { in: loanIds },
+                  date: {
+                    gte: from,
+                    lte: fromEnd
+                  }
+                },
+                data: { date: to }
+              });
+              
+              console.log(`📊 Actualizadas ${transactionUpdateResult.count} transacciones asociadas a préstamos`);
+              
+              // 4. Actualizar transacciones de comisiones del líder en esa fecha
+              // (que no estén asociadas directamente a un préstamo específico)
+              const leadCommissionResult = await tx.transaction.updateMany({
+                where: {
+                  leadId: leadId,
+                  date: {
+                    gte: from,
+                    lte: fromEnd
+                  },
+                  expenseSource: 'LEAD_COMISSION',
+                  loanId: null // Solo comisiones generales, no las asociadas a préstamos específicos
+                },
+                data: { date: to }
+              });
+              
+              console.log(`💰 Actualizadas ${leadCommissionResult.count} comisiones del líder`);
+              
+              return {
+                success: true,
+                message: `${loans.length} préstamo(s) y sus transacciones asociadas movidos exitosamente`,
+                count: loans.length,
+                transactionsUpdated: transactionUpdateResult.count + leadCommissionResult.count,
+                fromDate: from.toISOString(),
+                toDate: to.toISOString()
+              };
+            });
+            
+          } catch (error) {
+            console.error('Error en moveLoansToDate:', error);
+            return {
+              success: false,
+              message: `Error al mover préstamos: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              count: 0
+            };
+          }
+        }
+      }),
+      
+      movePaymentsToDate: graphql.field({
+        type: graphql.nonNull(graphql.JSON),
+        args: {
+          leadId: graphql.arg({ type: graphql.nonNull(graphql.ID) }),
+          fromDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          toDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+        },
+        resolve: async (root, { leadId, fromDate, toDate }, context: Context) => {
+          try {
+            return await context.prisma.$transaction(async (tx) => {
+              const from = new Date(fromDate);
+              from.setHours(0, 0, 0, 0);
+              const fromEnd = new Date(fromDate);
+              fromEnd.setHours(23, 59, 59, 999);
+              
+              const to = new Date(toDate);
+              to.setHours(12, 0, 0, 0);
+              
+              // 1. Buscar todos los LeadPaymentReceived del líder en la fecha origen
+              const leadPaymentReceiveds = await tx.leadPaymentReceived.findMany({
+                where: {
+                  leadId: leadId,
+                  createdAt: {
+                    gte: from,
+                    lte: fromEnd
+                  }
+                },
+                include: {
+                  payments: {
+                    include: {
+                      transactions: true
+                    }
+                  }
+                }
+              });
+              
+              if (leadPaymentReceiveds.length === 0) {
+                return {
+                  success: false,
+                  message: 'No se encontraron pagos en la fecha origen',
+                  count: 0
+                };
+              }
+              
+              console.log(`📦 Moviendo ${leadPaymentReceiveds.length} LeadPaymentReceived del ${from.toISOString()} al ${to.toISOString()}`);
+              
+              // 2. Contar total de pagos individuales y transacciones
+              let totalPayments = 0;
+              let totalTransactions = 0;
+              const loanPaymentIds: string[] = [];
+              
+              for (const lpr of leadPaymentReceiveds) {
+                totalPayments += lpr.payments.length;
+                for (const payment of lpr.payments) {
+                  loanPaymentIds.push(payment.id);
+                  totalTransactions += payment.transactions?.length || 0;
+                }
+              }
+              
+              // 3. Actualizar LeadPaymentReceived
+              await tx.leadPaymentReceived.updateMany({
+                where: {
+                  id: { in: leadPaymentReceiveds.map(lpr => lpr.id) }
+                },
+                data: { createdAt: to }
+              });
+              
+              // 4. Actualizar LoanPayment (receivedAt)
+              await tx.loanPayment.updateMany({
+                where: {
+                  id: { in: loanPaymentIds }
+                },
+                data: { receivedAt: to }
+              });
+              
+              // 5. Actualizar todas las transacciones asociadas a estos pagos
+              // Esto incluye tanto INCOME (CASH_LOAN_PAYMENT, BANK_LOAN_PAYMENT) 
+              // como EXPENSE (LOAN_PAYMENT_COMISSION)
+              const transactionResult = await tx.transaction.updateMany({
+                where: {
+                  OR: [
+                    // Transacciones directamente asociadas a los pagos
+                    {
+                      loanPaymentId: { in: loanPaymentIds }
+                    },
+                    // Transacciones de ingresos/comisiones del líder en esa fecha
+                    {
+                      leadId: leadId,
+                      date: {
+                        gte: from,
+                        lte: fromEnd
+                      },
+                      OR: [
+                        { incomeSource: 'CASH_LOAN_PAYMENT' },
+                        { incomeSource: 'BANK_LOAN_PAYMENT' },
+                        { expenseSource: 'LOAN_PAYMENT_COMISSION' }
+                      ]
+                    }
+                  ]
+                },
+                data: { date: to }
+              });
+              
+              console.log(`📊 Actualizadas ${transactionResult.count} transacciones asociadas a pagos`);
+              
+              return {
+                success: true,
+                message: `${totalPayments} pago(s) y sus transacciones asociadas movidos exitosamente`,
+                count: totalPayments,
+                leadPaymentReceivedCount: leadPaymentReceiveds.length,
+                transactionsUpdated: transactionResult.count,
+                fromDate: from.toISOString(),
+                toDate: to.toISOString()
+              };
+            });
+            
+          } catch (error) {
+            console.error('Error en movePaymentsToDate:', error);
+            return {
+              success: false,
+              message: `Error al mover pagos: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              count: 0
+            };
+          }
+        }
+      }),
+      
+      moveExpensesToDate: graphql.field({
+        type: graphql.nonNull(graphql.JSON),
+        args: {
+          leadId: graphql.arg({ type: graphql.ID }),
+          routeId: graphql.arg({ type: graphql.ID }),
+          fromDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          toDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+        },
+        resolve: async (root, { leadId, routeId, fromDate, toDate }, context: Context) => {
+          try {
+            return await context.prisma.$transaction(async (tx) => {
+              const from = new Date(fromDate);
+              from.setHours(0, 0, 0, 0);
+              const fromEnd = new Date(fromDate);
+              fromEnd.setHours(23, 59, 59, 999);
+              
+              const to = new Date(toDate);
+              to.setHours(12, 0, 0, 0);
+              
+              // Construir el where según los parámetros recibidos
+              const whereCondition: any = {
+                type: 'EXPENSE',
+                date: {
+                  gte: from,
+                  lte: fromEnd
+                },
+                // IMPORTANTE: Usar exactamente el mismo filtro que la UI de gastos
+                // Solo excluir las transacciones de comisiones que se mueven automáticamente
+                NOT: {
+                  OR: [
+                    { expenseSource: 'LOAN_PAYMENT_COMISSION' },
+                    { expenseSource: 'LOAN_GRANTED_COMISSION' },
+                    { expenseSource: 'LEAD_COMISSION' }
+                  ]
+                }
+              };
+              
+              // Aplicar filtro por líder o ruta
+              if (leadId) {
+                whereCondition.leadId = leadId;
+              } else if (routeId) {
+                whereCondition.routeId = routeId;
+              } else {
+                return {
+                  success: false,
+                  message: 'Debe especificar un líder o una ruta',
+                  count: 0
+                };
+              }
+              
+              console.log(`🔍 Buscando gastos con condiciones:`, JSON.stringify(whereCondition, null, 2));
+              
+              // Buscar todos los gastos operativos (no relacionados con préstamos/pagos)
+              const expenses = await tx.transaction.findMany({
+                where: whereCondition
+              });
+              
+              if (expenses.length === 0) {
+                return {
+                  success: false,
+                  message: 'No se encontraron gastos operativos en la fecha origen',
+                  count: 0,
+                  details: 'Solo se mueven gastos operativos (viáticos, gasolina, etc.). Los gastos de préstamos y comisiones se mueven con sus respectivas operaciones.'
+                };
+              }
+              
+              console.log(`📦 Moviendo ${expenses.length} gastos operativos del ${from.toISOString()} al ${to.toISOString()}`);
+              
+              // Agrupar gastos por tipo para el reporte
+              const expensesByType = expenses.reduce((acc, expense) => {
+                const type = expense.expenseSource || 'SIN_TIPO';
+                acc[type] = (acc[type] || 0) + 1;
+                return acc;
+              }, {} as Record<string, number>);
+              
+              // Actualizar todos los gastos con la nueva fecha
+              const updateResult = await tx.transaction.updateMany({
+                where: {
+                  id: { in: expenses.map(expense => expense.id) }
+                },
+                data: { date: to }
+              });
+              
+              console.log(`✅ Actualizados ${updateResult.count} gastos operativos`);
+              console.log(`📊 Detalle por tipo:`, expensesByType);
+              
+              return {
+                success: true,
+                message: `${expenses.length} gasto(s) operativo(s) movido(s) exitosamente`,
+                count: expenses.length,
+                expensesByType,
+                fromDate: from.toISOString(),
+                toDate: to.toISOString(),
+                details: 'Gastos de préstamos y comisiones asociadas deben moverse desde sus respectivas pestañas'
+              };
+            });
+            
+          } catch (error) {
+            console.error('Error en moveExpensesToDate:', error);
+            return {
+              success: false,
+              message: `Error al mover gastos: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              count: 0
+            };
+          }
+        }
+      }),
       importTokaXml: graphql.field({
         type: graphql.nonNull(graphql.String),
         args: {

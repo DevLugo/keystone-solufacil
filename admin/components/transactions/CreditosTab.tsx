@@ -21,6 +21,7 @@ import ClientDropdown from '../loans/ClientDropdown';
 // Import types
 import type { Loan } from '../../types/loan';
 import { calculateAmountToPay, calculatePendingAmountSimple, processLoansWithCalculations } from '../../utils/loanCalculations';
+import DateMover from './utils/DateMover';
 
 // Interfaz extendida para incluir información de collateral
 interface ExtendedLoan extends Partial<Loan> {
@@ -420,7 +421,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
 
 
   const { data: routeData, loading: routeLoading, error: routeError, refetch: refetchRoute } = useQuery<{ route: any }>(GET_ROUTE, {
-    variables: { 
+    variables: {
       where: { id: selectedRoute }
     },
     skip: !selectedRoute,
@@ -436,13 +437,30 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   });
 
   const { data: previousLoansData, loading: previousLoansLoading, refetch: refetchPreviousLoans } = useQuery(GET_PREVIOUS_LOANS, {
-    variables: { 
+    variables: {
       leadId: selectedLead?.id || ''
     },
     skip: !selectedLead,
   });
 
   const { data: loanTypesData, loading: loanTypesLoading } = useQuery(GET_LOAN_TYPES);
+
+
+  const handleDateMoveSuccess = React.useCallback(() => {
+    // Refrescar todos los datos después de mover
+    Promise.all([
+      refetchLoans(),
+      refetchRoute(),
+      refetchPreviousLoans()
+    ]).then(() => {
+      console.log('✅ Datos refrescados después de mover préstamos');
+      // Limpiar estado de préstamos pendientes si hay
+      setPendingLoans([]);
+      setEditableEmptyRow(null);
+    }).catch(error => {
+      console.error('❌ Error al refrescar datos:', error);
+    });
+  }, [refetchLoans, refetchRoute, refetchPreviousLoans]);
 
   const loanTypeOptions = React.useMemo(() => {
     return loanTypesData?.loantypes?.map((type: any) => ({
@@ -454,16 +472,16 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   // Función para calcular la deuda pendiente localmente
   const calculateLocalPendingAmount = (loan: any): number => {
     if (!loan?.loantype?.rate || !loan?.requestedAmount) return 0;
-    
+
     const rate = parseFloat(loan.loantype.rate);
     const requestedAmount = parseFloat(loan.requestedAmount);
     const totalAmountToPay = requestedAmount * (1 + rate);
-    
+
     // Calcular el total pagado sumando todos los pagos
     const payedAmount = loan.payments?.reduce((sum: number, payment: any) => {
       return sum + parseFloat(payment.amount || '0');
     }, 0) || 0;
-    
+
     const pendingAmount = totalAmountToPay - payedAmount;
     return Math.max(0, pendingAmount); // No puede ser negativo
   };
@@ -472,7 +490,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     const options = [
       { value: '', label: 'Seleccionar préstamo previo' }
     ];
-    
+
     console.log('🔍 DEBUG previousLoanOptions:', {
       hasLoansData: !!previousLoansData?.loans,
       loansCount: previousLoansData?.loans?.length || 0,
@@ -481,12 +499,12 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       selectedLeadId: selectedLead?.id,
       loading: previousLoansLoading
     });
-    
+
     if (previousLoansData?.loans && selectedDate) {
       // ✅ NUEVO: Obtener IDs de clientes que ya fueron renovados hoy
       const selectedDateStr = selectedDate.toISOString().split('T')[0]; // YYYY-MM-DD
       const renewedTodayBorrowerIds = new Set<string>();
-      
+
       // Verificar en préstamos ya creados hoy
       if (loansData?.loans) {
         loansData.loans.forEach((loan: any) => {
@@ -495,7 +513,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
           }
         });
       }
-      
+
       // Verificar en préstamos pendientes de guardar
       pendingLoans.forEach((loan: any) => {
         if (loan.previousLoan && loan.borrower?.id) {
@@ -509,13 +527,13 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       const borrowerLoans = previousLoansData.loans.reduce((acc: { [key: string]: any }, loan: any) => {
         const borrowerId = loan.borrower?.id;
         if (!borrowerId) return acc;
-        
+
         // ✅ NUEVO: Filtrar clientes ya renovados hoy
         if (renewedTodayBorrowerIds.has(borrowerId)) {
           console.log(`🚫 Excluyendo cliente ya renovado: ${loan.borrower?.personalData?.fullName}`);
           return acc;
         }
-        
+
         // ✅ MODIFICADO: Solo incluir préstamos TERMINADOS (finishedDate no es null)
         if (loan.finishedDate && loan.finishedDate !== null) {
           // ✅ NUEVO: Solo incluir el préstamo más reciente TERMINADO de cada cliente
@@ -539,9 +557,9 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         const isRenewed = loan.renewedDate && loan.renewedDate !== null;
         const status = isRenewed ? 'Renovado' : 'Terminado';
         const finishDate = loan.finishedDate ? new Date(loan.finishedDate).toLocaleDateString('es-MX') : 'N/A';
-        
+
         const label = `${borrowerName} - Último crédito ${status} (${finishDate})`;
-        
+
         options.push({
           value: loan.id,
           label: label
@@ -557,7 +575,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   // ✅ NUEVO: Calcular avales ya usados hoy
   const usedAvalIds = React.useMemo(() => {
     const usedIds = new Set<string>();
-    
+
     if (selectedDate) {
       // Verificar en préstamos ya creados hoy
       if (loansData?.loans) {
@@ -569,7 +587,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
           }
         });
       }
-      
+
       // Verificar en préstamos pendientes de guardar
       pendingLoans.forEach((loan: any) => {
         if (loan.selectedCollateralId) {
@@ -577,7 +595,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         }
       });
     }
-    
+
     console.log('🚫 Avales ya usados hoy:', Array.from(usedIds));
     return Array.from(usedIds);
   }, [selectedDate, loansData?.loans, pendingLoans]);
@@ -622,16 +640,16 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   // ✅ NUEVO: Función para manejar cambios en la fila vacía (mantener editable)
   const handleEmptyRowChange = React.useCallback((field: string, value: any) => {
     console.log('🚀 Usuario empezó a escribir en fila vacía:', { field, value });
-    
+
     // Si no hay fila editable, crear una nueva basada en emptyLoanRow
     const currentRow = editableEmptyRow || {
       ...emptyLoanRow,
       id: generateLoanId()
     };
-    
+
     // Crear una copia actualizada
     let updatedRow = { ...currentRow };
-    
+
     // Manejar casos especiales
     if (field === 'avalData') {
       updatedRow = {
@@ -680,7 +698,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       // ✅ NUEVO: Aplicar la lógica completa de handlePreviousLoanChange
       if (value?.value) {
         const selectedLoan = previousLoansData?.loans?.find((loan: any) => loan.id === value.value);
-        
+
         console.log('🔍 Debug búsqueda de préstamo anterior:', {
           searchId: value.value,
           loansData: previousLoansData?.loans,
@@ -688,17 +706,17 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
           selectedLoan: selectedLoan,
           found: !!selectedLoan
         });
-        
+
         if (selectedLoan) {
           console.log('🔍 Aplicando lógica completa de préstamo anterior para fila vacía:', selectedLoan);
-          
+
           // Calcular la deuda pendiente localmente
           const pendingAmountNum = calculateLocalPendingAmount(selectedLoan);
           const pendingAmount = pendingAmountNum.toFixed(2);
-          
+
           // Calcular amountToPay del préstamo seleccionado
-          const selectedLoanAmountToPay = selectedLoan.loantype?.rate ? 
-            (parseFloat(selectedLoan.requestedAmount) * (1 + parseFloat(selectedLoan.loantype.rate))).toFixed(2) : 
+          const selectedLoanAmountToPay = selectedLoan.loantype?.rate ?
+            (parseFloat(selectedLoan.requestedAmount) * (1 + parseFloat(selectedLoan.loantype.rate))).toFixed(2) :
             '0';
 
           // Crear una copia del préstamo seleccionado con los campos necesarios
@@ -713,7 +731,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
           let avalPhone = '';
           let selectedCollateralId = undefined;
           let avalAction: 'create' | 'update' | 'connect' | 'clear' = 'clear';
-          
+
           if (selectedLoan.collaterals && selectedLoan.collaterals.length > 0) {
             const primaryCollateral = selectedLoan.collaterals[0];
             avalName = primaryCollateral.fullName;
@@ -785,7 +803,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
             amountGived: updatedRow.amountGived,
             amountToPay: updatedRow.amountToPay
           });
-          
+
           // ✅ IMPORTANTE: Actualizar newLoan con los datos precargados
           setNewLoan(prev => ({
             ...prev,
@@ -848,34 +866,34 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         [field]: value
       };
     }
-    
+
     // ✅ NUEVO: Actualizar la fila editable en lugar de agregar a pendientes inmediatamente
     setEditableEmptyRow(updatedRow);
-    
+
     // ✅ NUEVO: Si es la primera vez que se escribe en esta fila, solo activarla (NO agregar a pendingLoans)
-    if (!editableEmptyRow && (updatedRow.borrower?.personalData?.fullName?.trim() || 
-                              updatedRow.borrower?.personalData?.phones?.[0]?.number?.trim() || 
-                              updatedRow.requestedAmount?.trim())) {
+    if (!editableEmptyRow && (updatedRow.borrower?.personalData?.fullName?.trim() ||
+      updatedRow.borrower?.personalData?.phones?.[0]?.number?.trim() ||
+      updatedRow.requestedAmount?.trim())) {
       console.log('🆕 Primera entrada detectada, activando fila vacía');
       // NO crear nueva fila aquí, solo activar la actual
     }
-    
+
     // ✅ NUEVO: Verificar si la fila tiene toda la información necesaria para confirmarse automáticamente
-    const hasRequiredInfo = updatedRow.borrower?.personalData?.fullName?.trim() && 
-                           updatedRow.loantype?.id && 
-                           updatedRow.requestedAmount?.trim() && 
-                           parseFloat(updatedRow.requestedAmount) > 0;
-    
+    const hasRequiredInfo = updatedRow.borrower?.personalData?.fullName?.trim() &&
+      updatedRow.loantype?.id &&
+      updatedRow.requestedAmount?.trim() &&
+      parseFloat(updatedRow.requestedAmount) > 0;
+
     if (hasRequiredInfo) {
       console.log('✅ Fila completa detectada, confirmando automáticamente');
-      
+
       // Agregar a pendingLoans automáticamente (evitar duplicados por mismo id)
       setPendingLoans(prev => {
         const alreadyExists = prev.some(pl => pl.id === updatedRow.id);
         if (alreadyExists) return prev;
         return [...prev, updatedRow as ExtendedLoan];
       });
-      
+
       // Crear nueva fila vacía
       const nextEmptyRow = {
         ...emptyLoanRow,
@@ -899,11 +917,11 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         loantype: undefined,
         comissionAmount: ''
       };
-      
+
       setEditableEmptyRow(nextEmptyRow);
       console.log('✅ Fila confirmada automáticamente y nueva fila vacía creada');
     }
-    
+
     console.log('✅ Fila vacía actualizada (editable):', {
       ...updatedRow,
       borrowerPhone: updatedRow.borrower?.personalData?.phones?.[0]?.number,
@@ -916,7 +934,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     if (editableEmptyRow) {
       // ✅ CORREGIDO: Solo agregar a pendingLoans cuando se confirme explícitamente
       setPendingLoans(prev => [...prev, editableEmptyRow as ExtendedLoan]);
-      
+
       // ✅ NUEVO: Crear automáticamente la siguiente fila vacía
       const nextEmptyRow = {
         ...emptyLoanRow,
@@ -940,7 +958,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         loantype: undefined,
         comissionAmount: ''
       };
-      
+
       setEditableEmptyRow(nextEmptyRow); // ✅ NUEVO: Establecer la nueva fila vacía
       console.log('✅ Fila confirmada y agregada a pendientes, nueva fila vacía creada');
     }
@@ -950,14 +968,14 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   const handleTabOnLastField = React.useCallback(() => {
     if (editableEmptyRow) {
       // Verificar que la fila tenga datos mínimos
-      const hasMinData = editableEmptyRow.borrower?.personalData?.fullName?.trim() || 
-                        editableEmptyRow.borrower?.personalData?.phones?.[0]?.number?.trim() ||
-                        editableEmptyRow.requestedAmount?.trim();
-      
+      const hasMinData = editableEmptyRow.borrower?.personalData?.fullName?.trim() ||
+        editableEmptyRow.borrower?.personalData?.phones?.[0]?.number?.trim() ||
+        editableEmptyRow.requestedAmount?.trim();
+
       if (hasMinData) {
         // Confirmar la fila actual
         setPendingLoans(prev => [...prev, editableEmptyRow as ExtendedLoan]);
-        
+
         // Crear automáticamente la siguiente fila vacía
         const nextEmptyRow = {
           ...emptyLoanRow,
@@ -981,7 +999,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
           loantype: undefined,
           comissionAmount: ''
         };
-        
+
         setEditableEmptyRow(nextEmptyRow);
         console.log('✅ Fila confirmada automáticamente y nueva fila creada');
       }
@@ -990,8 +1008,8 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
 
   // ✅ NUEVO: Función para manejar cambios en filas existentes
   const handlePendingLoanChange = React.useCallback((index: number, field: string, value: any) => {
-    setPendingLoans(prev => 
-      prev.map((loan, i) => 
+    setPendingLoans(prev =>
+      prev.map((loan, i) =>
         i === index ? { ...loan, [field]: value } : loan
       )
     );
@@ -1034,10 +1052,10 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       // Calcular la deuda pendiente localmente
       const pendingAmountNum = calculateLocalPendingAmount(selectedLoan);
       const pendingAmount = pendingAmountNum.toFixed(2);
-      
+
       // Calcular amountToPay del préstamo seleccionado
-      const selectedLoanAmountToPay = selectedLoan.loantype?.rate ? 
-        (parseFloat(selectedLoan.requestedAmount) * (1 + parseFloat(selectedLoan.loantype.rate))).toFixed(2) : 
+      const selectedLoanAmountToPay = selectedLoan.loantype?.rate ?
+        (parseFloat(selectedLoan.requestedAmount) * (1 + parseFloat(selectedLoan.loantype.rate))).toFixed(2) :
         '0';
 
       // Crear una copia del préstamo seleccionado con los campos necesarios
@@ -1058,63 +1076,63 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       }
 
       setNewLoan(prev => {
-          // ✅ NUEVO: Limpiar y precargar información del aval desde collaterals
-          let avalName = '';
-          let avalPhone = '';
-          let selectedCollateralId = undefined;
-          let avalAction: 'create' | 'update' | 'connect' | 'clear' = 'clear';
-          
-          console.log('🔍 Datos del préstamo seleccionado:', {
-            loanId: selectedLoan.id,
-            avalName: selectedLoan.avalName,
-            avalPhone: selectedLoan.avalPhone,
-            collaterals: selectedLoan.collaterals,
-            borrower: selectedLoan.borrower?.personalData?.fullName
+        // ✅ NUEVO: Limpiar y precargar información del aval desde collaterals
+        let avalName = '';
+        let avalPhone = '';
+        let selectedCollateralId = undefined;
+        let avalAction: 'create' | 'update' | 'connect' | 'clear' = 'clear';
+
+        console.log('🔍 Datos del préstamo seleccionado:', {
+          loanId: selectedLoan.id,
+          avalName: selectedLoan.avalName,
+          avalPhone: selectedLoan.avalPhone,
+          collaterals: selectedLoan.collaterals,
+          borrower: selectedLoan.borrower?.personalData?.fullName
+        });
+
+        // Si existe información en collaterals, usar esa en lugar de los campos legacy
+        if (selectedLoan.collaterals && selectedLoan.collaterals.length > 0) {
+          const primaryCollateral = selectedLoan.collaterals[0];
+          avalName = primaryCollateral.fullName;
+          avalPhone = primaryCollateral.phones?.[0]?.number || '';
+          selectedCollateralId = primaryCollateral.id;
+          avalAction = 'connect'; // Es un aval existente sin modificar
+          console.log('✅ Información del aval desde collaterals:', {
+            avalName,
+            avalPhone,
+            selectedCollateralId,
+            avalAction
           });
-          
-          // Si existe información en collaterals, usar esa en lugar de los campos legacy
-          if (selectedLoan.collaterals && selectedLoan.collaterals.length > 0) {
-            const primaryCollateral = selectedLoan.collaterals[0];
-            avalName = primaryCollateral.fullName;
-            avalPhone = primaryCollateral.phones?.[0]?.number || '';
-            selectedCollateralId = primaryCollateral.id;
-            avalAction = 'connect'; // Es un aval existente sin modificar
-            console.log('✅ Información del aval desde collaterals:', {
-              avalName,
-              avalPhone,
-              selectedCollateralId,
-              avalAction
-            });
-          } else if (selectedLoan.avalName || selectedLoan.avalPhone) {
-            // Fallback a campos legacy si existen
-            avalName = selectedLoan.avalName || '';
-            avalPhone = selectedLoan.avalPhone || '';
-            avalAction = 'clear'; // Sin ID, tratarlo como nuevo si se modifica
-            console.log('⚠️ No hay información en collaterals, usando campos legacy:', {
-              avalName,
-              avalPhone,
-              avalAction
-            });
-          } else {
-            console.log('ℹ️ Sin información de aval en el préstamo anterior');
-          }
+        } else if (selectedLoan.avalName || selectedLoan.avalPhone) {
+          // Fallback a campos legacy si existen
+          avalName = selectedLoan.avalName || '';
+          avalPhone = selectedLoan.avalPhone || '';
+          avalAction = 'clear'; // Sin ID, tratarlo como nuevo si se modifica
+          console.log('⚠️ No hay información en collaterals, usando campos legacy:', {
+            avalName,
+            avalPhone,
+            avalAction
+          });
+        } else {
+          console.log('ℹ️ Sin información de aval en el préstamo anterior');
+        }
 
         const updatedLoan = {
           ...prev,
           previousLoan,
           borrower: selectedLoan.borrower,
-            avalName,
-            avalPhone,
-            selectedCollateralId, // ✅ NUEVO: ID del aval seleccionado
-            avalAction, // ✅ NUEVO: Acción del aval 
+          avalName,
+          avalPhone,
+          selectedCollateralId, // ✅ NUEVO: ID del aval seleccionado
+          avalAction, // ✅ NUEVO: Acción del aval 
           pendingAmount,
-            amountToPay: newLoanAmountToPay,
-            // ✅ AGREGAR: Precargar automáticamente el tipo de préstamo del préstamo anterior
-            loantype: selectedLoan.loantype,
-            // ✅ AGREGAR: Precargar el monto solicitado del préstamo anterior
-            requestedAmount: selectedLoan.requestedAmount
+          amountToPay: newLoanAmountToPay,
+          // ✅ AGREGAR: Precargar automáticamente el tipo de préstamo del préstamo anterior
+          loantype: selectedLoan.loantype,
+          // ✅ AGREGAR: Precargar el monto solicitado del préstamo anterior
+          requestedAmount: selectedLoan.requestedAmount
         };
-        
+
         // Si ya hay un tipo de préstamo seleccionado, cargar la comisión automáticamente
         if (updatedLoan.loantype?.id) {
           const selectedType = loanTypesData?.loantypes?.find((type: any) => type.id === updatedLoan.loantype?.id);
@@ -1122,44 +1140,44 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
             updatedLoan.comissionAmount = selectedType.loanGrantedComission.toString();
           }
         }
-          
-          console.log('✅ Datos precargados del préstamo anterior:', {
-            loantype: selectedLoan.loantype?.name,
-            requestedAmount: selectedLoan.requestedAmount,
-            borrower: selectedLoan.borrower?.personalData?.fullName,
-            avalName: updatedLoan.avalName,
-            avalPhone: updatedLoan.avalPhone,
-            selectedCollateralId: updatedLoan.selectedCollateralId,
-            avalAction: updatedLoan.avalAction
-          });
-        
+
+        console.log('✅ Datos precargados del préstamo anterior:', {
+          loantype: selectedLoan.loantype?.name,
+          requestedAmount: selectedLoan.requestedAmount,
+          borrower: selectedLoan.borrower?.personalData?.fullName,
+          avalName: updatedLoan.avalName,
+          avalPhone: updatedLoan.avalPhone,
+          selectedCollateralId: updatedLoan.selectedCollateralId,
+          avalAction: updatedLoan.avalAction
+        });
+
         return updatedLoan;
       });
 
-        // ✅ AGREGAR: Recalcular automáticamente el monto entregado después de precargar los datos
-        setTimeout(() => {
-          if (selectedLoan.loantype?.rate) {
-            const { amountGived, amountToPay } = calculateLoanAmounts({
-              requestedAmount: selectedLoan.requestedAmount || '0',
-              pendingAmount: pendingAmount,
-              rate: selectedLoan.loantype.rate
-            });
+      // ✅ AGREGAR: Recalcular automáticamente el monto entregado después de precargar los datos
+      setTimeout(() => {
+        if (selectedLoan.loantype?.rate) {
+          const { amountGived, amountToPay } = calculateLoanAmounts({
+            requestedAmount: selectedLoan.requestedAmount || '0',
+            pendingAmount: pendingAmount,
+            rate: selectedLoan.loantype.rate
+          });
 
-            console.log('🔄 Recalculando monto entregado después de precargar datos:', {
-              requestedAmount: selectedLoan.requestedAmount,
-              pendingAmount: pendingAmount,
-              rate: selectedLoan.loantype.rate,
-              amountGived,
-              amountToPay
-            });
+          console.log('🔄 Recalculando monto entregado después de precargar datos:', {
+            requestedAmount: selectedLoan.requestedAmount,
+            pendingAmount: pendingAmount,
+            rate: selectedLoan.loantype.rate,
+            amountGived,
+            amountToPay
+          });
 
-            setNewLoan(prev => ({
-              ...prev,
-              amountGived,
-              amountToPay
-            }));
-          }
-        }, 100); // Pequeño delay para asegurar que el estado se haya actualizado
+          setNewLoan(prev => ({
+            ...prev,
+            amountGived,
+            amountToPay
+          }));
+        }
+      }, 100); // Pequeño delay para asegurar que el estado se haya actualizado
     }
   };
 
@@ -1207,10 +1225,10 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   React.useEffect(() => {
     setNewLoan(prev => ({
       ...prev,
-      lead: { 
-        id: selectedLead?.id || '', 
-        personalData: { fullName: '' }, 
-        __typename: 'Lead' 
+      lead: {
+        id: selectedLead?.id || '',
+        personalData: { fullName: '' },
+        __typename: 'Lead'
       }
     }));
   }, [selectedLead]);
@@ -1260,19 +1278,19 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         borrower: newLoan.previousLoan?.id
           ? { connect: { id: newLoan.borrower?.id } }
           : {
-              create: {
-                personalData: {
-                  create: {
-                    fullName: newLoan.borrower?.personalData?.fullName || '',
-                    phones: {
-                      create: newLoan.borrower?.personalData?.phones?.map(phone => ({
-                        number: phone.number
-                      })) || []
-                    }
+            create: {
+              personalData: {
+                create: {
+                  fullName: newLoan.borrower?.personalData?.fullName || '',
+                  phones: {
+                    create: newLoan.borrower?.personalData?.phones?.map(phone => ({
+                      number: phone.number
+                    })) || []
                   }
                 }
               }
             }
+          }
       };
 
       // SI HAY UN PRÉSTAMO PREVIO, AGREGARLO
@@ -1280,19 +1298,19 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         loanData.previousLoan = { connect: { id: newLoan.previousLoan.id } };
       }
 
-      const { data } = await createLoan({ 
-        variables: { 
-          data: loanData 
-        } 
+      const { data } = await createLoan({
+        variables: {
+          data: loanData
+        }
       });
-      
+
       if (data?.createLoan) {
         // 1. Actualizar la lista de préstamos
         setLoans([...loans, data.createLoan]);
         setNewLoanId(data.createLoan.id);
-        
+
         // ✅ ELIMINADO: Cerrar formulario - ya no aplica con tabla Excel
-        
+
         // 3. Actualizar los datos en segundo plano
         Promise.all([
           refetchRoute(),
@@ -1320,10 +1338,10 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
 
   const handleAddToPendingList = () => {
     // Validar que el préstamo tenga los campos requeridos
-    if (!newLoan.borrower?.personalData?.fullName || 
-        !newLoan.loantype?.id || 
-        !newLoan.requestedAmount || 
-        parseFloat(newLoan.requestedAmount) <= 0) {
+    if (!newLoan.borrower?.personalData?.fullName ||
+      !newLoan.loantype?.id ||
+      !newLoan.requestedAmount ||
+      parseFloat(newLoan.requestedAmount) <= 0) {
       alert('Por favor completa todos los campos requeridos antes de agregar el préstamo');
       return;
     }
@@ -1368,7 +1386,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   const handleSaveAllNewLoans = async () => {
     try {
       setIsCreating(true);
-      
+
       // ✅ NUEVO: Filtrar préstamos válidos (ignorar filas vacías)
       const validLoans = pendingLoans.filter(loan => {
         // Validar que tenga al menos los campos mínimos requeridos
@@ -1378,7 +1396,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
           loan.requestedAmount &&
           parseFloat(loan.requestedAmount) > 0
         );
-        
+
         console.log('🔍 Validando préstamo:', {
           loanId: loan.id,
           borrowerName: loan.borrower?.personalData?.fullName,
@@ -1386,10 +1404,10 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
           requestedAmount: loan.requestedAmount,
           isValid: hasRequiredFields
         });
-        
+
         return hasRequiredFields;
       });
-      
+
       if (validLoans.length === 0) {
         alert('No hay préstamos válidos para guardar. Asegúrate de completar al menos: nombre del cliente, tipo de préstamo y monto solicitado.');
         return;
@@ -1422,19 +1440,19 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         });
 
         return {
-        requestedAmount: (loan.requestedAmount || '0').toString(),
-        amountGived: (loan.amountGived || '0').toString(),
-        signDate: loan.signDate || selectedDate?.toISOString() || '',
-        // ✅ CORRECTO:
-avalName: loan.avalData?.avalName || '',
-avalPhone: loan.avalData?.avalPhone || '',
-        comissionAmount: (loan.comissionAmount || '0').toString(),
-        leadId: selectedLead?.id || '',
-        loantypeId: loan.loantype?.id || '',
-        previousLoanId: loan.previousLoan?.id || undefined,
-        borrowerData: {
-          fullName: loan.borrower?.personalData?.fullName || '',
-          phone: loan.borrower?.personalData?.phones?.[0]?.number || ''
+          requestedAmount: (loan.requestedAmount || '0').toString(),
+          amountGived: (loan.amountGived || '0').toString(),
+          signDate: loan.signDate || selectedDate?.toISOString() || '',
+          // ✅ CORRECTO:
+          avalName: loan.avalData?.avalName || '',
+          avalPhone: loan.avalData?.avalPhone || '',
+          comissionAmount: (loan.comissionAmount || '0').toString(),
+          leadId: selectedLead?.id || '',
+          loantypeId: loan.loantype?.id || '',
+          previousLoanId: loan.previousLoan?.id || undefined,
+          borrowerData: {
+            fullName: loan.borrower?.personalData?.fullName || '',
+            phone: loan.borrower?.personalData?.phones?.[0]?.number || ''
           },
           // ✅ NUEVO: Información para manejo del aval
           avalData: {
@@ -1451,30 +1469,30 @@ avalPhone: loan.avalData?.avalPhone || '',
         loansCount: loansData.length,
         loansData: JSON.stringify(loansData, null, 2)
       });
-      
-      const { data } = await createMultipleLoans({ 
-        variables: { 
-          loans: loansData 
-        } 
+
+      const { data } = await createMultipleLoans({
+        variables: {
+          loans: loansData
+        }
       });
-      
+
       if (data?.createMultipleLoans) {
         console.log(`✅ ${data.createMultipleLoans.length} préstamos creados exitosamente`);
-        
+
         // Limpiar la lista de pendientes
         setPendingLoans([]);
         // ✅ ELIMINADO: setIsAddingNew(false) - ya no aplica
         setIsBulkMode(false);
-        
+
         // Recargar los datos
         await Promise.all([
           refetchRoute(),
           refetchLoans()
         ]);
-        
+
         // Actualizar el balance local
         if (onBalanceUpdate) {
-          const totalAmount = data.createMultipleLoans.reduce((sum: number, loan: any) => 
+          const totalAmount = data.createMultipleLoans.reduce((sum: number, loan: any) =>
             sum + parseFloat(loan.amountGived || '0'), 0);
           onBalanceUpdate(-totalAmount);
         }
@@ -1491,12 +1509,12 @@ avalPhone: loan.avalData?.avalPhone || '',
 
   const handleEditLoan = (loan: Loan) => {
     // Calcular amountToPay si no existe
-    const calculatedAmountToPay = loan.amountToPay || 
+    const calculatedAmountToPay = loan.amountToPay ||
       calculateAmountToPay(loan.requestedAmount.toString(), loan.loantype?.rate?.toString() || '0');
-    
+
     // Calcular pendingAmount si no existe - usar 0 como valor por defecto seguro
     const calculatedPendingAmount = loan.pendingAmount || '0';
-    
+
     setEditingLoan({
       ...loan,
       requestedAmount: loan.requestedAmount.toString(),
@@ -1512,7 +1530,7 @@ avalPhone: loan.avalData?.avalPhone || '',
 
     try {
       setIsUpdating(editingLoan.id);
-      
+
       // ✅ NUEVO: Preparar datos para la mutación personalizada
       const loanData = {
         requestedAmount: editingLoan.requestedAmount,
@@ -1540,17 +1558,17 @@ avalPhone: loan.avalData?.avalPhone || '',
       // ✅ NUEVO: La respuesta es JSON puro, no un objeto estructurado
       const response = data?.updateLoanWithAval;
       console.log('📊 Respuesta de updateLoanWithAval:', response);
-      
+
       if (response?.success) {
         console.log('✅ Préstamo actualizado exitosamente con aval:', response);
-        
+
         // ✅ NUEVO: Actualizar el estado local con el préstamo actualizado si está disponible
         if (response.loan) {
-          setLoans(prevLoans => 
+          setLoans(prevLoans =>
             prevLoans.map(loan => loan.id === editingLoan.id ? response.loan : loan)
           );
         }
-        
+
         // Refrescar datos
         Promise.all([
           refetchLoans(),
@@ -1558,7 +1576,7 @@ avalPhone: loan.avalData?.avalPhone || '',
         ]).then(() => {
           console.log('✅ Préstamo actualizado y datos refrescados');
         });
-        
+
         setEditingLoan(null);
       } else {
         console.error('❌ Error en la respuesta de updateLoanWithAval:', response);
@@ -1583,7 +1601,7 @@ avalPhone: loan.avalData?.avalPhone || '',
 
       if (data?.deleteLoan) {
         setLoans(prevLoans => prevLoans.filter(loan => loan.id !== id));
-        
+
         Promise.all([
           refetchLoans(),
           refetchRoute()
@@ -1664,262 +1682,269 @@ avalPhone: loan.avalData?.avalPhone || '',
   return (
     <>
       <Box paddingTop="medium">
+  <div style={{
+    display: 'flex',
+    gap: '16px',
+    alignItems: 'flex-start',
+    marginBottom: '16px',
+    background: 'white',
+    padding: '16px',
+    borderRadius: '8px',
+    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+  }}>
+    {/* Stats Grid */}
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(6, 1fr)',
+      gap: '1px',
+      background: '#E2E8F0',
+      borderRadius: '8px',
+      overflow: 'hidden',
+      flex: 1,
+      boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+    }}>
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column' as const,
+        background: 'white',
+        padding: '12px',
+        position: 'relative',
+        overflow: 'hidden',
+      }}>
         <div style={{
-          display: 'flex',
-          gap: '16px',
-          alignItems: 'flex-start',
-          marginBottom: '16px',
-          background: 'white',
-          padding: '16px',
-          borderRadius: '8px',
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: '2px',
+          background: '#0052CC',
+          opacity: 0.1,
+        }} />
+        <div style={{
+          fontSize: '12px',
+          fontWeight: '500',
+          color: '#6B7280',
+          marginBottom: '4px',
         }}>
-          {/* Stats Grid */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(5, 1fr)',
-            gap: '1px',
-            background: '#E2E8F0',
-            borderRadius: '8px',
-            overflow: 'hidden',
-            flex: 1,
-            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
-          }}>
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column' as const,
-              background: 'white',
-              padding: '12px',
-              position: 'relative',
-              overflow: 'hidden',
-            }}>
-              <div style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                height: '2px',
-                background: '#0052CC',
-                opacity: 0.1,
-              }} />
-              <div style={{
-                fontSize: '12px',
-                fontWeight: '500',
-                color: '#6B7280',
-                marginBottom: '4px',
-              }}>
-                TOTAL DE CRÉDITOS
-              </div>
-              <div style={{
-                fontSize: '20px',
-                fontWeight: '600',
-                color: '#111827',
-                letterSpacing: '-0.02em',
-                lineHeight: '1',
-                marginBottom: '2px',
-              }}>
-                {totals.count}
-              </div>
-              <div style={{
-                fontSize: '12px',
-                color: '#059669',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}>
-                <span>Activos</span>
-              </div>
-            </div>
-
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column' as const,
-              background: 'white',
-              padding: '12px',
-              position: 'relative',
-              overflow: 'hidden',
-            }}>
-              <div style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                height: '2px',
-                background: '#0052CC',
-                opacity: 0.1,
-              }} />
-              <div style={{
-                fontSize: '12px',
-                fontWeight: '500',
-                color: '#6B7280',
-                marginBottom: '4px',
-              }}>
-                CRÉDITOS NUEVOS
-              </div>
-              <div style={{
-                fontSize: '20px',
-                fontWeight: '600',
-                color: '#111827',
-                letterSpacing: '-0.02em',
-                lineHeight: '1',
-                marginBottom: '2px',
-              }}>
-                {totals.newLoans}
-              </div>
-              <div style={{
-                fontSize: '12px',
-                color: '#6B7280',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}>
-                <span>Primera vez</span>
-              </div>
-            </div>
-
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column' as const,
-              background: 'white',
-              padding: '12px',
-              position: 'relative',
-              overflow: 'hidden',
-            }}>
-              <div style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                height: '2px',
-                background: '#0052CC',
-                opacity: 0.1,
-              }} />
-              <div style={{
-                fontSize: '12px',
-                fontWeight: '500',
-                color: '#6B7280',
-                marginBottom: '4px',
-              }}>
-                RENOVACIONES
-              </div>
-              <div style={{
-                fontSize: '20px',
-                fontWeight: '600',
-                color: '#111827',
-                letterSpacing: '-0.02em',
-                lineHeight: '1',
-                marginBottom: '2px',
-              }}>
-                {totals.renewals}
-              </div>
-              <div style={{
-                fontSize: '12px',
-                color: '#6B7280',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}>
-                <span>Clientes recurrentes</span>
-              </div>
-            </div>
-
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column' as const,
-              background: 'white',
-              padding: '12px',
-              position: 'relative',
-              overflow: 'hidden',
-            }}>
-              <div style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                height: '2px',
-                background: '#0052CC',
-                opacity: 0.1,
-              }} />
-              <div style={{
-                fontSize: '12px',
-                fontWeight: '500',
-                color: '#6B7280',
-                marginBottom: '4px',
-              }}>
-                TOTAL OTORGADO
-              </div>
-              <div style={{
-                fontSize: '20px',
-                fontWeight: '600',
-                color: '#111827',
-                letterSpacing: '-0.02em',
-                lineHeight: '1',
-                marginBottom: '2px',
-              }}>
-                ${totals.amountGived.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </div>
-              <div style={{
-                fontSize: '12px',
-                color: '#6B7280',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}>
-                <span>En {totals.count} préstamos</span>
-              </div>
-            </div>
-
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column' as const,
-              background: 'white',
-              padding: '12px',
-              position: 'relative',
-              overflow: 'hidden',
-            }}>
-              <div style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                height: '2px',
-                background: '#0052CC',
-                opacity: 0.1,
-              }} />
-              <div style={{
-                fontSize: '12px',
-                fontWeight: '500',
-                color: '#6B7280',
-                marginBottom: '4px',
-              }}>
-                TOTAL A PAGAR
-              </div>
-              <div style={{
-                fontSize: '20px',
-                fontWeight: '600',
-                color: '#111827',
-                letterSpacing: '-0.02em',
-                lineHeight: '1',
-                marginBottom: '2px',
-              }}>
-                ${totals.amountToPay.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </div>
-              <div style={{
-                fontSize: '12px',
-                color: '#6B7280',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}>
-                <span>Retorno esperado</span>
-              </div>
-            </div>
-          </div>
-
-
-
-          {/* ✅ ELIMINADO: Botón de agregar préstamo - ahora se usa la tabla tipo Excel */}
+          TOTAL DE CRÉDITOS
         </div>
+        <div style={{
+          fontSize: '20px',
+          fontWeight: '600',
+          color: '#111827',
+          letterSpacing: '-0.02em',
+          lineHeight: '1',
+          marginBottom: '2px',
+        }}>
+          {totals.count}
+        </div>
+        <div style={{
+          fontSize: '12px',
+          color: '#059669',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+        }}>
+          <span>Activos</span>
+        </div>
+      </div>
+
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column' as const,
+        background: 'white',
+        padding: '12px',
+        position: 'relative',
+        overflow: 'hidden',
+      }}>
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: '2px',
+          background: '#0052CC',
+          opacity: 0.1,
+        }} />
+        <div style={{
+          fontSize: '12px',
+          fontWeight: '500',
+          color: '#6B7280',
+          marginBottom: '4px',
+        }}>
+          CRÉDITOS NUEVOS
+        </div>
+        <div style={{
+          fontSize: '20px',
+          fontWeight: '600',
+          color: '#111827',
+          letterSpacing: '-0.02em',
+          lineHeight: '1',
+          marginBottom: '2px',
+        }}>
+          {totals.newLoans}
+        </div>
+        <div style={{
+          fontSize: '12px',
+          color: '#6B7280',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+        }}>
+          <span>Primera vez</span>
+        </div>
+      </div>
+
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column' as const,
+        background: 'white',
+        padding: '12px',
+        position: 'relative',
+        overflow: 'hidden',
+      }}>
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: '2px',
+          background: '#0052CC',
+          opacity: 0.1,
+        }} />
+        <div style={{
+          fontSize: '12px',
+          fontWeight: '500',
+          color: '#6B7280',
+          marginBottom: '4px',
+        }}>
+          RENOVACIONES
+        </div>
+        <div style={{
+          fontSize: '20px',
+          fontWeight: '600',
+          color: '#111827',
+          letterSpacing: '-0.02em',
+          lineHeight: '1',
+          marginBottom: '2px',
+        }}>
+          {totals.renewals}
+        </div>
+        <div style={{
+          fontSize: '12px',
+          color: '#6B7280',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+        }}>
+          <span>Clientes recurrentes</span>
+        </div>
+      </div>
+
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column' as const,
+        background: 'white',
+        padding: '12px',
+        position: 'relative',
+        overflow: 'hidden',
+      }}>
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: '2px',
+          background: '#0052CC',
+          opacity: 0.1,
+        }} />
+        <div style={{
+          fontSize: '12px',
+          fontWeight: '500',
+          color: '#6B7280',
+          marginBottom: '4px',
+        }}>
+          TOTAL OTORGADO
+        </div>
+        <div style={{
+          fontSize: '20px',
+          fontWeight: '600',
+          color: '#111827',
+          letterSpacing: '-0.02em',
+          lineHeight: '1',
+          marginBottom: '2px',
+        }}>
+          ${totals.amountGived.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </div>
+        <div style={{
+          fontSize: '12px',
+          color: '#6B7280',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+        }}>
+          <span>En {totals.count} préstamos</span>
+        </div>
+      </div>
+
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column' as const,
+        background: 'white',
+        padding: '12px',
+        position: 'relative',
+        overflow: 'hidden',
+      }}>
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: '2px',
+          background: '#0052CC',
+          opacity: 0.1,
+        }} />
+        <div style={{
+          fontSize: '12px',
+          fontWeight: '500',
+          color: '#6B7280',
+          marginBottom: '4px',
+        }}>
+          TOTAL A PAGAR
+        </div>
+        <div style={{
+          fontSize: '20px',
+          fontWeight: '600',
+          color: '#111827',
+          letterSpacing: '-0.02em',
+          lineHeight: '1',
+          marginBottom: '2px',
+        }}>
+          ${totals.amountToPay.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </div>
+        <div style={{
+          fontSize: '12px',
+          color: '#6B7280',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+        }}>
+          <span>Retorno esperado</span>
+        </div>
+      </div>
+
+      {/* Sexta tarjeta - Cambiar Fecha */}
+      <DateMover
+        type="loans"
+        selectedDate={selectedDate}
+        selectedLead={selectedLead}
+        onSuccess={handleDateMoveSuccess}
+        itemCount={loans.length}
+        label="préstamo(s)"
+      />
+    </div>
+
+  </div>
 
         {/* Loans Table */}
         <Box
@@ -1933,15 +1958,15 @@ avalPhone: loan.avalData?.avalPhone || '',
           <div style={{
             padding: '12px',
           }}>
-            <table style={{ 
-              width: '100%', 
+            <table style={{
+              width: '100%',
               borderCollapse: 'collapse',
               fontSize: '13px',
             }}>
               <thead>
-                <tr style={{ 
+                <tr style={{
                   backgroundColor: '#F9FAFB',
-                  borderBottom: '1px solid #E5E7EB' 
+                  borderBottom: '1px solid #E5E7EB'
                 }}>
                   <th style={tableHeaderStyle}>Préstamo Previo</th>
                   <th style={tableHeaderStyle}>Tipo</th>
@@ -1963,7 +1988,7 @@ avalPhone: loan.avalData?.avalPhone || '',
               </thead>
               <tbody>
                 {loans.map((loan) => (
-                  <tr 
+                  <tr
                     key={loan.id}
                     style={{
                       borderBottom: '1px solid #E5E7EB',
@@ -2016,8 +2041,8 @@ avalPhone: loan.avalData?.avalPhone || '',
                     </td>
                     <td style={tableCellStyle}>{loan.loantype.name}</td>
                     <td style={tableCellStyle}>
-                      <div 
-                        style={{ 
+                      <div
+                        style={{
                           position: 'relative',
                           display: 'inline-block',
                           maxWidth: '100%',
@@ -2028,10 +2053,10 @@ avalPhone: loan.avalData?.avalPhone || '',
                           if (tooltip) {
                             const rect = e.currentTarget.getBoundingClientRect();
                             const tooltipRect = tooltip.getBoundingClientRect();
-                            
+
                             let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
                             let top = rect.top - tooltipRect.height - 8;
-                            
+
                             if (left < 0) left = 0;
                             if (left + tooltipRect.width > window.innerWidth) {
                               left = window.innerWidth - tooltipRect.width;
@@ -2039,7 +2064,7 @@ avalPhone: loan.avalData?.avalPhone || '',
                             if (top < 0) {
                               top = rect.bottom + 8;
                             }
-                            
+
                             tooltip.style.left = `${left}px`;
                             tooltip.style.top = `${top}px`;
                             tooltip.style.display = 'block';
@@ -2060,7 +2085,7 @@ avalPhone: loan.avalData?.avalPhone || '',
                         }}>
                           {loan.borrower?.personalData?.fullName || 'Sin nombre'}
                         </span>
-                        <div 
+                        <div
                           className="tooltip"
                           style={{
                             ...tooltipStyle,
@@ -2076,14 +2101,14 @@ avalPhone: loan.avalData?.avalPhone || '',
                     <td style={tableCellStyle}>${loan.previousLoan?.pendingAmount || '0'}</td>
                     <td style={tableCellStyle}>${loan.amountGived}</td>
                     <td style={tableCellStyle}>
-                      ${loan.loantype?.rate ? 
-                        calculateAmountToPay(loan.requestedAmount, loan.loantype.rate) : 
+                      ${loan.loantype?.rate ?
+                        calculateAmountToPay(loan.requestedAmount, loan.loantype.rate) :
                         'N/A'}
                     </td>
                     <td style={tableCellStyle}>${loan.comissionAmount || '0'}</td>
                     <td style={tableCellStyle}>
-                      <div 
-                        style={{ 
+                      <div
+                        style={{
                           position: 'relative',
                           display: 'inline-block',
                           maxWidth: '100%',
@@ -2094,10 +2119,10 @@ avalPhone: loan.avalData?.avalPhone || '',
                           if (tooltip) {
                             const rect = e.currentTarget.getBoundingClientRect();
                             const tooltipRect = tooltip.getBoundingClientRect();
-                            
+
                             let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
                             let top = rect.top - tooltipRect.height - 8;
-                            
+
                             if (left < 0) left = 0;
                             if (left + tooltipRect.width > window.innerWidth) {
                               left = window.innerWidth - tooltipRect.width;
@@ -2105,7 +2130,7 @@ avalPhone: loan.avalData?.avalPhone || '',
                             if (top < 0) {
                               top = rect.bottom + 8;
                             }
-                            
+
                             tooltip.style.left = `${left}px`;
                             tooltip.style.top = `${top}px`;
                             tooltip.style.display = 'block';
@@ -2127,7 +2152,7 @@ avalPhone: loan.avalData?.avalPhone || '',
                           {/* ✅ NUEVO: Mostrar aval desde collaterals o fallback a campos legacy */}
                           {loan.collaterals?.[0]?.fullName || loan.avalName || '-'}
                         </span>
-                        <div 
+                        <div
                           className="tooltip"
                           style={{
                             ...tooltipStyle,
@@ -2148,9 +2173,9 @@ avalPhone: loan.avalData?.avalPhone || '',
                       position: 'relative',
                     }}>
                       {isDeleting === loan.id ? (
-                        <Box style={{ 
-                          display: 'flex', 
-                          alignItems: 'center', 
+                        <Box style={{
+                          display: 'flex',
+                          alignItems: 'center',
                           justifyContent: 'center',
                           width: '100%',
                           height: '32px'
@@ -2233,14 +2258,14 @@ avalPhone: loan.avalData?.avalPhone || '',
 
                                 // Cargar automáticamente la comisión configurada
                                 const defaultCommission = selectedType.loanGrantedComission || 0;
-                                const commissionAmount = defaultCommission && parseFloat(defaultCommission.toString()) > 0 ? 
-                                  defaultCommission.toString() : 
+                                const commissionAmount = defaultCommission && parseFloat(defaultCommission.toString()) > 0 ?
+                                  defaultCommission.toString() :
                                   newLoan.comissionAmount || '0';
 
                                 setNewLoan({
                                   ...newLoan,
-                                  loantype: { 
-                                    id: value.value, 
+                                  loantype: {
+                                    id: value.value,
                                     name: value.label.split('(')[0].trim(),
                                     rate: selectedType.rate,
                                     weekDuration: selectedType.weekDuration
@@ -2320,9 +2345,9 @@ avalPhone: loan.avalData?.avalPhone || '',
                             pendingAmount: newLoan.pendingAmount || '0',
                             rate: newLoan.loantype?.rate || 0
                           });
-                          
-                          setNewLoan({ 
-                            ...newLoan, 
+
+                          setNewLoan({
+                            ...newLoan,
                             requestedAmount,
                             amountGived,
                             amountToPay
@@ -2375,7 +2400,7 @@ avalPhone: loan.avalData?.avalPhone || '',
                         placeholder="0.00"
                       />
                     </td>
-                    <td style={{...tableCellWithInputStyle}} colSpan={2}>
+                    <td style={{ ...tableCellWithInputStyle }} colSpan={2}>
                       <div style={{ position: 'relative', width: '100%' }}>
                         <AvalDropdown
                           loanId={newLoan.id || 'new'}
@@ -2409,9 +2434,9 @@ avalPhone: loan.avalData?.avalPhone || '',
                     }}>
                       <Box style={{ display: 'flex', gap: '4px' }}>
                         {isCreating ? (
-                          <Box style={{ 
-                            display: 'flex', 
-                            alignItems: 'center', 
+                          <Box style={{
+                            display: 'flex',
+                            alignItems: 'center',
                             justifyContent: 'center',
                             width: '100%',
                             height: '32px'
@@ -2512,23 +2537,23 @@ avalPhone: loan.avalData?.avalPhone || '',
               </p>
             )}
           </div>
-          
+
           <div style={{
             padding: '12px',
           }}>
-            <table style={{ 
-              width: '100%', 
+            <table style={{
+              width: '100%',
               borderCollapse: 'collapse',
               fontSize: '13px',
             }}>
               <thead>
-                <tr style={{ 
+                <tr style={{
                   backgroundColor: '#E0F2FE',
-                  borderBottom: '1px solid #B3E5FC' 
+                  borderBottom: '1px solid #B3E5FC'
                 }}>
                   <th style={tableHeaderStyle}>Préstamo Previo</th>
                   <th style={tableHeaderStyle}>Tipo</th>
-                  <th style={{...tableHeaderStyle, minWidth: '250px'}}>Cliente (Nombre + Teléfono)</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: '250px' }}>Cliente (Nombre + Teléfono)</th>
                   <th style={tableHeaderStyle}>Monto Solicitado</th>
                   <th style={tableHeaderStyle}>Monto Entregado</th>
                   <th style={tableHeaderStyle}>Comisión</th>
@@ -2554,274 +2579,274 @@ avalPhone: loan.avalData?.avalPhone || '',
                   const isInputRow = isPendingRow || isEmptyRow; // ✅ Siempre editable: pendientes y fila de captura
                   const isConfirmedRow = isPendingRow; // ✅ Fila confirmada = tiene datos y está en pendingLoans
                   return (
-                  <tr 
-                    key={index}
-                    style={{
-                      borderBottom: '1px solid #E0F2FE',
-                      backgroundColor: isConfirmedRow ? '#ECFDF5' : (isInactiveRow ? '#F8FAFC' : 'white'), // ✅ Verde suave cuando confirmada, gris cuando inactiva
-                    }}
-                  >
-                                        {/* ✅ NUEVO: Columna para Préstamo Previo */}
-                    <td style={tableCellStyle}>
-                      {isInputRow ? (
-                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    <tr
+                      key={index}
+                      style={{
+                        borderBottom: '1px solid #E0F2FE',
+                        backgroundColor: isConfirmedRow ? '#ECFDF5' : (isInactiveRow ? '#F8FAFC' : 'white'), // ✅ Verde suave cuando confirmada, gris cuando inactiva
+                      }}
+                    >
+                      {/* ✅ NUEVO: Columna para Préstamo Previo */}
+                      <td style={tableCellStyle}>
+                        {isInputRow ? (
+                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                            <Select
+                              placeholder="Préstamo anterior..."
+                              options={previousLoanOptions}
+                              onChange={(option) => {
+                                if (isPendingRow) {
+                                  handlePendingLoanChange(index, 'previousLoan', option);
+                                } else {
+                                  handleEmptyRowChange('previousLoan', option);
+                                }
+                              }}
+                              value={loan.previousLoan?.id ? {
+                                value: loan.previousLoan.id,
+                                label: `${loan.previousLoan.borrower?.personalData?.fullName || 'Sin nombre'} ($${loan.previousLoan.pendingAmount || 0})`
+                              } : { value: '', label: 'Seleccionar préstamo previo' }}
+                              menuPosition="fixed"
+                              menuPortalTarget={document.body}
+                              styles={{
+                                container: (base) => ({ ...base, flex: 1 }),
+                                control: (base) => ({ ...base, fontSize: '12px', minHeight: '32px' }),
+                                menuPortal: (base) => ({ ...base, zIndex: 9999 })
+                              }}
+                            />
+                            {/* ✅ NUEVO: Botón para limpiar selección de préstamo anterior */}
+                            {loan.previousLoan && isInputRow && (
+                              <Button
+                                tone="negative"
+                                size="small"
+                                onClick={() => {
+                                  if (isPendingRow) {
+                                    handlePendingLoanChange(index, 'previousLoan', null);
+                                  } else {
+                                    handleEmptyRowChange('previousLoan', null);
+                                  }
+                                }}
+                                style={{
+                                  padding: '4px',
+                                  width: '24px',
+                                  height: '24px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  minWidth: '24px',
+                                  flexShrink: 0
+                                }}
+                                title="Quitar selección de préstamo anterior"
+                              >
+                                ×
+                              </Button>
+                            )}
+                          </div>
+                        ) : (
+                          loan.previousLoan ? (
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              padding: '4px 8px',
+                              backgroundColor: '#F0F9FF',
+                              color: '#0052CC',
+                              borderRadius: '4px',
+                              fontSize: '12px',
+                              fontWeight: '500',
+                            }}>
+                              {loan.previousLoan.borrower?.personalData?.fullName || 'Renovado'}
+                            </span>
+                          ) : (
+                            '-'
+                          )
+                        )}
+                      </td>
+                      {/* ✅ NUEVO: Columna separada para Tipo */}
+                      <td style={tableCellStyle}>
+                        {isInputRow ? (
                           <Select
-                            placeholder="Préstamo anterior..."
-                            options={previousLoanOptions}
+                            placeholder="Tipo de préstamo..."
+                            options={loanTypeOptions}
                             onChange={(option) => {
                               if (isPendingRow) {
-                                handlePendingLoanChange(index, 'previousLoan', option);
+                                handlePendingLoanChange(index, 'loantype', option);
                               } else {
-                                handleEmptyRowChange('previousLoan', option);
+                                handleEmptyRowChange('loantype', option);
                               }
                             }}
-                            value={loan.previousLoan?.id ? { 
-                              value: loan.previousLoan.id, 
-                              label: `${loan.previousLoan.borrower?.personalData?.fullName || 'Sin nombre'} ($${loan.previousLoan.pendingAmount || 0})`
-                            } : { value: '', label: 'Seleccionar préstamo previo' }}
+                            value={loan.loantype?.id ? {
+                              value: loan.loantype.id,
+                              label: loan.loantype.name
+                            } : { value: '', label: 'Seleccionar tipo' }}
                             menuPosition="fixed"
                             menuPortalTarget={document.body}
                             styles={{
-                              container: (base) => ({ ...base, flex: 1 }),
+                              container: (base) => ({ ...base, width: '100%' }),
                               control: (base) => ({ ...base, fontSize: '12px', minHeight: '32px' }),
                               menuPortal: (base) => ({ ...base, zIndex: 9999 })
                             }}
                           />
-                          {/* ✅ NUEVO: Botón para limpiar selección de préstamo anterior */}
-                          {loan.previousLoan && isInputRow && (
-                            <Button
-                              tone="negative"
-                              size="small"
-                              onClick={() => {
-                                if (isPendingRow) {
-                                  handlePendingLoanChange(index, 'previousLoan', null);
-                                } else {
-                                  handleEmptyRowChange('previousLoan', null);
-                                }
-                              }}
-                              style={{
-                                padding: '4px',
-                                width: '24px',
-                                height: '24px',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                minWidth: '24px',
-                                flexShrink: 0
-                              }}
-                              title="Quitar selección de préstamo anterior"
-                            >
-                              ×
-                            </Button>
-                          )}
-                        </div>
-                      ) : (
-                        loan.previousLoan ? (
-                        <span style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          padding: '4px 8px',
-                          backgroundColor: '#F0F9FF',
-                          color: '#0052CC',
-                          borderRadius: '4px',
-                          fontSize: '12px',
-                          fontWeight: '500',
-                        }}>
-                            {loan.previousLoan.borrower?.personalData?.fullName || 'Renovado'}
-                        </span>
                         ) : (
-                          '-'
-                        )
-                      )}
-                    </td>
-                    {/* ✅ NUEVO: Columna separada para Tipo */}
-                    <td style={tableCellStyle}>
-                      {isInputRow ? (
-                        <Select
-                          placeholder="Tipo de préstamo..."
-                          options={loanTypeOptions}
-                          onChange={(option) => {
-                            if (isPendingRow) {
-                              handlePendingLoanChange(index, 'loantype', option);
-                            } else {
-                              handleEmptyRowChange('loantype', option);
-                            }
-                          }}
-                          value={loan.loantype?.id ? { 
-                            value: loan.loantype.id, 
-                            label: loan.loantype.name 
-                          } : { value: '', label: 'Seleccionar tipo' }}
-                          menuPosition="fixed"
-                          menuPortalTarget={document.body}
-                          styles={{
-                            container: (base) => ({ ...base, width: '100%' }),
-                            control: (base) => ({ ...base, fontSize: '12px', minHeight: '32px' }),
-                            menuPortal: (base) => ({ ...base, zIndex: 9999 })
-                          }}
-                        />
-                      ) : (
-                        <span style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          padding: '4px 8px',
-                          backgroundColor: loan.previousLoan ? '#F0F9FF' : '#F0FDF4',
-                          color: loan.previousLoan ? '#0052CC' : '#059669',
-                          borderRadius: '4px',
-                          fontSize: '12px',
-                          fontWeight: '500',
-                        }}>
-                          {loan.loantype?.name || 'Sin tipo'}
-                        </span>
-                      )}
-                    </td>
-                    <td style={{...tableCellStyle, minWidth: '250px'}}>
-                      {isInputRow ? (
-                        <ClientDropdown
-                          loanId={loan.id}
-                          currentClientName={loan.borrower?.personalData?.fullName || ''}
-                          currentClientPhone={loan.borrower?.personalData?.phones?.[0]?.number || ''}
-                          isFromPreviousLoan={!!loan.previousLoan} // ✅ NUEVA: Indicar si viene de préstamo anterior
-                          onClientChange={(clientName, clientPhone, action) => {
-                            console.log('📝 ClientDropdown onChange:', {
-                              clientName,
-                              clientPhone,
-                              action
-                            });
-                            // Actualizar tanto el nombre como el teléfono
-                            if (isPendingRow) {
-                              handlePendingLoanChange(index, 'clientData', { clientName, clientPhone, action });
-                            } else {
-                              handleEmptyRowChange('clientData', { clientName, clientPhone, action });
-                            }
-                          }}
-                        />
-                      ) : (
-                        <div style={{ display: 'flex', gap: '8px', fontSize: '13px' }}>
-                          <span style={{ fontWeight: '500' }}>
-                      {loan.borrower?.personalData?.fullName || 'Sin nombre'}
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '4px 8px',
+                            backgroundColor: loan.previousLoan ? '#F0F9FF' : '#F0FDF4',
+                            color: loan.previousLoan ? '#0052CC' : '#059669',
+                            borderRadius: '4px',
+                            fontSize: '12px',
+                            fontWeight: '500',
+                          }}>
+                            {loan.loantype?.name || 'Sin tipo'}
                           </span>
-                          <span style={{ color: '#6B7280' }}>
-                            {loan.borrower?.personalData?.phones?.[0]?.number || 'Sin teléfono'}
-                          </span>
-                        </div>
-                      )}
-                    </td>
-                    <td style={tableCellStyle}>
-                      {isInputRow ? (
-                        <TextInput
-                          placeholder="0.00"
-                          value={loan.requestedAmount || ''}
-                          onChange={(e) => {
-                            if (isPendingRow) {
-                              handlePendingLoanChange(index, 'requestedAmount', e.target.value);
-                            } else {
-                              handleEmptyRowChange('requestedAmount', e.target.value);
-                            }
-                          }}
-                          style={{ width: '100%', fontSize: '13px' }}
-                          type="number"
-                          step="0.01"
-                        />
-                      ) : (
-                        `$${loan.requestedAmount || '0'}`
-                      )}
-                    </td>
-                    <td style={tableCellStyle}>
-                      {isInputRow ? (
-                        <TextInput
-                          placeholder="0.00"
-                          value={loan.amountGived || ''}
-                          onChange={(e) => {
-                            if (isPendingRow) {
-                              handlePendingLoanChange(index, 'amountGived', e.target.value);
-                            } else {
-                              handleEmptyRowChange('amountGived', e.target.value);
-                            }
-                          }}
-                          style={{ width: '100%', fontSize: '13px' }}
-                          type="number"
-                          step="0.01"
-                        />
-                      ) : (
-                        `$${loan.amountGived || '0'}`
-                      )}
-                    </td>
-                    <td style={tableCellStyle}>
-                      {isInputRow ? (
-                        <TextInput
-                          placeholder="0.00"
-                          value={loan.comissionAmount || ''}
-                          onChange={(e) => {
-                            if (isPendingRow) {
-                              handlePendingLoanChange(index, 'comissionAmount', e.target.value);
-                            } else {
-                              handleEmptyRowChange('comissionAmount', e.target.value);
-                            }
-                          }}
-                          // Ya no confirmamos con Tab; la confirmación es automática por validación
-                          style={{ width: '100%', fontSize: '13px' }}
-                          type="number"
-                          step="0.01"
-                        />
-                      ) : (
-                        `$${loan.comissionAmount || '0'}`
-                      )}
-                    </td>
-                    <td style={tableCellStyle}>
-                      {isInputRow ? (
-                        <AvalDropdown
-                          loanId="empty-row"
-                          currentAvalName={loan.avalName || ''}
-                          currentAvalPhone={loan.avalPhone || ''}
-                          borrowerLocationId={undefined}
-                          usedAvalIds={usedAvalIds}
-                          onAvalChange={(avalName, avalPhone, personalDataId, action) => {
-                            // Para la fila vacía, necesitamos crear múltiples campos a la vez
-                            const payload = {
-                              avalName,
-                              avalPhone,
-                              selectedCollateralId: personalDataId,
-                              avalAction: action
-                            };
-                            if (isPendingRow) {
-                              handlePendingLoanChange(index, 'avalData', payload);
-                            } else {
-                              handleEmptyRowChange('avalData', payload);
-                            }
-                          }}
-                          onlyNameField={false}
-                        />
-                      ) : (
-                        /* ✅ Mostrar aval desde collaterals o fallback a campos legacy */
-                        loan.collaterals?.[0]?.fullName || loan.avalName || '-'
-                      )}
-                    </td>
-                    <td style={{
-                      ...tableCellStyle,
-                      width: '80px',
-                    }}>
-                      {!isEmptyRow && (
-                      <Button
-                        tone="negative"
-                        size="small"
-                        onClick={() => {
-                          setPendingLoans(prev => prev.filter((_, i) => i !== index));
-                        }}
-                        style={{
-                          padding: '6px',
-                          width: '32px',
-                          height: '32px',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                        title="Eliminar de la lista"
-                      >
-                        <FaTrash size={14} />
-                      </Button>
-                      )}
-                    </td>
-                  </tr>
+                        )}
+                      </td>
+                      <td style={{ ...tableCellStyle, minWidth: '250px' }}>
+                        {isInputRow ? (
+                          <ClientDropdown
+                            loanId={loan.id}
+                            currentClientName={loan.borrower?.personalData?.fullName || ''}
+                            currentClientPhone={loan.borrower?.personalData?.phones?.[0]?.number || ''}
+                            isFromPreviousLoan={!!loan.previousLoan} // ✅ NUEVA: Indicar si viene de préstamo anterior
+                            onClientChange={(clientName, clientPhone, action) => {
+                              console.log('📝 ClientDropdown onChange:', {
+                                clientName,
+                                clientPhone,
+                                action
+                              });
+                              // Actualizar tanto el nombre como el teléfono
+                              if (isPendingRow) {
+                                handlePendingLoanChange(index, 'clientData', { clientName, clientPhone, action });
+                              } else {
+                                handleEmptyRowChange('clientData', { clientName, clientPhone, action });
+                              }
+                            }}
+                          />
+                        ) : (
+                          <div style={{ display: 'flex', gap: '8px', fontSize: '13px' }}>
+                            <span style={{ fontWeight: '500' }}>
+                              {loan.borrower?.personalData?.fullName || 'Sin nombre'}
+                            </span>
+                            <span style={{ color: '#6B7280' }}>
+                              {loan.borrower?.personalData?.phones?.[0]?.number || 'Sin teléfono'}
+                            </span>
+                          </div>
+                        )}
+                      </td>
+                      <td style={tableCellStyle}>
+                        {isInputRow ? (
+                          <TextInput
+                            placeholder="0.00"
+                            value={loan.requestedAmount || ''}
+                            onChange={(e) => {
+                              if (isPendingRow) {
+                                handlePendingLoanChange(index, 'requestedAmount', e.target.value);
+                              } else {
+                                handleEmptyRowChange('requestedAmount', e.target.value);
+                              }
+                            }}
+                            style={{ width: '100%', fontSize: '13px' }}
+                            type="number"
+                            step="0.01"
+                          />
+                        ) : (
+                          `$${loan.requestedAmount || '0'}`
+                        )}
+                      </td>
+                      <td style={tableCellStyle}>
+                        {isInputRow ? (
+                          <TextInput
+                            placeholder="0.00"
+                            value={loan.amountGived || ''}
+                            onChange={(e) => {
+                              if (isPendingRow) {
+                                handlePendingLoanChange(index, 'amountGived', e.target.value);
+                              } else {
+                                handleEmptyRowChange('amountGived', e.target.value);
+                              }
+                            }}
+                            style={{ width: '100%', fontSize: '13px' }}
+                            type="number"
+                            step="0.01"
+                          />
+                        ) : (
+                          `$${loan.amountGived || '0'}`
+                        )}
+                      </td>
+                      <td style={tableCellStyle}>
+                        {isInputRow ? (
+                          <TextInput
+                            placeholder="0.00"
+                            value={loan.comissionAmount || ''}
+                            onChange={(e) => {
+                              if (isPendingRow) {
+                                handlePendingLoanChange(index, 'comissionAmount', e.target.value);
+                              } else {
+                                handleEmptyRowChange('comissionAmount', e.target.value);
+                              }
+                            }}
+                            // Ya no confirmamos con Tab; la confirmación es automática por validación
+                            style={{ width: '100%', fontSize: '13px' }}
+                            type="number"
+                            step="0.01"
+                          />
+                        ) : (
+                          `$${loan.comissionAmount || '0'}`
+                        )}
+                      </td>
+                      <td style={tableCellStyle}>
+                        {isInputRow ? (
+                          <AvalDropdown
+                            loanId="empty-row"
+                            currentAvalName={loan.avalName || ''}
+                            currentAvalPhone={loan.avalPhone || ''}
+                            borrowerLocationId={undefined}
+                            usedAvalIds={usedAvalIds}
+                            onAvalChange={(avalName, avalPhone, personalDataId, action) => {
+                              // Para la fila vacía, necesitamos crear múltiples campos a la vez
+                              const payload = {
+                                avalName,
+                                avalPhone,
+                                selectedCollateralId: personalDataId,
+                                avalAction: action
+                              };
+                              if (isPendingRow) {
+                                handlePendingLoanChange(index, 'avalData', payload);
+                              } else {
+                                handleEmptyRowChange('avalData', payload);
+                              }
+                            }}
+                            onlyNameField={false}
+                          />
+                        ) : (
+                          /* ✅ Mostrar aval desde collaterals o fallback a campos legacy */
+                          loan.collaterals?.[0]?.fullName || loan.avalName || '-'
+                        )}
+                      </td>
+                      <td style={{
+                        ...tableCellStyle,
+                        width: '80px',
+                      }}>
+                        {!isEmptyRow && (
+                          <Button
+                            tone="negative"
+                            size="small"
+                            onClick={() => {
+                              setPendingLoans(prev => prev.filter((_, i) => i !== index));
+                            }}
+                            style={{
+                              padding: '6px',
+                              width: '32px',
+                              height: '32px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                            title="Eliminar de la lista"
+                          >
+                            <FaTrash size={14} />
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
                   ); // Cerrar el return del map
                 })}
               </tbody>
@@ -2865,7 +2890,7 @@ avalPhone: loan.avalData?.avalPhone || '',
               <span>{pendingLoans.length} préstamo{pendingLoans.length !== 1 ? 's' : ''} listo{pendingLoans.length !== 1 ? 's' : ''} para guardar</span>
             </div>
           </div>
-          
+
           <div style={{
             display: 'flex',
             gap: '12px',
@@ -3163,16 +3188,16 @@ avalPhone: loan.avalData?.avalPhone || '',
           >
             <Stack gap="large">
               <Stack gap="medium">
-                <h2 style={{ 
-                  margin: 0, 
-                  fontSize: '20px', 
+                <h2 style={{
+                  margin: 0,
+                  fontSize: '20px',
                   fontWeight: '600',
                   color: '#1a1f36'
                 }}>
                   Editar Préstamo
                 </h2>
-                <p style={{ 
-                  margin: 0, 
+                <p style={{
+                  margin: 0,
                   color: '#697386',
                   fontSize: '14px'
                 }}>
@@ -3228,8 +3253,8 @@ avalPhone: loan.avalData?.avalPhone || '',
 
                           // Cargar automáticamente la comisión configurada
                           const defaultCommission = selectedType.loanGrantedComission || 0;
-                          const commissionAmount = defaultCommission && parseFloat(defaultCommission.toString()) > 0 ? 
-                            defaultCommission.toString() : 
+                          const commissionAmount = defaultCommission && parseFloat(defaultCommission.toString()) > 0 ?
+                            defaultCommission.toString() :
                             editingLoan.comissionAmount || '0';
 
                           setEditingLoan({
@@ -3282,9 +3307,9 @@ avalPhone: loan.avalData?.avalPhone || '',
                         pendingAmount: editingLoan.previousLoan?.pendingAmount || '0',
                         rate: editingLoan.loantype.rate
                       });
-                      
-                      setEditingLoan({ 
-                        ...editingLoan, 
+
+                      setEditingLoan({
+                        ...editingLoan,
                         requestedAmount,
                         amountGived,
                         amountToPay
@@ -3396,16 +3421,16 @@ avalPhone: loan.avalData?.avalPhone || '',
                 </div>
               </Stack>
 
-              <Box style={{ 
-                display: 'flex', 
-                gap: '12px', 
+              <Box style={{
+                display: 'flex',
+                gap: '12px',
                 justifyContent: 'flex-end',
                 marginTop: '16px'
               }}>
                 <Button
                   tone="negative"
                   size="large"
-                                          onClick={() => setEditingLoan(null)}
+                  onClick={() => setEditingLoan(null)}
                   style={{
                     padding: '10px 20px',
                     borderRadius: '8px',
