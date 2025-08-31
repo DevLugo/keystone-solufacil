@@ -591,8 +591,9 @@ export default function ConfiguracionReportesPage() {
             // TEMPORAL: Forzar uso de PDF para debug
             const forcePDF = true;
             console.log(`🧪 FORZANDO USO DE PDF para debug`);
+            console.log(`🔥 ANTES DE LA CONDICIÓN - forcePDF:`, forcePDF);
             
-            if (isCreditsWithErrors || forcePDF) {
+            if (forcePDF) {
               console.log(`📋 DETECTADO REPORTE DE CRÉDITOS CON ERRORES`);
               console.log(`📋 Tipo de reporte: "${config.reportType}"`);
               console.log(`📋 Route IDs: [${routeIds.join(', ')}]`);

@@ -6470,8 +6470,16 @@ async function generatePDFWithStreams(reportType: string, context: Context, rout
       switch (reportType) {
         case 'creditos_con_errores':
           console.log('✅ ENTRANDO A CASO creditos_con_errores');
-          await generateCreditsWithDocumentErrorsReport(doc, context, routeIds);
-          console.log('✅ FUNCIÓN generateCreditsWithDocumentErrorsReport COMPLETADA');
+          try {
+            await generateCreditsWithDocumentErrorsReport(doc, context, routeIds);
+            console.log('✅ FUNCIÓN generateCreditsWithDocumentErrorsReport COMPLETADA');
+          } catch (reportError) {
+            console.error('❌ Error en generateCreditsWithDocumentErrorsReport:', reportError);
+            doc.fontSize(16).text('Error generando reporte detallado', { align: 'center' });
+            doc.moveDown();
+            doc.fontSize(12).text('Se produjo un error al generar el reporte.', { align: 'center' });
+            doc.text('Revisa los logs del servidor para más detalles.', { align: 'center' });
+          }
           break;
           
         default:
@@ -6774,9 +6782,23 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
     }
     
     // Generar tabla real con formato profesional
-    await generateRealDocumentErrorTable(doc, tableData, weekGroups);
-    
-    console.log('✅ Tabla REAL generada correctamente');
+    try {
+      await generateRealDocumentErrorTable(doc, tableData, weekGroups);
+      console.log('✅ Tabla REAL generada correctamente');
+    } catch (tableError) {
+      console.error('❌ Error en generateRealDocumentErrorTable:', tableError);
+      // Fallback: tabla simple
+      doc.fontSize(14).text('TABLA DE CRÉDITOS CON PROBLEMAS (Modo Fallback)');
+      doc.moveDown();
+      tableData.forEach((row, index) => {
+        doc.fontSize(10);
+        doc.text(`${index + 1}. ${row.locality} - ${row.clientName} (${row.problemType})`);
+        doc.fontSize(8);
+        doc.text(`   Problema: ${row.problemDescription}`);
+        doc.text(`   Observaciones: ${row.observations}`);
+        doc.moveDown(0.5);
+      });
+    }
 
     // Generar página de resumen ejecutivo simplificada
     doc.addPage();
@@ -6886,17 +6908,17 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
     const pageWidth = 500;
     const startX = 50;
     const headerHeight = 30;
-    const rowHeight = 50; // Aumentar altura para acomodar texto en múltiples líneas
+    const rowHeight = 40;
     let currentY = doc.y;
     
-    // Configuración de columnas mejorada con Ruta al principio
+    // Configuración de columnas simplificada
     const columns = [
-      { header: 'Ruta', width: 60, align: 'left' },
-      { header: 'Localidad', width: 70, align: 'left' },
-      { header: 'Cliente', width: 85, align: 'left' },
-      { header: 'Tipo', width: 45, align: 'center' },
-      { header: 'Descripción del Problema', width: 140, align: 'left' },
-      { header: 'Observaciones', width: 100, align: 'left' }
+      { header: 'Ruta', width: 60 },
+      { header: 'Localidad', width: 70 },
+      { header: 'Cliente', width: 90 },
+      { header: 'Tipo', width: 50 },
+      { header: 'Problema', width: 130 },
+      { header: 'Observaciones', width: 100 }
     ];
     
     // Función para dibujar header de tabla
@@ -6928,142 +6950,69 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
       return y + headerHeight;
     };
     
-    // Función para dibujar fila de datos
+    // Función para dibujar fila de datos (simplificada)
     const drawTableRow = (data: any, y: number, isShaded: boolean = false) => {
-      // Color de fondo alternado
-      if (isShaded) {
-        doc.fillColor('#e0f2fe').rect(startX, y, pageWidth, rowHeight).fill();
-      } else {
-        doc.fillColor('white').rect(startX, y, pageWidth, rowHeight).fill();
-      }
-      
-      // Bordes exteriores de la fila
-      doc.strokeColor('#374151').lineWidth(1).rect(startX, y, pageWidth, rowHeight).stroke();
-      
-      // Contenido de las celdas
-      doc.fillColor('black').fontSize(8);
-      let x = startX;
-      
-      const cellData = [
-        data.routeName || 'N/A',
-        data.locality || 'N/A',
-        data.clientName || 'N/A',
-        data.problemType || 'N/A',
-        data.problemDescription || 'N/A',
-        data.observations || 'Sin observaciones'
-      ];
-      
-      columns.forEach((col, index) => {
-        // Líneas verticales entre columnas
-        if (index > 0) {
-          doc.strokeColor('#374151').lineWidth(0.5);
-          doc.moveTo(x, y).lineTo(x, y + rowHeight).stroke();
+      try {
+        // Color de fondo alternado
+        if (isShaded) {
+          doc.fillColor('#e0f2fe').rect(startX, y, pageWidth, rowHeight).fill();
+        } else {
+          doc.fillColor('white').rect(startX, y, pageWidth, rowHeight).fill();
         }
         
-        let cellText = cellData[index];
+        // Bordes de la fila
+        doc.strokeColor('#374151').lineWidth(1).rect(startX, y, pageWidth, rowHeight).stroke();
         
-        // Manejo especial para la columna de problemas (índice 4)
-        if (index === 4) {
-          // Separar problemas en líneas
-          const problems = cellText.split(';').map(p => p.trim()).filter(p => p.length > 0);
-          
-          doc.fillColor('black').fontSize(7);
-          let textY = y + 6;
-          
-          problems.forEach((problem, problemIndex) => {
-            if (textY < y + rowHeight - 8) { // Verificar que no se salga de la celda
-              // Determinar el tipo de problema
-              if (problem.includes('con error')) {
-                doc.fillColor('#dc2626'); // Rojo para errores
-                doc.text(`ERROR: ${problem}`, x + 3, textY, { 
-                  width: col.width - 6,
-                  lineBreak: false
-                });
-              } else if (problem.includes('faltante')) {
-                doc.fillColor('#f59e0b'); // Naranja para faltantes
-                doc.text(`FALTA: ${problem}`, x + 3, textY, { 
-                  width: col.width - 6,
-                  lineBreak: false
-                });
-              } else {
-                doc.fillColor('black');
-                doc.text(`- ${problem}`, x + 3, textY, { 
-                  width: col.width - 6,
-                  lineBreak: false
-                });
-              }
-              textY += 10; // Espacio entre líneas
-            }
-          });
-          
-        } else if (index === 5) { // Columna de observaciones
-          // Manejo especial para observaciones con saltos de línea
-          doc.fillColor('#374151').fontSize(7);
-          
-          // Dividir observaciones en líneas si son muy largas
-          const maxCharsPerLine = 25;
-          const words = cellText.split(' ');
-          let currentLine = '';
-          let textY = y + 6;
-          
-          words.forEach(word => {
-            if ((currentLine + word).length <= maxCharsPerLine) {
-              currentLine += (currentLine ? ' ' : '') + word;
-            } else {
-              if (currentLine && textY < y + rowHeight - 8) {
-                doc.text(currentLine, x + 3, textY, { 
-                  width: col.width - 6,
-                  lineBreak: false
-                });
-                textY += 9;
-              }
-              currentLine = word;
-            }
-          });
-          
-          // Escribir la última línea
-          if (currentLine && textY < y + rowHeight - 8) {
-            doc.text(currentLine, x + 3, textY, { 
-              width: col.width - 6,
-              lineBreak: false
-            });
+        // Datos de las celdas
+        const cellData = [
+          data.routeName || 'N/A',
+          data.locality || 'N/A', 
+          data.clientName || 'N/A',
+          data.problemType || 'N/A',
+          data.problemDescription || 'N/A',
+          data.observations || 'Sin observaciones'
+        ];
+        
+        // Dibujar contenido de cada celda
+        let x = startX;
+        columns.forEach((col, index) => {
+          // Líneas verticales
+          if (index > 0) {
+            doc.strokeColor('#374151').lineWidth(0.5);
+            doc.moveTo(x, y).lineTo(x, y + rowHeight).stroke();
           }
           
-        } else {
-          // Para otras columnas, usar el manejo normal
-          // Color especial para el tipo de problema
-          if (index === 3) { // Columna "Tipo" (ahora índice 3)
+          let cellText = cellData[index];
+          
+          // Color para tipo de problema
+          if (index === 3) { // Tipo
             doc.fillColor(cellText === 'CLIENTE' ? '#059669' : '#dc2626');
-            doc.fontSize(9); // Tamaño más grande para el tipo
+            doc.fontSize(9);
           } else {
             doc.fillColor('black');
             doc.fontSize(8);
           }
           
-          // Para ruta, localidad y cliente, permitir texto en múltiples líneas
-          if (index === 0 || index === 1 || index === 2) {
-            doc.text(cellText, x + 4, y + 8, { 
-              width: col.width - 8, 
-              height: rowHeight - 8,
-              align: col.align,
-              lineBreak: true
-            });
-          } else {
-            // Para tipo, texto centrado sin truncar
-            doc.text(cellText, x + 4, y + 18, { 
-              width: col.width - 8,
-              align: col.align
-            });
+          // Texto simple sin complicaciones
+          if (cellText.length > 20) {
+            cellText = cellText.substring(0, 17) + '...';
           }
-        }
+          
+          doc.text(cellText, x + 3, y + 12, { 
+            width: col.width - 6,
+            align: 'left'
+          });
+          
+          x += col.width;
+        });
         
-        x += col.width;
-      });
-      
-      // Resetear color
-      doc.fillColor('black');
-      
-      return y + rowHeight;
+        doc.fillColor('black');
+        return y + rowHeight;
+        
+      } catch (error) {
+        console.error('Error en drawTableRow:', error);
+        return y + rowHeight;
+      }
     };
     
     // Dibujar header inicial
@@ -7092,15 +7041,12 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
         currentY = drawTableHeader(currentY);
       }
       
-      // Header de semana con fondo
-      doc.fillColor('#f1f5f9').rect(startX, currentY, pageWidth, 20).fill();
-      doc.strokeColor('#64748b').lineWidth(1).rect(startX, currentY, pageWidth, 20).stroke();
-      
+      // Header de semana simplificado
       doc.fontSize(10).fillColor('#1e40af');
-      const weekText = `Semana del ${weekStart.toLocaleDateString('es-ES')} - ${weekData.length} registros`;
-      doc.text(weekText, startX + 10, currentY + 6);
+      const weekText = `Semana del ${weekStart.toLocaleDateString('es-ES')} (${weekData.length} registros)`;
+      doc.text(weekText, startX, currentY + 5);
       doc.fillColor('black');
-      currentY += 20;
+      currentY += 18;
       
       // Procesar TODOS los registros de la semana
       for (let i = 0; i < weekData.length; i++) {
@@ -7117,12 +7063,10 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
           currentY = drawTableHeader(currentY);
           
           // Repetir header de semana
-          doc.fillColor('#f1f5f9').rect(startX, currentY, pageWidth, 20).fill();
-          doc.strokeColor('#64748b').lineWidth(1).rect(startX, currentY, pageWidth, 20).stroke();
           doc.fontSize(10).fillColor('#1e40af');
-          doc.text(`${weekText} - continuacion`, startX + 10, currentY + 6);
+          doc.text(`${weekText} - continuacion`, startX, currentY + 5);
           doc.fillColor('black');
-          currentY += 20;
+          currentY += 18;
         }
         
         currentY = drawTableRow(rowData, currentY, isWeekShaded);
