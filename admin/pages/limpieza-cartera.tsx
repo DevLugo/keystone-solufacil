@@ -7,6 +7,7 @@ import { LoadingDots } from '@keystone-ui/loading';
 import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
 import { gql } from '@apollo/client';
 import { FaTrash, FaSave, FaFilter, FaCheck } from 'react-icons/fa';
+import ProtectedRoute from '../components/ProtectedRoute';
 
 // Query para obtener rutas
 const GET_ROUTES = gql`
@@ -435,8 +436,9 @@ export default function LimpiezaCarteraPage() {
   }
 
   return (
-    <PageContainer header="🧹 Limpieza de Cartera">
-      <div style={styles.container}>
+    <ProtectedRoute requiredRole="ADMIN">
+      <PageContainer header="🧹 Limpieza de Cartera">
+        <div style={styles.container}>
         {/* Header */}
         <div style={styles.header}>
           <h1 style={styles.title}>Limpieza de Cartera</h1>
@@ -876,5 +878,6 @@ export default function LimpiezaCarteraPage() {
         )}
       </div>
     </PageContainer>
+    </ProtectedRoute>
   );
 } 

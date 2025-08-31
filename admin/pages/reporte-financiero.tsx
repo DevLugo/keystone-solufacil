@@ -11,6 +11,7 @@ import {
   GraphQLErrorNotice 
 } from '@keystone-6/core/admin-ui/components';
 import { gql } from '@apollo/client';
+import ProtectedRoute from '../components/ProtectedRoute';
 
 // Query para obtener rutas
 const GET_ROUTES = gql`
@@ -170,6 +171,10 @@ const styles = {
 };
 
 export default function ReporteFinancieroPage() {
+  // Por ahora, permitir acceso a todos los usuarios
+  // TODO: Implementar verificación de rol más robusta
+  const userRole = 'ADMIN'; // Temporalmente hardcodeado para testing
+
   const [selectedRoutes, setSelectedRoutes] = useState<string[]>([]);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   
@@ -265,8 +270,9 @@ export default function ReporteFinancieroPage() {
   };
 
   return (
-    <PageContainer header="📊 Reporte Financiero - Gastos vs Ganancias">
-      <div style={styles.container}>
+    <ProtectedRoute requiredRole="ADMIN">
+      <PageContainer header="📊 Reporte Financiero - Gastos vs Ganancias">
+        <div style={styles.container}>
         {/* Filtros */}
         <div style={styles.filtersCard}>
           {/* Mensaje de ayuda */}
@@ -1321,5 +1327,6 @@ export default function ReporteFinancieroPage() {
         )}
       </div>
     </PageContainer>
+    </ProtectedRoute>
   );
 } 

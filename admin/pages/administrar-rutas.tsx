@@ -11,6 +11,7 @@ import { LoadingDots } from '@keystone-ui/loading';
 import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
 import { Box, jsx } from '@keystone-ui/core';
 import { FaExchangeAlt, FaEye, FaSave, FaUndo, FaMapMarkerAlt, FaUsers, FaMoneyBillWave } from 'react-icons/fa';
+import ProtectedRoute from '../components/ProtectedRoute';
 
 // Query para obtener todas las rutas con sus localidades
 const GET_ROUTES = gql`
@@ -367,8 +368,9 @@ const AdministrarRutasPage = () => {
   }
 
   return (
-    <PageContainer header="Administrar Rutas y Localidades">
-      <Box padding="large">
+    <ProtectedRoute requiredRole="ADMIN">
+      <PageContainer header="Administrar Rutas y Localidades">
+        <Box padding="large">
         <Box css={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
           
           {/* Resumen General */}
@@ -655,6 +657,7 @@ const AdministrarRutasPage = () => {
         </Box>
       </Box>
     </PageContainer>
+    </ProtectedRoute>
   );
 };
 

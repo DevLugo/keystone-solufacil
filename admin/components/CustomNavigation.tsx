@@ -59,12 +59,12 @@ const menuSections: MenuSection[] = [
     roles: ['NORMAL', 'ADMIN'],
     items: [
       {
-        label: 'Reporte Finanzas',
-        href: '/reporte-finanzas',
+        label: 'Reporte Financiero',
+        href: '/reporte-financiero',
         roles: ['ADMIN']
       },
       {
-        label: 'Reporte Cobranza',
+        label: 'Reporte de Cobranza',
         href: '/reporte-cobranza',
         roles: ['NORMAL', 'ADMIN']
       }
