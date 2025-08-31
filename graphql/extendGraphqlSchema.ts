@@ -7138,7 +7138,7 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
       doc.text('Error en fila de datos', startX + 5, y + 15);
       return y + rowHeight;
     }
-  };
+    };
     
     // Dibujar header inicial
     currentY = drawTableHeader(currentY);
