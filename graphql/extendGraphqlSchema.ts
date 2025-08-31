@@ -6593,10 +6593,14 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
         console.log(`📋 Crédito con problemas encontrado: ${credit.id} - Cliente: ${clientName}`);
         // Agregar fila para problemas del cliente
         if (hasClientProblems) {
-          const errors = [
-            ...clientDocErrors.map(doc => `${doc.documentType} con error: ${doc.errorDescription || 'Sin descripción'}`),
-            ...clientMissingDocs.map(type => `${type} faltante`)
-          ];
+          const errorDescriptions = clientDocErrors.map(doc => `${doc.documentType} con error`);
+          const missingDescriptions = clientMissingDocs.map(type => `${type} faltante`);
+          const allProblems = [...errorDescriptions, ...missingDescriptions];
+          
+          const detailedObservations = clientDocErrors
+            .map(doc => doc.errorDescription)
+            .filter(Boolean)
+            .join('; ') || 'Sin observaciones específicas';
           
           tableData.push({
             locality,
@@ -6604,18 +6608,22 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
             clientName,
             signDate,
             problemType: 'CLIENTE',
-            problemDescription: errors.join('; '),
-            observations: clientDocErrors.map(doc => doc.errorDescription).filter(Boolean).join('; ') || 'Sin observaciones'
+            problemDescription: allProblems.join('; '),
+            observations: detailedObservations
           });
         }
         
         // Agregar fila para problemas del aval
         if (hasAvalProblems && credit.collaterals?.[0]) {
           const avalName = credit.collaterals[0].fullName || 'Aval sin nombre';
-          const errors = [
-            ...avalDocErrors.map(doc => `${doc.documentType} con error: ${doc.errorDescription || 'Sin descripción'}`),
-            ...avalMissingDocs.map(type => `${type} faltante`)
-          ];
+          const avalErrorDescriptions = avalDocErrors.map(doc => `${doc.documentType} con error`);
+          const avalMissingDescriptions = avalMissingDocs.map(type => `${type} faltante`);
+          const allAvalProblems = [...avalErrorDescriptions, ...avalMissingDescriptions];
+          
+          const avalDetailedObservations = avalDocErrors
+            .map(doc => doc.errorDescription)
+            .filter(Boolean)
+            .join('; ') || 'Sin observaciones específicas';
           
           tableData.push({
             locality,
@@ -6623,8 +6631,8 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
             clientName: `${clientName} (Aval: ${avalName})`,
             signDate,
             problemType: 'AVAL',
-            problemDescription: errors.join('; '),
-            observations: avalDocErrors.map(doc => doc.errorDescription).filter(Boolean).join('; ') || 'Sin observaciones'
+            problemDescription: allAvalProblems.join('; '),
+            observations: avalDetailedObservations
           });
         }
       }
@@ -6643,8 +6651,8 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
           clientName: 'María González López',
           signDate: new Date(),
           problemType: 'CLIENTE',
-          problemDescription: 'INE con error: Imagen borrosa',
-          observations: 'Solicitar nueva fotografía con mejor calidad'
+          problemDescription: 'INE con error; DOMICILIO faltante',
+          observations: 'Imagen de INE borrosa, solicitar nueva foto. Pendiente comprobante domicilio.'
         },
         {
           locality: 'Campeche Centro',
@@ -6652,8 +6660,8 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
           clientName: 'Juan Pérez Martín (Aval: Ana Pérez)',
           signDate: new Date(Date.now() - 86400000),
           problemType: 'AVAL',
-          problemDescription: 'DOMICILIO faltante',
-          observations: 'Pendiente de entregar comprobante de domicilio'
+          problemDescription: 'DOMICILIO faltante; PAGARE con error',
+          observations: 'Aval no entregó comprobante. Pagaré con firma incorrecta.'
         },
         // Semana anterior
         {
@@ -6662,8 +6670,8 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
           clientName: 'Carlos Rodríguez Sánchez',
           signDate: new Date(Date.now() - 7 * 86400000),
           problemType: 'CLIENTE',
-          problemDescription: 'PAGARE con error: Firma ilegible',
-          observations: 'Rehacer pagaré con firma clara'
+          problemDescription: 'PAGARE con error',
+          observations: 'Firma ilegible en pagaré, debe rehacerse completamente.'
         },
         {
           locality: 'Calkiní',
@@ -6671,8 +6679,8 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
           clientName: 'Ana María Torres (Aval: Luis Torres)',
           signDate: new Date(Date.now() - 8 * 86400000),
           problemType: 'AVAL',
-          problemDescription: 'INE faltante',
-          observations: 'Aval debe proporcionar copia de INE'
+          problemDescription: 'INE faltante; DOMICILIO con error',
+          observations: 'Aval sin INE. Comprobante domicilio con dirección que no coincide.'
         },
         // Hace 2 semanas
         {
@@ -6681,8 +6689,8 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
           clientName: 'Roberto Fernández Gómez',
           signDate: new Date(Date.now() - 14 * 86400000),
           problemType: 'CLIENTE',
-          problemDescription: 'DOMICILIO con error: Dirección incorrecta',
-          observations: 'Corregir dirección en comprobante'
+          problemDescription: 'DOMICILIO con error; INE con error',
+          observations: 'Dirección incorrecta en comprobante. INE vencida, requiere renovación.'
         }
       ];
       
@@ -6714,14 +6722,20 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
     // Header profesional con logo
     await addCompanyHeader(doc);
     
-    // Título principal del reporte
-    doc.fontSize(18).fillColor('#1e40af').text('REPORTE DE CRÉDITOS CON DOCUMENTOS CON ERROR', { align: 'center' });
+    // Título principal del reporte (ocupando todo el ancho)
+    doc.fontSize(18).fillColor('#1e40af').text('REPORTE DE CRÉDITOS CON DOCUMENTOS CON ERROR', 50, doc.y, { 
+      width: 500, 
+      align: 'center' 
+    });
     doc.moveDown();
     
-    // Información del período
+    // Información del período (ocupando todo el ancho)
     const reportStartDate = new Date();
     reportStartDate.setMonth(reportStartDate.getMonth() - 2);
-    doc.fontSize(12).fillColor('black').text(`Período de Análisis: ${reportStartDate.toLocaleDateString('es-ES')} - ${new Date().toLocaleDateString('es-ES')}`, { align: 'center' });
+    doc.fontSize(12).fillColor('black').text(`Período de Análisis: ${reportStartDate.toLocaleDateString('es-ES')} - ${new Date().toLocaleDateString('es-ES')}`, 50, doc.y, { 
+      width: 500, 
+      align: 'center' 
+    });
     
     // Información de rutas (temporal: todas las rutas)
     doc.fontSize(10).fillColor('gray').text('Análisis: Todas las rutas del sistema', { align: 'center' });
@@ -6872,15 +6886,15 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
     const pageWidth = 500;
     const startX = 50;
     const headerHeight = 30;
-    const rowHeight = 35;
+    const rowHeight = 50; // Aumentar altura para acomodar texto en múltiples líneas
     let currentY = doc.y;
     
-    // Configuración de columnas
+    // Configuración de columnas mejorada
     const columns = [
-      { header: 'Localidad', width: 80, align: 'left' },
-      { header: 'Cliente', width: 100, align: 'left' },
-      { header: 'Tipo', width: 60, align: 'center' },
-      { header: 'Problema', width: 130, align: 'left' },
+      { header: 'Localidad', width: 70, align: 'left' },
+      { header: 'Cliente', width: 90, align: 'left' },
+      { header: 'Tipo', width: 50, align: 'center' },
+      { header: 'Descripción del Problema', width: 160, align: 'left' },
       { header: 'Observaciones', width: 130, align: 'left' }
     ];
     
@@ -6944,25 +6958,103 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
           doc.moveTo(x, y).lineTo(x, y + rowHeight).stroke();
         }
         
-        // Texto de la celda con truncamiento inteligente
         let cellText = cellData[index];
-        const maxLength = Math.floor(col.width / 5); // Aproximación de caracteres por ancho
-        if (cellText.length > maxLength) {
-          cellText = cellText.substring(0, maxLength - 3) + '...';
-        }
         
-        // Color especial para el tipo de problema
-        if (index === 2) { // Columna "Tipo"
-          doc.fillColor(cellText === 'CLIENTE' ? '#059669' : '#dc2626');
+        // Manejo especial para la columna de problemas (índice 3)
+        if (index === 3) {
+          // Separar problemas en líneas
+          const problems = cellText.split(';').map(p => p.trim()).filter(p => p.length > 0);
+          
+          doc.fillColor('black').fontSize(7);
+          let textY = y + 6;
+          
+          problems.forEach((problem, problemIndex) => {
+            if (textY < y + rowHeight - 8) { // Verificar que no se salga de la celda
+              // Determinar el tipo de problema
+              if (problem.includes('con error')) {
+                doc.fillColor('#dc2626'); // Rojo para errores
+                doc.text(`❌ ${problem}`, x + 3, textY, { 
+                  width: col.width - 6,
+                  lineBreak: false
+                });
+              } else if (problem.includes('faltante')) {
+                doc.fillColor('#f59e0b'); // Naranja para faltantes
+                doc.text(`⚠️ ${problem}`, x + 3, textY, { 
+                  width: col.width - 6,
+                  lineBreak: false
+                });
+              } else {
+                doc.fillColor('black');
+                doc.text(`• ${problem}`, x + 3, textY, { 
+                  width: col.width - 6,
+                  lineBreak: false
+                });
+              }
+              textY += 10; // Espacio entre líneas
+            }
+          });
+          
+        } else if (index === 4) { // Columna de observaciones
+          // Manejo especial para observaciones con saltos de línea
+          doc.fillColor('#374151').fontSize(7);
+          
+          // Dividir observaciones en líneas si son muy largas
+          const maxCharsPerLine = 25;
+          const words = cellText.split(' ');
+          let currentLine = '';
+          let textY = y + 6;
+          
+          words.forEach(word => {
+            if ((currentLine + word).length <= maxCharsPerLine) {
+              currentLine += (currentLine ? ' ' : '') + word;
+            } else {
+              if (currentLine && textY < y + rowHeight - 8) {
+                doc.text(currentLine, x + 3, textY, { 
+                  width: col.width - 6,
+                  lineBreak: false
+                });
+                textY += 9;
+              }
+              currentLine = word;
+            }
+          });
+          
+          // Escribir la última línea
+          if (currentLine && textY < y + rowHeight - 8) {
+            doc.text(currentLine, x + 3, textY, { 
+              width: col.width - 6,
+              lineBreak: false
+            });
+          }
+          
         } else {
-          doc.fillColor('black');
+          // Para otras columnas, usar el manejo normal
+          // Color especial para el tipo de problema
+          if (index === 2) { // Columna "Tipo"
+            doc.fillColor(cellText === 'CLIENTE' ? '#059669' : '#dc2626');
+            doc.fontSize(9); // Tamaño más grande para el tipo
+          } else {
+            doc.fillColor('black');
+            doc.fontSize(8);
+          }
+          
+          // Para localidad y cliente, permitir texto en múltiples líneas
+          if (index === 0 || index === 1) {
+            doc.text(cellText, x + 4, y + 8, { 
+              width: col.width - 8, 
+              height: rowHeight - 8,
+              align: col.align,
+              lineBreak: true
+            });
+          } else {
+            // Para tipo, texto centrado sin truncar
+            doc.text(cellText, x + 4, y + 18, { 
+              width: col.width - 8,
+              align: col.align
+            });
+          }
         }
         
-        doc.text(cellText, x + 4, y + 10, { 
-          width: col.width - 8, 
-          height: rowHeight - 8,
-          align: col.align
-        });
         x += col.width;
       });
       
