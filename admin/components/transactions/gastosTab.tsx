@@ -15,6 +15,7 @@ import { createPortal } from 'react-dom';
 
 // Import components
 import RouteLeadSelector from '../routes/RouteLeadSelector';
+import DateMover from './utils/DateMover';
 
 // Import GraphQL queries and mutations
 import { GET_ROUTES_SIMPLE } from '../../graphql/queries/routes-optimized';
@@ -447,7 +448,7 @@ export const CreateExpensesForm = ({
         {/* Stats Grid */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
+          gridTemplateColumns: 'repeat(5, 1fr)',
           gap: '1px',
           background: '#E2E8F0',
           borderRadius: '8px',
@@ -638,6 +639,20 @@ export const CreateExpensesForm = ({
               <span>Por guardar</span>
             </div>
           </div>
+
+          {/* Quinta tarjeta - Cambiar Fecha */}
+          <DateMover
+            type="expenses"
+            selectedDate={selectedDate}
+            selectedRoute={selectedRoute}
+            selectedLead={selectedLead}
+            onSuccess={() => {
+              refetchExpenses();
+              // Aquí deberías llamar a refetchRoute si tienes acceso a esa query
+            }}
+            itemCount={transactions.length + newTransactions.length}
+            label="gasto(s)"
+          />
         </div>
       </div>
 

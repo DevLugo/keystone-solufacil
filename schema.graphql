@@ -2627,6 +2627,9 @@ type Mutation {
   endSession: Boolean!
   authenticateUserWithPassword(email: String!, password: String!): UserAuthenticationWithPasswordResult
   createInitialUser(data: CreateInitialUserInput!): UserAuthenticationWithPasswordSuccess!
+  moveLoansToDate(leadId: ID!, fromDate: String!, toDate: String!): JSON!
+  movePaymentsToDate(leadId: ID!, fromDate: String!, toDate: String!): JSON!
+  moveExpensesToDate(leadId: ID, routeId: ID, fromDate: String!, toDate: String!): JSON!
   importTokaXml(xml: String!, month: String!, assignments: [TokaAssignmentInput!]): String!
   createCustomLeadPaymentReceived(expectedAmount: Float!, cashPaidAmount: Float, bankPaidAmount: Float, falcoAmount: Float, agentId: ID!, leadId: ID!, paymentDate: String!, payments: [PaymentInput!]!): CustomLeadPaymentReceived!
   updateCustomLeadPaymentReceived(id: ID!, expectedAmount: Float!, cashPaidAmount: Float, bankPaidAmount: Float, falcoAmount: Float, paymentDate: String!, payments: [PaymentInput!]!): CustomLeadPaymentReceived!
