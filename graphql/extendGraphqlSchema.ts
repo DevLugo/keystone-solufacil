@@ -6731,7 +6731,7 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
     await addCompanyHeader(doc);
     
     // Título principal del reporte (ocupando todo el ancho)
-    doc.fontSize(18).fillColor('#1e40af').text('REPORTE DE CRÉDITOS CON DOCUMENTOS CON ERROR', 50, doc.y, { 
+    doc.fontSize(18).fillColor('#1e40af').text('REPORTE DE CREDITOS CON DOCUMENTOS CON ERROR', 50, doc.y, { 
       width: 500, 
       align: 'center' 
     });
@@ -6759,12 +6759,12 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
       doc.fillColor('#f0fdf4').rect(50, doc.y, 500, 80).fill();
       doc.strokeColor('#16a34a').lineWidth(2).rect(50, doc.y, 500, 80).stroke();
       
-      doc.fontSize(16).fillColor('#16a34a').text('✅ EXCELENTE NOTICIA', { align: 'center' });
+      doc.fontSize(16).fillColor('#16a34a').text('EXCELENTE NOTICIA', { align: 'center' });
       doc.moveDown();
-      doc.fontSize(12).fillColor('black').text('No se encontraron créditos con documentos con error', { align: 'center' });
-      doc.text('en el período especificado.', { align: 'center' });
+      doc.fontSize(12).fillColor('black').text('No se encontraron creditos con documentos con error', { align: 'center' });
+      doc.text('en el periodo especificado.', { align: 'center' });
       doc.moveDown();
-      doc.fontSize(10).fillColor('gray').text('Todos los créditos tienen su documentación completa y correcta.', { align: 'center' });
+      doc.fontSize(10).fillColor('gray').text('Todos los creditos tienen su documentacion completa y correcta.', { align: 'center' });
       
       return;
     }
@@ -6776,7 +6776,7 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
     if (hasTestData) {
       doc.fillColor('#fff3cd').rect(50, doc.y, 500, 30).fill();
       doc.strokeColor('#ffc107').rect(50, doc.y, 500, 30).stroke();
-      doc.fontSize(10).fillColor('#856404').text('⚠️ NOTA: Se muestran datos de prueba para demostrar el formato de tabla', 60, doc.y + 10);
+      doc.fontSize(10).fillColor('#856404').text('NOTA: Se muestran datos de prueba para demostrar el formato de tabla', 60, doc.y + 10);
       doc.fillColor('black');
       doc.y += 40;
     }
@@ -6788,7 +6788,7 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
     } catch (tableError) {
       console.error('❌ Error en generateRealDocumentErrorTable:', tableError);
       // Fallback: tabla simple
-      doc.fontSize(14).text('TABLA DE CRÉDITOS CON PROBLEMAS (Modo Fallback)');
+      doc.fontSize(14).text('TABLA DE CREDITOS CON PROBLEMAS (Modo Fallback)');
       doc.moveDown();
       tableData.forEach((row, index) => {
         doc.fontSize(10);
@@ -6819,24 +6819,27 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
     doc.strokeColor('#1e40af').lineWidth(2).rect(50, doc.y, 500, 100).stroke();
     
     // Título de estadísticas
-    doc.fontSize(14).fillColor('#1e40af').text('📊 ESTADÍSTICAS PRINCIPALES', 60, doc.y + 15);
+    doc.fontSize(14).fillColor('#1e40af').text('ESTADISTICAS PRINCIPALES', 60, doc.y + 15);
     
     // Estadísticas en dos columnas
     const statsStartY = doc.y + 40;
     doc.fontSize(10).fillColor('black');
-    doc.text(`• Total de clientes afectados: ${totalCredits}`, 60, statsStartY);
-    doc.text(`• Problemas en documentos de clientes: ${totalWithClientErrors}`, 60, statsStartY + 15);
-    doc.text(`• Problemas en documentos de avales: ${totalWithAvalErrors}`, 60, statsStartY + 30);
+    doc.text(`Total de clientes afectados: ${totalCredits}`, 60, statsStartY);
+    doc.text(`Problemas en documentos de clientes: ${totalWithClientErrors}`, 60, statsStartY + 15);
+    doc.text(`Problemas en documentos de avales: ${totalWithAvalErrors}`, 60, statsStartY + 30);
     
-    doc.text(`• Localidades con problemas: ${totalLocalities}`, 320, statsStartY);
-    doc.text(`• Rutas analizadas: ${totalRoutes}`, 320, statsStartY + 15);
-    doc.text(`• Total de registros: ${tableData.length}`, 320, statsStartY + 30);
+    doc.text(`Localidades con problemas: ${totalLocalities}`, 320, statsStartY);
+    doc.text(`Rutas analizadas: ${totalRoutes}`, 320, statsStartY + 15);
+    doc.text(`Total de registros: ${tableData.length}`, 320, statsStartY + 30);
     
     doc.y = statsStartY + 70;
     doc.moveDown(2);
     
-    // Desglose por tipo de documento
-    doc.fontSize(12).fillColor('#1e40af').text('📋 DESGLOSE POR TIPO DE DOCUMENTO');
+    // Desglose por tipo de documento (ocupando todo el ancho)
+    doc.fontSize(12).fillColor('#1e40af').text('DESGLOSE POR TIPO DE DOCUMENTO', 50, doc.y, {
+      width: 500,
+      align: 'left'
+    });
     doc.moveDown();
     
     const problemTypes = ['INE', 'DOMICILIO', 'PAGARE'];
@@ -6850,20 +6853,36 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
       
       if (clientProblems > 0 || avalProblems > 0) {
         doc.fontSize(10).fillColor('black');
-        doc.text(`• ${docType}: ${clientProblems} clientes, ${avalProblems} avales con problemas`);
+        doc.text(`${docType}: ${clientProblems} clientes, ${avalProblems} avales con problemas`, 50, doc.y, {
+          width: 500,
+          align: 'left'
+        });
+        doc.moveDown(0.5);
       }
     });
     
     doc.moveDown(2);
     
-    // Nota de acción requerida
-    doc.fillColor('#fef2f2').rect(50, doc.y, 500, 50).fill();
-    doc.strokeColor('#dc2626').lineWidth(2).rect(50, doc.y, 500, 50).stroke();
+    // Nota de acción requerida con mejor formato
+    const actionBoxY = doc.y;
+    doc.fillColor('#fef2f2').rect(50, actionBoxY, 500, 60).fill();
+    doc.strokeColor('#dc2626').lineWidth(2).rect(50, actionBoxY, 500, 60).stroke();
     
-    doc.fontSize(12).fillColor('#dc2626').text('⚠️ ACCIÓN REQUERIDA', 60, doc.y + 10);
+    doc.fontSize(12).fillColor('#dc2626').text('ACCION REQUERIDA', 60, actionBoxY + 10, {
+      width: 480,
+      align: 'left'
+    });
     doc.fontSize(9).fillColor('black');
-    doc.text('Contactar a los clientes listados para completar o corregir la documentación.', 60, doc.y + 25);
-    doc.text('Los créditos no pueden proceder sin documentación completa y correcta.', 60, doc.y + 35);
+    doc.text('Contactar a los clientes listados para completar o corregir la documentacion.', 60, actionBoxY + 28, {
+      width: 480,
+      align: 'left'
+    });
+    doc.text('Los creditos no pueden proceder sin documentacion completa y correcta.', 60, actionBoxY + 42, {
+      width: 480,
+      align: 'left'
+    });
+    
+    doc.y = actionBoxY + 70;
     
     console.log('✅ Resumen ejecutivo generado correctamente');
 
@@ -6885,8 +6904,8 @@ async function addProfessionalFooter(doc: any) {
     
     // Información del footer
     doc.fontSize(8).fillColor('gray');
-    doc.text('SOLUFÁCIL - Sistema de Gestión de Créditos', 50, footerY, { align: 'left' });
-    doc.text(`Página generada automáticamente - ${new Date().toLocaleDateString('es-ES')}`, 50, footerY + 12, { align: 'left' });
+    doc.text('SOLUFACIL - Sistema de Gestion de Creditos', 50, footerY, { align: 'left' });
+    doc.text(`Pagina generada automaticamente - ${new Date().toLocaleDateString('es-ES')}`, 50, footerY + 12, { align: 'left' });
     
     // Información de contacto (lado derecho)
     doc.text('Reporte Confidencial', 400, footerY, { align: 'right', width: 150 });
@@ -7014,37 +7033,8 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
               }
             });
             
-          } else if (index === 5) { // Columna de observaciones
-            // Múltiples líneas para observaciones
-            doc.fillColor('black').fontSize(7);
-            
-            const words = cellText.split(' ');
-            let currentLine = '';
-            let textY = y + 6;
-            const maxCharsPerLine = 18;
-            
-            words.forEach(word => {
-              if ((currentLine + word).length <= maxCharsPerLine) {
-                currentLine += (currentLine ? ' ' : '') + word;
-              } else {
-                if (currentLine && textY < y + rowHeight - 8) {
-                  doc.text(currentLine, x + 3, textY, { 
-                    width: col.width - 6
-                  });
-                  textY += 9;
-                }
-                currentLine = word;
-              }
-            });
-            
-            if (currentLine && textY < y + rowHeight - 8) {
-              doc.text(currentLine, x + 3, textY, { 
-                width: col.width - 6
-              });
-            }
-            
           } else {
-            // Para otras columnas
+            // Para todas las demás columnas (manejo uniforme)
             if (index === 3) { // Tipo
               doc.fillColor(cellText === 'CLIENTE' ? '#059669' : '#dc2626');
               doc.fontSize(9);
@@ -7053,11 +7043,26 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
               doc.fontSize(8);
             }
             
-            // Texto normal para otras columnas
-            doc.text(cellText, x + 3, y + 12, { 
+            // Truncar texto para evitar desbordamiento
+            let displayText = cellText;
+            if (index === 5) { // Observaciones
+              if (cellText.length > 25) {
+                displayText = cellText.substring(0, 22) + '...';
+              }
+            } else if (index === 2) { // Cliente
+              if (cellText.length > 18) {
+                displayText = cellText.substring(0, 15) + '...';
+              }
+            } else {
+              if (cellText.length > 15) {
+                displayText = cellText.substring(0, 12) + '...';
+              }
+            }
+            
+            doc.text(displayText, x + 3, y + 15, { 
               width: col.width - 6,
-              align: 'left',
-              lineBreak: true
+              height: 20,
+              align: 'left'
             });
           }
           
@@ -7156,8 +7161,8 @@ async function addCompanyHeader(doc: any) {
     doc.fillColor('#1e40af').rect(0, 0, 612, 80).fill();
     
     // Logo y nombre de la empresa (simulado con texto estilizado)
-    doc.fontSize(24).fillColor('white').text('SOLUFÁCIL', 50, 25, { align: 'left' });
-    doc.fontSize(10).fillColor('white').text('SISTEMA DE GESTIÓN DE CRÉDITOS', 50, 55);
+    doc.fontSize(24).fillColor('white').text('SOLUFACIL', 50, 25, { align: 'left' });
+    doc.fontSize(10).fillColor('white').text('SISTEMA DE GESTION DE CREDITOS', 50, 55);
     
     // Información de generación en la esquina derecha
     doc.fontSize(8).fillColor('white');
