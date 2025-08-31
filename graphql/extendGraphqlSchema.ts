@@ -1929,6 +1929,45 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         }
       }),
+
+      // ✅ NUEVA MUTATION: Enviar reporte con PDF a Telegram
+      sendReportWithPDF: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        args: { 
+          chatId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          reportType: graphql.arg({ type: graphql.nonNull(graphql.String) })
+        },
+        resolve: async (root, { chatId, reportType }, context: Context) => {
+          try {
+            console.log('🚀 sendReportWithPDF llamado con:', { chatId, reportType });
+            
+            // Generar PDF del reporte usando la función con streams
+            const pdfBuffer = await generatePDFWithStreams(reportType);
+            const filename = `reporte_${reportType}_${Date.now()}.pdf`;
+            const caption = `📊 <b>REPORTE AUTOMÁTICO</b>\n\nTipo: ${reportType}\nGenerado: ${new Date().toLocaleString('es-ES')}\n\n✅ Enviado desde Keystone Admin`;
+            
+            console.log('📱 PDF generado, tamaño:', pdfBuffer.length, 'bytes');
+            
+            // Verificar que el PDF se generó correctamente
+            if (pdfBuffer.length === 0) {
+              console.error('❌ PDF generado con 0 bytes');
+              return `❌ Error: No se pudo generar el PDF (0 bytes)`;
+            }
+            
+            // Enviar PDF real a Telegram
+            const sent = await sendTelegramFile(chatId, pdfBuffer, filename, caption);
+            
+            if (sent) {
+              return `✅ Reporte PDF enviado exitosamente a ${chatId} (${filename}, ${(pdfBuffer.length / 1024).toFixed(2)} KB)`;
+            } else {
+              return `❌ Error al enviar reporte PDF a ${chatId}`;
+            }
+          } catch (error) {
+            console.error('❌ Error en sendReportWithPDF:', error);
+            return `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+          }
+        }
+      }),
     },
     query: {
       getTransactionsSummary: graphql.field({
@@ -6268,6 +6307,240 @@ async function sendTelegramMessageToUser(chatId: string, text: string): Promise<
     }
   } catch (error) {
     console.error('❌ Error al enviar mensaje a Telegram:', error);
+    return false;
+  }
+}
+
+// ✅ FUNCIÓN PARA GENERAR PDF DE PRUEBA (VERSIÓN CORREGIDA)
+function generateTestPDF(reportType: string, data: any = {}): Buffer {
+  try {
+    const PDFDocument = require('pdfkit');
+    const doc = new PDFDocument();
+    const chunks: Buffer[] = [];
+    
+    // Configurar eventos para capturar el PDF
+    doc.on('data', (chunk: Buffer) => {
+      chunks.push(chunk);
+    });
+    
+    // Configurar el documento
+    doc.fontSize(20).text('📊 REPORTE AUTOMÁTICO', { align: 'center' });
+    doc.moveDown();
+    doc.fontSize(16).text(`Tipo: ${reportType}`, { align: 'center' });
+    doc.moveDown();
+    doc.fontSize(12).text(`Generado: ${new Date().toLocaleString('es-ES')}`, { align: 'center' });
+    doc.moveDown(2);
+    
+    // Agregar contenido específico según el tipo de reporte
+    switch (reportType) {
+      case 'creditos_con_errores':
+        doc.fontSize(14).text('📋 CRÉDITOS CON DOCUMENTOS CON ERROR');
+        doc.moveDown();
+        doc.fontSize(12).text('Este reporte muestra todos los créditos que tienen documentos con errores.');
+        doc.moveDown();
+        doc.text('• Verificar documentación faltante');
+        doc.text('• Revisar formatos incorrectos');
+        doc.text('• Validar información requerida');
+        doc.moveDown();
+        doc.text('• Documentos pendientes de revisión');
+        doc.text('• Errores de formato detectados');
+        doc.text('• Información incompleta identificada');
+        break;
+        
+      case 'creditos_sin_documentos':
+        doc.fontSize(14).text('⚠️ CRÉDITOS SIN DOCUMENTOS');
+        doc.moveDown();
+        doc.fontSize(12).text('Este reporte identifica créditos que no tienen documentación completa.');
+        doc.moveDown();
+        doc.text('• Documentos pendientes de entrega');
+        doc.text('• Información faltante del cliente');
+        doc.text('• Requisitos no cumplidos');
+        doc.moveDown();
+        doc.text('• Acta de nacimiento pendiente');
+        doc.text('• DUI no entregado');
+        doc.text('• Comprobante de domicilio faltante');
+        break;
+        
+      case 'creditos_completos':
+        doc.fontSize(14).text('✅ CRÉDITOS COMPLETOS');
+        doc.moveDown();
+        doc.fontSize(12).text('Este reporte muestra todos los créditos con documentación completa.');
+        doc.moveDown();
+        doc.text('• Documentación al 100%');
+        doc.text('• Información verificada');
+        doc.text('• Listos para procesamiento');
+        doc.moveDown();
+        doc.text('• Todos los documentos entregados');
+        doc.text('• Información validada');
+        doc.text('• Cumple requisitos legales');
+        break;
+        
+      case 'resumen_semanal':
+        doc.fontSize(14).text('📊 RESUMEN SEMANAL DE CARTERA');
+        doc.moveDown();
+        doc.fontSize(12).text('Resumen de la actividad semanal de la cartera de créditos.');
+        doc.moveDown();
+        doc.text('• Nuevos créditos otorgados');
+        doc.text('• Pagos recibidos');
+        doc.text('• Estado general de la cartera');
+        doc.moveDown();
+        doc.text('• Monto total desembolsado');
+        doc.text('• Número de clientes atendidos');
+        doc.text('• Rendimiento semanal');
+        break;
+        
+      case 'reporte_financiero':
+        doc.fontSize(14).text('💰 REPORTE FINANCIERO');
+        doc.moveDown();
+        doc.fontSize(12).text('Análisis financiero detallado de la cartera de créditos.');
+        doc.moveDown();
+        doc.text('• Ingresos y egresos');
+        doc.text('• Rentabilidad por ruta');
+        doc.text('• Proyecciones financieras');
+        doc.moveDown();
+        doc.text('• Balance general');
+        doc.text('• Flujo de caja');
+        doc.text('• Indicadores de rentabilidad');
+        break;
+        
+      default:
+        doc.fontSize(14).text(`📊 REPORTE: ${reportType.toUpperCase()}`);
+        doc.moveDown();
+        doc.fontSize(12).text('Reporte generado automáticamente por el sistema.');
+        doc.moveDown();
+        doc.text('• Información del reporte');
+        doc.text('• Datos procesados');
+        doc.text('• Resumen ejecutivo');
+    }
+    
+    doc.moveDown(2);
+    doc.fontSize(10).text('✅ Generado automáticamente desde Keystone Admin', { align: 'center' });
+    doc.fontSize(8).text(`ID del reporte: ${Date.now()}`, { align: 'center' });
+    doc.fontSize(8).text(`Versión: 1.0`, { align: 'center' });
+    
+    // Finalizar el documento
+    doc.end();
+    
+    // Esperar un momento para que se procese
+    setTimeout(() => {}, 100);
+    
+    const result = Buffer.concat(chunks);
+    console.log('📱 PDF generado exitosamente, tamaño:', result.length, 'bytes');
+    
+    return result;
+  } catch (error) {
+    console.error('❌ Error generando PDF:', error);
+    // Retornar un buffer con contenido de error
+    return Buffer.from(`Error generando PDF: ${error.message}`);
+  }
+}
+
+// ✅ FUNCIÓN ALTERNATIVA PARA GENERAR PDF (USANDO STREAMS)
+function generatePDFWithStreams(reportType: string, data: any = {}): Buffer {
+  return new Promise((resolve, reject) => {
+    try {
+      const PDFDocument = require('pdfkit');
+      const doc = new PDFDocument();
+      const chunks: Buffer[] = [];
+      
+      // Configurar eventos para capturar el PDF
+      doc.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
+      
+      doc.on('end', () => {
+        const result = Buffer.concat(chunks);
+        console.log('📱 PDF generado con streams, tamaño:', result.length, 'bytes');
+        resolve(result);
+      });
+      
+      // Configurar el documento
+      doc.fontSize(20).text('📊 REPORTE AUTOMÁTICO', { align: 'center' });
+      doc.moveDown();
+      doc.fontSize(16).text(`Tipo: ${reportType}`, { align: 'center' });
+      doc.moveDown();
+      doc.fontSize(12).text(`Generado: ${new Date().toLocaleString('es-ES')}`, { align: 'center' });
+      doc.moveDown(2);
+      
+      // Agregar contenido específico según el tipo de reporte
+      switch (reportType) {
+        case 'creditos_con_errores':
+          doc.fontSize(14).text('📋 CRÉDITOS CON DOCUMENTOS CON ERROR');
+          doc.moveDown();
+          doc.fontSize(12).text('Este reporte muestra todos los créditos que tienen documentos con errores.');
+          doc.moveDown();
+          doc.text('• Verificar documentación faltante');
+          doc.text('• Revisar formatos incorrectos');
+          doc.text('• Validar información requerida');
+          break;
+          
+        default:
+          doc.fontSize(14).text(`📊 REPORTE: ${reportType.toUpperCase()}`);
+          doc.moveDown();
+          doc.fontSize(12).text('Reporte generado automáticamente por el sistema.');
+      }
+      
+      doc.moveDown(2);
+      doc.fontSize(10).text('✅ Generado automáticamente desde Keystone Admin', { align: 'center' });
+      doc.fontSize(8).text(`ID del reporte: ${Date.now()}`, { align: 'center' });
+      
+      // Finalizar el documento
+      doc.end();
+      
+    } catch (error) {
+      console.error('❌ Error generando PDF con streams:', error);
+      reject(error);
+    }
+  });
+}
+
+// ✅ FUNCIÓN PARA ENVIAR ARCHIVO A TELEGRAM
+async function sendTelegramFile(chatId: string, fileBuffer: Buffer, filename: string, caption: string): Promise<boolean> {
+  try {
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) {
+      console.log('❌ TELEGRAM_BOT_TOKEN no configurado');
+      return false;
+    }
+
+    console.log('📱 Intentando enviar archivo a Telegram:', { chatId, filename, caption, bufferSize: fileBuffer.length });
+
+    // Crear FormData para enviar el archivo
+    const FormData = require('form-data');
+    const form = new FormData();
+    
+    form.append('chat_id', chatId);
+    form.append('document', fileBuffer, {
+      filename: filename,
+      contentType: 'application/pdf'
+    });
+    form.append('caption', caption);
+    form.append('parse_mode', 'HTML');
+
+    // Usar node-fetch
+    const fetch = require('node-fetch');
+    
+    console.log('📱 FormData creado, enviando a Telegram...');
+    
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
+      method: 'POST',
+      body: form,
+      headers: form.getHeaders()
+    });
+
+    console.log('📱 Respuesta de Telegram recibida:', response.status, response.statusText);
+
+    if (response.ok) {
+      const result = await response.json();
+      console.log('✅ Archivo enviado a Telegram:', filename, result);
+      return result.ok;
+    } else {
+      const errorText = await response.text();
+      console.error('❌ Error al enviar archivo a Telegram:', response.status, response.statusText, errorText);
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ Error al enviar archivo a Telegram:', error);
     return false;
   }
 }
