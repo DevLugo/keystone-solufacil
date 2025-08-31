@@ -59,6 +59,10 @@ const GET_LOANS_WITH_DOCUMENTS = gql`
             number
           }
         }
+        routes {
+          id
+          name
+        }
       }
       documentPhotos {
         id
@@ -183,6 +187,7 @@ interface Loan {
       fullName: string;
       phones: Array<{ id: string; number: string }>;
     };
+    routes: Array<{ id: string; name: string }>;
   };
   documentPhotos: DocumentPhoto[];
 }
@@ -510,24 +515,88 @@ export default function DocumentosPersonalesPage() {
     }
   };
 
-  // Filtrar préstamos por término de búsqueda
+  // Filtrar préstamos por término de búsqueda, ruta y localidad
   const filteredLoans = loans.filter(loan => {
+    // Filtro por término de búsqueda
     const searchLower = searchTerm.toLowerCase();
     const borrowerName = loan.borrower.personalData.fullName.toLowerCase();
     const leadName = loan.lead.personalData.fullName.toLowerCase();
     const borrowerPhone = loan.borrower.personalData.phones[0]?.number || '';
     const leadPhone = loan.lead.personalData.phones[0]?.number || '';
     
-    return borrowerName.includes(searchLower) || 
-           leadName.includes(searchLower) ||
-           borrowerPhone.includes(searchTerm) ||
-           leadPhone.includes(searchTerm);
+    const matchesSearch = borrowerName.includes(searchLower) || 
+                         leadName.includes(searchLower) ||
+                         borrowerPhone.includes(searchTerm) ||
+                         leadPhone.includes(searchTerm);
+    
+    // Filtro por ruta seleccionada
+    let matchesRoute = true;
+    if (selectedRoute) {
+      // Verificar si el préstamo pertenece a la ruta seleccionada
+      const loanRoutes = loan.lead.routes;
+      
+      // Debug: ver qué está llegando
+      console.log('Debug - loan.lead.routes:', loanRoutes);
+      console.log('Debug - typeof loanRoutes:', typeof loanRoutes);
+      console.log('Debug - Array.isArray(loanRoutes):', Array.isArray(loanRoutes));
+      
+      // Verificar que routes sea un array antes de usar .some()
+      if (Array.isArray(loanRoutes)) {
+        matchesRoute = loanRoutes.some((route: any) => route.id === selectedRoute.id);
+      } else if (loanRoutes && typeof loanRoutes === 'object' && 'id' in loanRoutes) {
+        // Si routes es un objeto (relación directa), verificar por ID
+        matchesRoute = (loanRoutes as any).id === selectedRoute.id;
+      } else {
+        // Si no hay routes o es null/undefined, no coincide
+        matchesRoute = false;
+      }
+      
+      console.log('Debug - matchesRoute:', matchesRoute);
+    }
+    
+    // Filtro por localidad seleccionada
+    let matchesLead = true;
+    if (selectedLead) {
+      // Verificar si el préstamo tiene el líder seleccionado
+      matchesLead = loan.lead.id === selectedLead.id;
+    }
+    
+    return matchesSearch && matchesRoute && matchesLead;
   });
 
-  // Calcular estadísticas
-  const totalCredits = loans.length;
-  const creditsWithDocuments = loans.filter(loan => loan.documentPhotos.length > 0).length;
-  const totalDocuments = loans.reduce((total, loan) => total + loan.documentPhotos.length, 0);
+  // Función para verificar si un préstamo tiene todos los documentos requeridos y sin errores
+  const isLoanComplete = (loan: any) => {
+    const documents = loan.documentPhotos;
+    
+    // Verificar que no haya documentos con errores
+    const hasErrors = documents.some((doc: any) => doc.isError);
+    if (hasErrors) return false;
+    
+    // Contar documentos por tipo y persona
+    const titularDocs = documents.filter((doc: any) => 
+      doc.personalData.id === loan.borrower.personalData.id
+    );
+    const avalDocs = documents.filter((doc: any) => 
+      doc.personalData.id === loan.lead.personalData.id
+    );
+    
+    // Verificar documentos del TITULAR (INE, DOMICILIO, PAGARE)
+    const hasTitularINE = titularDocs.some((doc: any) => doc.documentType === 'INE');
+    const hasTitularDOMICILIO = titularDocs.some((doc: any) => doc.documentType === 'DOMICILIO');
+    const hasTitularPAGARE = titularDocs.some((doc: any) => doc.documentType === 'PAGARE');
+    
+    // Verificar documentos del AVAL (INE, DOMICILIO)
+    const hasAvalINE = avalDocs.some((doc: any) => doc.documentType === 'INE');
+    const hasAvalDOMICILIO = avalDocs.some((doc: any) => doc.documentType === 'DOMICILIO');
+    
+    // Un préstamo está completo si tiene todos los documentos requeridos sin errores
+    return hasTitularINE && hasTitularDOMICILIO && hasTitularPAGARE && hasAvalINE && hasAvalDOMICILIO;
+  };
+
+  // Calcular estadísticas basadas en los préstamos filtrados
+  const totalCredits = filteredLoans.length;
+  const creditsWithDocuments = filteredLoans.filter(loan => isLoanComplete(loan)).length;
+  const totalDocuments = filteredLoans.reduce((total, loan) => total + loan.documentPhotos.length, 0);
   const creditsWithoutDocuments = totalCredits - creditsWithDocuments;
 
   if (loading) {
@@ -632,11 +701,11 @@ export default function DocumentosPersonalesPage() {
             <Text weight="bold" size="large" color="green600">
               {totalCredits}
             </Text>
-            <Text size="small" color="gray500">
-              TOTAL DE CRÉDITOS
+            <Text size="small" color="neutral600">
+              CRÉDITOS COMPLETOS
             </Text>
             <Text size="small" color="green600" weight="medium">
-              Con documentos: {creditsWithDocuments}
+              Completos: {creditsWithDocuments}
             </Text>
           </Box>
 
@@ -652,7 +721,7 @@ export default function DocumentosPersonalesPage() {
             <Text weight="bold" size="large" color="blue600">
               {totalDocuments}
             </Text>
-            <Text size="small" color="gray500">
+            <Text size="small" color="neutral600">
               TOTAL DE DOCUMENTOS
             </Text>
             <Text size="small" color="blue600" weight="medium">
@@ -672,7 +741,7 @@ export default function DocumentosPersonalesPage() {
             <Text weight="bold" size="large" color="red600">
               {creditsWithoutDocuments}
             </Text>
-            <Text size="small" color="gray500">
+            <Text size="small" color="neutral600">
               CRÉDITOS SIN DOCUMENTOS
             </Text>
             <Text size="small" color="red600" weight="medium">
