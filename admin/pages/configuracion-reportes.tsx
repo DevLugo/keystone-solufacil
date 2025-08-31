@@ -256,10 +256,10 @@ const SEND_TEST_TELEGRAM = gql`
   }
 `;
 
-// Mutation para enviar reporte con PDF a Telegram
+// Mutation para enviar reporte con PDF a Telegram (versión temporal sin routeIds)
 const SEND_REPORT_WITH_PDF = gql`
-  mutation SendReportWithPDF($chatId: String!, $reportType: String!, $routeIds: [String!]) {
-    sendReportWithPDF(chatId: $chatId, reportType: $reportType, routeIds: $routeIds)
+  mutation SendReportWithPDF($chatId: String!, $reportType: String!) {
+    sendReportWithPDF(chatId: $chatId, reportType: $reportType)
   }
 `;
 
@@ -603,8 +603,7 @@ export default function ConfiguracionReportesPage() {
               const result = await sendReportWithPDF({
                 variables: { 
                   chatId: recipient.chatId, 
-                  reportType: config.reportType,
-                  routeIds: routeIds
+                  reportType: config.reportType
                 }
               });
               

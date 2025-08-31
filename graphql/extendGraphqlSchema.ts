@@ -1933,24 +1933,23 @@ export const extendGraphqlSchema = graphql.extend(base => {
         }
       }),
 
-      // ✅ NUEVA MUTATION: Enviar reporte con PDF a Telegram
+      // ✅ NUEVA MUTATION: Enviar reporte con PDF a Telegram (versión temporal sin routeIds)
       sendReportWithPDF: graphql.field({
         type: graphql.nonNull(graphql.String),
         args: { 
           chatId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
-          reportType: graphql.arg({ type: graphql.nonNull(graphql.String) }),
-          routeIds: graphql.arg({ type: graphql.list(graphql.nonNull(graphql.String)) })
+          reportType: graphql.arg({ type: graphql.nonNull(graphql.String) })
         },
-        resolve: async (root, { chatId, reportType, routeIds }, context: Context) => {
+        resolve: async (root, { chatId, reportType }, context: Context) => {
           try {
             console.log('🚀🚀🚀 MUTACIÓN sendReportWithPDF LLAMADA 🚀🚀🚀');
-            console.log('📋 Parámetros recibidos:', { chatId, reportType, routeIds });
+            console.log('📋 Parámetros recibidos:', { chatId, reportType });
             console.log('📋 Tipo de reporte exacto:', `"${reportType}"`);
             console.log('📋 ¿Es créditos con errores?', reportType === 'creditos_con_errores');
             
             // Generar PDF del reporte usando la función con streams y datos reales
             console.log('📋 Llamando generatePDFWithStreams...');
-            const pdfBuffer = await generatePDFWithStreams(reportType, context, routeIds);
+            const pdfBuffer = await generatePDFWithStreams(reportType, context, []);
             console.log('📋 PDF generado, tamaño:', pdfBuffer.length, 'bytes');
             const filename = `reporte_${reportType}_${Date.now()}.pdf`;
             const caption = `📊 <b>REPORTE AUTOMÁTICO</b>\n\nTipo: ${reportType}\nGenerado: ${new Date().toLocaleString('es-ES')}\n\n✅ Enviado desde Keystone Admin`;
@@ -6504,12 +6503,8 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
     const twoMonthsAgo = new Date();
     twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
     
-    // Construir filtros de ruta
-    const routeFilter = routeIds && routeIds.length > 0 ? {
-      lead: {
-        routesId: { in: routeIds }
-      }
-    } : {};
+    // Temporal: Sin filtro de rutas específicas, analizar todas las rutas
+    const routeFilter = {};
     
     // Obtener todos los créditos de los últimos 2 meses con información completa
     const allRecentCredits = await context.prisma.loan.findMany({
@@ -6728,12 +6723,8 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
     reportStartDate.setMonth(reportStartDate.getMonth() - 2);
     doc.fontSize(12).fillColor('black').text(`Período de Análisis: ${reportStartDate.toLocaleDateString('es-ES')} - ${new Date().toLocaleDateString('es-ES')}`, { align: 'center' });
     
-    // Información de rutas si están especificadas
-    if (routeIds && routeIds.length > 0) {
-      doc.fontSize(10).fillColor('gray').text(`Rutas analizadas: ${routeIds.length} ruta(s) específica(s)`, { align: 'center' });
-    } else {
-      doc.fontSize(10).fillColor('gray').text('Análisis: Todas las rutas', { align: 'center' });
-    }
+    // Información de rutas (temporal: todas las rutas)
+    doc.fontSize(10).fillColor('gray').text('Análisis: Todas las rutas del sistema', { align: 'center' });
     
     doc.moveDown(2);
     console.log('✅ Header profesional generado correctamente');
