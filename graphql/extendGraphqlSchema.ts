@@ -6508,7 +6508,7 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
       }
     } : {};
     
-    // Obtener todos los créditos de los últimos 2 meses
+    // Obtener todos los créditos de los últimos 2 meses con información completa
     const allRecentCredits = await context.prisma.loan.findMany({
       where: {
         signDate: {
@@ -6544,7 +6544,12 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
             }
           }
         },
-        documentPhotos: true
+        documentPhotos: true,
+        collaterals: {
+          include: {
+            documentPhotos: true
+          }
+        }
       },
       orderBy: [
         { signDate: 'desc' }
@@ -6553,190 +6558,429 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
 
     console.log(`📊 Encontrados ${allRecentCredits.length} créditos en los últimos 2 meses`);
 
-    // Filtrar créditos que tengan documentos con problemas
-    const creditsWithDocumentIssues = [];
+    // Procesar y organizar datos para la tabla
+    const tableData = [];
     
     for (const credit of allRecentCredits) {
-      const hasErrorDocuments = credit.documentPhotos.some(doc => doc.isError);
-      
-      // Verificar documentos faltantes
-      const requiredDocTypes = ['INE', 'DOMICILIO', 'PAGARE'];
-      const availableDocTypes = credit.documentPhotos.map(doc => doc.documentType);
-      const missingDocuments = requiredDocTypes.filter(docType => !availableDocTypes.includes(docType));
-      
-      // Incluir si tiene documentos con error O documentos faltantes
-      if (hasErrorDocuments || missingDocuments.length > 0) {
-        creditsWithDocumentIssues.push(credit);
-      }
-    }
-
-    console.log(`📊 Filtrados ${creditsWithDocumentIssues.length} créditos con problemas de documentos`);
-
-    // Agrupar por ruta y localidad
-    const groupedData = new Map<string, Map<string, any[]>>();
-    
-    // Obtener información de rutas para mapear IDs a nombres
-    const routesInfo = routeIds && routeIds.length > 0 ? await context.prisma.route.findMany({
-      where: { id: { in: routeIds } },
-      select: { id: true, name: true }
-    }) : [];
-    
-    const routeIdToName = new Map(routesInfo.map(route => [route.id, route.name]));
-    
-    for (const credit of creditsWithDocumentIssues) {
-      // Obtener información de localidad
       const locality = credit.borrower?.personalData?.addresses?.[0]?.location?.name ||
                       credit.lead?.personalData?.addresses?.[0]?.location?.name ||
                       'Sin localidad';
       
-      // Obtener información de ruta desde el lead
-      let routeName = 'Sin ruta asignada';
-      if (credit.lead?.routes?.name) {
-        routeName = credit.lead.routes.name;
-      } else if (credit.lead?.routesId) {
-        routeName = routeIdToName.get(credit.lead.routesId) || `Ruta ${credit.lead.routesId}`;
-      }
+      const routeName = credit.lead?.routes?.name || 'Sin ruta';
+      const clientName = credit.borrower?.personalData?.fullName || 'Sin nombre';
+      const signDate = new Date(credit.signDate);
       
-      // Inicializar estructuras de agrupación
-      if (!groupedData.has(routeName)) {
-        groupedData.set(routeName, new Map());
-      }
+      // Analizar documentos del cliente
+      const clientDocuments = credit.documentPhotos || [];
+      const clientDocErrors = clientDocuments.filter(doc => doc.isError);
       
-      if (!groupedData.get(routeName)!.has(locality)) {
-        groupedData.get(routeName)!.set(locality, []);
-      }
-      
-      // Clasificar documentos
-      const documentsWithError = credit.documentPhotos.filter(doc => doc.isError);
-      
-      // Verificar documentos requeridos
+      // Verificar documentos faltantes del cliente
       const requiredDocTypes = ['INE', 'DOMICILIO', 'PAGARE'];
-      const availableDocTypes = credit.documentPhotos.map(doc => doc.documentType);
-      const missingDocuments = requiredDocTypes.filter(docType => !availableDocTypes.includes(docType));
+      const clientAvailableTypes = clientDocuments.map(doc => doc.documentType);
+      const clientMissingDocs = requiredDocTypes.filter(type => !clientAvailableTypes.includes(type));
       
-      groupedData.get(routeName)!.get(locality)!.push({
-        id: credit.id,
-        signDate: credit.signDate,
-        borrowerName: credit.borrower?.personalData?.fullName || 'Sin nombre',
-        amountGived: credit.amountGived,
-        documentsWithError,
-        missingDocuments,
-        totalDocuments: credit.documentPhotos.length
-      });
+      // Analizar documentos del aval (si existe)
+      const avalDocuments = credit.collaterals?.[0]?.documentPhotos || [];
+      const avalDocErrors = avalDocuments.filter(doc => doc.isError);
+      const avalAvailableTypes = avalDocuments.map(doc => doc.documentType);
+      const avalMissingDocs = requiredDocTypes.filter(type => !avalAvailableTypes.includes(type));
+      
+      // Solo incluir si hay problemas
+      const hasClientProblems = clientDocErrors.length > 0 || clientMissingDocs.length > 0;
+      const hasAvalProblems = avalDocErrors.length > 0 || avalMissingDocs.length > 0;
+      
+      if (hasClientProblems || hasAvalProblems) {
+        // Agregar fila para problemas del cliente
+        if (hasClientProblems) {
+          const errors = [
+            ...clientDocErrors.map(doc => `${doc.documentType} con error: ${doc.errorDescription || 'Sin descripción'}`),
+            ...clientMissingDocs.map(type => `${type} faltante`)
+          ];
+          
+          tableData.push({
+            locality,
+            routeName,
+            clientName,
+            signDate,
+            problemType: 'CLIENTE',
+            problemDescription: errors.join('; '),
+            observations: clientDocErrors.map(doc => doc.errorDescription).filter(Boolean).join('; ') || 'Sin observaciones'
+          });
+        }
+        
+        // Agregar fila para problemas del aval
+        if (hasAvalProblems && credit.collaterals?.[0]) {
+          const avalName = credit.collaterals[0].fullName || 'Aval sin nombre';
+          const errors = [
+            ...avalDocErrors.map(doc => `${doc.documentType} con error: ${doc.errorDescription || 'Sin descripción'}`),
+            ...avalMissingDocs.map(type => `${type} faltante`)
+          ];
+          
+          tableData.push({
+            locality,
+            routeName,
+            clientName: `${clientName} (Aval: ${avalName})`,
+            signDate,
+            problemType: 'AVAL',
+            problemDescription: errors.join('; '),
+            observations: avalDocErrors.map(doc => doc.errorDescription).filter(Boolean).join('; ') || 'Sin observaciones'
+          });
+        }
+      }
     }
 
-    // Generar contenido del PDF
-    doc.fontSize(14).text('📋 CRÉDITOS CON DOCUMENTOS CON ERROR', { align: 'center' });
+    console.log(`📊 Procesados ${tableData.length} registros con problemas de documentos`);
+
+    // Ordenar por localidad y fecha
+    tableData.sort((a, b) => {
+      if (a.locality !== b.locality) {
+        return a.locality.localeCompare(b.locality);
+      }
+      return b.signDate.getTime() - a.signDate.getTime();
+    });
+
+    // Agrupar por semanas para las líneas sombreadas
+    const weekGroups = new Map();
+    tableData.forEach(row => {
+      const weekStart = getWeekStart(row.signDate);
+      const weekKey = weekStart.toISOString().split('T')[0];
+      if (!weekGroups.has(weekKey)) {
+        weekGroups.set(weekKey, []);
+      }
+      weekGroups.get(weekKey).push(row);
+    });
+
+    // Generar header con logo
+    await addCompanyHeader(doc);
+    
+    // Título del reporte
+    doc.fontSize(16).text('REPORTE DE CRÉDITOS CON DOCUMENTOS CON ERROR', { align: 'center' });
     doc.moveDown();
-    doc.fontSize(12).text(`Período: Últimos 2 meses (desde ${twoMonthsAgo.toLocaleDateString('es-ES')})`, { align: 'center' });
+    
+    // Calcular fecha para mostrar en el título
+    const reportStartDate = new Date();
+    reportStartDate.setMonth(reportStartDate.getMonth() - 2);
+    doc.fontSize(12).text(`Período: ${reportStartDate.toLocaleDateString('es-ES')} - ${new Date().toLocaleDateString('es-ES')}`, { align: 'center' });
     doc.moveDown(2);
 
-    if (groupedData.size === 0) {
+    if (tableData.length === 0) {
       doc.fontSize(12).text('✅ No se encontraron créditos con documentos con error en el período especificado.', { align: 'center' });
-      doc.moveDown(2);
-      doc.fontSize(10).text(`Período analizado: ${twoMonthsAgo.toLocaleDateString('es-ES')} - ${new Date().toLocaleDateString('es-ES')}`, { align: 'center' });
-      if (routeIds && routeIds.length > 0) {
-        doc.text(`Rutas analizadas: ${routeIds.length}`, { align: 'center' });
-      }
       return;
     }
 
-    let totalCredits = 0;
-    let totalWithErrors = 0;
-    let totalMissing = 0;
+    // Generar tabla
+    await generateDocumentErrorTableContent(doc, tableData, weekGroups);
 
-    // Generar contenido por ruta y localidad (ordenado)
-    const sortedRoutes = Array.from(groupedData.entries()).sort(([a], [b]) => a.localeCompare(b));
-    
-    for (const [routeName, localitiesMap] of sortedRoutes) {
-      doc.fontSize(14).text(`🚛 RUTA: ${routeName.toUpperCase()}`, { underline: true });
-      doc.moveDown();
-      
-      // Ordenar localidades alfabéticamente
-      const sortedLocalities = Array.from(localitiesMap.entries()).sort(([a], [b]) => a.localeCompare(b));
-      
-      for (const [locality, credits] of sortedLocalities) {
-        doc.fontSize(12).text(`📍 ${locality}`, { underline: true });
-        doc.moveDown(0.5);
-        
-        // Ordenar créditos por fecha (más recientes primero)
-        const sortedCredits = credits.sort((a, b) => new Date(b.signDate).getTime() - new Date(a.signDate).getTime());
-        
-        for (const credit of sortedCredits) {
-          totalCredits++;
-          
-          doc.fontSize(10);
-          doc.text(`• Cliente: ${credit.borrowerName}`);
-          doc.text(`  Monto: $${Number(credit.amountGived).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`, { indent: 20 });
-          doc.text(`  Fecha: ${new Date(credit.signDate).toLocaleDateString('es-ES')}`, { indent: 20 });
-          doc.text(`  ID: ${credit.id.substring(0, 8)}...`, { indent: 20 });
-          
-          // Documentos con error
-          if (credit.documentsWithError.length > 0) {
-            totalWithErrors++;
-            doc.text(`  ❌ Documentos con error (${credit.documentsWithError.length}):`, { indent: 20 });
-            for (const errorDoc of credit.documentsWithError) {
-              doc.text(`    - ${errorDoc.documentType}: ${errorDoc.title}`, { indent: 40 });
-              if (errorDoc.errorDescription) {
-                doc.text(`      Comentario: ${errorDoc.errorDescription}`, { indent: 60 });
-              }
-            }
-          }
-          
-          // Documentos faltantes
-          if (credit.missingDocuments.length > 0) {
-            totalMissing++;
-            doc.text(`  ⚠️ Documentos faltantes (${credit.missingDocuments.length}):`, { indent: 20 });
-            for (const missingDoc of credit.missingDocuments) {
-              doc.text(`    - ${missingDoc}`, { indent: 40 });
-            }
-          }
-          
-          doc.moveDown(0.5);
-        }
-        
-        doc.moveDown();
-      }
-      
-      doc.moveDown();
-    }
-
-    // Resumen final
+    // Generar página de resumen ejecutivo
     doc.addPage();
-    doc.fontSize(16).text('📊 RESUMEN DEL REPORTE', { align: 'center', underline: true });
+    await addCompanyHeader(doc);
+    
+    // Título del resumen
+    doc.fontSize(18).fillColor('#1e40af').text('RESUMEN EJECUTIVO', { align: 'center' });
     doc.moveDown(2);
     
-    doc.fontSize(12);
-    doc.text(`Total de créditos con problemas: ${totalCredits}`);
-    doc.text(`Créditos con documentos marcados como error: ${totalWithErrors}`);
-    doc.text(`Créditos con documentos faltantes: ${totalMissing}`);
-    doc.text(`Rutas analizadas: ${groupedData.size}`);
+    // Estadísticas principales
+    const totalCredits = new Set(tableData.map(row => row.clientName.split(' (Aval:')[0])).size;
+    const totalWithClientErrors = tableData.filter(row => row.problemType === 'CLIENTE').length;
+    const totalWithAvalErrors = tableData.filter(row => row.problemType === 'AVAL').length;
+    const totalLocalities = new Set(tableData.map(row => row.locality)).size;
+    const totalRoutes = new Set(tableData.map(row => row.routeName)).size;
     
-    const totalLocalities = Array.from(groupedData.values()).reduce((sum, localitiesMap) => sum + localitiesMap.size, 0);
-    doc.text(`Localidades con problemas: ${totalLocalities}`);
+    // Crear tabla de resumen
+    doc.fillColor('black');
     
+    // Caja de estadísticas principales
+    doc.fillColor('#f8fafc').rect(50, doc.y, 500, 120).fill();
+    doc.strokeColor('#e2e8f0').rect(50, doc.y, 500, 120).stroke();
+    
+    doc.fontSize(14).fillColor('#1e40af').text('ESTADÍSTICAS PRINCIPALES', 60, doc.y + 10);
+    
+    const statsY = doc.y + 35;
+    doc.fontSize(11).fillColor('black');
+    doc.text(`• Total de clientes afectados: ${totalCredits}`, 60, statsY);
+    doc.text(`• Problemas en documentos de clientes: ${totalWithClientErrors}`, 60, statsY + 20);
+    doc.text(`• Problemas en documentos de avales: ${totalWithAvalErrors}`, 60, statsY + 40);
+    doc.text(`• Localidades con problemas: ${totalLocalities}`, 300, statsY);
+    doc.text(`• Rutas analizadas: ${totalRoutes}`, 300, statsY + 20);
+    doc.text(`• Total de registros: ${tableData.length}`, 300, statsY + 40);
+    
+    doc.y = statsY + 80;
     doc.moveDown(2);
-    doc.fontSize(12).text('📋 DETALLES POR RUTA:', { underline: true });
+    
+    // Desglose por tipo de problema
+    doc.fontSize(14).fillColor('#1e40af').text('DESGLOSE POR TIPO DE PROBLEMA');
     doc.moveDown();
     
-    // Mostrar resumen por ruta
-    for (const [routeName, localitiesMap] of sortedRoutes) {
-      const routeCredits = Array.from(localitiesMap.values()).flat().length;
-      doc.fontSize(10);
-      doc.text(`• ${routeName}: ${routeCredits} créditos con problemas`);
+    const problemTypes = ['INE', 'DOMICILIO', 'PAGARE'];
+    problemTypes.forEach(docType => {
+      const clientProblems = tableData.filter(row => 
+        row.problemType === 'CLIENTE' && row.problemDescription.includes(docType)
+      ).length;
+      const avalProblems = tableData.filter(row => 
+        row.problemType === 'AVAL' && row.problemDescription.includes(docType)
+      ).length;
       
-      for (const [locality, credits] of Array.from(localitiesMap.entries()).sort(([a], [b]) => a.localeCompare(b))) {
-        doc.text(`  - ${locality}: ${credits.length} créditos`, { indent: 20 });
+      if (clientProblems > 0 || avalProblems > 0) {
+        doc.fontSize(10).fillColor('black');
+        doc.text(`• ${docType}: ${clientProblems} clientes, ${avalProblems} avales`);
       }
-    }
+    });
     
     doc.moveDown(2);
-    doc.fontSize(10).text('Nota: Los créditos listados requieren atención inmediata para completar o corregir la documentación requerida.', { align: 'justify' });
+    
+    // Desglose por localidad
+    doc.fontSize(14).fillColor('#1e40af').text('DESGLOSE POR LOCALIDAD');
+    doc.moveDown();
+    
+    const localityStats = new Map();
+    tableData.forEach(row => {
+      if (!localityStats.has(row.locality)) {
+        localityStats.set(row.locality, { client: 0, aval: 0 });
+      }
+      if (row.problemType === 'CLIENTE') {
+        localityStats.get(row.locality).client++;
+      } else {
+        localityStats.get(row.locality).aval++;
+      }
+    });
+    
+    const sortedLocalities = Array.from(localityStats.entries()).sort(([a], [b]) => a.localeCompare(b));
+    sortedLocalities.forEach(([locality, stats]) => {
+      doc.fontSize(10).fillColor('black');
+      doc.text(`• ${locality}: ${stats.client} problemas de clientes, ${stats.aval} problemas de avales`);
+    });
+    
+    doc.moveDown(3);
+    
+    // Nota importante con mejor estilo
+    doc.fillColor('#fef2f2').rect(50, doc.y, 500, 80).fill();
+    doc.strokeColor('#dc2626').lineWidth(2).rect(50, doc.y, 500, 80).stroke();
+    
+    doc.fontSize(12).fillColor('#dc2626').text('⚠️ ACCIÓN REQUERIDA', 60, doc.y + 15);
+    doc.fontSize(10).fillColor('black');
+    doc.text('Este reporte requiere seguimiento inmediato. Los créditos listados no pueden', 60, doc.y + 35);
+    doc.text('proceder sin la documentación completa y correcta. Contacte a los clientes', 60, doc.y + 50);
+    doc.text('para completar o corregir la documentación faltante.', 60, doc.y + 65);
+    
+    // Resetear colores
+    doc.fillColor('black');
+    
+    // Agregar footer profesional
+    await addProfessionalFooter(doc);
 
   } catch (error) {
     console.error('❌ Error generando reporte de créditos con errores:', error);
     doc.fontSize(12).text(`❌ Error generando reporte: ${error instanceof Error ? error.message : 'Unknown error'}`, { align: 'center' });
   }
+}
+
+// ✅ FUNCIÓN PARA AGREGAR FOOTER PROFESIONAL
+async function addProfessionalFooter(doc: any) {
+  try {
+    const pageHeight = 792; // Altura estándar de página A4
+    const footerY = pageHeight - 50;
+    
+    // Línea divisoria
+    doc.strokeColor('#e2e8f0').lineWidth(1);
+    doc.moveTo(50, footerY - 10).lineTo(562, footerY - 10).stroke();
+    
+    // Información del footer
+    doc.fontSize(8).fillColor('gray');
+    doc.text('SOLUFÁCIL - Sistema de Gestión de Créditos', 50, footerY, { align: 'left' });
+    doc.text(`Página generada automáticamente - ${new Date().toLocaleDateString('es-ES')}`, 50, footerY + 12, { align: 'left' });
+    
+    // Información de contacto (lado derecho)
+    doc.text('Reporte Confidencial', 400, footerY, { align: 'right', width: 150 });
+    doc.text('Para uso interno únicamente', 400, footerY + 12, { align: 'right', width: 150 });
+    
+    // Resetear color
+    doc.fillColor('black');
+    
+  } catch (error) {
+    console.error('Error agregando footer:', error);
+  }
+}
+
+// ✅ FUNCIÓN PARA AGREGAR HEADER CON LOGO DE LA EMPRESA
+async function addCompanyHeader(doc: any) {
+  try {
+    // Fondo del header
+    doc.fillColor('#1e40af').rect(0, 0, 612, 80).fill();
+    
+    // Logo y nombre de la empresa (simulado con texto estilizado)
+    doc.fontSize(24).fillColor('white').text('SOLUFÁCIL', 50, 25, { align: 'left' });
+    doc.fontSize(10).fillColor('white').text('SISTEMA DE GESTIÓN DE CRÉDITOS', 50, 55);
+    
+    // Información de generación en la esquina derecha
+    doc.fontSize(8).fillColor('white');
+    const currentDate = new Date().toLocaleString('es-ES', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    doc.text(`Generado: ${currentDate}`, 350, 30, { align: 'right', width: 200 });
+    doc.text('Reporte Oficial', 350, 45, { align: 'right', width: 200 });
+    doc.text('Confidencial', 350, 60, { align: 'right', width: 200 });
+    
+    // Línea divisoria elegante
+    doc.strokeColor('#3b82f6').lineWidth(2).moveTo(50, 85).lineTo(562, 85).stroke();
+    
+    // Espacio después del header
+    doc.y = 100;
+    doc.fillColor('black'); // Resetear color a negro
+    
+  } catch (error) {
+    console.error('Error agregando header:', error);
+    // Fallback simple si hay error
+    doc.fontSize(16).fillColor('#1e40af').text('SOLUFÁCIL', 50, 50);
+    doc.y = 80;
+    doc.fillColor('black');
+  }
+}
+
+// ✅ FUNCIÓN PARA GENERAR TABLA DE DOCUMENTOS CON ERROR
+async function generateDocumentErrorTableContent(doc: any, tableData: any[], weekGroups: Map<string, any[]>) {
+  try {
+    const pageWidth = 500;
+    const startX = 50;
+    const rowHeight = 35;
+    let currentY = doc.y;
+    
+    // Headers de la tabla
+    const headers = ['Localidad', 'Cliente', 'Problema', 'Descripción del Error', 'Observaciones'];
+    const columnWidths = [70, 100, 60, 140, 130];
+    
+    // Función para dibujar header de tabla
+    const drawTableHeader = (y: number) => {
+      doc.fontSize(9);
+      
+      // Fondo del header
+      doc.fillColor('#1e40af').rect(startX, y, pageWidth, 25).fill();
+      
+      // Texto del header en blanco
+      doc.fillColor('white');
+      let x = startX + 5;
+      headers.forEach((header, index) => {
+        doc.text(header, x, y + 8, { width: columnWidths[index] - 10, align: 'center' });
+        x += columnWidths[index];
+      });
+      
+      // Resetear color
+      doc.fillColor('black');
+      return y + 25;
+    };
+    
+    // Función para dibujar fila de datos
+    const drawTableRow = (data: any, y: number, isShaded: boolean = false) => {
+      // Fondo de la fila
+      if (isShaded) {
+        doc.fillColor('#f1f5f9').rect(startX, y, pageWidth, rowHeight).fill();
+      } else {
+        doc.fillColor('white').rect(startX, y, pageWidth, rowHeight).fill();
+      }
+      
+      // Bordes de la fila
+      doc.strokeColor('#d1d5db').lineWidth(0.5);
+      doc.rect(startX, y, pageWidth, rowHeight).stroke();
+      
+      // Texto de la fila
+      doc.fillColor('black').fontSize(8);
+      
+      let x = startX + 3;
+      const values = [
+        data.locality,
+        data.clientName.length > 25 ? data.clientName.substring(0, 22) + '...' : data.clientName,
+        data.problemType,
+        data.problemDescription.length > 35 ? data.problemDescription.substring(0, 32) + '...' : data.problemDescription,
+        data.observations.length > 30 ? data.observations.substring(0, 27) + '...' : data.observations
+      ];
+      
+      values.forEach((value, index) => {
+        const cellWidth = columnWidths[index] - 6;
+        
+        // Texto con word wrap mejorado
+        doc.text(value || '-', x, y + 8, { 
+          width: cellWidth,
+          align: 'left',
+          lineBreak: true
+        });
+        x += columnWidths[index];
+      });
+      
+      // Resetear color
+      doc.fillColor('black');
+      return y + rowHeight;
+    };
+    
+    // Dibujar header inicial
+    currentY = drawTableHeader(currentY);
+    
+    // Procesar datos por semana con sombreado
+    const sortedWeeks = Array.from(weekGroups.keys()).sort().reverse(); // Más recientes primero
+    let isWeekShaded = false;
+    
+    for (const weekKey of sortedWeeks) {
+      const weekData = weekGroups.get(weekKey);
+      const weekStart = new Date(weekKey);
+      
+      // Verificar si necesitamos nueva página
+      if (currentY > 680) {
+        doc.addPage();
+        await addCompanyHeader(doc);
+        currentY = doc.y;
+        currentY = drawTableHeader(currentY);
+      }
+      
+      // Header de semana con estilo profesional
+      doc.fontSize(10).fillColor('#1e40af');
+      const weekText = `Semana del ${weekStart.toLocaleDateString('es-ES')} (${weekData.length} registros)`;
+      doc.text(weekText, startX, currentY + 5);
+      doc.fillColor('black');
+      currentY += 20;
+      
+      // Filas de datos de la semana
+      for (const rowData of weekData) {
+        if (currentY > 680) {
+          doc.addPage();
+          await addCompanyHeader(doc);
+          currentY = doc.y;
+          currentY = drawTableHeader(currentY);
+          
+          // Repetir header de semana en nueva página
+          doc.fontSize(10).fillColor('#1e40af');
+          doc.text(`${weekText} (continuación)`, startX, currentY + 5);
+          doc.fillColor('black');
+          currentY += 20;
+        }
+        
+        currentY = drawTableRow(rowData, currentY, isWeekShaded);
+      }
+      
+      // Alternar sombreado para la siguiente semana
+      isWeekShaded = !isWeekShaded;
+      
+      // Línea separadora entre semanas
+      doc.strokeColor('#94a3b8').lineWidth(1);
+      doc.moveTo(startX, currentY + 5).lineTo(startX + pageWidth, currentY + 5).stroke();
+      currentY += 15;
+    }
+
+  } catch (error) {
+    console.error('❌ Error generando tabla de documentos con errores:', error);
+    doc.fontSize(12).text(`❌ Error generando tabla: ${error instanceof Error ? error.message : 'Unknown error'}`, { align: 'center' });
+  }
+}
+
+// ✅ FUNCIÓN AUXILIAR PARA OBTENER EL INICIO DE LA SEMANA (LUNES)
+function getWeekStart(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Ajustar para que lunes sea el primer día
+  d.setDate(diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
 }
 
 // ✅ FUNCIÓN PARA ENVIAR ARCHIVO A TELEGRAM
