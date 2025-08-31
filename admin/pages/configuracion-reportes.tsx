@@ -577,9 +577,22 @@ export default function ConfiguracionReportesPage() {
             let sent = false;
             
             console.log(`🔍 Verificando tipo de reporte: "${config.reportType}" === "creditos_con_errores"?`, config.reportType === 'creditos_con_errores');
+            console.log(`🔍 Tipo de dato del reportType:`, typeof config.reportType);
+            console.log(`🔍 Comparación estricta:`, config.reportType === 'creditos_con_errores');
+            console.log(`🔍 Comparación con includes:`, config.reportType.includes('creditos_con_errores'));
             
             // Para créditos con errores, usar la nueva mutación con PDF
-            if (config.reportType === 'creditos_con_errores') {
+            const isCreditsWithErrors = config.reportType === 'creditos_con_errores' || 
+                                       config.reportType.includes('creditos_con_errores') ||
+                                       config.reportType.includes('Créditos con Documentos con Error');
+            
+            console.log(`🎯 ¿Es reporte de créditos con errores?`, isCreditsWithErrors);
+            
+            // TEMPORAL: Forzar uso de PDF para debug
+            const forcePDF = true;
+            console.log(`🧪 FORZANDO USO DE PDF para debug`);
+            
+            if (isCreditsWithErrors || forcePDF) {
               console.log(`📋 DETECTADO REPORTE DE CRÉDITOS CON ERRORES`);
               console.log(`📋 Tipo de reporte: "${config.reportType}"`);
               console.log(`📋 Route IDs: [${routeIds.join(', ')}]`);
@@ -608,6 +621,10 @@ export default function ConfiguracionReportesPage() {
               }
             } else {
               console.log(`📝 USANDO MÉTODO ANTERIOR para tipo: "${config.reportType}"`);
+              console.log(`❌ LA CONDICIÓN FALLÓ - No se detectó creditos_con_errores`);
+              console.log(`❌ Valor exacto recibido: [${config.reportType}]`);
+              console.log(`❌ Longitud del string: ${config.reportType.length}`);
+              console.log(`❌ Caracteres: ${config.reportType.split('').map(c => c.charCodeAt(0))}`);
               // Para otros tipos de reporte, usar el método anterior (mensaje de texto)
               let reportContent = '';
               switch (config.reportType) {
