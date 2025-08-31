@@ -6923,297 +6923,184 @@ function sanitizeText(text: string): string {
     .substring(0, 80); // Limitar longitud
 }
 
-// ✅ FUNCIÓN PARA GENERAR TABLA REAL DE DOCUMENTOS CON ERROR
+// ✅ FUNCIÓN PARA GENERAR TABLA REAL DE DOCUMENTOS CON ERROR (VERSIÓN LIMPIA)
 async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGroups: Map<string, any[]>) {
-  try {
-    console.log('🎨 Iniciando generación de tabla real...');
+  console.log('🎨 Iniciando generación de tabla real...');
+  
+  const pageWidth = 500;
+  const startX = 50;
+  const headerHeight = 30;
+  const rowHeight = 45;
+  let currentY = doc.y;
+  
+  // Configuración de columnas
+  const columns = [
+    { header: 'Ruta', width: 60 },
+    { header: 'Localidad', width: 70 },
+    { header: 'Cliente', width: 85 },
+    { header: 'Tipo', width: 45 },
+    { header: 'Problema', width: 140 },
+    { header: 'Observaciones', width: 100 }
+  ];
+  
+  // Función para dibujar header
+  const drawTableHeader = (y: number) => {
+    doc.fillColor('#1e40af').rect(startX, y, pageWidth, headerHeight).fill();
+    doc.strokeColor('#1e40af').lineWidth(2).rect(startX, y, pageWidth, headerHeight).stroke();
     
-    const pageWidth = 500;
-    const startX = 50;
-    const headerHeight = 30;
-    const rowHeight = 45;
-    let currentY = doc.y;
+    doc.fillColor('white').fontSize(10);
+    let x = startX;
+    columns.forEach((col, index) => {
+      if (index > 0) {
+        doc.strokeColor('white').lineWidth(1);
+        doc.moveTo(x, y).lineTo(x, y + headerHeight).stroke();
+      }
+      doc.text(col.header, x + 5, y + 10, { width: col.width - 10, align: 'center' });
+      x += col.width;
+    });
     
-    // Configuración de columnas con Ruta incluida
-    const columns = [
-      { header: 'Ruta', width: 60 },
-      { header: 'Localidad', width: 70 },
-      { header: 'Cliente', width: 85 },
-      { header: 'Tipo', width: 45 },
-      { header: 'Problema', width: 140 },
-      { header: 'Observaciones', width: 100 }
+    doc.fillColor('black');
+    return y + headerHeight;
+  };
+  
+  // Función para dibujar fila
+  const drawTableRow = (data: any, y: number, isShaded: boolean = false) => {
+    if (!data) return y + rowHeight;
+    
+    // Fondo alternado
+    if (isShaded) {
+      doc.fillColor('#e0f2fe').rect(startX, y, pageWidth, rowHeight).fill();
+    } else {
+      doc.fillColor('white').rect(startX, y, pageWidth, rowHeight).fill();
+    }
+    
+    // Bordes
+    doc.strokeColor('#374151').lineWidth(1).rect(startX, y, pageWidth, rowHeight).stroke();
+    
+    // Datos sanitizados
+    const cellData = [
+      sanitizeText(data.routeName),
+      sanitizeText(data.locality), 
+      sanitizeText(data.clientName),
+      sanitizeText(data.problemType),
+      sanitizeText(data.problemDescription),
+      sanitizeText(data.observations)
     ];
     
-    // Función para dibujar header de tabla
-    const drawTableHeader = (y: number) => {
-      // Fondo azul del header
-      doc.fillColor('#1e40af').rect(startX, y, pageWidth, headerHeight).fill();
-      
-      // Bordes del header
-      doc.strokeColor('#1e40af').lineWidth(2).rect(startX, y, pageWidth, headerHeight).stroke();
-      
-      // Texto del header
-      doc.fillColor('white').fontSize(10);
-      let x = startX;
-      columns.forEach((col, index) => {
-        // Líneas verticales entre columnas
-        if (index > 0) {
-          doc.strokeColor('white').lineWidth(1);
-          doc.moveTo(x, y).lineTo(x, y + headerHeight).stroke();
-        }
-        
-        doc.text(col.header, x + 5, y + 10, { 
-          width: col.width - 10, 
-          align: 'center'
-        });
-        x += col.width;
-      });
-      
-      doc.fillColor('black');
-      return y + headerHeight;
-    };
-    
-    // Función para dibujar fila de datos con tabla real
-    const drawTableRow = (data: any, y: number, isShaded: boolean = false) => {
-      try {
-        // Validar que tenemos datos válidos
-        if (!data) {
-          console.warn('Datos de fila inválidos, saltando...');
-          return y + rowHeight;
-        }
-        
-        // Color de fondo alternado
-        if (isShaded) {
-          doc.fillColor('#e0f2fe').rect(startX, y, pageWidth, rowHeight).fill();
-        } else {
-          doc.fillColor('white').rect(startX, y, pageWidth, rowHeight).fill();
-        }
-        
-        // Bordes de la fila
-        doc.strokeColor('#374151').lineWidth(1).rect(startX, y, pageWidth, rowHeight).stroke();
-      } catch (drawError) {
-        console.error('Error dibujando fondo/bordes:', drawError);
-        return y + rowHeight;
+    // Dibujar celdas
+    let x = startX;
+    columns.forEach((col, index) => {
+      if (index > 0) {
+        doc.strokeColor('#374151').lineWidth(0.5);
+        doc.moveTo(x, y).lineTo(x, y + rowHeight).stroke();
       }
       
-      // Datos de las celdas (sanitizados)
-      const cellData = [
-        sanitizeText(data.routeName),
-        sanitizeText(data.locality), 
-        sanitizeText(data.clientName),
-        sanitizeText(data.problemType),
-        sanitizeText(data.problemDescription),
-        sanitizeText(data.observations)
-      ];
+      let cellText = cellData[index] || 'N/A';
       
-      // Dibujar contenido de cada celda con protección
-      let x = startX;
-      columns.forEach((col, index) => {
-        try {
-          // Validar posición X para evitar desbordamiento
-          if (x + col.width > startX + pageWidth) {
-            console.warn(`Columna ${index} se sale del límite, saltando...`);
-            return;
-          }
-          
-          // Líneas verticales entre columnas
-          if (index > 0) {
-            doc.strokeColor('#374151').lineWidth(0.5);
-            doc.moveTo(x, y).lineTo(x, y + rowHeight).stroke();
-          }
-          
-          let cellText = cellData[index];
-          
-          // Protección extra: asegurar que el texto no esté vacío o sea problemático
-          if (!cellText || cellText === 'undefined' || cellText === 'null') {
-            cellText = 'N/A';
-          }
-          // Columna de problemas con múltiples líneas (protegida)
-          if (index === 4) {
-            try {
-              const problems = cellText.split(';').map(p => sanitizeText(p)).filter(p => p && p !== 'N/A' && p.length > 0);
-              doc.fontSize(7);
-              let textY = y + 5;
-              
-              // Máximo 3 líneas para evitar desbordamiento
-              const maxLines = Math.min(problems.length, 3);
-              
-              for (let i = 0; i < maxLines; i++) {
-                const problem = problems[i];
-                if (textY < y + rowHeight - 10 && problem && problem.length > 0) {
-                  let displayText = '';
-                  
-                  if (problem.includes('con error')) {
-                    doc.fillColor('#dc2626');
-                    displayText = `ERROR: ${problem.replace('con error', '').trim().substring(0, 15)}`;
-                  } else if (problem.includes('faltante')) {
-                    doc.fillColor('#f59e0b');
-                    displayText = `FALTA: ${problem.replace('faltante', '').trim().substring(0, 15)}`;
-                  } else {
-                    doc.fillColor('black');
-                    displayText = problem.substring(0, 20);
-                  }
-                  
-                  // Dibujar texto con restricciones estrictas
-                  doc.text(displayText, x + 2, textY, { 
-                    width: col.width - 4,
-                    height: 8,
-                    ellipsis: true,
-                    lineBreak: false
-                  });
-                  textY += 8;
-                }
-              }
-              
-              if (problems.length > 3) {
-                doc.fillColor('gray').fontSize(6);
-                doc.text(`+${problems.length - 3} mas`, x + 2, textY, { 
-                  width: col.width - 4,
-                  height: 6,
-                  ellipsis: true,
-                  lineBreak: false
-                });
-              }
-            } catch (problemError) {
-              console.error('Error en columna de problemas:', problemError);
-              doc.fillColor('black').fontSize(7);
-              doc.text('Problemas multiples', x + 2, y + 15, { 
-                width: col.width - 4,
-                height: 15,
-                ellipsis: true,
-                lineBreak: false
-              });
-            }
-            
-          } else {
-            // Otras columnas con protección
-            if (index === 3) { // Tipo
-              doc.fillColor(cellText === 'CLIENTE' ? '#059669' : '#dc2626');
-              doc.fontSize(9);
+      // Columna de problemas
+      if (index === 4) {
+        const problems = cellText.split(';').filter(p => p.trim());
+        doc.fontSize(7);
+        let textY = y + 5;
+        
+        for (let i = 0; i < Math.min(problems.length, 3); i++) {
+          const problem = problems[i].trim();
+          if (textY < y + rowHeight - 10) {
+            if (problem.includes('con error')) {
+              doc.fillColor('#dc2626');
+              doc.text(`ERROR: ${problem.replace('con error', '').trim().substring(0, 15)}`, x + 2, textY);
+            } else if (problem.includes('faltante')) {
+              doc.fillColor('#f59e0b');
+              doc.text(`FALTA: ${problem.replace('faltante', '').trim().substring(0, 15)}`, x + 2, textY);
             } else {
               doc.fillColor('black');
-              doc.fontSize(8);
+              doc.text(problem.substring(0, 20), x + 2, textY);
             }
-            
-            // Limitar longitud estrictamente
-            let displayText = cellText;
-            const maxLength = Math.floor(col.width / 6); // Cálculo más conservador
-            if (displayText.length > maxLength) {
-              displayText = displayText.substring(0, maxLength - 3) + '...';
-            }
-            
-            // Texto con restricciones estrictas
-            doc.text(displayText, x + 2, y + 15, { 
-              width: col.width - 4,
-              height: 15,
-              ellipsis: true,
-              lineBreak: false // Evitar saltos de línea automáticos
-            });
+            textY += 8;
           }
-        } catch (cellError) {
-          console.error(`Error en celda ${index}:`, cellError);
-          // Fallback seguro para celdas problemáticas
-          doc.fillColor('red').fontSize(6);
-          doc.text('ERROR', x + 2, y + 15, { 
-            width: col.width - 4,
-            height: 10,
-            ellipsis: true,
-            lineBreak: false
-          });
+        }
+      } else {
+        // Otras columnas
+        if (index === 3) {
+          doc.fillColor(cellText === 'CLIENTE' ? '#059669' : '#dc2626');
+          doc.fontSize(9);
+        } else {
           doc.fillColor('black');
+          doc.fontSize(8);
         }
         
-        x += col.width;
-      });
+        if (cellText.length > 18) {
+          cellText = cellText.substring(0, 15) + '...';
+        }
+        
+        doc.text(cellText, x + 2, y + 15, { 
+          width: col.width - 4,
+          ellipsis: true,
+          lineBreak: false
+        });
+      }
       
-      doc.fillColor('black');
-      return y + rowHeight;
-      
-    } catch (rowError) {
-      console.error('Error general en drawTableRow:', rowError);
-      // Fallback: dibujar fila básica
-      doc.fillColor('white').rect(startX, y, pageWidth, rowHeight).fill();
-      doc.strokeColor('#374151').lineWidth(1).rect(startX, y, pageWidth, rowHeight).stroke();
-      doc.fillColor('black').fontSize(8);
-      doc.text('Error en fila de datos', startX + 5, y + 15);
-      return y + rowHeight;
+      x += col.width;
+    });
+    
+    doc.fillColor('black');
+    return y + rowHeight;
+  };
+    
+  // Dibujar header inicial
+  currentY = drawTableHeader(currentY);
+  
+  // Procesar datos por semana
+  const sortedWeeks = Array.from(weekGroups.keys()).sort().reverse();
+  let isWeekShaded = false;
+  let recordCount = 0;
+  
+  for (const weekKey of sortedWeeks) {
+    const weekData = weekGroups.get(weekKey) || [];
+    const weekStart = new Date(weekKey);
+    
+    // Nueva página si es necesario
+    if (currentY > 650) {
+      doc.addPage();
+      doc.fontSize(20).fillColor('#1e40af').text('SOLUFACIL', { align: 'center' });
+      doc.fontSize(14).fillColor('black').text('REPORTE DE CREDITOS (Continuacion)', { align: 'center' });
+      doc.moveDown(2);
+      currentY = doc.y;
+      currentY = drawTableHeader(currentY);
     }
-    };
     
-    // Dibujar header inicial
-    currentY = drawTableHeader(currentY);
+    // Header de semana
+    doc.fontSize(10).fillColor('#1e40af');
+    doc.text(`Semana del ${weekStart.toLocaleDateString('es-ES')} (${weekData.length} registros)`, startX, currentY + 5);
+    doc.fillColor('black');
+    currentY += 18;
     
-    // Procesar TODOS los datos por semana con sombreado
-    const sortedWeeks = Array.from(weekGroups.keys()).sort().reverse(); // Más recientes primero
-    let isWeekShaded = false;
-    let recordCount = 0;
-    
-    console.log(`📊 Procesando ${sortedWeeks.length} semanas de datos...`);
-    
-    for (const weekKey of sortedWeeks) {
-      const weekData = weekGroups.get(weekKey) || [];
-      const weekStart = new Date(weekKey);
-      
-      console.log(`📅 Procesando semana ${weekKey} con ${weekData.length} registros`);
-      
-      // Verificar si necesitamos nueva página
-      if (currentY > 700) {
+    // Dibujar filas
+    weekData.forEach((rowData) => {
+      if (currentY > 650) {
         doc.addPage();
         doc.fontSize(20).fillColor('#1e40af').text('SOLUFACIL', { align: 'center' });
-        doc.fontSize(14).fillColor('black').text('REPORTE DE CREDITOS CON DOCUMENTOS CON ERROR (Continuacion)', { align: 'center' });
         doc.moveDown(2);
         currentY = doc.y;
         currentY = drawTableHeader(currentY);
       }
       
-      // Header de semana simplificado
-      doc.fontSize(10).fillColor('#1e40af');
-      const weekText = `Semana del ${weekStart.toLocaleDateString('es-ES')} (${weekData.length} registros)`;
-      doc.text(weekText, startX, currentY + 5);
-      doc.fillColor('black');
-      currentY += 18;
-      
-      // Procesar TODOS los registros de la semana
-      for (let i = 0; i < weekData.length; i++) {
-        const rowData = weekData[i];
-        recordCount++;
-        
-        // Verificar si necesitamos nueva página
-        if (currentY > 700) {
-          doc.addPage();
-          doc.fontSize(20).fillColor('#1e40af').text('SOLUFACIL', { align: 'center' });
-          doc.fontSize(14).fillColor('black').text('REPORTE DE CREDITOS CON DOCUMENTOS CON ERROR (Continuacion)', { align: 'center' });
-          doc.moveDown(2);
-          currentY = doc.y;
-          currentY = drawTableHeader(currentY);
-          
-          // Repetir header de semana
-          doc.fontSize(10).fillColor('#1e40af');
-          doc.text(`${weekText} - continuacion`, startX, currentY + 5);
-          doc.fillColor('black');
-          currentY += 18;
-        }
-        
-        currentY = drawTableRow(rowData, currentY, isWeekShaded);
-      }
-      
-      // Alternar sombreado para la siguiente semana
-      isWeekShaded = !isWeekShaded;
-      
-      // Línea separadora entre semanas si no es la última
-      if (weekKey !== sortedWeeks[sortedWeeks.length - 1]) {
-        doc.strokeColor('#1e40af').lineWidth(3);
-        doc.moveTo(startX, currentY + 8).lineTo(startX + pageWidth, currentY + 8).stroke();
-        currentY += 20;
-      }
-    }
+      currentY = drawTableRow(rowData, currentY, isWeekShaded);
+      recordCount++;
+    });
     
-    console.log(`✅ Tabla completada con ${recordCount} registros procesados`);
-
-  } catch (error) {
-    console.error('❌ Error generando tabla real:', error);
-    doc.fontSize(12).text(`❌ Error generando tabla: ${error instanceof Error ? error.message : 'Unknown error'}`, { align: 'center' });
+    // Alternar sombreado
+    isWeekShaded = !isWeekShaded;
+    
+    // Separador entre semanas
+    if (weekKey !== sortedWeeks[sortedWeeks.length - 1]) {
+      doc.strokeColor('#1e40af').lineWidth(2);
+      doc.moveTo(startX, currentY + 5).lineTo(startX + pageWidth, currentY + 5).stroke();
+      currentY += 15;
+    }
   }
+  
+  console.log(`Tabla completada con ${recordCount} registros`);
 }
 
 // ✅ FUNCIÓN PARA AGREGAR HEADER CON LOGO DE LA EMPRESA
