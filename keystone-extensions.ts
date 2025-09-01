@@ -1323,20 +1323,6 @@ export const extendExpressApp = (app: express.Express) => {
       // Línea decorativa
       doc.rect(40, 70, doc.page.width - 80, 2).fill('#ffffff');
 
-      // Footer profesional - aplicado a la página actual
-      const addFooterToCurrentPage = () => {
-        const footerY = doc.page.height - 60;
-        
-        // Línea separadora
-        doc.rect(40, footerY, doc.page.width - 80, 1).fill('#e2e8f0');
-        
-        // Información del footer
-        doc.fontSize(8).fillColor('#718096');
-        doc.text('SoluFacil - Sistema de Gestion Crediticia', 40, footerY + 10);
-        doc.text('Documento confidencial - Solo para uso interno', doc.page.width - 200, footerY + 10);
-        doc.text(`Generado: ${new Date().toLocaleDateString('es-SV')} ${new Date().toLocaleTimeString('es-SV')}`, 40, footerY + 25);
-      };
-
       // Información del cliente con diseño moderno
       let y = 120;
       
@@ -1376,9 +1362,6 @@ export const extendExpressApp = (app: express.Express) => {
           y += 12;
         });
       }
-
-      // Agregar footer a la primera página
-      addFooterToCurrentPage();
 
       // RESUMEN EJECUTIVO - Solo en modo resumen
       if (!detailed && (loansAsClient?.length > 0 || loansAsCollateral?.length > 0)) {
@@ -1461,7 +1444,6 @@ export const extendExpressApp = (app: express.Express) => {
           // MODO DETALLADO: Mostrar todos los préstamos con pagos completos
           loansAsClient.forEach((loan: any, loanIndex: number) => {
             if (y > doc.page.height - 200) {
-              addFooterToCurrentPage();
               doc.addPage();
               y = 40;
             }
@@ -1484,7 +1466,7 @@ export const extendExpressApp = (app: express.Express) => {
             doc.text(`Líder: ${loan.leadName}`, 250, y);
             y += 25;
 
-            // Tabla de pagos si los hay - con manejo inteligente de páginas
+            // Tabla de pagos si los hay
             if (loan.payments && loan.payments.length > 0) {
               doc.fontSize(10).fillColor('#2d3748').text('Historial de Pagos:', 55, y);
               y += 15;
@@ -1500,37 +1482,19 @@ export const extendExpressApp = (app: express.Express) => {
               const totalPaymentWidth = paymentColumnWidths.reduce((a, b) => a + b, 0);
               const paymentTableX = 55;
 
-              // Función para dibujar header de tabla
-              const drawTableHeader = () => {
-                doc.fontSize(8).fillColor('#ffffff');
-                doc.rect(paymentTableX, y, totalPaymentWidth, 18).fill('#1e40af');
-                doc.fillColor('#ffffff');
-                paymentHeaders.forEach((header, index) => {
-                  const headerX = paymentTableX + paymentColumnWidths.slice(0, index).reduce((a, b) => a + b, 0);
-                  doc.text(header, headerX + 5, y + 6, { width: paymentColumnWidths[index] - 10, align: 'center' });
-                });
-                y += 20;
-              };
-
-              // Dibujar header inicial
-              drawTableHeader();
+              // Encabezados
+              doc.fontSize(8).fillColor('#ffffff');
+              doc.rect(paymentTableX, y, totalPaymentWidth, 18).fill('#1e40af');
+              doc.fillColor('#ffffff');
+              paymentHeaders.forEach((header, index) => {
+                const headerX = paymentTableX + paymentColumnWidths.slice(0, index).reduce((a, b) => a + b, 0);
+                doc.text(header, headerX + 5, y + 6, { width: paymentColumnWidths[index] - 10, align: 'center' });
+              });
+              y += 20;
 
               // Filas de pagos (máximo 10 para evitar páginas muy largas)
               const paymentsToShow = loan.payments.slice(0, 10);
               paymentsToShow.forEach((payment: any, paymentIndex: number) => {
-                // Verificar si necesitamos nueva página
-                if (y > doc.page.height - 100) {
-                  // Agregar footer a la página actual antes del salto
-                  addFooterToCurrentPage();
-                  doc.addPage();
-                  y = 40;
-                  
-                  // Redibujar header en la nueva página
-                  doc.fontSize(10).fillColor('#2d3748').text(`Historial de Pagos (continuacion):`, 55, y);
-                  y += 15;
-                  drawTableHeader();
-                }
-
                 const paymentRowColor = paymentIndex % 2 === 0 ? '#f0f9ff' : '#ffffff';
                 doc.rect(paymentTableX, y - 2, totalPaymentWidth, 16).fill(paymentRowColor);
 
@@ -1596,7 +1560,6 @@ export const extendExpressApp = (app: express.Express) => {
             
             // Solo agregar nueva página si realmente no hay espacio
             if (y > doc.page.height - Math.min(estimatedHeight, 200)) {
-              addFooterToCurrentPage();
               doc.addPage();
               y = 40;
             }
@@ -1657,7 +1620,6 @@ export const extendExpressApp = (app: express.Express) => {
               // Todas las filas de pagos del préstamo actual
               latestLoan.payments.forEach((payment: any, paymentIndex: number) => {
                 if (y > doc.page.height - 80) {
-                  addFooterToCurrentPage();
                   doc.addPage();
                   y = 40;
                 }
@@ -1687,7 +1649,6 @@ export const extendExpressApp = (app: express.Express) => {
           if (loansAsClient.length > 1) {
             // Solo agregar nueva página si realmente no hay espacio para el card completo
             if (y > doc.page.height - 90) {
-              addFooterToCurrentPage();
               doc.addPage();
               y = 40;
             }
@@ -1733,7 +1694,6 @@ export const extendExpressApp = (app: express.Express) => {
           // MODO DETALLADO: Mostrar todos los préstamos como aval
           loansAsCollateral.forEach((loan: any, loanIndex: number) => {
             if (y > doc.page.height - 200) {
-              addFooterToCurrentPage();
               doc.addPage();
               y = 40;
             }
@@ -1774,7 +1734,6 @@ export const extendExpressApp = (app: express.Express) => {
           if (collateralStats) {
             // Solo agregar nueva página si realmente no hay espacio para el card completo
             if (y > doc.page.height - 110) {
-              addFooterToCurrentPage();
               doc.addPage();
               y = 40;
             }
@@ -1809,26 +1768,19 @@ export const extendExpressApp = (app: express.Express) => {
         y += 30;
       }
 
-      // Nota final en modo resumen - solo si hay espacio en la página actual
+      // Nota final en modo resumen
       if (!detailed && (loansAsClient?.length > 0 || loansAsCollateral?.length > 0)) {
-        // Solo agregar la nota si hay espacio suficiente en la página actual
-        if (y <= doc.page.height - 80) {
-          y += 20; // Espacio antes de la nota
-          
-          // Card de información sobre el reporte más compacto
-          doc.roundedRect(40, y, doc.page.width - 80, 50, 6).fill('#f0f9ff');
-          doc.roundedRect(40, y, doc.page.width - 80, 50, 6).stroke('#1e40af');
-          
-          y += 12;
-          doc.fontSize(9).fillColor('#1e40af').text('INFORMACION DEL REPORTE', 55, y);
-          y += 15;
-          doc.fontSize(8).fillColor('#1e40af').text('Este es un reporte resumido. Para ver el historial completo active la opcion "PDF detallado completo".', 55, y);
-        }
-        // Si no hay espacio, no agregamos la nota para evitar páginas adicionales
+        y += 20;
+        
+        // Card de información sobre el reporte más compacto
+        doc.roundedRect(40, y, doc.page.width - 80, 50, 6).fill('#f0f9ff');
+        doc.roundedRect(40, y, doc.page.width - 80, 50, 6).stroke('#1e40af');
+        
+        y += 12;
+        doc.fontSize(9).fillColor('#1e40af').text('INFORMACION DEL REPORTE', 55, y);
+        y += 15;
+        doc.fontSize(8).fillColor('#1e40af').text('Este es un reporte resumido. Para ver el historial completo active la opcion "PDF detallado completo".', 55, y);
       }
-
-      // Agregar footer a la página final
-      addFooterToCurrentPage();
 
       console.log('📄 Finalizando PDF');
       doc.end();
