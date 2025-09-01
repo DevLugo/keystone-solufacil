@@ -35,6 +35,7 @@ import { AlertsPanel } from './AlertsPanel';
 import { LoadingDashboard, LoadingKPIs } from './LoadingDashboard';
 import { UserAccessInfo } from './UserAccessInfo';
 import { QuickActions } from './QuickActions';
+import { DebugPanel } from './DebugPanel';
 
 interface DashboardData {
   routeId: string;
@@ -254,6 +255,8 @@ export default function CollectorDashboard() {
     accessType,
     hasMultipleRoutes,
     message: routeMessage,
+    method,
+    warning,
     loading: routesLoading 
   } = useUserRoutes();
 
@@ -364,6 +367,46 @@ export default function CollectorDashboard() {
           userInfo={userRoutesData?.userInfo}
           employeeInfo={userRoutesData?.employeeInfo}
         />
+
+        {/* Warning banner for fallback method */}
+        {warning && (
+          <div css={{
+            backgroundColor: '#fffbeb',
+            border: '1px solid #fed7aa',
+            borderRadius: '12px',
+            padding: '16px',
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}>
+            <FaExclamationTriangle style={{ color: '#d97706' }} />
+            <div>
+              <div css={{ fontSize: '14px', fontWeight: '600', color: '#92400e' }}>
+                Vinculación Temporal por Nombre
+              </div>
+              <div css={{ fontSize: '13px', color: '#78350f' }}>
+                {warning}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Debug info */}
+        {method && (
+          <div css={{
+            backgroundColor: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            padding: '8px 12px',
+            marginBottom: '16px',
+            fontSize: '12px',
+            color: '#6b7280',
+            fontFamily: 'monospace',
+          }}>
+            Método de acceso: {method}
+          </div>
+        )}
 
         {/* User Access Information */}
         {userRoutesData && (
@@ -546,6 +589,9 @@ export default function CollectorDashboard() {
             </div>
           </div>
         )}
+
+        {/* Debug Panel - Temporary for debugging */}
+        <DebugPanel show={false} />
       </div>
     </PageContainer>
   );

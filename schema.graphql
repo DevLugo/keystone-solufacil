@@ -2958,6 +2958,7 @@ type Query {
   getDashboardKPIs(routeId: String!, timeframe: String, year: Int, month: Int): JSON!
   getUserRoutes: JSON!
   getUserAccessibleRoutes: JSON!
+  debugUserEmployeeRelation: JSON!
   getFinancialReport(routeIds: [String!]!, year: Int!): JSON!
   getCartera(routeId: String!, weeksWithoutPayment: Int!, includeBadDebt: Boolean!, analysisMonth: String, analysisYear: Int, includeOverdue: Boolean!, includeOverdrawn: Boolean!): JSON!
   adjustAccountBalance(accountId: String!, targetAmount: Float!, counterAccountId: String, description: String): JSON!

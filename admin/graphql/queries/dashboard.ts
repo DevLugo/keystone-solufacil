@@ -23,3 +23,9 @@ export const GET_ROUTE_STATS = gql`
     getRouteStats(routeId: $routeId)
   }
 `;
+
+export const DEBUG_USER_EMPLOYEE_RELATION = gql`
+  query DebugUserEmployeeRelation {
+    debugUserEmployeeRelation
+  }
+`;

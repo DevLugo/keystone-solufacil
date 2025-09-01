@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery } from '@apollo/client';
-import { GET_USER_ACCESSIBLE_ROUTES } from '../graphql/queries/dashboard';
+import { GET_USER_ROUTES } from '../graphql/queries/dashboard';
 
 interface Route {
   id: string;
@@ -10,7 +10,7 @@ interface Route {
 interface UserRoutesData {
   isAdmin: boolean;
   routes: Route[];
-  accessType: 'ADMIN_ALL_ROUTES' | 'MULTIPLE_ROUTES' | 'SINGLE_ROUTE';
+  accessType?: 'ADMIN_ALL_ROUTES' | 'MULTIPLE_ROUTES' | 'SINGLE_ROUTE';
   userInfo: {
     id: string;
     email: string;
@@ -28,15 +28,17 @@ interface UserRoutesData {
     };
   };
   message?: string;
+  method?: string;
+  warning?: string;
 }
 
 export function useUserRoutes() {
-  const { data, loading, error, refetch } = useQuery(GET_USER_ACCESSIBLE_ROUTES, {
+  const { data, loading, error, refetch } = useQuery(GET_USER_ROUTES, {
     errorPolicy: 'all',
     fetchPolicy: 'cache-and-network'
   });
 
-  const userRoutesData: UserRoutesData | null = data?.getUserAccessibleRoutes || null;
+  const userRoutesData: UserRoutesData | null = data?.getUserRoutes || null;
 
   return {
     data: userRoutesData,
@@ -47,6 +49,8 @@ export function useUserRoutes() {
     userInfo: userRoutesData?.userInfo || null,
     employeeInfo: userRoutesData?.employeeInfo || null,
     message: userRoutesData?.message,
+    method: userRoutesData?.method,
+    warning: userRoutesData?.warning,
     hasMultipleRoutes: (userRoutesData?.routes || []).length > 1,
     loading,
     error,

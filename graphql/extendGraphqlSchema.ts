@@ -4793,7 +4793,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
     },
   }),
 
-  // Get user's assigned routes
+  // Get user's assigned routes (fallback method for compatibility)
   getUserRoutes: graphql.field({
     type: graphql.nonNull(graphql.JSON),
     resolve: async (root, args, context: Context) => {
@@ -4804,9 +4804,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
         }
 
         const userId = session.data.id;
+        console.log('🔍 getUserRoutes (fallback) - Usuario ID:', userId);
 
-        // Get user with employee relationship
-        const user = await context.prisma.user.findUnique({
+        // First try the new relationship
+        let user = await context.prisma.user.findUnique({
           where: { id: userId },
           include: {
             employee: {
@@ -4831,6 +4832,11 @@ export const extendGraphqlSchema = graphql.extend(base => {
         if (!user) {
           throw new Error('Usuario no encontrado');
         }
+
+        console.log('🔍 getUserRoutes - Usuario con relación directa:', {
+          hasEmployee: !!user.employee,
+          employeeId: user.employee?.id
+        });
 
         // If user is ADMIN, return all routes
         if (user.role === 'ADMIN') {
@@ -4861,31 +4867,35 @@ export const extendGraphqlSchema = graphql.extend(base => {
               role: user.role
             },
             hasEmployee: !!user.employee,
-            employeeInfo: user.employee
+            employeeInfo: user.employee,
+            method: 'ADMIN_ACCESS'
           };
         }
 
-        // For regular users, check if they have an employee record
-        if (!user.employee) {
-          return {
-            isAdmin: false,
-            routes: [],
-            userInfo: {
-              id: user.id,
-              email: user.email,
-              name: user.name,
-              role: user.role
-            },
-            hasEmployee: false,
-            message: 'Usuario no tiene un empleado asociado. Contacta al administrador para vincular tu cuenta.'
-          };
-        }
+        // If new relationship exists, use it
+        if (user.employee) {
+          console.log('✅ Usando relación directa User → Employee');
+          
+          if (!user.employee.routes) {
+            return {
+              isAdmin: false,
+              routes: [],
+              userInfo: {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                role: user.role
+              },
+              hasEmployee: true,
+              employeeInfo: user.employee,
+              message: 'El empleado asociado no tiene rutas asignadas. Contacta al administrador.',
+              method: 'DIRECT_RELATION_NO_ROUTE'
+            };
+          }
 
-        // Check if employee has routes assigned
-        if (!user.employee.routes) {
           return {
             isAdmin: false,
-            routes: [],
+            routes: [user.employee.routes],
             userInfo: {
               id: user.id,
               email: user.email,
@@ -4894,22 +4904,68 @@ export const extendGraphqlSchema = graphql.extend(base => {
             },
             hasEmployee: true,
             employeeInfo: user.employee,
-            message: 'El empleado asociado no tiene rutas asignadas. Contacta al administrador.'
+            method: 'DIRECT_RELATION_SUCCESS'
           };
         }
 
-        // Return the single route assigned to this employee
+        // Fallback: Try to find employee by name matching (for backwards compatibility)
+        console.log('🔄 Intentando fallback por coincidencia de nombres...');
+        const employee = await context.prisma.employee.findFirst({
+          where: {
+            personalData: {
+              fullName: {
+                contains: user.name,
+                mode: 'insensitive'
+              }
+            }
+          },
+          include: {
+            routes: {
+              select: {
+                id: true,
+                name: true
+              }
+            },
+            personalData: {
+              select: {
+                fullName: true,
+                clientCode: true
+              }
+            }
+          }
+        });
+
+        console.log('🔍 Empleado encontrado por nombre:', employee?.id);
+
+        if (employee && employee.routes) {
+          return {
+            isAdmin: false,
+            routes: [employee.routes],
+            userInfo: {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              role: user.role
+            },
+            hasEmployee: true,
+            employeeInfo: employee,
+            method: 'NAME_MATCHING_FALLBACK',
+            warning: 'Usando coincidencia por nombre. Recomendado vincular directamente en /gestionar-usuarios-empleados'
+          };
+        }
+
         return {
           isAdmin: false,
-          routes: [user.employee.routes],
+          routes: [],
           userInfo: {
             id: user.id,
             email: user.email,
             name: user.name,
             role: user.role
           },
-          hasEmployee: true,
-          employeeInfo: user.employee
+          hasEmployee: false,
+          message: 'Usuario no tiene un empleado asociado. Contacta al administrador para vincular tu cuenta.',
+          method: 'NO_RELATION_FOUND'
         };
 
       } catch (error) {
@@ -4930,6 +4986,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
         }
 
         const userId = session.data.id;
+        console.log('🔍 getUserAccessibleRoutes - Usuario ID:', userId);
 
         // Get user with employee relationship
         const user = await context.prisma.user.findUnique({
@@ -4937,6 +4994,12 @@ export const extendGraphqlSchema = graphql.extend(base => {
           include: {
             employee: {
               include: {
+                routes: {
+                  select: {
+                    id: true,
+                    name: true
+                  }
+                },
                 personalData: {
                   select: {
                     fullName: true,
@@ -4946,6 +5009,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
             }
           }
+        });
+
+        console.log('🔍 Usuario encontrado:', {
+          id: user?.id,
+          name: user?.name,
+          email: user?.email,
+          role: user?.role,
+          hasEmployee: !!user?.employee,
+          employeeId: user?.employee?.id,
+          employeeRoutes: user?.employee?.routes?.id
         });
 
         if (!user) {
@@ -4989,8 +5062,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
         // This could be through direct employee assignment or special permissions
         const accessibleRoutes = [];
 
+        console.log('🔍 Verificando acceso para usuario regular:', {
+          hasEmployee: !!user.employee,
+          employeeId: user.employee?.id,
+          routesId: user.employee?.routesId,
+          routes: user.employee?.routes
+        });
+
         // 1. Check direct employee route assignment
         if (user.employee?.routesId) {
+          console.log('🔍 Buscando ruta con ID:', user.employee.routesId);
           const employeeRoute = await context.prisma.route.findUnique({
             where: { id: user.employee.routesId },
             select: {
@@ -4998,9 +5079,12 @@ export const extendGraphqlSchema = graphql.extend(base => {
               name: true
             }
           });
+          console.log('🔍 Ruta encontrada:', employeeRoute);
           if (employeeRoute) {
             accessibleRoutes.push(employeeRoute);
           }
+        } else {
+          console.log('❌ Usuario no tiene routesId en su empleado');
         }
 
         // 2. Check if user has special permissions for multiple routes
@@ -5030,6 +5114,81 @@ export const extendGraphqlSchema = graphql.extend(base => {
       } catch (error) {
         console.error('Error in getUserAccessibleRoutes:', error);
         throw new Error(`Error getting user accessible routes: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    },
+  }),
+
+  // Debug query to check user-employee relationship
+  debugUserEmployeeRelation: graphql.field({
+    type: graphql.nonNull(graphql.JSON),
+    resolve: async (root, args, context: Context) => {
+      try {
+        const session = context.session;
+        if (!session?.data?.id) {
+          throw new Error('Usuario no autenticado');
+        }
+
+        const userId = session.data.id;
+
+        // Get complete user information
+        const user = await context.prisma.user.findUnique({
+          where: { id: userId },
+          include: {
+            employee: {
+              include: {
+                routes: true,
+                personalData: true
+              }
+            }
+          }
+        });
+
+        // Get all employees to see if there's a match
+        const allEmployees = await context.prisma.employee.findMany({
+          include: {
+            user: true,
+            routes: true,
+            personalData: true
+          }
+        });
+
+        // Find employees that might match this user
+        const potentialMatches = allEmployees.filter(emp => {
+          const empName = emp.personalData?.fullName?.toLowerCase() || '';
+          const userName = user?.name?.toLowerCase() || '';
+          return empName.includes(userName) || userName.includes(empName);
+        });
+
+        return {
+          currentUser: {
+            id: user?.id,
+            name: user?.name,
+            email: user?.email,
+            role: user?.role,
+            hasEmployee: !!user?.employee,
+            employeeData: user?.employee
+          },
+          potentialEmployeeMatches: potentialMatches.map(emp => ({
+            id: emp.id,
+            name: emp.personalData?.fullName,
+            type: emp.type,
+            hasUser: !!emp.user,
+            connectedUserId: emp.user?.id,
+            connectedUserName: emp.user?.name,
+            routeId: emp.routesId,
+            routeName: emp.routes?.name
+          })),
+          allEmployeesCount: allEmployees.length,
+          employeesWithUser: allEmployees.filter(emp => emp.user).length,
+          employeesWithoutUser: allEmployees.filter(emp => !emp.user).length
+        };
+
+      } catch (error) {
+        console.error('Error in debugUserEmployeeRelation:', error);
+        return {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          userId: context.session?.data?.id
+        };
       }
     },
   }),
