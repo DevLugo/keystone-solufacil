@@ -58,7 +58,7 @@ let prisma: PrismaClient;
 
 if (typeof global.prisma === 'undefined') {
   global.prisma = new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['query'] : ['error'],
+    log: ['error'],
   });
 }
 
@@ -70,8 +70,7 @@ export default withAuth(
     db: {
       provider: 'postgresql',
       url: process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/solufacil',
-      enableLogging: true,
-      usePush: true,
+      enableLogging: false,
     },
     lists,
     session,
@@ -89,9 +88,6 @@ export default withAuth(
       },
       extendExpressApp: extendExpressApp,
     },
-    experimental: {
-      generateNextGraphqlAPI: true,
-      generateNodeAPI: true,
-    },
+
   })
 );

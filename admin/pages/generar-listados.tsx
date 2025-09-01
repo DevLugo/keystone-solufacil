@@ -110,7 +110,7 @@ export default function GenerarPDFsPage() {
         });
 
         // Abrir cada PDF en una nueva pestaña
-        window.open(`/generate-pdf?${params.toString()}`, '_blank');
+        window.open(`/api/generar-listados?${params.toString()}`, '_blank');
         
         // Pequeña pausa entre PDFs para evitar sobrecarga
         await new Promise(resolve => setTimeout(resolve, 500));
