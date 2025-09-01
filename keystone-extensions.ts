@@ -120,6 +120,676 @@ export const extendExpressApp = (app: express.Express) => {
     }
   });
 
+
+  // Agregar este endpoint en keystone-extensions.ts después del endpoint de historial de cliente
+
+app.post('/export-cartera-pdf', express.json(), async (req, res) => {
+  try {
+    console.log('📊 Iniciando generación de PDF del reporte de cartera');
+    
+    const {
+      routeName,
+      weekRange,
+      kpiData,
+      weeklyData,
+      comparisonData,
+      filters
+    } = req.body;
+
+    // Validar parámetros requeridos
+    if (!routeName || !kpiData || !weeklyData) {
+      console.error('❌ Error: Faltan parámetros requeridos');
+      return res.status(400).json({ error: 'Faltan parámetros requeridos' });
+    }
+
+    console.log('✅ Parámetros válidos, procediendo con la generación');
+
+    // Crear PDF con diseño profesional
+    const doc = new PDFDocument({
+      margin: 40,
+      size: 'A4',
+      layout: 'landscape', // Paisaje para mejor visualización de tablas
+      bufferPages: true
+    });
+
+    const filename = `reporte_cartera_${routeName.replace(/\s+/g, '_')}_${new Date().getTime()}.pdf`;
+
+    res.setHeader('Content-disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+    res.setHeader('Content-type', 'application/pdf');
+    doc.pipe(res);
+
+    // Funciones de formato
+    const formatCurrency = (amount: number): string => {
+      return new Intl.NumberFormat('es-MX', {
+        style: 'currency',
+        currency: 'MXN',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+      }).format(amount || 0);
+    };
+
+    const formatPercent = (value: number): string => {
+      return `${value.toFixed(1)}%`;
+    };
+
+    const formatDate = (dateString: string): string => {
+      return new Date(dateString).toLocaleDateString('es-MX', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      });
+    };
+
+    // Colores corporativos consistentes con el historial
+    const colors = {
+      primary: '#2c3e50',      // Azul oscuro profesional
+      secondary: '#3498db',    // Azul brillante
+      success: '#27ae60',      // Verde
+      danger: '#e74c3c',       // Rojo
+      warning: '#f39c12',      // Naranja
+      info: '#16a085',         // Turquesa
+      light: '#ecf0f1',        // Gris claro
+      dark: '#34495e',         // Gris oscuro
+      background: '#ffffff',   // Blanco
+      border: '#bdc3c7',       // Gris borde
+      headerBg: '#2c3e50',     // Fondo header
+      alternateRow: '#f8f9fa'  // Fila alternada
+    };
+
+    // ================== HEADER PROFESIONAL ==================
+    let y = 30;
+    
+    // Fondo del header
+    doc.rect(0, 0, doc.page.width, 80).fill(colors.primary);
+    
+    // Logo
+    try {
+      doc.image('./solufacil.png', doc.page.width - 100, 15, { width: 60 });
+    } catch (error) {
+      console.log('Logo no encontrado, continuando sin él');
+    }
+
+    // Título principal
+    doc.fontSize(24).fillColor('#ffffff').text('REPORTE DE CARTERA', 40, y, { align: 'left' });
+    y += 30;
+    
+    // Subtítulo con información de ruta y fecha
+    doc.fontSize(12).fillColor('#ecf0f1')
+      .text(`${routeName} | ${weekRange || 'Semana Actual'}`, 40, y, { align: 'left' });
+    
+    // Fecha de generación
+    doc.fontSize(9).fillColor('#bdc3c7')
+      .text(`Generado: ${new Date().toLocaleDateString('es-MX')} ${new Date().toLocaleTimeString('es-MX')}`, 
+        doc.page.width - 200, y, { align: 'right', width: 160 });
+
+    y = 100;
+
+    // ================== SECCIÓN DE KPIs ENFOCADOS EN CLIENTES ==================
+    doc.fontSize(14).fillColor(colors.dark).text('INDICADORES CLAVE DE CLIENTES', 40, y);
+    y += 25;
+
+    // Grid de KPIs (4 columnas)
+    const kpiWidth = (doc.page.width - 100) / 4;
+    const kpiHeight = 80;
+    const kpiStartX = 40;
+    
+    const kpis = [
+      {
+        label: 'Clientes Activos',
+        value: kpiData.totalActiveClients || 0,
+        color: colors.info,
+        icon: '👥',
+        format: 'number'
+      },
+      {
+        label: 'Clientes Nuevos',
+        value: kpiData.totalNewClients || 0,
+        color: colors.success,
+        icon: '🆕',
+        format: 'number'
+      },
+      {
+        label: 'Clientes Renovados',
+        value: kpiData.totalRenewedClients || 0,
+        color: colors.primary,
+        icon: '🔄',
+        format: 'number'
+      },
+      {
+        label: '% Pagando',
+        value: kpiData.payingPercent || 0,
+        color: kpiData.payingPercent >= 80 ? colors.success : colors.warning,
+        icon: '💳',
+        format: 'percent'
+      }
+    ];
+
+    kpis.forEach((kpi, index) => {
+      const x = kpiStartX + (index * kpiWidth) + (index * 10);
+      
+      // Tarjeta KPI con sombra
+      doc.rect(x, y, kpiWidth - 10, kpiHeight)
+        .fillAndStroke('#ffffff', colors.border);
+      
+      // Barra de color superior
+      doc.rect(x, y, kpiWidth - 10, 4).fill(kpi.color);
+      
+      // Contenido del KPI
+      doc.fontSize(10).fillColor(colors.dark)
+        .text(kpi.label, x + 10, y + 15, { width: kpiWidth - 20, align: 'center' });
+      
+      // Valor principal
+      let displayValue = '';
+      if (kpi.format === 'currency') {
+        displayValue = formatCurrency(kpi.value as number);
+      } else if (kpi.format === 'percent') {
+        displayValue = formatPercent(kpi.value as number);
+      } else {
+        displayValue = kpi.value.toString();
+      }
+      
+      doc.fontSize(18).fillColor(kpi.color)
+        .text(displayValue, x + 10, y + 40, { width: kpiWidth - 20, align: 'center' });
+    });
+
+    y += kpiHeight + 30;
+
+    // ================== TABLA SEMANAL DETALLADA ==================
+    // Verificar si necesitamos nueva página para la tabla
+    if (y > doc.page.height - 200) {
+      doc.addPage();
+      y = 40;
+    }
+
+    // Header de la tabla semanal
+    doc.fontSize(16).fillColor(colors.dark).text('DETALLE SEMANAL DE CARTERA', 40, y);
+    y += 30;
+
+    // Información de filtros aplicados
+    if (filters) {
+      doc.fontSize(9).fillColor(colors.dark);
+      let filterText = 'Filtros aplicados: ';
+      if (filters.weeksWithoutPayment) filterText += `${filters.weeksWithoutPayment} semanas sin pago | `;
+      if (filters.includeBadDebt) filterText += 'Incluye cartera muerta | ';
+      if (filters.includeOverdue) filterText += 'Incluye vencidos | ';
+      doc.text(filterText, 40, y);
+      y += 20;
+    }
+
+    // ================== TABLA SEMANAL DETALLADA ==================
+    if (weeklyData && weeklyData.length > 0) {
+      const tableStartX = 40;
+      const tableWidth = doc.page.width - 80;
+      
+      // Definir anchos de columna optimizados para landscape - enfocados en clientes
+      const columnWidths = {
+        week: 60,
+        date: 80,
+        activeClients: 70,
+        clientChange: 70,
+        newClients: 70,
+        renewedClients: 70,
+        finishedClients: 70,
+        cvClients: 70,
+        cvChange: 70,
+        payingClients: 70,
+        payingPercent: 70
+      };
+
+      // Headers de tabla con diseño profesional - enfocados en clientes
+      doc.rect(tableStartX, y, tableWidth, 30).fill(colors.headerBg);
+      doc.fontSize(8).fillColor('#ffffff');
+      
+              const tableHeaders = [
+          { text: 'Semana', width: columnWidths.week },
+          { text: 'Fecha', width: columnWidths.date },
+          { text: 'Clientes\nActivos', width: columnWidths.activeClients },
+          { text: 'Cambio\nClientes', width: columnWidths.clientChange },
+          { text: 'Clientes\nNuevos', width: columnWidths.newClients },
+          { text: 'Clientes\nRenovados', width: columnWidths.renewedClients },
+          { text: 'Clientes\nFinalizados', width: columnWidths.finishedClients },
+          { text: 'Clientes\nCV', width: columnWidths.cvClients },
+          { text: 'Cambio\nCV', width: columnWidths.cvChange },
+          { text: 'Clientes\nPagando', width: columnWidths.payingClients },
+          { text: '%\nPagando', width: columnWidths.payingPercent }
+        ];
+
+      let headerX = tableStartX;
+      tableHeaders.forEach(header => {
+        const lines = header.text.split('\n');
+        if (lines.length > 1) {
+          doc.text(lines[0], headerX + 2, y + 8, { width: header.width - 4, align: 'center' });
+          doc.text(lines[1], headerX + 2, y + 18, { width: header.width - 4, align: 'center' });
+        } else {
+          doc.text(header.text, headerX + 2, y + 12, { width: header.width - 4, align: 'center' });
+        }
+        headerX += header.width;
+      });
+
+      y += 30;
+
+      // Filas de datos semanales
+      weeklyData.forEach((week: any, index: number) => {
+        // Verificar si necesitamos nueva página
+        if (y > doc.page.height - 80) {
+          doc.addPage();
+          y = 40;
+          
+          // Repetir headers en nueva página
+          doc.rect(tableStartX, y, tableWidth, 30).fill(colors.headerBg);
+          doc.fontSize(8).fillColor('#ffffff');
+          
+          headerX = tableStartX;
+          tableHeaders.forEach(header => {
+            const lines = header.text.split('\n');
+            if (lines.length > 1) {
+              doc.text(lines[0], headerX + 2, y + 8, { width: header.width - 4, align: 'center' });
+              doc.text(lines[1], headerX + 2, y + 18, { width: header.width - 4, align: 'center' });
+            } else {
+              doc.text(header.text, headerX + 2, y + 12, { width: header.width - 4, align: 'center' });
+            }
+            headerX += header.width;
+          });
+          
+          y += 30;
+        }
+
+        // Alternar color de fondo de filas
+        const rowBgColor = index % 2 === 0 ? colors.alternateRow : '#ffffff';
+        const rowHeight = 22;
+        
+        doc.rect(tableStartX, y, tableWidth, rowHeight).fill(rowBgColor);
+        
+        // Datos de la fila
+        doc.fontSize(8).fillColor(colors.dark);
+        let dataX = tableStartX;
+        
+        // Semana
+        doc.text(week.weekNumber || `S${index + 1}`, dataX + 2, y + 7, 
+          { width: columnWidths.week - 4, align: 'center' });
+        dataX += columnWidths.week;
+        
+        // Fecha
+        doc.text(week.dateRange || '', dataX + 2, y + 7, 
+          { width: columnWidths.date - 4, align: 'center' });
+        dataX += columnWidths.date;
+        
+        // Clientes activos
+        doc.text(week.activeClients?.toString() || '0', dataX + 2, y + 7, 
+          { width: columnWidths.activeClients - 4, align: 'center' });
+        dataX += columnWidths.activeClients;
+        
+        // Cambio de clientes
+        const clientChangeColor = week.clientChange > 0 ? colors.success : 
+                                 week.clientChange < 0 ? colors.danger : colors.dark;
+        doc.fillColor(clientChangeColor)
+          .text((week.clientChange > 0 ? '+' : '') + (week.clientChange || 0), dataX + 2, y + 7, 
+            { width: columnWidths.clientChange - 4, align: 'center' });
+        dataX += columnWidths.clientChange;
+        
+        // Clientes nuevos
+        doc.fillColor(colors.success)
+          .text(week.newClients?.toString() || '0', dataX + 2, y + 7, 
+            { width: columnWidths.newClients - 4, align: 'center' });
+        dataX += columnWidths.newClients;
+        
+        // Clientes renovados
+        doc.fillColor(colors.primary)
+          .text(week.renewedClients?.toString() || '0', dataX + 2, y + 7, 
+            { width: columnWidths.renewedClients - 4, align: 'center' });
+        dataX += columnWidths.renewedClients;
+        
+        // Clientes finalizados
+        doc.fillColor(colors.dark)
+          .text(week.finishedClients?.toString() || '0', dataX + 2, y + 7, 
+            { width: columnWidths.finishedClients - 4, align: 'center' });
+        dataX += columnWidths.finishedClients;
+        
+        // Clientes CV
+        doc.fillColor(colors.danger)
+          .text(week.cvClients?.toString() || '0', dataX + 2, y + 7, 
+            { width: columnWidths.cvClients - 4, align: 'center' });
+        dataX += columnWidths.cvClients;
+        
+        // Cambio de CV
+        const cvChangeColor = week.cvChange > 0 ? colors.danger : 
+                             week.cvChange < 0 ? colors.success : colors.dark;
+        doc.fillColor(cvChangeColor)
+          .text((week.cvChange > 0 ? '+' : '') + (week.cvChange || 0), dataX + 2, y + 7, 
+            { width: columnWidths.cvChange - 4, align: 'center' });
+        dataX += columnWidths.cvChange;
+        
+        // Clientes pagando
+        doc.fillColor(colors.success)
+          .text(week.payingClients?.toString() || '0', dataX + 2, y + 7, 
+            { width: columnWidths.payingClients - 4, align: 'center' });
+        dataX += columnWidths.payingClients;
+        
+        // Porcentaje pagando
+        const payingPercent = week.payingPercent || 0;
+        const payingColor = payingPercent >= 80 ? colors.success : 
+                           payingPercent >= 60 ? colors.warning : colors.danger;
+        doc.fillColor(payingColor)
+          .text(formatPercent(payingPercent), dataX + 2, y + 7, 
+            { width: columnWidths.payingPercent - 4, align: 'center' });
+        
+        // Línea divisoria sutil
+        doc.strokeColor(colors.border).lineWidth(0.5)
+          .moveTo(tableStartX, y + rowHeight)
+          .lineTo(tableStartX + tableWidth, y + rowHeight)
+          .stroke();
+        
+        y += rowHeight;
+      });
+
+      // ================== RESUMEN FINAL ==================
+      y += 30;
+      
+      if (y > doc.page.height - 150) {
+        doc.addPage();
+        y = 40;
+      }
+
+      // Caja de resumen con diseño elegante
+      const summaryBoxHeight = 120;
+      doc.rect(40, y, doc.page.width - 80, summaryBoxHeight)
+        .fillAndStroke('#f8f9fa', colors.border);
+      
+      // Título del resumen
+      doc.rect(40, y, doc.page.width - 80, 30).fill(colors.primary);
+      doc.fontSize(12).fillColor('#ffffff')
+        .text('RESUMEN EJECUTIVO', 50, y + 10);
+      
+      y += 40;
+      
+      // Contenido del resumen en columnas - enfocado en clientes
+      const summaryData = {
+        totalActiveClients: weeklyData.reduce((sum: number, w: any) => sum + (w.activeClients || 0), 0),
+        totalNewClients: weeklyData.reduce((sum: number, w: any) => sum + (w.newClients || 0), 0),
+        totalRenewedClients: weeklyData.reduce((sum: number, w: any) => sum + (w.renewedClients || 0), 0),
+        totalFinishedClients: weeklyData.reduce((sum: number, w: any) => sum + (w.finishedClients || 0), 0),
+        totalCV: weeklyData.reduce((sum: number, w: any) => sum + (w.cvClients || 0), 0),
+        totalPayingClients: weeklyData.reduce((sum: number, w: any) => sum + (w.payingClients || 0), 0),
+        averagePayingPercent: weeklyData.reduce((sum: number, w: any) => sum + (w.payingPercent || 0), 0) / weeklyData.length
+      };
+
+      // Primera fila del resumen
+      const summaryColumns1 = [
+        {
+          label: 'Promedio Clientes Activos del Mes',
+          value: Math.round(summaryData.totalActiveClients / weeklyData.length).toString(),
+          color: colors.primary
+        },
+        {
+          label: 'Total Clientes Nuevos',
+          value: summaryData.totalNewClients.toString(),
+          color: colors.success
+        },
+        {
+          label: 'Total Clientes Renovados',
+          value: summaryData.totalRenewedClients.toString(),
+          color: colors.info
+        }
+      ];
+
+      const colWidth = (doc.page.width - 100) / 3;
+      summaryColumns1.forEach((item, index) => {
+        const colX = 50 + (index * colWidth);
+        doc.fontSize(9).fillColor(colors.dark)
+          .text(item.label, colX, y, { width: colWidth - 10, align: 'center' });
+        doc.fontSize(14).fillColor(item.color)
+          .text(item.value, colX, y + 15, { width: colWidth - 10, align: 'center' });
+      });
+
+      y += 40;
+
+      // Segunda fila del resumen
+      const summaryColumns2 = [
+        {
+          label: 'Total Clientes Finalizados',
+          value: summaryData.totalFinishedClients.toString(),
+          color: colors.dark
+        },
+        {
+          label: 'Promedio Clientes CV del Mes',
+          value: Math.round(summaryData.totalCV / weeklyData.length).toString(),
+          color: colors.danger
+        },
+        {
+          label: 'Promedio Clientes Pagando del Mes',
+          value: Math.round(summaryData.totalPayingClients / weeklyData.length).toString(),
+          color: colors.success
+        }
+      ];
+
+      summaryColumns2.forEach((item, index) => {
+        const colX = 50 + (index * colWidth);
+        doc.fontSize(9).fillColor(colors.dark)
+          .text(item.label, colX, y, { width: colWidth - 10, align: 'center' });
+        doc.fontSize(14).fillColor(item.color)
+          .text(item.value, colX, y + 15, { width: colWidth - 10, align: 'center' });
+      });
+
+      y += 40;
+
+      // Tercera fila del resumen
+      const summaryColumns3 = [
+        {
+          label: '% Pagando Promedio del Mes',
+          value: formatPercent(summaryData.averagePayingPercent),
+          color: summaryData.averagePayingPercent >= 80 ? colors.success : colors.danger
+        }
+      ];
+
+      summaryColumns3.forEach((item, index) => {
+        const colX = 50 + (index * colWidth);
+        doc.fontSize(9).fillColor(colors.dark)
+          .text(item.label, colX, y, { width: colWidth - 10, align: 'center' });
+        doc.fontSize(14).fillColor(item.color)
+          .text(item.value, colX, y + 15, { width: colWidth - 10, align: 'center' });
+      });
+
+      // ================== DESGLOSE POR LOCALIDAD ==================
+      y += 60;
+      
+      if (y > doc.page.height - 200) {
+        doc.addPage();
+        y = 40;
+      }
+
+      doc.fontSize(14).fillColor(colors.dark).text('DESGLOSE POR LOCALIDAD', 40, y);
+      y += 30;
+
+      // Obtener datos de localidades desde el reporte
+      if (req.body.localityData) {
+        const localityData = req.body.localityData;
+        
+        // Título de la sección
+        doc.fontSize(14).fillColor(colors.primary).text('DESGLOSE POR LOCALIDAD - ENFOQUE EN CAMBIOS', 40, y);
+        y += 25;
+
+        // Para cada semana, mostrar todas las localidades
+        if (req.body.weeklyData && req.body.weeklyData.length > 0) {
+          console.log('📊 Datos semanales recibidos:', req.body.weeklyData);
+          req.body.weeklyData.forEach((weekData: any, weekIndex: number) => {
+            const week = weekData.weekNumber || `Semana ${weekIndex + 1}`;
+            if (y > doc.page.height - 200) {
+              doc.addPage();
+              y = 40;
+            }
+
+            // Título de la semana
+            doc.fontSize(12).fillColor(colors.secondary).text(`SEMANA ${weekIndex + 1}: ${week}`, 40, y);
+            y += 20;
+
+            // Headers de la tabla para esta semana
+            const localityTableStartX = 40;
+            const localityTableWidth = doc.page.width - 80;
+            
+            // Headers de tabla por localidad para esta semana
+            const localityColumnWidths = {
+              locality: 120,
+              clientChange: 60,
+              clientTotal: 60,
+              cvChange: 60,
+              cvTotal: 60,
+              newClients: 60,
+              renewedClients: 60,
+              finishedClients: 60,
+              payingPercent: 60
+            };
+
+            // Headers
+            doc.rect(localityTableStartX, y, localityTableWidth, 30).fill(colors.headerBg);
+            doc.fontSize(8).fillColor('#ffffff');
+            
+            const localityHeaders = [
+              { text: 'Localidad', width: localityColumnWidths.locality },
+              { text: 'Cambio\nClientes', width: localityColumnWidths.clientChange },
+              { text: 'Total\nClientes', width: localityColumnWidths.clientTotal },
+              { text: 'Cambio\nCV', width: localityColumnWidths.cvChange },
+              { text: 'Total\nCV', width: localityColumnWidths.cvTotal },
+              { text: 'Nuevos', width: localityColumnWidths.newClients },
+              { text: 'Renovados', width: localityColumnWidths.renewedClients },
+              { text: 'Finalizados', width: localityColumnWidths.finishedClients },
+              { text: '%\nPagando', width: localityColumnWidths.payingPercent }
+            ];
+
+            let localityHeaderX = localityTableStartX;
+            localityHeaders.forEach(header => {
+              const lines = header.text.split('\n');
+              if (lines.length > 1) {
+                doc.text(lines[0], localityHeaderX + 2, y + 8, { width: header.width - 4, align: 'center' });
+                doc.text(lines[1], localityHeaderX + 2, y + 18, { width: header.width - 4, align: 'center' });
+              } else {
+                doc.text(header.text, localityHeaderX + 2, y + 12, { width: header.width - 4, align: 'center' });
+              }
+              localityHeaderX += header.width;
+            });
+
+            y += 30;
+
+            // Filas de localidades para esta semana
+            Object.entries(localityData).forEach(([localityName, data]: [string, any], localityIndex: number) => {
+              if (y > doc.page.height - 80) {
+                doc.addPage();
+                y = 40;
+              }
+
+              const weekData = data.weeklyData?.find((w: any) => w.week === week);
+              if (!weekData) return;
+
+              const rowBgColor = localityIndex % 2 === 0 ? colors.alternateRow : '#ffffff';
+              const rowHeight = 20;
+              
+              doc.rect(localityTableStartX, y, localityTableWidth, rowHeight).fill(rowBgColor);
+              
+              doc.fontSize(8).fillColor(colors.dark);
+              let localityDataX = localityTableStartX;
+              
+              // Nombre de localidad
+              doc.text(localityName, localityDataX + 5, y + 6, { width: localityColumnWidths.locality - 10 });
+              localityDataX += localityColumnWidths.locality;
+              
+              // Cambio de clientes (vs semana anterior)
+              let clientChange = weekData.clientChange || 0;
+              const clientChangeColor = clientChange > 0 ? colors.success : clientChange < 0 ? colors.danger : colors.dark;
+              doc.fillColor(clientChangeColor)
+                .text(clientChange > 0 ? `+${clientChange}` : clientChange.toString(), localityDataX + 2, y + 6, 
+                  { width: localityColumnWidths.clientChange - 4, align: 'center' });
+              localityDataX += localityColumnWidths.clientChange;
+              
+              // Total de clientes activos
+              doc.text(weekData.activeClients?.toString() || '0', localityDataX + 2, y + 6, 
+                { width: localityColumnWidths.clientTotal - 4, align: 'center' });
+              localityDataX += localityColumnWidths.clientTotal;
+              
+              // Cambio de CV (vs semana anterior)
+              let cvChange = weekData.cvChange || 0;
+              const cvChangeColor = cvChange < 0 ? colors.success : cvChange > 0 ? colors.danger : colors.dark;
+              doc.fillColor(cvChangeColor)
+                .text(cvChange > 0 ? `+${cvChange}` : cvChange.toString(), localityDataX + 2, y + 6, 
+                  { width: localityColumnWidths.cvChange - 4, align: 'center' });
+              localityDataX += localityColumnWidths.cvChange;
+              
+              // Total de CV
+              doc.fillColor(colors.danger)
+                .text(weekData.cv?.toString() || '0', localityDataX + 2, y + 6, 
+                  { width: localityColumnWidths.cvTotal - 4, align: 'center' });
+              localityDataX += localityColumnWidths.cvTotal;
+              
+              // Clientes nuevos
+              doc.fillColor(colors.success)
+                .text(weekData.grantedNew?.toString() || '0', localityDataX + 2, y + 6, 
+                  { width: localityColumnWidths.newClients - 4, align: 'center' });
+              localityDataX += localityColumnWidths.newClients;
+              
+              // Clientes renovados
+              doc.fillColor(colors.primary)
+                .text(weekData.grantedRenewed?.toString() || '0', localityDataX + 2, y + 6, 
+                  { width: localityColumnWidths.renewedClients - 4, align: 'center' });
+              localityDataX += localityColumnWidths.renewedClients;
+              
+              // Clientes finalizados
+              doc.fillColor(colors.dark)
+                .text(weekData.finished?.toString() || '0', localityDataX + 2, y + 6, 
+                  { width: localityColumnWidths.finishedClients - 4, align: 'center' });
+              localityDataX += localityColumnWidths.finishedClients;
+              
+              // Porcentaje pagando
+              const payingPercent = weekData.payingPercent || 0;
+              const payingColor = payingPercent >= 80 ? colors.success : 
+                                 payingPercent >= 60 ? colors.warning : colors.danger;
+              doc.fillColor(payingColor)
+                .text(formatPercent(payingPercent), localityDataX + 2, y + 6, 
+                  { width: localityColumnWidths.payingPercent - 4, align: 'center' });
+              
+              y += rowHeight;
+            });
+
+            y += 20; // Espacio entre semanas
+          });
+        }
+      }
+    }
+
+    // ================== PIE DE PÁGINA ==================
+    // Solo agregar pie de página a las páginas que realmente existen
+    const currentPageCount = doc.bufferedPageRange().count;
+    console.log(`📄 Agregando pie de página a ${currentPageCount} páginas`);
+    
+    for (let i = 0; i < currentPageCount; i++) {
+      doc.switchToPage(i);
+      
+      // Línea divisoria
+      doc.strokeColor(colors.border).lineWidth(0.5)
+        .moveTo(40, doc.page.height - 50)
+        .lineTo(doc.page.width - 40, doc.page.height - 50)
+        .stroke();
+      
+      // Número de página
+      doc.fontSize(8).fillColor(colors.dark)
+        .text(`Página ${i + 1} de ${currentPageCount}`, 40, doc.page.height - 40, 
+          { align: 'center', width: doc.page.width - 80 });
+      
+      // Información adicional
+      doc.fontSize(7).fillColor(colors.border)
+        .text('Documento generado automáticamente por el Sistema de Gestión de Cartera', 
+          40, doc.page.height - 30, { align: 'center', width: doc.page.width - 80 });
+    }
+
+    console.log('📄 Finalizando PDF');
+    const finalPageCount = doc.bufferedPageRange().count;
+    console.log(`📊 Total de páginas generadas: ${finalPageCount}`);
+    doc.end();
+    console.log('✅ PDF de reporte de cartera generado exitosamente');
+
+  } catch (error) {
+    console.error('❌ Error generando PDF del reporte de cartera:', error);
+    console.error('📋 Stack trace:', error instanceof Error ? error.stack : 'No stack trace available');
+    res.status(500).json({ error: 'Error interno del servidor al generar PDF' });
+  }
+});
   // Endpoint de prueba para verificar que funcione
   app.get('/api/telegram-webhook', (req, res) => {
     res.json({
@@ -1946,6 +2616,8 @@ export const extendExpressApp = (app: express.Express) => {
   });
 
 };
+
+
 
 // Función para enviar mensajes de vuelta al usuario
 async function sendTelegramMessage(chatId: string, text: string) {

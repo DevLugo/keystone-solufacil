@@ -50,7 +50,7 @@ model Route {
   name              String             @default("")
   employees         Employee[]         @relation("Employee_routes")
   localities        Location[]         @relation("Location_route")
-  accounts          Account[]          @relation("Account_route")
+  accounts          Account[]          @relation("Account_routes")
   transactions      Transaction[]      @relation("Transaction_route")
   portfolioCleanups PortfolioCleanup[] @relation("PortfolioCleanup_route")
   reportConfigs     ReportConfig[]     @relation("ReportConfig_routes")
@@ -308,12 +308,9 @@ model Account {
   amount               Decimal?      @postgresql.Decimal(18, 4)
   transactions         Transaction[] @relation("Transaction_sourceAccount")
   receivedTransactions Transaction[] @relation("Transaction_destinationAccount")
-  route                Route?        @relation("Account_route", fields: [routeId], references: [id])
-  routeId              String?       @map("route")
+  routes               Route[]       @relation("Account_routes")
   updatedAt            DateTime?
   createdAt            DateTime?     @default(now())
-
-  @@index([routeId])
 }
 
 model AuditLog {

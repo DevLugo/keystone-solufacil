@@ -1873,7 +1873,8 @@ type Account {
   transactionsCount(where: TransactionWhereInput! = {}): Int
   receivedTransactions(where: TransactionWhereInput! = {}, orderBy: [TransactionOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TransactionWhereUniqueInput): [Transaction!]
   receivedTransactionsCount(where: TransactionWhereInput! = {}): Int
-  route: Route
+  routes(where: RouteWhereInput! = {}, orderBy: [RouteOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: RouteWhereUniqueInput): [Route!]
+  routesCount(where: RouteWhereInput! = {}): Int
   updatedAt: DateTime
   createdAt: DateTime
 }
@@ -1892,9 +1893,15 @@ input AccountWhereInput {
   amount: DecimalNullableFilter
   transactions: TransactionManyRelationFilter
   receivedTransactions: TransactionManyRelationFilter
-  route: RouteWhereInput
+  routes: RouteManyRelationFilter
   updatedAt: DateTimeNullableFilter
   createdAt: DateTimeNullableFilter
+}
+
+input RouteManyRelationFilter {
+  every: RouteWhereInput
+  some: RouteWhereInput
+  none: RouteWhereInput
 }
 
 input AccountOrderByInput {
@@ -1912,9 +1919,16 @@ input AccountUpdateInput {
   amount: Decimal
   transactions: TransactionRelateToManyForUpdateInput
   receivedTransactions: TransactionRelateToManyForUpdateInput
-  route: RouteRelateToOneForUpdateInput
+  routes: RouteRelateToManyForUpdateInput
   updatedAt: DateTime
   createdAt: DateTime
+}
+
+input RouteRelateToManyForUpdateInput {
+  disconnect: [RouteWhereUniqueInput!]
+  set: [RouteWhereUniqueInput!]
+  create: [RouteCreateInput!]
+  connect: [RouteWhereUniqueInput!]
 }
 
 input AccountUpdateArgs {
@@ -1928,9 +1942,14 @@ input AccountCreateInput {
   amount: Decimal
   transactions: TransactionRelateToManyForCreateInput
   receivedTransactions: TransactionRelateToManyForCreateInput
-  route: RouteRelateToOneForCreateInput
+  routes: RouteRelateToManyForCreateInput
   updatedAt: DateTime
   createdAt: DateTime
+}
+
+input RouteRelateToManyForCreateInput {
+  create: [RouteCreateInput!]
+  connect: [RouteWhereUniqueInput!]
 }
 
 type AuditLog {
@@ -2416,12 +2435,6 @@ input ReportConfigReportTypeTypeNullableFilter {
   not: ReportConfigReportTypeTypeNullableFilter
 }
 
-input RouteManyRelationFilter {
-  every: RouteWhereInput
-  some: RouteWhereInput
-  none: RouteWhereInput
-}
-
 input UserManyRelationFilter {
   every: UserWhereInput
   some: UserWhereInput
@@ -2466,13 +2479,6 @@ input ReportConfigUpdateInput {
   executionLogs: ReportExecutionLogRelateToManyForUpdateInput
 }
 
-input RouteRelateToManyForUpdateInput {
-  disconnect: [RouteWhereUniqueInput!]
-  set: [RouteWhereUniqueInput!]
-  create: [RouteCreateInput!]
-  connect: [RouteWhereUniqueInput!]
-}
-
 input UserRelateToManyForUpdateInput {
   disconnect: [UserWhereUniqueInput!]
   set: [UserWhereUniqueInput!]
@@ -2505,11 +2511,6 @@ input ReportConfigCreateInput {
   createdBy: UserRelateToOneForCreateInput
   updatedBy: UserRelateToOneForCreateInput
   executionLogs: ReportExecutionLogRelateToManyForCreateInput
-}
-
-input RouteRelateToManyForCreateInput {
-  create: [RouteCreateInput!]
-  connect: [RouteWhereUniqueInput!]
 }
 
 input UserRelateToManyForCreateInput {

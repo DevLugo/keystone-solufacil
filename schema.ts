@@ -373,7 +373,7 @@ export const Route = list({
     name: text(),
     employees: relationship({ ref: 'Employee.routes', many: true }),
     localities: relationship({ ref: 'Location.route', many: true }),
-    accounts: relationship({ ref: 'Account.route', many: true }),
+    accounts: relationship({ ref: 'Account.routes', many: true }),
     transactions: relationship({ ref: 'Transaction.route', many: true }),
     portfolioCleanups: relationship({ ref: 'PortfolioCleanup.route', many: true }),
     // ✅ NUEVA FUNCIONALIDAD: Configuraciones de reportes que incluyen esta ruta
@@ -2145,7 +2145,7 @@ export const Account = list({
         itemView: { fieldMode: 'hidden' as const }
       }
     }),
-    route: relationship({ ref: 'Route.accounts' }),
+    routes: relationship({ ref: 'Route.accounts', many: true }),
     updatedAt: timestamp(),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
   },
@@ -2154,7 +2154,7 @@ export const Account = list({
       defaultFieldMode: 'edit',
     },
     listView: {
-      initialColumns: ['name', 'type', 'amount', 'accountBalance', 'route'],
+      initialColumns: ['name', 'type', 'amount', 'accountBalance', 'routes'],
     },
   },
 });
