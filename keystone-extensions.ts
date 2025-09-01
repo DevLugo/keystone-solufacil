@@ -1193,631 +1193,482 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
     }
   });
 
-  // Fragmento mejorado para keystone-extensions.ts
+  app.get('/api/generar-listados', async (req, res) => {
+    try {
+      const { localityId, routeId, localityName, routeName, leaderName, leaderId } = req.query;
 
-// Fragmento mejorado para keystone-extensions.ts
-// Reemplazar el endpoint /api/generar-listados existente
-app.get('/api/generar-listados', async (req, res) => {
-  try {
-    const { localityId, routeId, localityName, routeName, leaderName, leaderId } = req.query;
+      // Validación de parámetros
+      if (!localityId || !routeId || !localityName || !routeName) {
+        return res.status(400).json({
+          error: 'Faltan parámetros requeridos: localityId, routeId, localityName, routeName'
+        });
+      }
 
-    // Validación de parámetros
-    if (!localityId || !routeId || !localityName || !routeName) {
-      return res.status(400).json({
-        error: 'Faltan parámetros requeridos: localityId, routeId, localityName, routeName'
-      });
-    }
+      // Inicializar Prisma client
+      const prisma = globalThis.prisma || new PrismaClient();
+      if (!globalThis.prisma) {
+        globalThis.prisma = prisma;
+      }
 
-    // Inicializar Prisma client
-    const prisma = globalThis.prisma || new PrismaClient();
-    if (!globalThis.prisma) {
-      globalThis.prisma = prisma;
-    }
+      // Calcular rango de fechas semanal (ISO: lunes a domingo) y modo de semana
+      const weekMode = (req.query.weekMode as string) === 'current' ? 'current' : 'next';
+      const today = new Date();
+      const isoDow = (today.getDay() + 6) % 7; // 0 = lunes
+      const weekStart = new Date(today);
+      weekStart.setDate(today.getDate() - isoDow);
+      weekStart.setHours(0, 0, 0, 0);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+      weekEnd.setHours(23, 59, 59, 999);
+      if (weekMode === 'next') {
+        weekStart.setDate(weekStart.getDate() + 7);
+        weekEnd.setDate(weekEnd.getDate() + 7);
+      }
 
-    // Calcular rango de fechas semanal (ISO: lunes a domingo) y modo de semana
-    const weekMode = (req.query.weekMode as string) === 'current' ? 'current' : 'next';
-    const today = new Date();
-    const isoDow = (today.getDay() + 6) % 7; // 0 = lunes
-    const weekStart = new Date(today);
-    weekStart.setDate(today.getDate() - isoDow);
-    weekStart.setHours(0, 0, 0, 0);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    weekEnd.setHours(23, 59, 59, 999);
-    if (weekMode === 'next') {
-      weekStart.setDate(weekStart.getDate() + 7);
-      weekEnd.setDate(weekEnd.getDate() + 7);
-    }
-
-    // Obtener préstamos activos
-    const activeLoans = await prisma.loan.findMany({
-      where: {
-        AND: [
-          { finishedDate: null },
-          { pendingAmountStored: { gt: "0" } },
-          { excludedByCleanup: null },
-          leaderId ? { leadId: leaderId as string } : {}
-        ]
-      },
-      include: {
-        borrower: {
-          include: {
-            personalData: {
-              include: {
-                phones: { select: { number: true } },
-                addresses: { include: { location: true } }
+      // Obtener préstamos activos (misma lógica que abonosTab.tsx)
+      const activeLoans = await prisma.loan.findMany({
+        where: {
+          AND: [
+            { finishedDate: null },           // ✅ Solo préstamos NO finalizados
+            { pendingAmountStored: { gt: "0" } }, // ✅ Solo con monto pendiente > 0
+            { excludedByCleanup: null },     // ✅ NO excluidos por limpieza
+            leaderId ? { leadId: leaderId as string } : {}
+          ]
+        },
+        include: {
+          borrower: {
+            include: {
+              personalData: {
+                include: {
+                  phones: { select: { number: true } },
+                  addresses: { include: { location: true } }
+                }
               }
+            }
+          },
+          collaterals: {
+            include: {
+              phones: { select: { number: true } }
+            }
+          },
+          loantype: true,
+          payments: true,
+          lead: {
+            include: {
+              personalData: true
             }
           }
         },
-        collaterals: {
-          include: {
-            phones: { select: { number: true } }
-          }
-        },
-        loantype: true,
-        payments: true,
-        lead: {
-          include: {
-            personalData: true
-          }
+        orderBy: {
+          signDate: 'asc'
         }
-      },
-      orderBy: {
-        signDate: 'asc'
-      }
-    }) as any[];
+      }) as any[];
 
-    const filteredActiveLoans = activeLoans;
+      // Ya no necesitamos filtrar aquí porque se hace en la consulta Prisma
+      const filteredActiveLoans = activeLoans;
+      
 
-    // Procesar datos para el PDF
-    const formatCurrency = (amount: number | string) => {
-      const num = typeof amount === 'string' ? parseFloat(amount) : amount;
-      return new Intl.NumberFormat('es-MX', {
-        style: 'currency',
-        currency: 'MXN',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0
-      }).format(num || 0).replace('MX$', '$');
-    };
 
-    const formatDate = (dateString: string | null) => {
-      if (!dateString) return '';
-      const date = new Date(dateString);
-      return date.toLocaleDateString('es-MX', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
+      // Procesar datos para el PDF
+      const formatCurrency = (amount: number | string) => {
+        const num = typeof amount === 'string' ? parseFloat(amount) : amount;
+        return new Intl.NumberFormat('es-MX', {
+          style: 'currency',
+          currency: 'MXN',
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 0
+        }).format(num || 0).replace('MX$', '$');
+      };
+
+      const formatDate = (dateString: string | null) => {
+        if (!dateString) return '';
+        const date = new Date(dateString);
+        return date.toLocaleDateString('es-MX', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric'
+        });
+      };
+
+      // Generar código corto a partir del id (fallback si no hay clientCode)
+      const shortCodeFromId = (id?: string): string => {
+        if (!id) return '';
+        const base = id.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+        return base.slice(-6);
+      };
+
+      // Helpers de semanas activas del mes (definidos antes de su uso)
+      const getMonday = (d: Date) => {
+        const date = new Date(d);
+        const day = date.getDay();
+        const diff = (day + 6) % 7; // 0=Lunes
+        date.setDate(date.getDate() - diff);
+        date.setHours(0, 0, 0, 0);
+        return date;
+      };
+      const generateActiveWeeksForMonth = (ref: Date) => {
+        const year = ref.getFullYear();
+        const month = ref.getMonth();
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0, 23, 59, 59, 999);
+        let cursor = getMonday(firstDay);
+        const weeks: Array<{ start: Date; end: Date }> = [];
+        while (cursor <= lastDay) {
+          const start = new Date(cursor);
+          const end = new Date(start);
+          end.setDate(end.getDate() + 6);
+          end.setHours(23, 59, 59, 999);
+          // mayoría de días laborales (L-V) dentro del mes
+          let weekdaysInMonth = 0;
+          for (let i = 0; i < 5; i++) {
+            const d = new Date(start);
+            d.setDate(start.getDate() + i);
+            if (d.getMonth() === month) weekdaysInMonth++;
+          }
+          if (weekdaysInMonth >= 3) weeks.push({ start, end });
+          cursor.setDate(cursor.getDate() + 7);
+        }
+        return weeks;
+      };
+      const activeWeeksCurrentMonth = generateActiveWeeksForMonth(new Date());
+      const findWeekContaining = (date: Date) => activeWeeksCurrentMonth.find(w => date >= w.start && date <= w.end);
+      const countWeeksElapsedSinceSignInCurrentMonth = (signDateStr: string) => {
+        const signDate = new Date(signDateStr);
+        const signWeek = findWeekContaining(signDate);
+        const now = new Date();
+        return activeWeeksCurrentMonth.filter(w => w.end <= now && (!signWeek || w.start > signWeek.end)).length;
+      };
+
+      // Generar registros de pago
+      const payments = filteredActiveLoans.map((loan: any) => {
+        const phone = loan.borrower?.personalData?.phones?.[0]?.number || '';
+        const phoneDisplay = phone || '';
+
+        const expectedWeeklyPayment = loan.expectedWeeklyPayment ? parseFloat(loan.expectedWeeklyPayment.toString()) : (() => {
+          if (loan.loantype && loan.loantype.weekDuration && loan.loantype.weekDuration > 0) {
+            const rate = loan.loantype.rate ? parseFloat(loan.loantype.rate.toString()) : 0;
+            const totalAmountToPay = parseFloat(loan.requestedAmount.toString()) * (1 + rate);
+            return totalAmountToPay / loan.loantype.weekDuration;
+          }
+          return 0;
+        })();
+        const pendingAmountStored = loan.pendingAmountStored ? parseFloat(loan.pendingAmountStored.toString()) : 0;
+
+        // Totales pagados bajo lógica de semanas activas del mes
+        const now = new Date();
+        const sign = new Date(loan.signDate);
+        // Semanas globales desde el lunes posterior a la semana de firma (ignora mes activo)
+        const signWeekStart = getMonday(sign);
+        const signWeekEnd = new Date(signWeekStart);
+        signWeekEnd.setDate(signWeekEnd.getDate() + 6);
+        signWeekEnd.setHours(23, 59, 59, 999);
+        const boundary = new Date(signWeekEnd);
+        boundary.setDate(boundary.getDate() + 1); // lunes siguiente
+        boundary.setHours(0, 0, 0, 0);
+        // Si el modo es next y ya estamos preparando siguiente semana, desplazar boundary 1 semana cuando corresponda
+        const boundaryForCalc = new Date(boundary);
+        if (weekMode === 'next') {
+          boundaryForCalc.setDate(boundaryForCalc.getDate() + 7);
+        }
+        const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+        const weeksElapsedSinceBoundary = Math.max(0, Math.floor((getMonday(weekEnd).getTime() - getMonday(boundaryForCalc).getTime()) / msPerWeek));
+        // Semana 1 inicia en el lunes posterior a la semana de firma
+        const nSemanaValue = weeksElapsedSinceBoundary + 1;
+        const expectedPaidToDateGlobal = expectedWeeklyPayment * nSemanaValue;
+        const totalPaidSinceBoundary = (loan.payments || []).reduce((sum: number, p: any) => {
+          const d = new Date(p.receivedAt || p.createdAt);
+          if (d >= boundaryForCalc && d <= weekEnd) {
+            return sum + parseFloat((p.amount || 0).toString());
+          }
+          return sum;
+        }, 0);
+        const abonoParcialAmount = Math.max(0, totalPaidSinceBoundary - expectedPaidToDateGlobal);
+        const arrearsAmount = Math.max(0, expectedPaidToDateGlobal - totalPaidSinceBoundary);
+
+        // Pago VDO (monto total no pagado hasta la semana actual)
+
+        // Número de semana: semanas globales desde el lunes posterior a la semana de firma
+        // (ya calculado arriba como weeksElapsedSinceBoundary + 1)
+
+        // Texto de AVAL obtenido del primer collateral asociado al loan
+        let avalDisplay = '';
+        if (loan.collaterals && loan.collaterals.length > 0) {
+          const primaryCollateral = loan.collaterals[0];
+          const avalName = primaryCollateral.fullName || '';
+          const avalPhone = primaryCollateral.phones?.[0]?.number || '';
+          avalDisplay = [avalName, avalPhone].filter(Boolean).join(', ');
+        }
+
+        return {
+          id: loan.borrower?.personalData?.clientCode || shortCodeFromId(loan.borrower?.personalData?.id) || '',
+          name: loan.borrower?.personalData?.fullName || '',
+          phone: phoneDisplay,
+          abono: formatCurrency(expectedWeeklyPayment || 0),
+          adeudo: formatCurrency(pendingAmountStored || 0),
+          plazos: (loan.loantype?.weekDuration || 0).toString(),
+          pagoVdo: formatCurrency(arrearsAmount || 0),
+          abonoParcial: formatCurrency(abonoParcialAmount || 0),
+          fInicio: formatDate(loan.signDate),
+          nSemana: String(nSemanaValue),
+          aval: avalDisplay
+        };
       });
-    };
 
-    const shortCodeFromId = (id?: string): string => {
-      if (!id) return '';
-      const base = id.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-      return base.slice(-6);
-    };
-
-    // Helpers de semanas
-    const getMonday = (d: Date) => {
-      const date = new Date(d);
-      const day = date.getDay();
-      const diff = (day + 6) % 7;
-      date.setDate(date.getDate() - diff);
-      date.setHours(0, 0, 0, 0);
-      return date;
-    };
-
-    const generateActiveWeeksForMonth = (ref: Date) => {
-      const year = ref.getFullYear();
-      const month = ref.getMonth();
-      const firstDay = new Date(year, month, 1);
-      const lastDay = new Date(year, month + 1, 0, 23, 59, 59, 999);
-      let cursor = getMonday(firstDay);
-      const weeks: Array<{ start: Date; end: Date }> = [];
-      while (cursor <= lastDay) {
-        const start = new Date(cursor);
-        const end = new Date(start);
-        end.setDate(end.getDate() + 6);
-        end.setHours(23, 59, 59, 999);
-        let weekdaysInMonth = 0;
-        for (let i = 0; i < 5; i++) {
-          const d = new Date(start);
-          d.setDate(start.getDate() + i);
-          if (d.getMonth() === month) weekdaysInMonth++;
-        }
-        if (weekdaysInMonth >= 3) weeks.push({ start, end });
-        cursor.setDate(cursor.getDate() + 7);
-      }
-      return weeks;
-    };
-
-    const activeWeeksCurrentMonth = generateActiveWeeksForMonth(new Date());
-    const findWeekContaining = (date: Date) => activeWeeksCurrentMonth.find(w => date >= w.start && date <= w.end);
-    const countWeeksElapsedSinceSignInCurrentMonth = (signDateStr: string) => {
-      const signDate = new Date(signDateStr);
-      const signWeek = findWeekContaining(signDate);
-      const now = new Date();
-      return activeWeeksCurrentMonth.filter(w => w.end <= now && (!signWeek || w.start > signWeek.end)).length;
-    };
-
-    // Generar registros de pago
-    const payments = filteredActiveLoans.map((loan: any) => {
-      const phone = loan.borrower?.personalData?.phones?.[0]?.number || '';
-      const phoneDisplay = phone || '';
-
-      const expectedWeeklyPayment = loan.expectedWeeklyPayment ? parseFloat(loan.expectedWeeklyPayment.toString()) : (() => {
+      // Calcular estadísticas
+      const totalClientes = payments.length;
+      const totalCobranzaEsperada = filteredActiveLoans.reduce((sum: number, loan: any) => {
+        let weeklyPaymentAmount = 0;
         if (loan.loantype && loan.loantype.weekDuration && loan.loantype.weekDuration > 0) {
           const rate = loan.loantype.rate ? parseFloat(loan.loantype.rate.toString()) : 0;
           const totalAmountToPay = parseFloat(loan.requestedAmount.toString()) * (1 + rate);
-          return totalAmountToPay / loan.loantype.weekDuration;
+          weeklyPaymentAmount = totalAmountToPay / loan.loantype.weekDuration;
         }
-        return 0;
-      })();
-      const pendingAmountStored = loan.pendingAmountStored ? parseFloat(loan.pendingAmountStored.toString()) : 0;
+        return sum + weeklyPaymentAmount;
+      }, 0);
 
-      const now = new Date();
-      const sign = new Date(loan.signDate);
-      const signWeekStart = getMonday(sign);
-      const signWeekEnd = new Date(signWeekStart);
-      signWeekEnd.setDate(signWeekEnd.getDate() + 6);
-      signWeekEnd.setHours(23, 59, 59, 999);
-      const boundary = new Date(signWeekEnd);
-      boundary.setDate(boundary.getDate() + 1);
-      boundary.setHours(0, 0, 0, 0);
-      const boundaryForCalc = new Date(boundary);
-      if (weekMode === 'next') {
-        boundaryForCalc.setDate(boundaryForCalc.getDate() + 7);
-      }
-      const msPerWeek = 7 * 24 * 60 * 60 * 1000;
-      const weeksElapsedSinceBoundary = Math.max(0, Math.floor((getMonday(weekEnd).getTime() - getMonday(boundaryForCalc).getTime()) / msPerWeek));
-      const nSemanaValue = weeksElapsedSinceBoundary + 1;
-      const expectedPaidToDateGlobal = expectedWeeklyPayment * nSemanaValue;
-      const totalPaidSinceBoundary = (loan.payments || []).reduce((sum: number, p: any) => {
-        const d = new Date(p.receivedAt || p.createdAt);
-        if (d >= boundaryForCalc && d <= weekEnd) {
-          return sum + parseFloat((p.amount || 0).toString());
+      // ✅ CORREGIDO: Calcular comisión esperada basada en loanPaymentComission de cada préstamo
+      const totalComisionEsperada = filteredActiveLoans.reduce((sum: number, loan: any) => {
+        if (loan.loantype?.loanPaymentComission) {
+          const commission = parseFloat(loan.loantype.loanPaymentComission.toString());
+          return sum + commission;
         }
         return sum;
       }, 0);
-      const abonoParcialAmount = Math.max(0, totalPaidSinceBoundary - expectedPaidToDateGlobal);
-      const arrearsAmount = Math.max(0, expectedPaidToDateGlobal - totalPaidSinceBoundary);
+      
+      // Debug específico para "Nuevo Progreso"
+      const nuevoProgresoLoans = filteredActiveLoans.filter((loan: any) => {
+        const locality = loan.borrower?.personalData?.addresses?.[0]?.location?.name || '';
+        return locality.toLowerCase().includes('nuevo progreso');
+      });
+      console.log(`   - Préstamos en "Nuevo Progreso": ${nuevoProgresoLoans.length}`);
+      
+      // Debug de comisiones
+      const loansWithCommission = filteredActiveLoans.filter((loan: any) => 
+        loan.loantype?.loanPaymentComission && parseFloat(loan.loantype.loanPaymentComission.toString()) > 0
+      );
+      console.log(`   - Préstamos con comisión > 0: ${loansWithCommission.length}`);
+      console.log(`   - Comisión total esperada: ${totalComisionEsperada}`);
 
-      let avalDisplay = '';
-      if (loan.collaterals && loan.collaterals.length > 0) {
-        const primaryCollateral = loan.collaterals[0];
-        const avalName = primaryCollateral.fullName || '';
-        const avalPhone = primaryCollateral.phones?.[0]?.number || '';
-        avalDisplay = [avalName, avalPhone].filter(Boolean).join(', ');
+      // Crear PDF con diseño de keystone2.ts
+      const doc = new PDFDocument({ margin: 30 });
+      const filename = `listado_cobranza_${(localityName as string).replace(/\s+/g, '_')}.pdf`;
+
+      res.setHeader('Content-disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+      res.setHeader('Content-type', 'application/pdf');
+      doc.pipe(res);
+
+      // Generar fecha semanal
+      const weekRange = `${weekStart.toLocaleDateString('es-MX', { day: 'numeric', month: 'long' })} al ${weekEnd.toLocaleDateString('es-MX', { day: 'numeric', month: 'long' })}`;
+
+      // Header elements (diseño de keystone2.ts)
+      const headerY = 25;
+      doc.fontSize(14).text(routeName as string, 30, headerY, { align: 'left', baseline: 'middle' });
+      doc.fontSize(14).text('Listado de Cobranza', 0, headerY, { align: 'center', baseline: 'middle' });
+      doc.image('./solufacil.png', 450, 10, { width: 100 });
+
+      const subtitleY = headerY + 20;
+      doc.fontSize(10).text(`Semanal del ${weekRange}`, 0, subtitleY, { align: 'center', baseline: 'middle' });
+
+      const detailsY = subtitleY + 30;
+      doc.fontSize(8).fillColor('gray').text('Localidad:', 30, detailsY, { align: 'left', baseline: 'middle' });
+      doc.fontSize(8).fillColor('black').text(localityName as string, 100, detailsY, { align: 'left', baseline: 'middle' });
+      doc.fontSize(8).fillColor('gray').text('Lider:', 400, detailsY, { align: 'left', baseline: 'middle' });
+      doc.fontSize(8).fillColor('black').text((leaderName as string) || 'Sin asignar', 450, detailsY, { align: 'left', baseline: 'middle' });
+
+      const additionalDetailsY = detailsY + 20;
+      doc.fontSize(8).fillColor('black').text(`Total de clientes: ${totalClientes}`, 30, additionalDetailsY, { align: 'left' });
+      doc.text(`Comisión a pagar al líder: ${formatCurrency(totalComisionEsperada)}`, 30, additionalDetailsY + 15, { align: 'left' });
+      doc.text(`Total de cobranza esperada: ${formatCurrency(totalCobranzaEsperada)}`, 30, additionalDetailsY + 30, { align: 'left' });
+
+      // Interfaces y columnas (diseño de keystone2.ts)
+      interface PaymentRecord {
+        name: string;
+        phone: string;
+        abono: string;
+        adeudo: string;
+        plazos: string;
+        pagoVdo: string;
+        abonoParcial: string;
+        fInicio: string;
+        nSemana: string;
+        aval: string;
+        [key: string]: string;
       }
 
-      return {
-        id: loan.borrower?.personalData?.clientCode || shortCodeFromId(loan.borrower?.personalData?.id) || '',
-        name: loan.borrower?.personalData?.fullName || '',
-        phone: phoneDisplay,
-        abono: formatCurrency(expectedWeeklyPayment || 0),
-        adeudo: formatCurrency(pendingAmountStored || 0),
-        plazos: (loan.loantype?.weekDuration || 0).toString(),
-        pagoVdo: formatCurrency(arrearsAmount || 0),
-        abonoParcial: formatCurrency(abonoParcialAmount || 0),
-        fInicio: formatDate(loan.signDate),
-        nSemana: String(nSemanaValue + 1),
-        aval: avalDisplay
+      interface ColumnWidths {
+        id: number;
+        name: number;
+        phone: number;
+        abono: number;
+        adeudo: number;
+        plazos: number;
+        pagoVdo: number;
+        abonoParcial: number;
+        fInicio: number;
+        nSemana: number;
+        aval: number;
+        [key: string]: number;
+      }
+
+      const columnWidths: ColumnWidths = {
+        id: 30,
+        name: 100,
+        phone: 40,
+        abono: 70,
+        adeudo: 35,
+        plazos: 35,
+        pagoVdo: 25,
+        abonoParcial: 35,
+        fInicio: 35,
+        nSemana: 40,
+        aval: 85,
       };
-    });
 
-    // Calcular estadísticas
-    const totalClientes = payments.length;
-    const totalCobranzaEsperada = filteredActiveLoans.reduce((sum: number, loan: any) => {
-      let weeklyPaymentAmount = 0;
-      if (loan.loantype && loan.loantype.weekDuration && loan.loantype.weekDuration > 0) {
-        const rate = loan.loantype.rate ? parseFloat(loan.loantype.rate.toString()) : 0;
-        const totalAmountToPay = parseFloat(loan.requestedAmount.toString()) * (1 + rate);
-        weeklyPaymentAmount = totalAmountToPay / loan.loantype.weekDuration;
-      }
-      return sum + weeklyPaymentAmount;
-    }, 0);
+      // Function to draw table headers (diseño de keystone2.ts)
+      const drawTableHeaders = (y: number): number => {
+        const headers = ['ID', 'NOMBRE', 'TELEFONO', 'ABONO', 'ADEUDO', 'PLAZOS', 'PAGO VDO', 'ABONO PARCIAL', 'FECHA INICIO', 'NUMERO SEMANA', 'AVAL'];
+        const headerHeight = 30;
 
-    const totalComisionEsperada = filteredActiveLoans.reduce((sum: number, loan: any) => {
-      if (loan.loantype?.loanPaymentComission) {
-        const commission = parseFloat(loan.loantype.loanPaymentComission.toString());
-        return sum + commission;
-      }
-      return sum;
-    }, 0);
+        doc.rect(30, y, Object.values(columnWidths).reduce((a, b) => a + b, 0), headerHeight).fillAndStroke('#f0f0f0', '#000');
+        doc.fillColor('#000').fontSize(7);
+        headers.forEach((header, i) => {
+          const x = 30 + Object.values(columnWidths).slice(0, i).reduce((a, b) => a + b, 0);
+          const columnWidth = Object.values(columnWidths)[i];
 
-    // ==================== CREAR PDF MEJORADO ====================
-    const doc = new PDFDocument({ 
-      margin: 20, // Márgenes reducidos para aprovechar espacio
-      size: 'A4',
-      autoFirstPage: true // Solo una página inicial
-    });
-    
-    const filename = `listado_cobranza_${(localityName as string).replace(/\s+/g, '_')}.pdf`;
-
-    res.setHeader('Content-disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
-    res.setHeader('Content-type', 'application/pdf');
-    doc.pipe(res);
-
-    // Generar fecha semanal
-    const weekRange = `${weekStart.toLocaleDateString('es-MX', { day: 'numeric', month: 'long' })} al ${weekEnd.toLocaleDateString('es-MX', { day: 'numeric', month: 'long' })}`;
-
-    // ==================== CONFIGURACIÓN DE DISEÑO ====================
-    const colors = {
-      black: '#000000',
-      darkGray: '#333333',
-      mediumGray: '#666666',
-      lightGray: '#999999',
-      veryLightGray: '#fafafa', // Mucho más claro para ahorrar tinta
-      borderGray: '#cccccc',
-      white: '#ffffff'
-    };
-
-    // Configuración de la tabla optimizada - redistribuida para dar más espacio a nombre y aval
-    const pageWidth = doc.page.width - 40; // Usar todo el ancho disponible
-    const tableStartX = 20;
-    
-    // Anchos de columna optimizados - más espacio para nombre y aval
-    const columnWidths = {
-      id: pageWidth * 0.07,       // 7% (aumentado para evitar multilínea)
-      name: pageWidth * 0.18,     // 18% (ajustado)
-      phone: pageWidth * 0.09,    // 9% (aumentado para evitar multilínea)
-      abono: pageWidth * 0.07,    // 7% (reducido)
-      adeudo: pageWidth * 0.07,   // 7% (reducido)
-      plazos: pageWidth * 0.05,   // 5% (reducido)
-      pagoVdo: pageWidth * 0.07,  // 7% (reducido)
-      abonoParcial: pageWidth * 0.07, // 7% (reducido)
-      fInicio: pageWidth * 0.08,  // 8% (reducido)
-      nSemana: pageWidth * 0.05,  // 5% (reducido)
-      aval: pageWidth * 0.20      // 20% (ajustado)
-    };
-
-    const totalTableWidth = Object.values(columnWidths).reduce((a, b) => a + b, 0);
-
-    // ==================== FUNCIÓN PARA DIBUJAR HEADER ====================
-    const drawPageHeader = (pageNum: number = 1) => {
-      let headerY = 20;
-      
-      // Logo
-      try {
-        doc.image('./solufacil.png', doc.page.width - 90, 15, { width: 70 });
-      } catch (e) {
-        // Continuar sin logo si no existe
-      }
-
-      // Título principal
-      doc.fontSize(16).fillColor(colors.black).font('Helvetica-Bold')
-        .text('LISTADO DE COBRANZA', tableStartX, headerY);
-      
-      // Ruta
-      doc.fontSize(11).fillColor(colors.darkGray).font('Helvetica')
-        .text(routeName as string, tableStartX, headerY + 20);
-      
-      // Fecha
-      doc.fontSize(9).fillColor(colors.mediumGray)
-        .text(`Semana: ${weekRange}`, tableStartX, headerY + 35);
-      
-      // Línea divisoria
-      doc.strokeColor(colors.borderGray).lineWidth(0.5)
-        .moveTo(tableStartX, headerY + 50)
-        .lineTo(tableStartX + totalTableWidth, headerY + 50)
-        .stroke();
-
-      return headerY + 60;
-    };
-
-    // ==================== FUNCIÓN PARA DIBUJAR INFORMACIÓN ====================
-    const drawInfoSection = (startY: number) => {
-      let y = startY;
-      
-      // Información en dos columnas
-      doc.fontSize(8).fillColor(colors.darkGray).font('Helvetica');
-      
-      // Columna izquierda
-      doc.text('Localidad:', tableStartX, y);
-      doc.font('Helvetica-Bold').text(localityName as string, tableStartX + 50, y);
-      
-      doc.font('Helvetica').text('Total clientes:', tableStartX, y + 12);
-      doc.font('Helvetica-Bold').text(totalClientes.toString(), tableStartX + 50, y + 12);
-      
-      // Columna derecha
-      doc.font('Helvetica').text('Líder:', tableStartX + 250, y);
-      doc.font('Helvetica-Bold').text((leaderName as string) || 'Sin asignar', tableStartX + 280, y);
-      
-      doc.font('Helvetica').text('Cobranza esperada:', tableStartX + 250, y + 12);
-      doc.font('Helvetica-Bold').text(formatCurrency(totalCobranzaEsperada), tableStartX + 340, y + 12);
-      
-      doc.font('Helvetica').text('Comisión líder:', tableStartX + 250, y + 24);
-      doc.font('Helvetica-Bold').text(formatCurrency(totalComisionEsperada), tableStartX + 340, y + 24);
-      
-      return y + 40;
-    };
-
-    // ==================== FUNCIÓN PARA DIBUJAR HEADERS DE TABLA ====================
-    const drawTableHeaders = (y: number): number => {
-      // Headers abreviados para optimizar espacio
-      const headers = ['ID', 'NOMBRE', 'TEL', 'ABONO', 'ADEUDO', 'PLZ', 'P.VDO', 'A.PARC', 'F.INICIO', 'SEM', 'AVAL'];
-      const headerHeight = 20;
-
-      // Fondo del header con gris claro
-      doc.rect(tableStartX, y, totalTableWidth, headerHeight)
-        .fillAndStroke('#e0e0e0', colors.borderGray);
-      
-      // Texto del header
-      doc.fillColor(colors.darkGray).fontSize(7).font('Helvetica-Bold');
-      
-      let xPos = tableStartX;
-      Object.keys(columnWidths).forEach((key, index) => {
-        const width = (columnWidths as any)[key];
-        const header = headers[index];
-        
-        // Centrar texto en la columna
-        doc.text(header, xPos, y + 7, { 
-          width: width,
-          align: 'center',
-          lineBreak: false
+          if (header.includes(' ')) {
+            const [firstLine, secondLine] = header.split(' ');
+            doc.text(firstLine, x, y + 5, { width: columnWidth, align: 'center' });
+            doc.text(secondLine, x, y + 15, { width: columnWidth, align: 'center' });
+          } else {
+            doc.text(header, x, y + 10, { width: columnWidth, align: 'center' });
+          }
         });
-        
-        // Dibujar línea vertical después de cada columna (excepto la última)
-        if (index < headers.length - 1) {
-          doc.strokeColor(colors.borderGray).lineWidth(0.5)
-            .moveTo(xPos + width, y)
-            .lineTo(xPos + width, y + headerHeight)
-            .stroke();
+
+        doc.lineWidth(0.5);
+        let x = 30;
+        Object.values(columnWidths).forEach((width) => {
+          doc.moveTo(x, y).lineTo(x, y + headerHeight).stroke();
+          x += width;
+        });
+        doc.moveTo(x, y).lineTo(x, y + headerHeight).stroke();
+
+        return y + headerHeight;
+      };
+
+      // Function to add page numbers (diseño de keystone2.ts)
+      const addPageNumber = (pageNumber: number): void => {
+        doc.fontSize(10).text(`Página ${pageNumber}`, doc.page.width - 100, doc.page.height - 42, { align: 'right' });
+      };
+
+      // Function to split text into multiple lines if necessary (diseño de keystone2.ts)
+      const splitText = (text: string, width: number): string[] => {
+        const words = text.split(' ');
+        const lines = [];
+        let currentLine = '';
+
+        words.forEach((word) => {
+          const testLine = currentLine + word + ' ';
+          const testWidth = doc.widthOfString(testLine);
+
+          if (testWidth > width && currentLine.length > 0) {
+            lines.push(currentLine.trim());
+            currentLine = word + ' ';
+          } else {
+            currentLine = testLine;
+          }
+        });
+
+        lines.push(currentLine.trim());
+        return lines;
+      };
+
+      // Initial table headers (diseño de keystone2.ts)
+      let currentY = drawTableHeaders(additionalDetailsY + 50);
+      let pageNumber = 1;
+      addPageNumber(pageNumber);
+
+      const paddingBottom = 5;
+      const lineHeight = 12;
+      const pageHeight = doc.page.height - doc.page.margins.bottom;
+
+      // Dibujar filas con datos reales de la DB
+      payments.forEach((payment, rowIndex) => {
+        // Calcular alto real del nombre con el ancho de columna para evitar texto encimado
+        doc.fontSize(6);
+        const columnKeys = Object.keys(columnWidths);
+        const nameOffset = columnKeys.slice(0, columnKeys.indexOf('name')).reduce((sum, key) => sum + (columnWidths as any)[key], 0);
+        const nameStartX = 30 + nameOffset + 5;
+        const nameBlockWidth = columnWidths.name - 10;
+        const nameTextHeight = doc.heightOfString(payment.name || '', { width: nameBlockWidth });
+        const rowHeight = Math.max(nameTextHeight + paddingBottom + 10, 20);
+
+        if (currentY + rowHeight > pageHeight) {
+          // Add page number to current page before creating new one
+          addPageNumber(pageNumber);
+          doc.addPage();
+          pageNumber++;
+          currentY = drawTableHeaders(30);
         }
-        
-        xPos += width;
-      });
 
-      return y + headerHeight;
-    };
+        // Dibujar nombre en bloque con auto-wrap
+        doc.text(payment.name || '', nameStartX, currentY + 5, { width: nameBlockWidth, align: 'left' });
 
-    // ==================== FUNCIÓN PARA DIBUJAR FILA ====================
-    const drawRow = (payment: any, y: number, isEven: boolean): number => {
-      const fontSize = 6.5; // Tamaño de fuente optimizado
-      const lineHeight = 10; // Altura de línea para texto
-      const minRowHeight = 14; // Altura mínima de la fila
-      const padding = 2;
-      
-      // Calcular altura necesaria para nombre y aval (pueden ser multilínea)
-      doc.fontSize(fontSize).font('Helvetica');
-      const nameHeight = doc.heightOfString(payment.name || '', { 
-        width: columnWidths.name - padding * 2,
-        lineGap: 1
-      });
-      const avalHeight = doc.heightOfString(payment.aval || '', { 
-        width: columnWidths.aval - padding * 2,
-        lineGap: 1
-      });
-      
-      // Altura de la fila basada en el contenido más alto
-      const rowHeight = Math.max(minRowHeight, nameHeight + 6, avalHeight + 6);
-      
-      // Fondo alternado muy sutil (opcional - se puede quitar completamente)
-      // Comentado para máximo ahorro de tinta
-      /*
-      if (isEven) {
-        doc.rect(tableStartX, y, totalTableWidth, rowHeight)
-          .fill(colors.veryLightGray);
-      }
-      */
-      
-      // Bordes de la fila
-      doc.rect(tableStartX, y, totalTableWidth, rowHeight)
-        .stroke(colors.borderGray);
-      
-      // Contenido de la fila
-      doc.fillColor(colors.black).fontSize(fontSize).font('Helvetica');
-      
-      let xPos = tableStartX;
-      const textY = y + 4; // Padding superior para el texto
-      
-      // ID
-      doc.text(payment.id || '', xPos + padding, textY + (rowHeight - minRowHeight) / 2, {
-        width: columnWidths.id - padding * 2,
-        align: 'center',
-        lineBreak: false
-      });
-      // Línea vertical
-      doc.strokeColor(colors.borderGray).lineWidth(0.5)
-        .moveTo(xPos + columnWidths.id, y)
-        .lineTo(xPos + columnWidths.id, y + rowHeight)
-        .stroke();
-      xPos += columnWidths.id;
-      
-      // Nombre (multilínea)
-      doc.text(payment.name || '', xPos + padding, textY, {
-        width: columnWidths.name - padding * 2,
-        align: 'left',
-        lineGap: 1
-      });
-      // Línea vertical
-      doc.moveTo(xPos + columnWidths.name, y)
-        .lineTo(xPos + columnWidths.name, y + rowHeight)
-        .stroke();
-      xPos += columnWidths.name;
-      
-      // Teléfono
-      doc.text(payment.phone || '', xPos + padding, textY + (rowHeight - minRowHeight) / 2, {
-        width: columnWidths.phone - padding * 2,
-        align: 'center',
-        lineBreak: false
-      });
-      // Línea vertical
-      doc.moveTo(xPos + columnWidths.phone, y)
-        .lineTo(xPos + columnWidths.phone, y + rowHeight)
-        .stroke();
-      xPos += columnWidths.phone;
-      
-      // Abono
-      doc.text(payment.abono || '', xPos + padding, textY + (rowHeight - minRowHeight) / 2, {
-        width: columnWidths.abono - padding * 2,
-        align: 'right',
-        lineBreak: false
-      });
-      // Línea vertical
-      doc.moveTo(xPos + columnWidths.abono, y)
-        .lineTo(xPos + columnWidths.abono, y + rowHeight)
-        .stroke();
-      xPos += columnWidths.abono;
-      
-      // Adeudo
-      doc.text(payment.adeudo || '', xPos + padding, textY + (rowHeight - minRowHeight) / 2, {
-        width: columnWidths.adeudo - padding * 2,
-        align: 'right',
-        lineBreak: false
-      });
-      // Línea vertical
-      doc.moveTo(xPos + columnWidths.adeudo, y)
-        .lineTo(xPos + columnWidths.adeudo, y + rowHeight)
-        .stroke();
-      xPos += columnWidths.adeudo;
-      
-      // Plazos
-      doc.text(payment.plazos || '', xPos + padding, textY + (rowHeight - minRowHeight) / 2, {
-        width: columnWidths.plazos - padding * 2,
-        align: 'center',
-        lineBreak: false
-      });
-      // Línea vertical
-      doc.moveTo(xPos + columnWidths.plazos, y)
-        .lineTo(xPos + columnWidths.plazos, y + rowHeight)
-        .stroke();
-      xPos += columnWidths.plazos;
-      
-      // Pago VDO
-      doc.text(payment.pagoVdo || '', xPos + padding, textY + (rowHeight - minRowHeight) / 2, {
-        width: columnWidths.pagoVdo - padding * 2,
-        align: 'right',
-        lineBreak: false
-      });
-      // Línea vertical
-      doc.moveTo(xPos + columnWidths.pagoVdo, y)
-        .lineTo(xPos + columnWidths.pagoVdo, y + rowHeight)
-        .stroke();
-      xPos += columnWidths.pagoVdo;
-      
-      // Abono Parcial
-      doc.text(payment.abonoParcial || '', xPos + padding, textY + (rowHeight - minRowHeight) / 2, {
-        width: columnWidths.abonoParcial - padding * 2,
-        align: 'right',
-        lineBreak: false
-      });
-      // Línea vertical
-      doc.moveTo(xPos + columnWidths.abonoParcial, y)
-        .lineTo(xPos + columnWidths.abonoParcial, y + rowHeight)
-        .stroke();
-      xPos += columnWidths.abonoParcial;
-      
-      // Fecha Inicio
-      doc.text(payment.fInicio || '', xPos + padding, textY + (rowHeight - minRowHeight) / 2, {
-        width: columnWidths.fInicio - padding * 2,
-        align: 'center',
-        lineBreak: false
-      });
-      // Línea vertical
-      doc.moveTo(xPos + columnWidths.fInicio, y)
-        .lineTo(xPos + columnWidths.fInicio, y + rowHeight)
-        .stroke();
-      xPos += columnWidths.fInicio;
-      
-      // Número Semana
-      doc.text(payment.nSemana || '', xPos + padding, textY + (rowHeight - minRowHeight) / 2, {
-        width: columnWidths.nSemana - padding * 2,
-        align: 'center',
-        lineBreak: false
-      });
-      // Línea vertical
-      doc.moveTo(xPos + columnWidths.nSemana, y)
-        .lineTo(xPos + columnWidths.nSemana, y + rowHeight)
-        .stroke();
-      xPos += columnWidths.nSemana;
-      
-      // Aval (multilínea)
-      doc.text(payment.aval || '', xPos + padding, textY, {
-        width: columnWidths.aval - padding * 2,
-        align: 'left',
-        lineGap: 1
-      });
-      // No se dibuja línea vertical después de la última columna
-      
-      return y + rowHeight;
-    };
+        // Dibujar columnas individuales para evitar problemas de TypeScript
+        const drawColumn = (key: string, x: number, width: number) => {
+          const paddingLeft = key === 'name' ? 5 : 0;
+          if (key === 'abono') {
+            const left = '';
+            const right = payment[key];
+            const subColumnWidth = width / 2;
+            const textHeight = Math.max(
+              doc.heightOfString(left, { width: subColumnWidth }),
+              doc.heightOfString(right, { width: subColumnWidth })
+            );
+            const verticalOffset = (rowHeight - textHeight) / 2;
+            doc.text(left, x + paddingLeft, currentY + verticalOffset, { width: subColumnWidth, align: 'center' });
+            doc.text(right, x + paddingLeft + subColumnWidth, currentY + verticalOffset, { width: subColumnWidth, align: 'center' });
+            doc.moveTo(x + subColumnWidth, currentY).lineTo(x + subColumnWidth, currentY + rowHeight).stroke();
+            doc.moveTo(x, currentY).lineTo(x, currentY + rowHeight).stroke();
+          } else if (key !== 'name') {
+            const value = payment[key as keyof typeof payment];
+            const textHeight = doc.heightOfString(value, { width });
+            const verticalOffset = (rowHeight - textHeight) / 2;
 
-    // ==================== RENDERIZAR DOCUMENTO ====================
-    let currentY = drawPageHeader(1);
-    currentY = drawInfoSection(currentY);
-    currentY = drawTableHeaders(currentY);
-    
-    let pageNumber = 1;
-    const pageBottom = doc.page.height - 30; // Límite inferior de la página
-    let needsNewPage = false;
-    
-    // Procesar todas las filas
-    for (let index = 0; index < payments.length; index++) {
-      const payment = payments[index];
-      
-      // Calcular altura real de la fila
-      doc.fontSize(6.5).font('Helvetica');
-      const nameHeight = doc.heightOfString(payment.name || '', { 
-        width: columnWidths.name - 4,
-        lineGap: 1
-      });
-      const avalHeight = doc.heightOfString(payment.aval || '', { 
-        width: columnWidths.aval - 4,
-        lineGap: 1
-      });
-      const rowHeight = Math.max(14, nameHeight + 6, avalHeight + 6);
-      
-      // Verificar si hay espacio en la página actual
-      if (currentY + rowHeight > pageBottom) {
-        needsNewPage = true;
-      }
-      
-      // Si necesitamos nueva página
-      if (needsNewPage) {
-        // Primero: agregar número de página a la página actual
-        doc.fontSize(8).fillColor(colors.lightGray).font('Helvetica')
-          .text(`Página ${pageNumber}`, 0, doc.page.height - 20, {
-            align: 'center'
-          });
-        
-        // Segundo: crear nueva página
-        doc.addPage();
-        pageNumber++;
-        needsNewPage = false;
-        
-        // Tercero: dibujar header de continuación
-        currentY = 20;
-        doc.fontSize(12).fillColor(colors.black).font('Helvetica-Bold')
-          .text('LISTADO DE COBRANZA (cont.)', tableStartX, currentY);
-        doc.fontSize(9).fillColor(colors.mediumGray).font('Helvetica')
-          .text(`${routeName} - ${localityName}`, tableStartX, currentY + 15);
-        currentY += 35;
-        
-        // Cuarto: dibujar headers de tabla
-        currentY = drawTableHeaders(currentY);
-      }
-      
-      // Dibujar la fila
-      currentY = drawRow(payment, currentY, index % 2 === 0);
-    }
-    
-    // Agregar número de página final SOLO si hay contenido en la página
-    if (currentY > 100) { // Solo si hay contenido real en la página
-      doc.fontSize(8).fillColor(colors.lightGray).font('Helvetica')
-        .text(`Página ${pageNumber}`, 0, doc.page.height - 20, {
-          align: 'center'
+            if (key === 'aval') {
+              // Padding especial para aval
+              doc.text(value, x + 5, currentY + verticalOffset, { width: width - 10, align: 'left' });
+            } else {
+              doc.text(value, x + paddingLeft, currentY + verticalOffset, { width, align: 'center' });
+            }
+          }
+        };
+
+        Object.entries(columnWidths).forEach(([key, width], index) => {
+          const x = 30 + Object.values(columnWidths).slice(0, index).reduce((a, b) => a + b, 0);
+          drawColumn(key, x, width);
         });
-    }
-    
-    // Finalizar el documento sin agregar páginas extra
-    doc.end();
 
-  } catch (error) {
-    console.error('Error generando PDF:', error);
-    res.status(500).json({ error: 'Error interno del servidor al generar PDF' });
-  }
-});
+        doc.lineWidth(0.5).rect(30, currentY, Object.values(columnWidths).reduce((a, b) => a + b, 0), rowHeight).stroke();
+
+        let x = 30;
+        Object.values(columnWidths).forEach((width) => {
+          doc.moveTo(x, currentY).lineTo(x, currentY + rowHeight).stroke();
+          x += width;
+        });
+
+        currentY += rowHeight;
+      });
+
+      // Add page number to the final page
+      addPageNumber(pageNumber);
+      doc.end();
+
+    } catch (error) {
+      console.error('Error generando PDF:', error);
+      res.status(500).json({ error: 'Error interno del servidor al generar PDF' });
+    }
+  });
+
   app.get('/resumen', async (req, res) => {
     const { startDate, endDate, routeId } = req.query;
 
