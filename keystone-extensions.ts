@@ -1482,13 +1482,12 @@ export const extendExpressApp = (app: express.Express) => {
               doc.fontSize(10).fillColor('#2d3748').text('Historial de Pagos:', 55, y);
               y += 15;
 
-              const paymentHeaders = ['Fecha', 'Monto', 'No. Pago', 'Balance Final'];
+              const paymentHeaders = ['Fecha', 'Monto', 'No. Pago'];
               const availableWidth = doc.page.width - 120; // Ancho disponible dentro del card
               const paymentColumnWidths = [
-                Math.floor(availableWidth * 0.25), // 25% para fecha
-                Math.floor(availableWidth * 0.25), // 25% para monto  
-                Math.floor(availableWidth * 0.2),  // 20% para número
-                Math.floor(availableWidth * 0.3)   // 30% para balance
+                Math.floor(availableWidth * 0.35), // 35% para fecha
+                Math.floor(availableWidth * 0.35), // 35% para monto  
+                Math.floor(availableWidth * 0.3)   // 30% para número
               ];
               const totalPaymentWidth = paymentColumnWidths.reduce((a, b) => a + b, 0);
               const paymentTableX = 55;
@@ -1512,8 +1511,7 @@ export const extendExpressApp = (app: express.Express) => {
                 const paymentData = [
                   formatDate(payment.receivedAt),
                   formatCurrency(payment.amount),
-                  payment.paymentNumber?.toString() || 'N/A',
-                  formatCurrency(payment.balanceAfterPayment)
+                  payment.paymentNumber?.toString() || 'N/A'
                 ];
 
                 paymentData.forEach((cell, cellIndex) => {
@@ -1594,9 +1592,6 @@ export const extendExpressApp = (app: express.Express) => {
             doc.text(`Fecha: ${formatDate(latestLoan.signDate)}`, 55, y);
             doc.text(`Monto: ${formatCurrency(latestLoan.amountRequested)}`, 300, y);
             y += 18;
-            doc.text(`Total a Pagar: ${formatCurrency(latestLoan.totalAmountDue)}`, 55, y);
-            doc.text(`Pagado: ${formatCurrency(latestLoan.totalPaid)}`, 300, y);
-            y += 18;
             doc.text(`Deuda Pendiente: ${formatCurrency(latestLoan.pendingDebt)}`, 55, y);
             y += 25;
 
@@ -1605,13 +1600,12 @@ export const extendExpressApp = (app: express.Express) => {
               doc.fontSize(10).fillColor('#2d3748').text('Historial de Pagos:', 55, y);
               y += 15;
 
-              const paymentHeaders = ['Fecha', 'Monto', 'No. Pago', 'Balance Final'];
+              const paymentHeaders = ['Fecha', 'Monto', 'No. Pago'];
               const availableWidth = doc.page.width - 120; // Ancho disponible dentro del card
               const paymentColumnWidths = [
-                Math.floor(availableWidth * 0.25), // 25% para fecha
-                Math.floor(availableWidth * 0.25), // 25% para monto  
-                Math.floor(availableWidth * 0.2),  // 20% para número
-                Math.floor(availableWidth * 0.3)   // 30% para balance
+                Math.floor(availableWidth * 0.35), // 35% para fecha
+                Math.floor(availableWidth * 0.35), // 35% para monto  
+                Math.floor(availableWidth * 0.3)   // 30% para número
               ];
               const totalPaymentWidth = paymentColumnWidths.reduce((a, b) => a + b, 0);
               const paymentTableX = 55;
@@ -1641,8 +1635,7 @@ export const extendExpressApp = (app: express.Express) => {
                 const paymentData = [
                   formatDate(payment.receivedAt),
                   formatCurrency(payment.amount),
-                  payment.paymentNumber?.toString() || 'N/A',
-                  formatCurrency(payment.balanceAfterPayment)
+                  payment.paymentNumber?.toString() || 'N/A'
                 ];
 
                 paymentData.forEach((cell, cellIndex) => {
@@ -1726,8 +1719,7 @@ export const extendExpressApp = (app: express.Express) => {
             doc.text(`Fecha: ${formatDate(loan.signDate)}`, 55, y);
             doc.text(`Monto: ${formatCurrency(loan.amountRequested)}`, 300, y);
             y += 15;
-            doc.text(`Pagado: ${formatCurrency(loan.totalPaid)}`, 55, y);
-            doc.text(`Pendiente: ${formatCurrency(loan.pendingDebt)}`, 300, y);
+            doc.text(`Pendiente: ${formatCurrency(loan.pendingDebt)}`, 55, y);
             y += 25;
 
             // Pagos del préstamo como aval (resumen)
