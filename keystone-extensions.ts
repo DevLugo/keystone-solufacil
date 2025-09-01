@@ -1762,7 +1762,7 @@ export const extendExpressApp = (app: express.Express) => {
       }
 
       // Footer profesional
-      const addFooter = () => {
+      const addFooter = (pageNumber: number, totalPages: number) => {
         const footerY = doc.page.height - 60;
         
         // Línea separadora
@@ -1771,30 +1771,41 @@ export const extendExpressApp = (app: express.Express) => {
         // Información del footer
         doc.fontSize(8).fillColor('#718096');
         doc.text('SoluFacil - Sistema de Gestion Crediticia', 40, footerY + 10);
-        doc.text(`Pagina ${doc.bufferedPageRange().count}`, doc.page.width - 100, footerY + 10);
+        doc.text(`Pagina ${pageNumber + 1} de ${totalPages}`, doc.page.width - 120, footerY + 10);
         doc.text(`Generado: ${new Date().toLocaleDateString('es-SV')} ${new Date().toLocaleTimeString('es-SV')}`, 40, footerY + 25);
         doc.text('Documento confidencial - Solo para uso interno', doc.page.width - 200, footerY + 25);
       };
 
-      // Nota final en modo resumen - directamente después del contenido
+      // Nota final en modo resumen - solo si hay espacio en la página actual
       if (!detailed && (loansAsClient?.length > 0 || loansAsCollateral?.length > 0)) {
-        y += 20; // Espacio antes de la nota
-        
-        // Card de información sobre el reporte más compacto
-        doc.roundedRect(40, y, doc.page.width - 80, 50, 6).fill('#f0f9ff');
-        doc.roundedRect(40, y, doc.page.width - 80, 50, 6).stroke('#1e40af');
-        
-        y += 12;
-        doc.fontSize(9).fillColor('#1e40af').text('INFORMACION DEL REPORTE', 55, y);
-        y += 15;
-        doc.fontSize(8).fillColor('#1e40af').text('Este es un reporte resumido. Para ver el historial completo active la opcion "PDF detallado completo".', 55, y);
+        // Solo agregar la nota si hay espacio suficiente en la página actual
+        if (y <= doc.page.height - 80) {
+          y += 20; // Espacio antes de la nota
+          
+          // Card de información sobre el reporte más compacto
+          doc.roundedRect(40, y, doc.page.width - 80, 50, 6).fill('#f0f9ff');
+          doc.roundedRect(40, y, doc.page.width - 80, 50, 6).stroke('#1e40af');
+          
+          y += 12;
+          doc.fontSize(9).fillColor('#1e40af').text('INFORMACION DEL REPORTE', 55, y);
+          y += 15;
+          doc.fontSize(8).fillColor('#1e40af').text('Este es un reporte resumido. Para ver el historial completo active la opcion "PDF detallado completo".', 55, y);
+        }
+        // Si no hay espacio, no agregamos la nota para evitar páginas adicionales
       }
 
-      // Agregar footer a todas las páginas
+      // Obtener el rango de páginas FINAL después de todo el contenido
       const range = doc.bufferedPageRange();
+      console.log(`📄 Total de páginas generadas: ${range.count}, desde ${range.start} hasta ${range.start + range.count - 1}`);
+
+      // Agregar footer solo a las páginas que realmente existen
       for (let i = range.start; i < range.start + range.count; i++) {
-        doc.switchToPage(i);
-        addFooter();
+        try {
+          doc.switchToPage(i);
+          addFooter(i - range.start, range.count);
+        } catch (error) {
+          console.log(`⚠️ No se pudo agregar footer a página ${i}:`, error);
+        }
       }
 
       console.log('📄 Finalizando PDF');
