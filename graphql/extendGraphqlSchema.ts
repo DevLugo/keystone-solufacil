@@ -4528,6 +4528,371 @@ export const extendGraphqlSchema = graphql.extend(base => {
     },
   }),
 
+  // Dashboard KPIs for collectors
+  getDashboardKPIs: graphql.field({
+    type: graphql.nonNull(graphql.JSON),
+    args: {
+      routeId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+      timeframe: graphql.arg({ type: graphql.String }), // 'weekly' or 'monthly'
+      year: graphql.arg({ type: graphql.Int }),
+      month: graphql.arg({ type: graphql.Int }),
+    },
+    resolve: async (root, { routeId, timeframe = 'weekly', year, month }, context: Context) => {
+      try {
+        const currentDate = new Date();
+        const targetYear = year || currentDate.getFullYear();
+        const targetMonth = month || (currentDate.getMonth() + 1);
+
+        // Calculate date ranges based on timeframe
+        let startDate: Date, endDate: Date, previousStartDate: Date, previousEndDate: Date;
+
+        if (timeframe === 'weekly') {
+          // Current week (Monday to Sunday)
+          const today = new Date();
+          const dayOfWeek = today.getDay();
+          const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+          
+          startDate = new Date(today);
+          startDate.setDate(today.getDate() + diffToMonday);
+          startDate.setHours(0, 0, 0, 0);
+          
+          endDate = new Date(startDate);
+          endDate.setDate(startDate.getDate() + 6);
+          endDate.setHours(23, 59, 59, 999);
+
+          // Previous week
+          previousStartDate = new Date(startDate);
+          previousStartDate.setDate(startDate.getDate() - 7);
+          previousEndDate = new Date(endDate);
+          previousEndDate.setDate(endDate.getDate() - 7);
+        } else {
+          // Monthly
+          startDate = new Date(targetYear, targetMonth - 1, 1);
+          endDate = new Date(targetYear, targetMonth, 0, 23, 59, 59, 999);
+          
+          // Previous month
+          previousStartDate = new Date(targetYear, targetMonth - 2, 1);
+          previousEndDate = new Date(targetYear, targetMonth - 1, 0, 23, 59, 59, 999);
+        }
+
+        // Get all loans for the route
+        const allLoans = await context.prisma.loan.findMany({
+          where: {
+            lead: {
+              routesId: routeId
+            }
+          },
+          include: {
+            borrower: {
+              include: {
+                personalData: {
+                  include: {
+                    addresses: {
+                      include: {
+                        location: true
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            payments: {
+              orderBy: { receivedAt: 'asc' }
+            },
+            loantype: true,
+            lead: {
+              include: {
+                personalData: true
+              }
+            }
+          }
+        });
+
+        // Calculate KPIs
+        const currentPeriodLoans = allLoans.filter(loan => {
+          const signDate = new Date(loan.signDate);
+          return signDate >= startDate && signDate <= endDate;
+        });
+
+        const previousPeriodLoans = allLoans.filter(loan => {
+          const signDate = new Date(loan.signDate);
+          return signDate >= previousStartDate && signDate <= previousEndDate;
+        });
+
+        // Active loans (not finished and not excluded by cleanup)
+        const activeLoans = allLoans.filter(loan => 
+          !loan.finishedDate && !loan.excludedByCleanupId
+        );
+
+        // CV (Cartera Vencida) - loans with no payments in last 2 weeks
+        const twoWeeksAgo = new Date();
+        twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+
+        const cvLoans = activeLoans.filter(loan => {
+          const lastPayment = loan.payments[loan.payments.length - 1];
+          if (!lastPayment) return true;
+          return new Date(lastPayment.receivedAt!) < twoWeeksAgo;
+        });
+
+        // Calculate weeks without payment for each loan
+        const loansWithPaymentStreaks = activeLoans.map(loan => {
+          const weeksWithoutPayment = calculateWeeksWithoutPayment(
+            loan.id,
+            new Date(loan.signDate),
+            currentDate,
+            loan.payments,
+            loan.renewedDate
+          );
+          return {
+            ...loan,
+            weeksWithoutPayment,
+            locality: loan.borrower?.personalData?.addresses[0]?.location?.name || 'Sin localidad'
+          };
+        });
+
+        // Locality analysis
+        const localityStats = new Map();
+        loansWithPaymentStreaks.forEach(loan => {
+          const locality = loan.locality;
+          if (!localityStats.has(locality)) {
+            localityStats.set(locality, {
+              name: locality,
+              totalLoans: 0,
+              activeLoans: 0,
+              cvLoans: 0,
+              averageWeeksWithoutPayment: 0,
+              recentGrowth: 0
+            });
+          }
+          
+          const stats = localityStats.get(locality);
+          stats.totalLoans++;
+          stats.activeLoans++;
+          if (loan.weeksWithoutPayment >= 2) stats.cvLoans++;
+          stats.averageWeeksWithoutPayment += loan.weeksWithoutPayment;
+        });
+
+        // Calculate locality averages and growth
+        const localityAnalysis = Array.from(localityStats.values()).map(stats => {
+          stats.averageWeeksWithoutPayment = stats.activeLoans > 0 ? 
+            stats.averageWeeksWithoutPayment / stats.activeLoans : 0;
+          
+          // Calculate growth (new loans in current period vs previous)
+          const currentPeriodLoansInLocality = currentPeriodLoans.filter(loan =>
+            loan.borrower?.personalData?.addresses[0]?.location?.name === stats.name
+          ).length;
+          
+          const previousPeriodLoansInLocality = previousPeriodLoans.filter(loan =>
+            loan.borrower?.personalData?.addresses[0]?.location?.name === stats.name
+          ).length;
+
+          stats.recentGrowth = previousPeriodLoansInLocality > 0 ? 
+            ((currentPeriodLoansInLocality - previousPeriodLoansInLocality) / previousPeriodLoansInLocality) * 100 : 0;
+
+          return stats;
+        });
+
+        // Identify declining and fast-growing localities
+        const decliningLocalities = localityAnalysis
+          .filter(loc => loc.recentGrowth < -20) // More than 20% decline
+          .sort((a, b) => a.recentGrowth - b.recentGrowth)
+          .slice(0, 5);
+
+        const dangerousGrowingLocalities = localityAnalysis
+          .filter(loc => loc.recentGrowth > 50) // More than 50% growth
+          .sort((a, b) => b.recentGrowth - a.recentGrowth)
+          .slice(0, 5);
+
+        // Clients with longest payment streaks (no payment)
+        const clientsWithLongStreaks = loansWithPaymentStreaks
+          .filter(loan => loan.weeksWithoutPayment >= 3)
+          .sort((a, b) => b.weeksWithoutPayment - a.weeksWithoutPayment)
+          .slice(0, 10)
+          .map(loan => ({
+            clientName: loan.borrower?.personalData?.fullName || 'Sin nombre',
+            clientCode: loan.borrower?.personalData?.clientCode || 'Sin código',
+            weeksWithoutPayment: loan.weeksWithoutPayment,
+            locality: loan.locality,
+            loanAmount: parseFloat(loan.requestedAmount.toString()),
+            loanId: loan.id
+          }));
+
+        // Calculate KPI deltas
+        const currentCV = cvLoans.length;
+        const currentActiveClients = activeLoans.length;
+        const currentNewClients = currentPeriodLoans.length;
+
+        // Previous period CV calculation (simplified)
+        const previousCV = allLoans.filter(loan => {
+          if (loan.finishedDate && new Date(loan.finishedDate) < previousEndDate) return false;
+          const lastPayment = loan.payments[loan.payments.length - 1];
+          if (!lastPayment) return true;
+          return new Date(lastPayment.receivedAt!) < new Date(previousEndDate.getTime() - 14 * 24 * 60 * 60 * 1000);
+        }).length;
+
+        const previousActiveClients = allLoans.filter(loan => {
+          const signDate = new Date(loan.signDate);
+          return signDate <= previousEndDate && (!loan.finishedDate || new Date(loan.finishedDate) > previousEndDate);
+        }).length;
+
+        const previousNewClients = previousPeriodLoans.length;
+
+        return {
+          routeId,
+          timeframe,
+          period: {
+            start: startDate.toISOString(),
+            end: endDate.toISOString(),
+            label: timeframe === 'weekly' ? 
+              `Semana del ${startDate.toLocaleDateString('es-MX')}` :
+              `${new Date(targetYear, targetMonth - 1).toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })}`
+          },
+          kpis: {
+            cvIncrement: {
+              current: currentCV,
+              previous: previousCV,
+              delta: currentCV - previousCV,
+              percentage: previousCV > 0 ? ((currentCV - previousCV) / previousCV) * 100 : 0
+            },
+            clientIncrement: {
+              current: currentNewClients,
+              previous: previousNewClients,
+              delta: currentNewClients - previousNewClients,
+              percentage: previousNewClients > 0 ? ((currentNewClients - previousNewClients) / previousNewClients) * 100 : 0
+            },
+            activeClients: {
+              current: currentActiveClients,
+              previous: previousActiveClients,
+              delta: currentActiveClients - previousActiveClients,
+              percentage: previousActiveClients > 0 ? ((currentActiveClients - previousActiveClients) / previousActiveClients) * 100 : 0
+            },
+            payingPercentage: {
+              current: currentActiveClients > 0 ? ((currentActiveClients - currentCV) / currentActiveClients) * 100 : 0,
+              previous: previousActiveClients > 0 ? ((previousActiveClients - previousCV) / previousActiveClients) * 100 : 0
+            }
+          },
+          localityAnalysis: {
+            declining: decliningLocalities,
+            dangerousGrowth: dangerousGrowingLocalities,
+            total: localityAnalysis.length
+          },
+          clientsWithLongStreaks,
+          summary: {
+            totalActiveLoans: activeLoans.length,
+            totalCVLoans: cvLoans.length,
+            cvPercentage: activeLoans.length > 0 ? (cvLoans.length / activeLoans.length) * 100 : 0,
+            averageWeeksWithoutPayment: loansWithPaymentStreaks.length > 0 ?
+              loansWithPaymentStreaks.reduce((sum, loan) => sum + loan.weeksWithoutPayment, 0) / loansWithPaymentStreaks.length : 0
+          }
+        };
+
+      } catch (error) {
+        console.error('Error in getDashboardKPIs:', error);
+        throw new Error(`Error generating dashboard KPIs: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    },
+  }),
+
+  // Get user's assigned routes
+  getUserRoutes: graphql.field({
+    type: graphql.nonNull(graphql.JSON),
+    resolve: async (root, args, context: Context) => {
+      try {
+        const session = context.session;
+        if (!session?.data?.id) {
+          throw new Error('Usuario no autenticado');
+        }
+
+        const userId = session.data.id;
+
+        // Find employee record for this user
+        // Note: This assumes there's a way to connect User to Employee
+        // If there's no direct relationship, we might need to match by email or name
+        const user = await context.prisma.user.findUnique({
+          where: { id: userId },
+          select: { email: true, name: true, role: true }
+        });
+
+        if (!user) {
+          throw new Error('Usuario no encontrado');
+        }
+
+        // If user is ADMIN, return all routes
+        if (user.role === 'ADMIN') {
+          const allRoutes = await context.prisma.route.findMany({
+            select: {
+              id: true,
+              name: true,
+              employees: {
+                select: {
+                  id: true,
+                  personalData: {
+                    select: {
+                      fullName: true
+                    }
+                  }
+                }
+              }
+            }
+          });
+
+          return {
+            isAdmin: true,
+            routes: allRoutes,
+            userInfo: user
+          };
+        }
+
+        // For regular users, find their employee record
+        // This is a simplified approach - you might need to adjust based on your user-employee relationship
+        const employee = await context.prisma.employee.findFirst({
+          where: {
+            personalData: {
+              OR: [
+                { fullName: { contains: user.name, mode: 'insensitive' } },
+                // Add more matching criteria as needed
+              ]
+            }
+          },
+          include: {
+            routes: {
+              select: {
+                id: true,
+                name: true
+              }
+            },
+            personalData: {
+              select: {
+                fullName: true,
+                clientCode: true
+              }
+            }
+          }
+        });
+
+        if (!employee || !employee.routes) {
+          return {
+            isAdmin: false,
+            routes: [],
+            userInfo: user,
+            message: 'No se encontraron rutas asignadas para este usuario'
+          };
+        }
+
+        return {
+          isAdmin: false,
+          routes: [employee.routes],
+          employeeInfo: employee,
+          userInfo: user
+        };
+
+      } catch (error) {
+        console.error('Error in getUserRoutes:', error);
+        throw new Error(`Error getting user routes: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    },
+  }),
+
   getFinancialReport: graphql.field({
     type: graphql.nonNull(graphql.JSON),
     args: {

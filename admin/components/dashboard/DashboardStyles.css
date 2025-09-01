@@ -1,0 +1,147 @@
+/* Dashboard Mobile Optimizations */
+@media (max-width: 767px) {
+  .dashboard-container {
+    padding: 12px !important;
+  }
+  
+  .dashboard-header {
+    padding: 16px !important;
+    margin-bottom: 16px !important;
+  }
+  
+  .dashboard-title {
+    font-size: 20px !important;
+  }
+  
+  .kpi-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+  
+  .sections-grid {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+  
+  .section {
+    padding: 16px !important;
+  }
+  
+  .section-title {
+    font-size: 16px !important;
+  }
+}
+
+/* KPI Card Animations */
+.kpi-card {
+  transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+}
+
+.kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+}
+
+/* Loading Animations */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.loading-skeleton {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  background-color: #e5e7eb;
+  border-radius: 8px;
+}
+
+/* Trend Indicators */
+.trend-up {
+  color: #16a34a;
+}
+
+.trend-down {
+  color: #dc2626;
+}
+
+.trend-neutral {
+  color: #6b7280;
+}
+
+/* Mobile-first responsive design */
+.responsive-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+@media (min-width: 640px) {
+  .responsive-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .responsive-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (min-width: 1280px) {
+  .responsive-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* Accessibility improvements */
+.dashboard-button:focus {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+}
+
+.dashboard-card:focus-within {
+  ring: 2px solid #4f46e5;
+  ring-offset: 2px;
+}
+
+/* Dark mode support (if needed in the future) */
+@media (prefers-color-scheme: dark) {
+  .dashboard-container {
+    background-color: #111827;
+  }
+  
+  .dashboard-card {
+    background-color: #1f2937;
+    border-color: #374151;
+  }
+  
+  .dashboard-text {
+    color: #f9fafb;
+  }
+  
+  .dashboard-text-muted {
+    color: #9ca3af;
+  }
+}
+
+/* Print styles */
+@media print {
+  .dashboard-container {
+    background-color: white !important;
+    padding: 0 !important;
+  }
+  
+  .dashboard-button,
+  .dashboard-toggle {
+    display: none !important;
+  }
+  
+  .dashboard-card {
+    break-inside: avoid;
+    box-shadow: none !important;
+    border: 1px solid #000 !important;
+  }
+}
