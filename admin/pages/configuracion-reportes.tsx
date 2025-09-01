@@ -1,9 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Stack, Text } from '@keystone-ui/core';
 import { gql, useQuery, useMutation } from '@apollo/client';
 import { telegramConfig } from '../config/telegram.config';
-import { FaCog, FaTelegram, FaClock, FaRoute, FaUsers, FaPaperPlane, FaSave, FaTrash } from 'react-icons/fa';
+import { FaCog, FaTelegram, FaClock, FaRoute, FaUsers, FaPaperPlane, FaSave, FaTrash, FaPlay, FaPause, FaCalendarAlt } from 'react-icons/fa';
 import { PageContainer } from '@keystone-6/core/admin-ui/components';
+import { createExecutionLog, updateExecutionLog } from '../services/reportExecutionService';
+import { useCronControl } from '../hooks/useCronControl';
+import { TimePicker } from '../components/TimePicker';
 
 // Componente Box personalizado
 const CustomBox = ({ children, css, ...props }) => {
@@ -158,12 +161,7 @@ const GET_REPORT_CONFIGS = gql`
         name
         email
       }
-      telegramRecipients {
-        id
-        chatId
-        name
-        username
-      }
+
       channel
       isActive
       createdAt
@@ -301,7 +299,7 @@ interface ReportConfig {
   schedule: any; // JSON object with days, hour, timezone
   routes: Route[];
   recipients: User[];
-  telegramRecipients?: TelegramUser[];
+
   channel: string;
   isActive: boolean;
   createdAt: string;
@@ -332,7 +330,24 @@ export default function ConfiguracionReportesPage() {
   // Estados
   const [editingConfig, setEditingConfig] = useState<ReportConfig | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [showNewConfigModal, setShowNewConfigModal] = useState(false);
   const [sendingReports, setSendingReports] = useState<Set<string>>(new Set());
+  const [cronStatus, setCronStatus] = useState<'running' | 'stopped'>('stopped');
+  const [nextExecution, setNextExecution] = useState<Date | null>(null);
+  const [lastExecution, setLastExecution] = useState<Date | null>(null);
+  
+  // Hook para controlar el sistema de cron
+  const {
+    isLoading: cronLoading,
+    error: cronError,
+    startCronSystem: startCronBackend,
+    stopCronSystem: stopCronBackend,
+    getCronStatus: getCronBackendStatus,
+    rescheduleConfig: rescheduleConfigBackend,
+    unscheduleConfig: unscheduleConfigBackend,
+    clearError: clearCronError
+  } = useCronControl();
+  
   const [formData, setFormData] = useState<ReportConfigForm>({
     name: '',
     reportType: 'creditos_con_errores', // Valor por defecto
@@ -435,7 +450,19 @@ export default function ConfiguracionReportesPage() {
       });
 
       if (result.data?.createReportConfig) {
-        setShowForm(false);
+        // Programar el cron con la nueva configuración si está activa
+        const newConfig = result.data.createReportConfig;
+        if (newConfig.isActive) {
+          scheduleConfig(newConfig);
+          
+          // Si es la primera configuración activa, iniciar el sistema automáticamente
+          if (cronStatus === 'stopped') {
+            console.log('🚀 Primera configuración activa creada, iniciando sistema automático...');
+            startCronSystem();
+          }
+        }
+        
+        setShowNewConfigModal(false);
         resetForm();
         alert('Configuración creada exitosamente');
         // Refetch para obtener la lista actualizada
@@ -490,10 +517,57 @@ export default function ConfiguracionReportesPage() {
       });
 
       if (result.data?.updateReportConfig) {
+        // Reprogramar el cron con la nueva configuración
+        const updatedConfig = result.data.updateReportConfig;
+        console.log('🔄 Configuración actualizada, reprogramando cron:', updatedConfig);
+        console.log('🕐 Nueva hora configurada:', updatedConfig.schedule.hour);
+        console.log('🕐 Hora en formData:', formData.schedule.hour);
+        console.log('🕐 Hora en editingConfig:', editingConfig?.schedule.hour);
+        
+        // Usar la hora del formData en lugar de la de updatedConfig
+        const configWithCorrectHour = {
+          ...updatedConfig,
+          schedule: {
+            ...updatedConfig.schedule,
+            hour: formData.schedule.hour
+          }
+        };
+        
+        console.log('🔄 Configuración con hora corregida:', configWithCorrectHour);
+        console.log('🔍 DEBUG: formData.schedule.hour:', formData.schedule.hour);
+        console.log('🔍 DEBUG: Tipo de formData.schedule.hour:', typeof formData.schedule.hour);
+        console.log('🔍 DEBUG: configWithCorrectHour.schedule.hour:', configWithCorrectHour.schedule.hour);
+        
+        try {
+          // FORZAR REINICIO COMPLETO DEL CRON
+          console.log('🔄 Deteniendo cron actual para reiniciar con nueva configuración...');
+          await stopCronSystem();
+          console.log('✅ Cron detenido, reiniciando con nueva configuración...');
+          await startCronSystem();
+          console.log('✅ Cron reiniciado exitosamente con nueva configuración');
+        } catch (error) {
+          console.error('❌ Error reiniciando cron:', error);
+        }
+        
         setShowForm(false);
         setEditingConfig(null);
         resetForm();
         alert('Configuración actualizada exitosamente');
+        
+        // Recalcular próxima ejecución inmediatamente
+        if (cronStatus === 'running') {
+          const activeConfigs = configs.filter(config => config.isActive);
+          if (activeConfigs.length > 0) {
+            console.log('🔄 Recalculando próxima ejecución después de actualización...');
+            const nextExecutions = activeConfigs.map(config => calculateNextExecution(config));
+            const nextExec = nextExecutions.reduce((earliest, current) => 
+              current < earliest ? current : earliest
+            );
+            console.log('⏰ Nueva próxima ejecución calculada:', nextExec.toLocaleString('es-ES'));
+            setNextExecution(nextExec);
+          }
+        }
+        
         // Refetch para obtener la lista actualizada
         window.location.reload();
       }
@@ -508,11 +582,33 @@ export default function ConfiguracionReportesPage() {
     if (!confirm('¿Estás seguro de que quieres eliminar esta configuración?')) return;
 
     try {
+      // Desprogramar el cron antes de eliminar
+      unscheduleConfig(configId);
+      
       await deleteReportConfig({
         variables: { id: configId }
       });
 
       alert('Configuración eliminada exitosamente');
+      
+      // Recalcular próxima ejecución después de eliminar
+      if (cronStatus === 'running') {
+        const remainingActiveConfigs = configs.filter(config => config.id !== configId && config.isActive);
+        if (remainingActiveConfigs.length > 0) {
+          console.log('🔄 Recalculando próxima ejecución después de eliminar...');
+          const nextExecutions = remainingActiveConfigs.map(config => calculateNextExecution(config));
+          const nextExec = nextExecutions.reduce((earliest, current) => 
+            current < earliest ? current : earliest
+          );
+          console.log('⏰ Nueva próxima ejecución calculada:', nextExec.toLocaleString('es-ES'));
+          setNextExecution(nextExec);
+        } else {
+          console.log('ℹ️ No quedan configuraciones activas, deteniendo sistema...');
+          setCronStatus('stopped');
+          setNextExecution(null);
+        }
+      }
+      
       // Refetch para obtener la lista actualizada
       window.location.reload();
     } catch (error) {
@@ -712,6 +808,305 @@ export default function ConfiguracionReportesPage() {
     }
   };
 
+  // ===== SISTEMA DE CRON REAL CONECTADO AL BACKEND =====
+  
+  // Función para convertir configuración a expresión cron
+  const configToCronExpression = useCallback((config: ReportConfig): string => {
+    if (!config.isActive || !config.schedule?.days?.length) return '';
+    
+    const hour = config.schedule.hour;
+    const minute = '0'; // Siempre en el minuto 0
+    
+    // Mapear días de la semana a formato cron (0 = Domingo, 1 = Lunes, etc.)
+    const dayMap: { [key: string]: number } = {
+      'sunday': 0, 'monday': 1, 'tuesday': 2, 'wednesday': 3,
+      'thursday': 4, 'friday': 5, 'saturday': 6
+    };
+    
+    const cronDays = config.schedule.days
+      .map(day => dayMap[day])
+      .filter(day => day !== undefined)
+      .join(',');
+    
+    // Formato: minuto hora * * día_semana
+    return `${minute} ${hour} * * ${cronDays}`;
+  }, []);
+
+  // Función para ejecutar un reporte programado (simulado)
+  const executeScheduledReport = useCallback(async (config: ReportConfig) => {
+    console.log(`🚀 Ejecutando reporte programado: ${config.name}`);
+    
+    try {
+      // Ejecutar el reporte
+      await handleSendNow(config.id);
+      
+      // Actualizar última ejecución
+      setLastExecution(new Date());
+      
+      console.log(`✅ Reporte programado ejecutado: ${config.name}`);
+      
+    } catch (error) {
+      console.error(`❌ Error ejecutando reporte programado ${config.name}:`, error);
+    }
+  }, [handleSendNow]);
+
+  // Función para programar una configuración (simulada)
+  const scheduleConfig = useCallback((config: ReportConfig) => {
+    if (!config.isActive) return;
+    
+    const cronExpression = configToCronExpression(config);
+    if (!cronExpression) return;
+    
+    console.log(`📅 Reporte programado: ${config.name} - ${cronExpression}`);
+  }, [configToCronExpression]);
+
+  // Función para desprogramar una configuración
+  const unscheduleConfig = useCallback(async (configId: string) => {
+    try {
+      await unscheduleConfigBackend(configId);
+      console.log(`⏹️ Configuración ${configId} desprogramada en el backend`);
+    } catch (error) {
+      console.error('Error desprogramando configuración:', error);
+    }
+  }, [unscheduleConfigBackend]);
+
+  // Función para reprogramar una configuración específica
+  const rescheduleConfig = useCallback(async (config: ReportConfig) => {
+    try {
+      await rescheduleConfigBackend(config);
+      console.log(`🔄 Configuración ${config.name} reprogramada en el backend`);
+    } catch (error) {
+      console.error('Error reprogramando configuración:', error);
+    }
+  }, [rescheduleConfigBackend]);
+
+  // Función para calcular la próxima ejecución (para mostrar en UI)
+  const calculateNextExecution = useCallback((config: ReportConfig): Date => {
+    console.log('🔍 Calculando próxima ejecución para:', config.name, config.schedule);
+    
+    if (!config.isActive || !config.schedule?.days?.length) {
+      console.log('❌ Configuración no activa o sin días programados');
+      return new Date();
+    }
+    
+    const now = new Date();
+    const currentDay = now.getDay(); // 0 = Domingo, 1 = Lunes, etc.
+    
+    // Extraer hora y minuto del formato "HH:MM" o "HH"
+    let targetHour: number;
+    let targetMinute: number;
+    
+    if (config.schedule.hour.includes(':')) {
+      const [hour, minute] = config.schedule.hour.split(':');
+      targetHour = parseInt(hour);
+      targetMinute = parseInt(minute);
+    } else {
+      targetHour = parseInt(config.schedule.hour);
+      targetMinute = 0;
+    }
+    
+    console.log('🕐 Hora extraída:', config.schedule.hour, '->', targetHour, ':', targetMinute);
+    
+    console.log('📅 Día actual:', currentDay, 'Hora objetivo:', targetHour, ':', targetMinute);
+    console.log('📋 Días programados:', config.schedule.days);
+    
+    // Mapear días de la semana
+    const dayMap: { [key: string]: number } = {
+      'sunday': 0, 'monday': 1, 'tuesday': 2, 'wednesday': 3,
+      'thursday': 4, 'friday': 5, 'saturday': 6
+    };
+    
+    // Encontrar el próximo día programado
+    let nextDay = -1;
+    for (let i = 1; i <= 7; i++) {
+      const checkDay = (currentDay + i) % 7;
+      const dayName = Object.keys(dayMap).find(key => dayMap[key] === checkDay);
+      if (dayName && config.schedule.days.includes(dayName)) {
+        nextDay = checkDay;
+        break;
+      }
+    }
+    
+    // Si no hay próximo día esta semana, usar el primer día de la próxima semana
+    if (nextDay === -1) {
+      const firstDay = dayMap[config.schedule.days[0]];
+      nextDay = firstDay;
+    }
+    
+    const nextDate = new Date(now);
+    nextDate.setDate(now.getDate() + (nextDay - currentDay + 7) % 7);
+    nextDate.setHours(targetHour, targetMinute, 0, 0); // Usar hora Y minuto exactos
+    
+    console.log('✅ Próxima ejecución calculada:', nextDate.toLocaleString('es-ES'));
+    return nextDate;
+  }, []);
+
+  // Función para iniciar el sistema de cron
+  const startCronSystem = useCallback(async () => {
+    try {
+      // Verificar si hay configuraciones activas
+      const activeConfigs = configs.filter(config => config.isActive);
+      if (activeConfigs.length === 0) {
+        console.log('ℹ️ No hay configuraciones activas para programar');
+        setCronStatus('stopped');
+        return;
+      }
+      
+      await startCronBackend();
+      setCronStatus('running');
+      console.log('🚀 Sistema de cron iniciado en el backend');
+      
+      // Calcular próxima ejecución para todas las configuraciones activas
+      if (activeConfigs.length > 0) {
+        console.log('📅 Calculando próxima ejecución para', activeConfigs.length, 'configuraciones activas');
+        const nextExecutions = activeConfigs.map(config => calculateNextExecution(config));
+        // Tomar la más próxima
+        const nextExec = nextExecutions.reduce((earliest, current) => 
+          current < earliest ? current : earliest
+        );
+        console.log('⏰ Próxima ejecución más cercana:', nextExec.toLocaleString('es-ES'));
+        setNextExecution(nextExec);
+      }
+    } catch (error) {
+      console.error('Error iniciando cron:', error);
+      setCronStatus('stopped');
+    }
+  }, [startCronBackend, configs, calculateNextExecution]);
+
+  // Función para detener el sistema de cron
+  const stopCronSystem = useCallback(async () => {
+    try {
+      await stopCronBackend();
+      setCronStatus('stopped');
+      console.log('⏹️ Sistema de cron detenido en el backend');
+      setNextExecution(null);
+    } catch (error) {
+      console.error('Error deteniendo cron:', error);
+    }
+  }, [stopCronBackend]);
+
+  // Efecto para iniciar automáticamente el cron al cargar la página
+  useEffect(() => {
+    console.log('🚀 Iniciando sistema automático al startup...');
+    // Iniciar automáticamente si hay configuraciones activas
+    const activeConfigs = configs.filter(config => config.isActive);
+    if (activeConfigs.length > 0) {
+      console.log(`✅ Encontradas ${activeConfigs.length} configuraciones activas, iniciando sistema...`);
+      startCronSystem();
+    } else {
+      console.log('ℹ️ No hay configuraciones activas, sistema permanecerá detenido');
+      setCronStatus('stopped');
+    }
+  }, [startCronSystem, configs]);
+
+  // Efecto para calcular próxima ejecución cuando se carguen las configuraciones
+  useEffect(() => {
+    console.log('📥 Configuraciones cargadas:', configs.length);
+    const activeConfigs = configs.filter(config => config.isActive);
+    console.log('✅ Configuraciones activas:', activeConfigs.length);
+    
+    if (activeConfigs.length > 0 && cronStatus === 'running') {
+      console.log('🔄 Calculando próxima ejecución inicial...');
+      const nextExecutions = activeConfigs.map(config => calculateNextExecution(config));
+      const nextExec = nextExecutions.reduce((earliest, current) => 
+        current < earliest ? current : earliest
+      );
+      console.log('⏰ Próxima ejecución inicial:', nextExec.toLocaleString('es-ES'));
+      setNextExecution(nextExec);
+    } else if (activeConfigs.length === 0 && cronStatus === 'running') {
+      console.log('ℹ️ No hay configuraciones activas, deteniendo sistema...');
+      setCronStatus('stopped');
+      setNextExecution(null);
+    }
+  }, [configs, cronStatus, calculateNextExecution]);
+
+  // Efecto para recalcular próxima ejecución cuando cambien las configuraciones
+  useEffect(() => {
+    console.log('🔄 Recalculando próxima ejecución...');
+    console.log('📊 Estado del cron:', cronStatus);
+    console.log('📋 Configuraciones activas:', configs.filter(config => config.isActive).length);
+    
+    if (cronStatus === 'running') {
+      const activeConfigs = configs.filter(config => config.isActive);
+      if (activeConfigs.length > 0) {
+        // Calcular próxima ejecución para todas las configuraciones activas
+        const nextExecutions = activeConfigs.map(config => calculateNextExecution(config));
+        // Tomar la más próxima
+        const nextExec = nextExecutions.reduce((earliest, current) => 
+          current < earliest ? current : earliest
+        );
+        console.log('⏰ Próxima ejecución más cercana:', nextExec.toLocaleString('es-ES'));
+        setNextExecution(nextExec);
+      } else {
+        console.log('ℹ️ No hay configuraciones activas');
+        setNextExecution(null);
+      }
+    } else {
+      console.log('⏹️ Cron no está corriendo');
+      setNextExecution(null);
+    }
+  }, [configs, cronStatus, calculateNextExecution]);
+
+  // Efecto para manejar la tecla Escape en el modal
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        if (showNewConfigModal) {
+          setShowNewConfigModal(false);
+          resetForm();
+        }
+        if (editingConfig) {
+          setEditingConfig(null);
+          resetForm();
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [showNewConfigModal, editingConfig]);
+
+  // Efecto para cerrar modal al hacer clic fuera
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      // Solo cerrar si el clic es en el overlay (fondo oscuro), no en el contenido del modal
+      if (showNewConfigModal && target.classList.contains('modal-overlay')) {
+        setShowNewConfigModal(false);
+        resetForm();
+      }
+    };
+
+    if (showNewConfigModal) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showNewConfigModal]);
+
+  // Efecto para recalcular próxima ejecución cuando cambie la hora en el formulario
+  useEffect(() => {
+    if (editingConfig && cronStatus === 'running') {
+      console.log('🔄 Hora cambiada en formulario, recalculando próxima ejecución...');
+      const activeConfigs = configs.filter(config => config.isActive);
+      if (activeConfigs.length > 0) {
+        const nextExecutions = activeConfigs.map(config => {
+          // Si es la configuración que se está editando, usar el valor del formulario
+          if (config.id === editingConfig.id) {
+            const tempConfig = { ...config, schedule: { ...config.schedule, hour: formData.schedule.hour } };
+            return calculateNextExecution(tempConfig);
+          }
+          return calculateNextExecution(config);
+        });
+        const nextExec = nextExecutions.reduce((earliest, current) => 
+          current < earliest ? current : earliest
+        );
+        console.log('⏰ Próxima ejecución actualizada en tiempo real:', nextExec.toLocaleString('es-ES'));
+        setNextExecution(nextExec);
+      }
+    }
+  }, [formData.schedule.hour, editingConfig, cronStatus, configs, calculateNextExecution]);
+
   // Función para editar configuración
   const handleEditConfig = (config: ReportConfig) => {
     setEditingConfig(config);
@@ -763,7 +1158,7 @@ export default function ConfiguracionReportesPage() {
   // Loading state
   if (routesLoading || usersLoading || configsLoading || telegramUsersLoading) {
     return (
-      <PageContainer header="Configuración de Reportes Automáticos">
+      <PageContainer header="🤖 Reportes Automáticos">
         <CustomBox css={{ 
           padding: '32px', 
           display: 'flex', 
@@ -799,7 +1194,7 @@ export default function ConfiguracionReportesPage() {
   }
 
   return (
-    <PageContainer header="⚙️ Configuración de Reportes Automáticos">
+    <PageContainer header="🤖 Reportes Automáticos">
       <CustomBox css={{ padding: '32px' }}>
         {/* Header con botón para crear nueva configuración */}
         <CustomBox css={{
@@ -814,14 +1209,14 @@ export default function ConfiguracionReportesPage() {
         }}>
           <CustomBox>
             <Text weight="bold" size="large" color="black">
-              Configuración de Envío Automático
+              Sistema de Reportes Automáticos
             </Text>
             <Text size="small" color="neutral600" css={{ marginTop: '8px' }}>
-              Configura reportes automáticos por ruta, horario y destinatarios
+              Configura y programa reportes automáticos por ruta, horario y destinatarios
             </Text>
           </CustomBox>
           <CustomButton
-            onClick={() => setShowForm(true)}
+            onClick={() => setShowNewConfigModal(true)}
             css={{
               backgroundColor: '#3b82f6',
               color: 'white',
@@ -838,52 +1233,270 @@ export default function ConfiguracionReportesPage() {
           </CustomButton>
         </CustomBox>
 
-        {/* Formulario de nueva configuración */}
-        {showForm && !editingConfig && (
+        {/* Panel de Control del Cron */}
+        <CustomBox css={{
+          padding: '24px',
+          backgroundColor: '#f0f9ff',
+          borderRadius: '12px',
+          border: '1px solid #bae6fd',
+          marginBottom: '24px'
+        }}>
           <CustomBox css={{
-            padding: '24px',
-            backgroundColor: 'white',
-            borderRadius: '12px',
-            border: '1px solid #e2e8f0',
-            marginBottom: '32px',
-            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '16px'
           }}>
-            <Text weight="bold" size="large" color="black" css={{ marginBottom: '24px' }}>
-              {editingConfig ? 'Editar Configuración' : 'Nueva Configuración'}
+            <Text weight="bold" size="large" color="blue900">
+              🕐 Control del Sistema Automático
             </Text>
+            <CustomBox css={{
+              display: 'flex',
+              gap: '12px',
+              alignItems: 'center'
+            }}>
+              <CustomButton
+                onClick={cronStatus === 'running' ? stopCronSystem : startCronSystem}
+                disabled={cronLoading}
+                css={{
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: cronLoading ? '#9ca3af' : (cronStatus === 'running' ? '#dc2626' : '#10b981'),
+                  color: 'white',
+                  cursor: cronLoading ? 'not-allowed' : 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  '&:hover': { 
+                    backgroundColor: cronLoading ? '#9ca3af' : (cronStatus === 'running' ? '#b91c1c' : '#059669')
+                  }
+                }}
+              >
+                {cronLoading ? (
+                  <>
+                    <div className="spinner" style={{ marginRight: '8px' }} />
+                    {cronStatus === 'running' ? 'Deteniendo...' : 'Iniciando...'}
+                  </>
+                ) : cronStatus === 'running' ? (
+                  <>
+                    <FaPause />
+                    Detener Sistema
+                  </>
+                ) : (
+                  <>
+                    <FaPlay />
+                    Iniciar Sistema
+                  </>
+                )}
+              </CustomButton>
+              {cronError && (
+                <CustomButton
+                  onClick={clearCronError}
+                  css={{
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    backgroundColor: '#6b7280',
+                    color: 'white',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontWeight: '500',
+                    '&:hover': { backgroundColor: '#4b5563' }
+                  }}
+                >
+                  ✕ Limpiar Error
+                </CustomButton>
+              )}
+            </CustomBox>
+          </CustomBox>
 
-            <CustomBox css={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-              {/* Nombre de la configuración */}
-              <CustomBox>
-                <Text weight="medium" size="small" color="black" marginBottom="small">
-                  Nombre de la Configuración
+          <CustomBox css={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: '16px'
+          }}>
+            {/* Estado del Sistema */}
+            <CustomBox css={{
+              padding: '16px',
+              backgroundColor: 'white',
+              borderRadius: '8px',
+              border: '1px solid #bae6fd'
+            }}>
+              <Text weight="medium" size="small" color="blue600" css={{ marginBottom: '8px' }}>
+                Estado del Sistema
+              </Text>
+              <Text size="small" color="blue800" css={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <div style={{
+                  width: '12px',
+                  height: '12px',
+                  borderRadius: '50%',
+                  backgroundColor: cronStatus === 'running' ? '#10b981' : '#ef4444'
+                }} />
+                {cronStatus === 'running' ? 'Ejecutándose' : 'Detenido'}
+              </Text>
+              {cronError && (
+                <Text size="small" color="red600" css={{ marginTop: '8px' }}>
+                  ❌ Error: {cronError}
                 </Text>
-                <CustomInput
-                  value={formData.name}
-                  onChange={(value) => handleFormChange('name', value)}
-                  placeholder="Ej: Reporte Semanal de Errores"
-                />
+              )}
+              {configs.filter(config => config.isActive).length === 0 && (
+                <Text size="small" color="blue600" css={{ marginTop: '8px' }}>
+                  ℹ️ No hay reportes automáticos configurados
+                </Text>
+              )}
+            </CustomBox>
+
+            {/* Próxima Ejecución */}
+            <CustomBox css={{
+              padding: '16px',
+              backgroundColor: 'white',
+              borderRadius: '8px',
+              border: '1px solid #bae6fd'
+            }}>
+              <Text weight="medium" size="small" color="blue600" css={{ marginBottom: '8px' }}>
+                Próxima Ejecución
+              </Text>
+              <Text size="small" color="blue800">
+                {nextExecution ? nextExecution.toLocaleString('es-ES') : 'No programado'}
+              </Text>
+            </CustomBox>
+
+            {/* Última Ejecución */}
+            <CustomBox css={{
+              padding: '16px',
+              backgroundColor: 'white',
+              borderRadius: '8px',
+              border: '1px solid #bae6fd'
+            }}>
+              <Text weight="medium" size="small" color="blue600" css={{ marginBottom: '8px' }}>
+                Última Ejecución
+              </Text>
+              <Text size="small" color="blue800">
+                {lastExecution ? lastExecution.toLocaleString('es-ES') : 'Nunca'}
+              </Text>
+            </CustomBox>
+
+            {/* Tareas Activas */}
+            <CustomBox css={{
+              padding: '16px',
+              backgroundColor: 'white',
+              borderRadius: '8px',
+              border: '1px solid #bae6fd'
+            }}>
+              <Text weight="medium" size="small" color="blue600" css={{ marginBottom: '8px' }}>
+                Tareas Activas
+              </Text>
+              <Text size="small" color="blue800">
+                {configs.filter(config => config.isActive).length} reportes activos
+              </Text>
+            </CustomBox>
+          </CustomBox>
+        </CustomBox>
+
+        {/* Modal de nueva configuración */}
+        {showNewConfigModal && (
+          <CustomBox 
+            className="modal-overlay"
+            css={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+              zIndex: 1000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '20px'
+            }}
+          >
+            <CustomBox 
+              css={{
+                backgroundColor: 'white',
+                borderRadius: '12px',
+                padding: '32px',
+                maxWidth: '800px',
+                width: '100%',
+                maxHeight: '90vh',
+                overflowY: 'auto',
+                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+                position: 'relative'
+              }}
+            >
+              {/* Header del modal */}
+              <CustomBox css={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '24px',
+                paddingBottom: '16px',
+                borderBottom: '1px solid #e2e8f0'
+              }}>
+                <Text weight="bold" size="large" color="black">
+                  Nueva Configuración de Reporte
+                </Text>
+                <CustomButton
+                  onClick={() => setShowNewConfigModal(false)}
+                  css={{
+                    padding: '8px',
+                    borderRadius: '50%',
+                    border: 'none',
+                    backgroundColor: '#f3f4f6',
+                    color: '#6b7280',
+                    cursor: 'pointer',
+                    width: '32px',
+                    height: '32px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    '&:hover': { backgroundColor: '#e5e7eb' }
+                  }}
+                >
+                  ✕
+                </CustomButton>
               </CustomBox>
 
-              {/* Tipo de reporte */}
-              <CustomBox>
-                <Text weight="medium" size="small" color="black" marginBottom="small">
-                  Tipo de Reporte
-                </Text>
-                <CustomSelect
-                  value={formData.reportType}
-                  onChange={(option) => handleFormChange('reportType', option?.value)}
-                  options={REPORT_TYPES}
-                  placeholder="Selecciona el tipo de reporte"
-                />
-              </CustomBox>
+              {/* Contenido del formulario */}
+              <CustomBox css={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                {/* Nombre de la configuración */}
+                <CustomBox>
+                  <Text weight="medium" size="small" color="black" marginBottom="small">
+                    Nombre de la Configuración
+                  </Text>
+                  <CustomInput
+                    value={formData.name}
+                    onChange={(value) => handleFormChange('name', value)}
+                    placeholder="Ej: Reporte Semanal de Errores"
+                  />
+                </CustomBox>
 
-              {/* Días de la semana */}
-              <CustomBox>
-                <Text weight="medium" size="small" color="black" marginBottom="small">
-                  Días de Envío
-                </Text>
-                                  <CustomBox css={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                {/* Tipo de reporte */}
+                <CustomBox>
+                  <Text weight="medium" size="small" color="black" marginBottom="small">
+                    Tipo de Reporte
+                  </Text>
+                  <CustomSelect
+                    value={formData.reportType}
+                    onChange={(option) => handleFormChange('reportType', option?.value)}
+                    options={REPORT_TYPES}
+                    placeholder="Selecciona el tipo de reporte"
+                  />
+                </CustomBox>
+
+                {/* Días de la semana */}
+                <CustomBox>
+                  <Text weight="medium" size="small" color="black" marginBottom="small">
+                    Días de Envío
+                  </Text>
+                  <CustomBox css={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                     {WEEK_DAYS.map(day => (
                       <CustomButton
                         key={day.value}
@@ -905,118 +1518,122 @@ export default function ConfiguracionReportesPage() {
                       </CustomButton>
                     ))}
                   </CustomBox>
+                </CustomBox>
+
+                {/* Hora de envío */}
+                <CustomBox>
+                  <Text weight="medium" size="small" color="black" marginBottom="small">
+                    Hora de Envío
+                  </Text>
+                  <TimePicker
+                    value={formData.schedule.hour}
+                    onChange={(time) => handleFormChange('schedule.hour', time)}
+                    placeholder="Selecciona la hora"
+                  />
+                </CustomBox>
+
+                {/* Rutas */}
+                <CustomBox>
+                  <Text weight="medium" size="small" color="black" marginBottom="small">
+                    Rutas a Incluir
+                  </Text>
+                  <CustomSelect
+                    value={formData.routes}
+                    onChange={(options) => handleFormChange('routes', options)}
+                    options={routes.map(route => ({ value: route.id, label: route.name }))}
+                    placeholder="Selecciona las rutas"
+                    isMulti
+                  />
+                </CustomBox>
+
+                {/* Destinatarios */}
+                <CustomBox>
+                  <Text weight="medium" size="small" color="black" marginBottom="small">
+                    Destinatarios
+                  </Text>
+                  <CustomSelect
+                    value={formData.recipients}
+                    onChange={(options) => handleFormChange('recipients', options)}
+                    options={users.map(user => ({ value: user.id, label: `${user.name} (${user.email})` }))}
+                    placeholder="Selecciona los destinatarios"
+                    isMulti
+                  />
+                </CustomBox>
+
+                {/* Canal de envío */}
+                <CustomBox>
+                  <Text weight="medium" size="small" color="black" marginBottom="small">
+                    Canal de Envío
+                  </Text>
+                  <CustomSelect
+                    value={formData.channel}
+                    onChange={(option) => handleFormChange('channel', option?.value)}
+                    options={CHANNELS}
+                    placeholder="Selecciona el canal"
+                  />
+                </CustomBox>
+
+                {/* Estado activo */}
+                <CustomBox>
+                  <Text weight="medium" size="small" color="black" marginBottom="small">
+                    Estado
+                  </Text>
+                  <CustomSelect
+                    value={formData.isActive ? 'active' : 'inactive'}
+                    onChange={(option) => handleFormChange('isActive', option?.value === 'active')}
+                    options={[
+                      { value: 'active', label: 'Activo' },
+                      { value: 'inactive', label: 'Inactivo' }
+                    ]}
+                    placeholder="Selecciona el estado"
+                  />
+                </CustomBox>
               </CustomBox>
 
-              {/* Hora de envío */}
-              <CustomBox>
-                <Text weight="medium" size="small" color="black" marginBottom="small">
-                  Hora de Envío
-                </Text>
-                <CustomSelect
-                  value={formData.schedule.hour}
-                  onChange={(option) => handleFormChange('schedule.hour', option?.value)}
-                  options={HOURS}
-                  placeholder="Selecciona la hora"
-                />
+              {/* Botones de acción */}
+              <CustomBox css={{
+                display: 'flex',
+                gap: '16px',
+                justifyContent: 'flex-end',
+                marginTop: '32px',
+                paddingTop: '24px',
+                borderTop: '1px solid #e2e8f0'
+              }}>
+                <CustomButton
+                  onClick={() => {
+                    setShowNewConfigModal(false);
+                    resetForm();
+                  }}
+                  css={{
+                    padding: '12px 24px',
+                    borderRadius: '8px',
+                    border: '1px solid #d1d5db',
+                    backgroundColor: 'white',
+                    color: '#374151',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    '&:hover': { backgroundColor: '#f9fafb' }
+                  }}
+                >
+                  Cancelar
+                </CustomButton>
+                <CustomButton
+                  onClick={handleCreateConfig}
+                  css={{
+                    padding: '12px 24px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    backgroundColor: '#10b981',
+                    color: 'white',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    '&:hover': { backgroundColor: '#059669' }
+                  }}
+                >
+                  <FaSave style={{ marginRight: '8px' }} />
+                  Crear Configuración
+                </CustomButton>
               </CustomBox>
-
-              {/* Rutas */}
-              <CustomBox>
-                <Text weight="medium" size="small" color="black" marginBottom="small">
-                  Rutas a Incluir
-                </Text>
-                <CustomSelect
-                  value={formData.routes}
-                  onChange={(options) => handleFormChange('routes', options)}
-                  options={routes.map(route => ({ value: route.id, label: route.name }))}
-                  placeholder="Selecciona las rutas"
-                  isMulti
-                />
-              </CustomBox>
-
-              {/* Destinatarios */}
-              <CustomBox>
-                <Text weight="medium" size="small" color="black" marginBottom="small">
-                  Destinatarios
-                </Text>
-                <CustomSelect
-                  value={formData.recipients}
-                  onChange={(options) => handleFormChange('recipients', options)}
-                  options={users.map(user => ({ value: user.id, label: `${user.name} (${user.email})` }))}
-                  placeholder="Selecciona los destinatarios"
-                  isMulti
-                />
-              </CustomBox>
-
-              {/* Canal de envío */}
-              <CustomBox>
-                <Text weight="medium" size="small" color="black" marginBottom="small">
-                  Canal de Envío
-                </Text>
-                <CustomSelect
-                  value={formData.channel}
-                  onChange={(option) => handleFormChange('channel', option?.value)}
-                  options={CHANNELS}
-                  placeholder="Selecciona el canal"
-                />
-              </CustomBox>
-
-              {/* Estado activo */}
-              <CustomBox>
-                <Text weight="medium" size="small" color="black" marginBottom="small">
-                  Estado
-                </Text>
-                <CustomSelect
-                  value={formData.isActive ? 'active' : 'inactive'}
-                  onChange={(option) => handleFormChange('isActive', option?.value === 'active')}
-                  options={[
-                    { value: 'active', label: 'Activo' },
-                    { value: 'inactive', label: 'Inactivo' }
-                  ]}
-                  placeholder="Selecciona el estado"
-                />
-              </CustomBox>
-            </CustomBox>
-
-            {/* Botones de acción */}
-            <CustomBox css={{
-              display: 'flex',
-              gap: '16px',
-              justifyContent: 'flex-end',
-              marginTop: '24px',
-              paddingTop: '24px',
-              borderTop: '1px solid #e2e8f0'
-            }}>
-              <CustomButton
-                onClick={handleCancel}
-                css={{
-                  padding: '12px 24px',
-                  borderRadius: '8px',
-                  border: '1px solid #d1d5db',
-                  backgroundColor: 'white',
-                  color: '#374151',
-                  cursor: 'pointer',
-                  fontWeight: '600'
-                }}
-              >
-                Cancelar
-              </CustomButton>
-              <CustomButton
-                onClick={editingConfig ? handleUpdateConfig : handleCreateConfig}
-                css={{
-                  padding: '12px 24px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  backgroundColor: '#10b981',
-                  color: 'white',
-                  cursor: 'pointer',
-                  fontWeight: '600',
-                  '&:hover': { backgroundColor: '#059669' }
-                }}
-              >
-                <FaSave style={{ marginRight: '8px' }} />
-                {editingConfig ? 'Actualizar' : 'Crear'}
-              </CustomButton>
             </CustomBox>
           </CustomBox>
         )}
@@ -1140,10 +1757,9 @@ export default function ConfiguracionReportesPage() {
                   <Text weight="medium" size="small" color="black" marginBottom="small">
                     Hora de Envío
                   </Text>
-                  <CustomSelect
+                  <TimePicker
                     value={formData.schedule.hour}
-                    onChange={(option) => handleFormChange('schedule.hour', option?.value)}
-                    options={HOURS}
+                    onChange={(time) => handleFormChange('schedule.hour', time)}
                     placeholder="Selecciona la hora"
                   />
                 </CustomBox>
@@ -1254,7 +1870,7 @@ export default function ConfiguracionReportesPage() {
         {/* Lista de configuraciones existentes */}
         <CustomBox>
           <Text weight="bold" size="large" color="black" css={{ marginBottom: '24px' }}>
-            Configuraciones Existentes
+            Reportes Programados
           </Text>
 
           {configs.length === 0 ? (
@@ -1266,10 +1882,10 @@ export default function ConfiguracionReportesPage() {
               border: '1px solid #e5e7eb'
             }}>
               <Text size="large" color="neutral600">
-                No hay configuraciones de reportes automáticos
+                No hay reportes automáticos programados
               </Text>
               <Text size="small" color="neutral500" css={{ marginTop: '8px' }}>
-                Crea tu primera configuración para comenzar a enviar reportes automáticamente
+                Crea tu primer reporte automático para comenzar a recibir información programada
               </Text>
             </CustomBox>
           ) : (

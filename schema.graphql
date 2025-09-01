@@ -2045,6 +2045,121 @@ input UserRelateToOneForCreateInput {
   connect: UserWhereUniqueInput
 }
 
+type ReportExecutionLog {
+  id: ID!
+  reportConfig: ReportConfig
+  status: String
+  executionType: String
+  message: String
+  errorDetails: String
+  recipientsCount: Int
+  successfulDeliveries: Int
+  failedDeliveries: Int
+  startTime: DateTime
+  endTime: DateTime
+  duration: Int
+  cronExpression: String
+  timezone: String
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input ReportExecutionLogWhereUniqueInput {
+  id: ID
+}
+
+input ReportExecutionLogWhereInput {
+  AND: [ReportExecutionLogWhereInput!]
+  OR: [ReportExecutionLogWhereInput!]
+  NOT: [ReportExecutionLogWhereInput!]
+  id: IDFilter
+  reportConfig: ReportConfigWhereInput
+  status: StringNullableFilter
+  executionType: StringNullableFilter
+  message: StringFilter
+  errorDetails: StringFilter
+  recipientsCount: IntNullableFilter
+  successfulDeliveries: IntNullableFilter
+  failedDeliveries: IntNullableFilter
+  startTime: DateTimeNullableFilter
+  endTime: DateTimeNullableFilter
+  duration: IntNullableFilter
+  cronExpression: StringFilter
+  timezone: StringFilter
+  createdAt: DateTimeNullableFilter
+  updatedAt: DateTimeNullableFilter
+}
+
+input ReportExecutionLogOrderByInput {
+  id: OrderDirection
+  status: OrderDirection
+  executionType: OrderDirection
+  message: OrderDirection
+  errorDetails: OrderDirection
+  recipientsCount: OrderDirection
+  successfulDeliveries: OrderDirection
+  failedDeliveries: OrderDirection
+  startTime: OrderDirection
+  endTime: OrderDirection
+  duration: OrderDirection
+  cronExpression: OrderDirection
+  timezone: OrderDirection
+  createdAt: OrderDirection
+  updatedAt: OrderDirection
+}
+
+input ReportExecutionLogUpdateInput {
+  reportConfig: ReportConfigRelateToOneForUpdateInput
+  status: String
+  executionType: String
+  message: String
+  errorDetails: String
+  recipientsCount: Int
+  successfulDeliveries: Int
+  failedDeliveries: Int
+  startTime: DateTime
+  endTime: DateTime
+  duration: Int
+  cronExpression: String
+  timezone: String
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input ReportConfigRelateToOneForUpdateInput {
+  create: ReportConfigCreateInput
+  connect: ReportConfigWhereUniqueInput
+  disconnect: Boolean
+}
+
+input ReportExecutionLogUpdateArgs {
+  where: ReportExecutionLogWhereUniqueInput!
+  data: ReportExecutionLogUpdateInput!
+}
+
+input ReportExecutionLogCreateInput {
+  reportConfig: ReportConfigRelateToOneForCreateInput
+  status: String
+  executionType: String
+  message: String
+  errorDetails: String
+  recipientsCount: Int
+  successfulDeliveries: Int
+  failedDeliveries: Int
+  startTime: DateTime
+  endTime: DateTime
+  duration: Int
+  cronExpression: String
+  timezone: String
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input ReportConfigRelateToOneForCreateInput {
+  create: ReportConfigCreateInput
+  connect: ReportConfigWhereUniqueInput
+}
+
 type PortfolioCleanup {
   id: ID!
   name: String
@@ -2248,14 +2363,14 @@ type ReportConfig {
   routesCount(where: RouteWhereInput! = {}): Int
   recipients(where: UserWhereInput! = {}, orderBy: [UserOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: UserWhereUniqueInput): [User!]
   recipientsCount(where: UserWhereInput! = {}): Int
-  telegramRecipients(where: TelegramUserWhereInput! = {}, orderBy: [TelegramUserOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TelegramUserWhereUniqueInput): [TelegramUser!]
-  telegramRecipientsCount(where: TelegramUserWhereInput! = {}): Int
   channel: ReportConfigChannelType
   isActive: Boolean
   createdAt: DateTime
   updatedAt: DateTime
   createdBy: User
   updatedBy: User
+  executionLogs(where: ReportExecutionLogWhereInput! = {}, orderBy: [ReportExecutionLogOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ReportExecutionLogWhereUniqueInput): [ReportExecutionLog!]
+  executionLogsCount(where: ReportExecutionLogWhereInput! = {}): Int
 }
 
 enum ReportConfigReportTypeType {
@@ -2285,13 +2400,13 @@ input ReportConfigWhereInput {
   reportType: ReportConfigReportTypeTypeNullableFilter
   routes: RouteManyRelationFilter
   recipients: UserManyRelationFilter
-  telegramRecipients: TelegramUserManyRelationFilter
   channel: ReportConfigChannelTypeNullableFilter
   isActive: BooleanFilter
   createdAt: DateTimeNullableFilter
   updatedAt: DateTimeNullableFilter
   createdBy: UserWhereInput
   updatedBy: UserWhereInput
+  executionLogs: ReportExecutionLogManyRelationFilter
 }
 
 input ReportConfigReportTypeTypeNullableFilter {
@@ -2320,6 +2435,12 @@ input ReportConfigChannelTypeNullableFilter {
   not: ReportConfigChannelTypeNullableFilter
 }
 
+input ReportExecutionLogManyRelationFilter {
+  every: ReportExecutionLogWhereInput
+  some: ReportExecutionLogWhereInput
+  none: ReportExecutionLogWhereInput
+}
+
 input ReportConfigOrderByInput {
   id: OrderDirection
   name: OrderDirection
@@ -2336,13 +2457,13 @@ input ReportConfigUpdateInput {
   schedule: JSON
   routes: RouteRelateToManyForUpdateInput
   recipients: UserRelateToManyForUpdateInput
-  telegramRecipients: TelegramUserRelateToManyForUpdateInput
   channel: ReportConfigChannelType
   isActive: Boolean
   createdAt: DateTime
   updatedAt: DateTime
   createdBy: UserRelateToOneForUpdateInput
   updatedBy: UserRelateToOneForUpdateInput
+  executionLogs: ReportExecutionLogRelateToManyForUpdateInput
 }
 
 input RouteRelateToManyForUpdateInput {
@@ -2359,6 +2480,13 @@ input UserRelateToManyForUpdateInput {
   connect: [UserWhereUniqueInput!]
 }
 
+input ReportExecutionLogRelateToManyForUpdateInput {
+  disconnect: [ReportExecutionLogWhereUniqueInput!]
+  set: [ReportExecutionLogWhereUniqueInput!]
+  create: [ReportExecutionLogCreateInput!]
+  connect: [ReportExecutionLogWhereUniqueInput!]
+}
+
 input ReportConfigUpdateArgs {
   where: ReportConfigWhereUniqueInput!
   data: ReportConfigUpdateInput!
@@ -2370,13 +2498,13 @@ input ReportConfigCreateInput {
   schedule: JSON
   routes: RouteRelateToManyForCreateInput
   recipients: UserRelateToManyForCreateInput
-  telegramRecipients: TelegramUserRelateToManyForCreateInput
   channel: ReportConfigChannelType
   isActive: Boolean
   createdAt: DateTime
   updatedAt: DateTime
   createdBy: UserRelateToOneForCreateInput
   updatedBy: UserRelateToOneForCreateInput
+  executionLogs: ReportExecutionLogRelateToManyForCreateInput
 }
 
 input RouteRelateToManyForCreateInput {
@@ -2387,6 +2515,11 @@ input RouteRelateToManyForCreateInput {
 input UserRelateToManyForCreateInput {
   create: [UserCreateInput!]
   connect: [UserWhereUniqueInput!]
+}
+
+input ReportExecutionLogRelateToManyForCreateInput {
+  create: [ReportExecutionLogCreateInput!]
+  connect: [ReportExecutionLogWhereUniqueInput!]
 }
 
 type TelegramUser {
@@ -2401,8 +2534,6 @@ type TelegramUser {
   isInRecipientsList: Boolean
   notes: String
   platformUser: User
-  reportConfigs(where: ReportConfigWhereInput! = {}, orderBy: [ReportConfigOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ReportConfigWhereUniqueInput): [ReportConfig!]
-  reportConfigsCount(where: ReportConfigWhereInput! = {}): Int
 }
 
 input TelegramUserWhereUniqueInput {
@@ -2425,7 +2556,6 @@ input TelegramUserWhereInput {
   isInRecipientsList: BooleanFilter
   notes: StringFilter
   platformUser: UserWhereInput
-  reportConfigs: ReportConfigManyRelationFilter
 }
 
 input TelegramUserOrderByInput {
@@ -2452,7 +2582,6 @@ input TelegramUserUpdateInput {
   isInRecipientsList: Boolean
   notes: String
   platformUser: UserRelateToOneForUpdateInput
-  reportConfigs: ReportConfigRelateToManyForUpdateInput
 }
 
 input TelegramUserUpdateArgs {
@@ -2471,7 +2600,6 @@ input TelegramUserCreateInput {
   isInRecipientsList: Boolean
   notes: String
   platformUser: UserRelateToOneForCreateInput
-  reportConfigs: ReportConfigRelateToManyForCreateInput
 }
 
 """
@@ -2600,6 +2728,12 @@ type Mutation {
   updateAuditLogs(data: [AuditLogUpdateArgs!]!): [AuditLog]
   deleteAuditLog(where: AuditLogWhereUniqueInput!): AuditLog
   deleteAuditLogs(where: [AuditLogWhereUniqueInput!]!): [AuditLog]
+  createReportExecutionLog(data: ReportExecutionLogCreateInput!): ReportExecutionLog
+  createReportExecutionLogs(data: [ReportExecutionLogCreateInput!]!): [ReportExecutionLog]
+  updateReportExecutionLog(where: ReportExecutionLogWhereUniqueInput!, data: ReportExecutionLogUpdateInput!): ReportExecutionLog
+  updateReportExecutionLogs(data: [ReportExecutionLogUpdateArgs!]!): [ReportExecutionLog]
+  deleteReportExecutionLog(where: ReportExecutionLogWhereUniqueInput!): ReportExecutionLog
+  deleteReportExecutionLogs(where: [ReportExecutionLogWhereUniqueInput!]!): [ReportExecutionLog]
   createPortfolioCleanup(data: PortfolioCleanupCreateInput!): PortfolioCleanup
   createPortfolioCleanups(data: [PortfolioCleanupCreateInput!]!): [PortfolioCleanup]
   updatePortfolioCleanup(where: PortfolioCleanupWhereUniqueInput!, data: PortfolioCleanupUpdateInput!): PortfolioCleanup
@@ -2796,6 +2930,9 @@ type Query {
   auditLog(where: AuditLogWhereUniqueInput!): AuditLog
   auditLogs(where: AuditLogWhereInput! = {}, orderBy: [AuditLogOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: AuditLogWhereUniqueInput): [AuditLog!]
   auditLogsCount(where: AuditLogWhereInput! = {}): Int
+  reportExecutionLog(where: ReportExecutionLogWhereUniqueInput!): ReportExecutionLog
+  reportExecutionLogs(where: ReportExecutionLogWhereInput! = {}, orderBy: [ReportExecutionLogOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ReportExecutionLogWhereUniqueInput): [ReportExecutionLog!]
+  reportExecutionLogsCount(where: ReportExecutionLogWhereInput! = {}): Int
   portfolioCleanup(where: PortfolioCleanupWhereUniqueInput!): PortfolioCleanup
   portfolioCleanups(where: PortfolioCleanupWhereInput! = {}, orderBy: [PortfolioCleanupOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: PortfolioCleanupWhereUniqueInput): [PortfolioCleanup!]
   portfolioCleanupsCount(where: PortfolioCleanupWhereInput! = {}): Int

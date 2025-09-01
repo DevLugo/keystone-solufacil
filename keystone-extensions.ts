@@ -218,6 +218,199 @@ export const extendExpressApp = (app: express.Express) => {
       });
     }
   });
+
+  // Endpoint para control del sistema de cron
+  app.post('/api/cron-control', express.json(), async (req, res) => {
+    try {
+      console.log('🔍 API de cron recibió request:', req.method, req.body);
+      
+      const { action, configId, config } = req.body;
+      console.log('📋 Acción solicitada:', action);
+      
+      if (!action) {
+        return res.status(400).json({ error: 'Acción requerida' });
+      }
+
+      // Importar el servicio real de cron
+      const { 
+        startCronSystem, 
+        stopCronSystem, 
+        getCronStatus, 
+        rescheduleConfig, 
+        unscheduleConfig 
+      } = require('./admin/services/cronService');
+
+      switch (action) {
+        case 'start':
+          // Iniciar el sistema de cron
+          console.log('🚀 Iniciando sistema de cron...');
+          try {
+            // Obtener configuraciones activas de la base de datos
+            const activeConfigs = await (prisma as any).reportConfig.findMany({
+              where: { isActive: true },
+              include: {
+                routes: true,
+                recipients: true
+              }
+            });
+            
+            console.log(`📋 Configuraciones activas encontradas: ${activeConfigs.length}`);
+            
+            // Iniciar el sistema real de cron
+            startCronSystem(activeConfigs, { prisma }, async (configId: string) => {
+              console.log(`📤 Enviando reporte para configuración: ${configId}`);
+              
+              try {
+                // Obtener la configuración del reporte
+                const reportConfig = activeConfigs.find(config => config.id === configId);
+                if (!reportConfig) {
+                  console.log(`❌ Configuración no encontrada para ID: ${configId}`);
+                  return;
+                }
+                
+                // Importar y usar el servicio real de reportes
+                const { processCronReport } = require('./admin/services/cronReportService');
+                
+                // Procesar el reporte usando el servicio real
+                await processCronReport(reportConfig, prisma);
+                
+                console.log(`✅ Reporte ${reportConfig.name} procesado correctamente por el cron`);
+                
+              } catch (error) {
+                console.error(`❌ Error procesando reporte ${configId}:`, error);
+              }
+            });
+            
+            res.status(200).json({ 
+              success: true, 
+              message: 'Sistema de cron iniciado',
+              status: 'running'
+            });
+          } catch (error) {
+            console.error('❌ Error iniciando cron:', error);
+            res.status(500).json({ 
+              success: false, 
+              error: 'Error iniciando sistema de cron',
+              details: error instanceof Error ? error.message : 'Error desconocido'
+            });
+          }
+          break;
+
+        case 'stop':
+          // Detener el sistema de cron
+          console.log('⏹️ Deteniendo sistema de cron...');
+          try {
+            stopCronSystem();
+            res.status(200).json({ 
+              success: true, 
+              message: 'Sistema de cron detenido',
+              status: 'stopped'
+            });
+          } catch (error) {
+            console.error('❌ Error deteniendo cron:', error);
+            res.status(500).json({ 
+              success: false, 
+              error: 'Error deteniendo sistema de cron',
+              details: error instanceof Error ? error.message : 'Error desconocido'
+            });
+          }
+          break;
+
+        case 'status':
+          // Obtener estado del sistema de cron
+          console.log('📊 Solicitando estado del cron...');
+          try {
+            const status = getCronStatus();
+            console.log('✅ Estado del cron obtenido:', status);
+            res.status(200).json({ 
+              success: true, 
+              status 
+            });
+          } catch (error) {
+            console.log('❌ Error obteniendo estado del cron, devolviendo estado por defecto:', error);
+            const defaultStatus = {
+              isRunning: false,
+              activeTasks: 0,
+              taskIds: []
+            };
+            console.log('🔄 Devolviendo estado por defecto:', defaultStatus);
+            res.status(200).json({ 
+              success: true, 
+              status: defaultStatus
+            });
+          }
+          break;
+
+        case 'reschedule':
+          // Reprogramar una configuración específica
+          console.log('📅 Reprogramando configuración:', config?.name);
+          if (!config) {
+            return res.status(400).json({ error: 'Configuración requerida para reprogramar' });
+          }
+          
+          try {
+            // Obtener contexto de base de datos
+            const context = { prisma };
+            
+            console.log('🔄 Deteniendo cron actual para reprogramar...');
+            stopCronSystem();
+            
+            console.log('🔄 Iniciando cron con nueva configuración...');
+            // Iniciar el sistema real de cron con la nueva configuración
+            startCronSystem([config], { prisma }, async (configId: string) => {
+              console.log(`📤 Enviando reporte para configuración: ${configId}`);
+              // Aquí implementarías la lógica real de envío de reportes
+              return Promise.resolve();
+            });
+            
+            res.status(200).json({ 
+              success: true, 
+              message: `Configuración ${config.name} reprogramada` 
+            });
+          } catch (error) {
+            console.error('❌ Error reprogramando configuración:', error);
+            res.status(500).json({ 
+              success: false, 
+              error: 'Error reprogramando configuración',
+              details: error instanceof Error ? error.message : 'Error desconocido'
+            });
+          }
+          break;
+
+        case 'unschedule':
+          // Desprogramar una configuración específica
+          console.log('⏹️ Desprogramando configuración:', configId);
+          if (!configId) {
+            return res.status(400).json({ error: 'ID de configuración requerido' });
+          }
+          
+          try {
+            unscheduleConfig(configId);
+            res.status(200).json({ 
+              success: true, 
+              message: `Configuración ${configId} desprogramada` 
+            });
+          } catch (error) {
+            console.error('❌ Error desprogramando configuración:', error);
+            res.status(500).json({ 
+              success: false, 
+              error: 'Error desprogramando configuración',
+              details: error instanceof Error ? error.message : 'Error desconocido'
+            });
+          }
+          break;
+
+        default:
+          res.status(400).json({ error: 'Acción no válida' });
+      }
+    } catch (error) {
+      console.error('❌ Error en API de cron:', error);
+      res.status(500).json({ 
+        error: 'Error interno del servidor',
+        details: error instanceof Error ? error.message : 'Error desconocido'
+      });
+    }
+  });
 };
 
 // Función para enviar mensajes de vuelta al usuario

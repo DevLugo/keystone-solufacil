@@ -343,6 +343,32 @@ model AuditLog {
   @@index([userId])
 }
 
+model ReportExecutionLog {
+  id                   String        @id @default(cuid())
+  reportConfig         ReportConfig? @relation("ReportExecutionLog_reportConfig", fields: [reportConfigId], references: [id])
+  reportConfigId       String?       @map("reportConfig")
+  status               String?
+  executionType        String?
+  message              String        @default("")
+  errorDetails         String        @default("")
+  recipientsCount      Int?
+  successfulDeliveries Int?
+  failedDeliveries     Int?
+  startTime            DateTime?
+  endTime              DateTime?
+  duration             Int?
+  cronExpression       String        @default("")
+  timezone             String        @default("")
+  createdAt            DateTime?     @default(now())
+  updatedAt            DateTime?     @default(now())
+
+  @@index([reportConfigId])
+  @@index([status])
+  @@index([executionType])
+  @@index([startTime])
+  @@index([createdAt])
+}
+
 model PortfolioCleanup {
   id                 String    @id @default(cuid())
   name               String    @default("")
@@ -388,40 +414,39 @@ model DocumentPhoto {
 }
 
 model ReportConfig {
-  id                 String                     @id @default(cuid())
-  name               String                     @default("")
-  reportType         ReportConfigReportTypeType
-  schedule           Json?                      @default("{\"days\":[],\"hour\":\"09\",\"timezone\":\"America/Mexico_City\"}")
-  routes             Route[]                    @relation("ReportConfig_routes")
-  recipients         User[]                     @relation("ReportConfig_recipients")
-  telegramRecipients TelegramUser[]             @relation("ReportConfig_telegramRecipients")
-  channel            ReportConfigChannelType
-  isActive           Boolean                    @default(true)
-  createdAt          DateTime?                  @default(now())
-  updatedAt          DateTime?
-  createdBy          User?                      @relation("ReportConfig_createdBy", fields: [createdById], references: [id])
-  createdById        String?                    @map("createdBy")
-  updatedBy          User?                      @relation("ReportConfig_updatedBy", fields: [updatedById], references: [id])
-  updatedById        String?                    @map("updatedBy")
+  id            String                     @id @default(cuid())
+  name          String                     @default("")
+  reportType    ReportConfigReportTypeType
+  schedule      Json?                      @default("{\"days\":[],\"hour\":\"09\",\"timezone\":\"America/Mexico_City\"}")
+  routes        Route[]                    @relation("ReportConfig_routes")
+  recipients    User[]                     @relation("ReportConfig_recipients")
+  channel       ReportConfigChannelType
+  isActive      Boolean                    @default(true)
+  createdAt     DateTime?                  @default(now())
+  updatedAt     DateTime?
+  createdBy     User?                      @relation("ReportConfig_createdBy", fields: [createdById], references: [id])
+  createdById   String?                    @map("createdBy")
+  updatedBy     User?                      @relation("ReportConfig_updatedBy", fields: [updatedById], references: [id])
+  updatedById   String?                    @map("updatedBy")
+  executionLogs ReportExecutionLog[]       @relation("ReportExecutionLog_reportConfig")
 
   @@index([createdById])
   @@index([updatedById])
 }
 
 model TelegramUser {
-  id                 String         @id @default(cuid())
-  chatId             String         @unique @default("")
-  name               String         @default("")
-  username           String         @default("")
-  isActive           Boolean        @default(true)
-  registeredAt       DateTime?      @default(now())
-  lastActivity       DateTime?      @default(now())
-  reportsReceived    Int?           @default(0)
-  isInRecipientsList Boolean        @default(false)
-  notes              String         @default("")
-  platformUser       User?          @relation("TelegramUser_platformUser", fields: [platformUserId], references: [id])
-  platformUserId     String?        @map("platformUser")
-  reportConfigs      ReportConfig[] @relation("ReportConfig_telegramRecipients")
+  id                 String    @id @default(cuid())
+  chatId             String    @unique @default("")
+  name               String    @default("")
+  username           String    @default("")
+  isActive           Boolean   @default(true)
+  registeredAt       DateTime? @default(now())
+  lastActivity       DateTime? @default(now())
+  reportsReceived    Int?      @default(0)
+  isInRecipientsList Boolean   @default(false)
+  notes              String    @default("")
+  platformUser       User?     @relation("TelegramUser_platformUser", fields: [platformUserId], references: [id])
+  platformUserId     String?   @map("platformUser")
 
   @@index([platformUserId])
 }

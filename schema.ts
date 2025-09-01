@@ -310,6 +310,63 @@ export const AuditLog = list({
   }
 });
 
+// Modelo para logs de ejecución de reportes automáticos
+export const ReportExecutionLog = list({
+  access: allowAll,
+  fields: {
+    // Configuración del reporte que se ejecutó
+    reportConfig: relationship({ ref: 'ReportConfig.executionLogs', many: false }),
+    
+    // Estado de la ejecución
+    status: select({
+      options: [
+        { label: 'Exitoso', value: 'SUCCESS' },
+        { label: 'Error', value: 'ERROR' },
+        { label: 'En Proceso', value: 'RUNNING' },
+        { label: 'Cancelado', value: 'CANCELLED' },
+      ],
+      isIndexed: true,
+    }),
+    
+    // Detalles de la ejecución
+    executionType: select({
+      options: [
+        { label: 'Automático (Cron)', value: 'AUTOMATIC' },
+        { label: 'Manual', value: 'MANUAL' },
+        { label: 'Prueba', value: 'TEST' },
+      ],
+      isIndexed: true,
+    }),
+    
+    // Información del resultado
+    message: text(), // Mensaje de éxito o descripción del error
+    errorDetails: text(), // Detalles del error si ocurrió
+    recipientsCount: integer(), // Número de destinatarios que recibieron el reporte
+    successfulDeliveries: integer(), // Número de entregas exitosas
+    failedDeliveries: integer(), // Número de entregas fallidas
+    
+    // Metadatos de la ejecución
+    startTime: timestamp({ isIndexed: true }),
+    endTime: timestamp(),
+    duration: integer(), // Duración en milisegundos
+    
+    // Información del sistema
+    cronExpression: text(), // Expresión cron utilizada
+    timezone: text(), // Zona horaria de la ejecución
+    
+    // Timestamps
+    createdAt: timestamp({ defaultValue: { kind: 'now' }, isIndexed: true }),
+    updatedAt: timestamp({ defaultValue: { kind: 'now' } }),
+  },
+  hooks: {
+    beforeOperation: async ({ operation, item, context, resolvedData }) => {
+      if (operation === 'update') {
+        resolvedData.updatedAt = new Date();
+      }
+    }
+  }
+});
+
 export const Route = list({
   access: allowAll,
   fields: {
@@ -2176,10 +2233,7 @@ export const ReportConfig = list({
       ref: 'User.reportConfigRecipients',
       many: true
     }),
-    telegramRecipients: relationship({ 
-      ref: 'TelegramUser.reportConfigs',
-      many: true
-    }),
+
     channel: select({
       type: 'enum',
       options: [
@@ -2194,6 +2248,12 @@ export const ReportConfig = list({
     updatedAt: timestamp(),
     createdBy: relationship({ ref: 'User.reportConfigsCreated' }),
     updatedBy: relationship({ ref: 'User.reportConfigsUpdated' }),
+    
+    // Logs de ejecución de este reporte
+    executionLogs: relationship({ 
+      ref: 'ReportExecutionLog.reportConfig',
+      many: true
+    }),
   },
   ui: {
     listView: {
@@ -2225,10 +2285,7 @@ export const TelegramUser = list({
       ref: 'User.telegramUsers',
       many: false
     }),
-    reportConfigs: relationship({ 
-      ref: 'ReportConfig.telegramRecipients',
-      many: true
-    }),
+
   },
   ui: {
     listView: {
@@ -2261,6 +2318,7 @@ export const lists = {
   LeadPaymentReceived,
   Account,
   AuditLog,
+  ReportExecutionLog,
   PortfolioCleanup,
   DocumentPhoto,
   ReportConfig,
