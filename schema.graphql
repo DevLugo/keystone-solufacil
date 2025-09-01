@@ -2775,6 +2775,7 @@ type Mutation {
   updateLoanWithAval(where: ID!, data: UpdateLoanWithAvalInput): JSON!
   sendTestTelegramMessage(chatId: String!, message: String!): String!
   sendReportWithPDF(chatId: String!, reportType: String!): String!
+  markLoansAsBadDebt(loanIds: [String!]!): JSON!
 }
 
 input TokaAssignmentInput {
