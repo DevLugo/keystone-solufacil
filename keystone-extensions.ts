@@ -1252,6 +1252,17 @@ export const extendExpressApp = (app: express.Express) => {
         });
       };
 
+      // Función para limpiar el tipo de préstamo (remover porcentaje de interés)
+      const cleanLoanType = (loanType: string): string => {
+        if (!loanType) return 'N/A';
+        // Remover porcentajes y texto relacionado con interés
+        return loanType
+          .replace(/\s*-?\s*\d+(\.\d+)?%.*$/i, '') // Remover "- X%" y todo lo que sigue
+          .replace(/\s*\(\d+(\.\d+)?%.*\)$/i, '') // Remover "(X%...)"
+          .replace(/\s*\d+(\.\d+)?%.*$/i, '') // Remover "X%..." al final
+          .trim();
+      };
+
       // Funciones auxiliares para cálculos estadísticos
       const calculateLoanStats = (loans: any[]) => {
         if (!loans || loans.length === 0) return null;
@@ -1454,7 +1465,7 @@ export const extendExpressApp = (app: express.Express) => {
             doc.roundedRect(40, y, doc.page.width - 80, Math.min(loanCardHeight, 300), 6).stroke('#cbd5e0');
             
             y += 15;
-            doc.fontSize(12).fillColor('#2d3748').text(`PRÉSTAMO ${loanIndex + 1}: ${loan.loanType}`, 55, y);
+            doc.fontSize(12).fillColor('#2d3748').text(`PRÉSTAMO ${loanIndex + 1}: ${cleanLoanType(loan.loanType)}`, 55, y);
             y += 20;
             
             // Información básica del préstamo
@@ -1577,7 +1588,7 @@ export const extendExpressApp = (app: express.Express) => {
             
             // Información del préstamo actual
             doc.fontSize(11).fillColor('#2d3748');
-            doc.text(`Tipo: ${latestLoan.loanType}`, 55, y);
+            doc.text(`Tipo: ${cleanLoanType(latestLoan.loanType)}`, 55, y);
             doc.text(`Estado: ${latestLoan.status}`, 300, y);
             y += 18;
             doc.text(`Fecha: ${formatDate(latestLoan.signDate)}`, 55, y);
@@ -1704,7 +1715,7 @@ export const extendExpressApp = (app: express.Express) => {
             doc.roundedRect(40, y, doc.page.width - 80, Math.min(loanCardHeight, 300), 6).stroke('#1e40af');
             
             y += 15;
-            doc.fontSize(12).fillColor('#1e40af').text(`AVAL ${loanIndex + 1}: ${loan.loanType}`, 55, y);
+            doc.fontSize(12).fillColor('#1e40af').text(`AVAL ${loanIndex + 1}: ${cleanLoanType(loan.loanType)}`, 55, y);
             y += 20;
             
             // Información del préstamo como aval
