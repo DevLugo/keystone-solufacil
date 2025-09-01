@@ -19,6 +19,7 @@ type User {
   reportConfigRecipientsCount(where: ReportConfigWhereInput! = {}): Int
   telegramUsers(where: TelegramUserWhereInput! = {}, orderBy: [TelegramUserOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TelegramUserWhereUniqueInput): [TelegramUser!]
   telegramUsersCount(where: TelegramUserWhereInput! = {}): Int
+  employee: Employee
   createdAt: DateTime
   adjustBalance: JSON
 }
@@ -262,6 +263,7 @@ type Employee {
   LeadPaymentReceivedLeadCount(where: LeadPaymentReceivedWhereInput! = {}): Int
   leadPaymentsReceivedAgent(where: LeadPaymentReceivedWhereInput! = {}, orderBy: [LeadPaymentReceivedOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: LeadPaymentReceivedWhereUniqueInput): [LeadPaymentReceived!]
   leadPaymentsReceivedAgentCount(where: LeadPaymentReceivedWhereInput! = {}): Int
+  user: User
   type: String
 }
 
@@ -2955,6 +2957,7 @@ type Query {
   getRouteStats(routeId: String!): JSON!
   getDashboardKPIs(routeId: String!, timeframe: String, year: Int, month: Int): JSON!
   getUserRoutes: JSON!
+  getUserAccessibleRoutes: JSON!
   getFinancialReport(routeIds: [String!]!, year: Int!): JSON!
   getCartera(routeId: String!, weeksWithoutPayment: Int!, includeBadDebt: Boolean!, analysisMonth: String, analysisYear: Int, includeOverdue: Boolean!, includeOverdrawn: Boolean!): JSON!
   adjustAccountBalance(accountId: String!, targetAmount: Float!, counterAccountId: String, description: String): JSON!

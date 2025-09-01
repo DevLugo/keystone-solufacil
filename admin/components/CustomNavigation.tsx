@@ -106,6 +106,11 @@ const menuSections: MenuSection[] = [
                     roles: ['ADMIN']
                   },
                   {
+                    label: 'Gestionar Usuarios-Empleados',
+                    href: '/gestionar-usuarios-empleados',
+                    roles: ['ADMIN']
+                  },
+                  {
                     label: 'Dashboard Administrativo',
                     href: '/admin-dashboard',
                     roles: ['ADMIN']

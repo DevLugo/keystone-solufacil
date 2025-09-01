@@ -15,6 +15,8 @@ interface RouteSelectorProps {
   selectedRouteId: string;
   onRouteChange: (routeId: string) => void;
   isAdmin?: boolean;
+  hasMultipleRoutes?: boolean;
+  accessType?: 'ADMIN_ALL_ROUTES' | 'MULTIPLE_ROUTES' | 'SINGLE_ROUTE';
 }
 
 const styles = {
@@ -43,8 +45,21 @@ const styles = {
   },
 };
 
-export const RouteSelector = ({ routes, selectedRouteId, onRouteChange, isAdmin }: RouteSelectorProps) => {
-  if (routes.length <= 1 && !isAdmin) {
+export const RouteSelector = ({ 
+  routes, 
+  selectedRouteId, 
+  onRouteChange, 
+  isAdmin, 
+  hasMultipleRoutes,
+  accessType 
+}: RouteSelectorProps) => {
+  // Show selector if:
+  // 1. User is admin (can see all routes)
+  // 2. User has multiple routes assigned
+  // 3. There are multiple routes available
+  const shouldShowSelector = isAdmin || hasMultipleRoutes || routes.length > 1;
+  
+  if (!shouldShowSelector) {
     return null;
   }
 
@@ -53,20 +68,36 @@ export const RouteSelector = ({ routes, selectedRouteId, onRouteChange, isAdmin 
     value: route.id,
   }));
 
+  const getPlaceholder = () => {
+    if (isAdmin) return 'Selecciona una ruta (Admin)...';
+    if (hasMultipleRoutes) return 'Selecciona una ruta...';
+    return 'Selecciona una ruta...';
+  };
+
   return (
     <div css={styles.container}>
       <span css={styles.label}>
         <FaRoute />
-        Ruta:
+        {isAdmin ? 'Todas las Rutas:' : hasMultipleRoutes ? 'Mis Rutas:' : 'Ruta:'}
       </span>
       <div css={styles.select}>
         <Select
           value={options.find(opt => opt.value === selectedRouteId)}
           onChange={(option) => option && onRouteChange(option.value)}
           options={options}
-          placeholder="Selecciona una ruta..."
+          placeholder={getPlaceholder()}
         />
       </div>
+      {routes.length > 1 && (
+        <span css={{
+          fontSize: '11px',
+          color: '#6b7280',
+          marginLeft: '8px',
+          whiteSpace: 'nowrap',
+        }}>
+          ({routes.length} rutas)
+        </span>
+      )}
     </div>
   );
 };

@@ -33,6 +33,7 @@ import { DashboardHeader } from './DashboardHeader';
 import { SummaryStats } from './SummaryStats';
 import { AlertsPanel } from './AlertsPanel';
 import { LoadingDashboard, LoadingKPIs } from './LoadingDashboard';
+import { UserAccessInfo } from './UserAccessInfo';
 import { QuickActions } from './QuickActions';
 
 interface DashboardData {
@@ -244,8 +245,17 @@ export default function CollectorDashboard() {
   const [timeframe, setTimeframe] = useState<'weekly' | 'monthly'>('weekly');
   const [selectedRouteId, setSelectedRouteId] = useState<string>('');
 
-  // Get user routes
-  const { data: userRoutesData, routes, isAdmin, loading: routesLoading } = useUserRoutes();
+  // Get user routes and access information
+  const { 
+    data: userRoutesData, 
+    routes, 
+    isAdmin, 
+    hasEmployee,
+    accessType,
+    hasMultipleRoutes,
+    message: routeMessage,
+    loading: routesLoading 
+  } = useUserRoutes();
 
   // Get dashboard KPIs
   const { data: dashboardData, loading: dashboardLoading, refetch } = useQuery(GET_DASHBOARD_KPIS, {
@@ -283,15 +293,52 @@ export default function CollectorDashboard() {
 
   const dashboardKPIs: DashboardData = dashboardData?.getDashboardKPIs;
 
+  // Handle different access scenarios
   if (routes.length === 0) {
+    const getMessageForNoRoutes = () => {
+      if (!hasEmployee) {
+        return {
+          title: 'Usuario Sin Empleado Asociado',
+          subtitle: 'Tu cuenta de usuario no está vinculada a un empleado. Contacta al administrador para vincular tu cuenta.',
+          type: 'warning'
+        };
+      }
+      return {
+        title: 'Sin Rutas Asignadas',
+        subtitle: routeMessage || 'No tienes rutas asignadas. Contacta al administrador para asignar rutas a tu cuenta.',
+        type: 'info'
+      };
+    };
+
+    const messageInfo = getMessageForNoRoutes();
+    
     return (
       <PageContainer header="Dashboard del Cobrador">
         <Box css={styles.container}>
-          <div css={styles.header}>
-            <h1 css={styles.title}>Sin Rutas Asignadas</h1>
+          <div css={{
+            ...styles.header,
+            backgroundColor: messageInfo.type === 'warning' ? '#fffbeb' : '#f0f9ff',
+            borderColor: messageInfo.type === 'warning' ? '#fed7aa' : '#bae6fd',
+          }}>
+            <h1 css={styles.title}>{messageInfo.title}</h1>
             <p css={styles.subtitle}>
-              No tienes rutas asignadas. Contacta al administrador para asignar rutas a tu cuenta.
+              {messageInfo.subtitle}
             </p>
+            {userRoutesData?.employeeInfo && (
+              <div css={{
+                marginTop: '16px',
+                padding: '12px',
+                backgroundColor: '#f8fafc',
+                borderRadius: '8px',
+                fontSize: '14px',
+                color: '#6b7280',
+              }}>
+                <strong>Empleado:</strong> {userRoutesData.employeeInfo.personalData?.fullName || 'Sin nombre'} 
+                {userRoutesData.employeeInfo.type && (
+                  <span> ({userRoutesData.employeeInfo.type})</span>
+                )}
+              </div>
+            )}
           </div>
         </Box>
       </PageContainer>
@@ -309,11 +356,26 @@ export default function CollectorDashboard() {
           selectedRouteId={selectedRouteId}
           onRouteChange={setSelectedRouteId}
           isAdmin={isAdmin}
+          hasMultipleRoutes={hasMultipleRoutes}
+          accessType={accessType}
           periodLabel={dashboardKPIs?.period?.label}
           onRefresh={() => refetch()}
           isLoading={dashboardLoading}
           userInfo={userRoutesData?.userInfo}
+          employeeInfo={userRoutesData?.employeeInfo}
         />
+
+        {/* User Access Information */}
+        {userRoutesData && (
+          <UserAccessInfo
+            userInfo={userRoutesData.userInfo}
+            employeeInfo={userRoutesData.employeeInfo}
+            routes={routes}
+            accessType={accessType}
+            hasEmployee={hasEmployee}
+            isAdmin={isAdmin}
+          />
+        )}
 
         {dashboardLoading ? (
           <LoadingKPIs />

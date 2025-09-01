@@ -4805,12 +4805,27 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
         const userId = session.data.id;
 
-        // Find employee record for this user
-        // Note: This assumes there's a way to connect User to Employee
-        // If there's no direct relationship, we might need to match by email or name
+        // Get user with employee relationship
         const user = await context.prisma.user.findUnique({
           where: { id: userId },
-          select: { email: true, name: true, role: true }
+          include: {
+            employee: {
+              include: {
+                routes: {
+                  select: {
+                    id: true,
+                    name: true
+                  }
+                },
+                personalData: {
+                  select: {
+                    fullName: true,
+                    clientCode: true
+                  }
+                }
+              }
+            }
+          }
         });
 
         if (!user) {
@@ -4839,56 +4854,182 @@ export const extendGraphqlSchema = graphql.extend(base => {
           return {
             isAdmin: true,
             routes: allRoutes,
-            userInfo: user
+            userInfo: {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              role: user.role
+            },
+            hasEmployee: !!user.employee,
+            employeeInfo: user.employee
           };
         }
 
-        // For regular users, find their employee record
-        // This is a simplified approach - you might need to adjust based on your user-employee relationship
-        const employee = await context.prisma.employee.findFirst({
-          where: {
-            personalData: {
-              OR: [
-                { fullName: { contains: user.name, mode: 'insensitive' } },
-                // Add more matching criteria as needed
-              ]
-            }
-          },
-          include: {
-            routes: {
-              select: {
-                id: true,
-                name: true
-              }
-            },
-            personalData: {
-              select: {
-                fullName: true,
-                clientCode: true
-              }
-            }
-          }
-        });
-
-        if (!employee || !employee.routes) {
+        // For regular users, check if they have an employee record
+        if (!user.employee) {
           return {
             isAdmin: false,
             routes: [],
-            userInfo: user,
-            message: 'No se encontraron rutas asignadas para este usuario'
+            userInfo: {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              role: user.role
+            },
+            hasEmployee: false,
+            message: 'Usuario no tiene un empleado asociado. Contacta al administrador para vincular tu cuenta.'
           };
         }
 
+        // Check if employee has routes assigned
+        if (!user.employee.routes) {
+          return {
+            isAdmin: false,
+            routes: [],
+            userInfo: {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              role: user.role
+            },
+            hasEmployee: true,
+            employeeInfo: user.employee,
+            message: 'El empleado asociado no tiene rutas asignadas. Contacta al administrador.'
+          };
+        }
+
+        // Return the single route assigned to this employee
         return {
           isAdmin: false,
-          routes: [employee.routes],
-          employeeInfo: employee,
-          userInfo: user
+          routes: [user.employee.routes],
+          userInfo: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role
+          },
+          hasEmployee: true,
+          employeeInfo: user.employee
         };
 
       } catch (error) {
         console.error('Error in getUserRoutes:', error);
         throw new Error(`Error getting user routes: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    },
+  }),
+
+  // Get multiple routes for users with special permissions
+  getUserAccessibleRoutes: graphql.field({
+    type: graphql.nonNull(graphql.JSON),
+    resolve: async (root, args, context: Context) => {
+      try {
+        const session = context.session;
+        if (!session?.data?.id) {
+          throw new Error('Usuario no autenticado');
+        }
+
+        const userId = session.data.id;
+
+        // Get user with employee relationship
+        const user = await context.prisma.user.findUnique({
+          where: { id: userId },
+          include: {
+            employee: {
+              include: {
+                personalData: {
+                  select: {
+                    fullName: true,
+                    clientCode: true
+                  }
+                }
+              }
+            }
+          }
+        });
+
+        if (!user) {
+          throw new Error('Usuario no encontrado');
+        }
+
+        // If user is ADMIN, return all routes
+        if (user.role === 'ADMIN') {
+          const allRoutes = await context.prisma.route.findMany({
+            select: {
+              id: true,
+              name: true,
+              employees: {
+                select: {
+                  id: true,
+                  personalData: {
+                    select: {
+                      fullName: true
+                    }
+                  }
+                }
+              }
+            }
+          });
+
+          return {
+            isAdmin: true,
+            routes: allRoutes,
+            accessType: 'ADMIN_ALL_ROUTES',
+            userInfo: {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              role: user.role
+            },
+            employeeInfo: user.employee
+          };
+        }
+
+        // For regular users, find all routes they might have access to
+        // This could be through direct employee assignment or special permissions
+        const accessibleRoutes = [];
+
+        // 1. Check direct employee route assignment
+        if (user.employee?.routesId) {
+          const employeeRoute = await context.prisma.route.findUnique({
+            where: { id: user.employee.routesId },
+            select: {
+              id: true,
+              name: true
+            }
+          });
+          if (employeeRoute) {
+            accessibleRoutes.push(employeeRoute);
+          }
+        }
+
+        // 2. Check if user has special permissions for multiple routes
+        // This could be implemented based on business rules
+        // For example, supervisors might have access to multiple routes
+        if (user.employee?.type === 'ROUTE_LEAD') {
+          // Route leads might have access to additional routes
+          // This is a placeholder for future business logic
+        }
+
+        return {
+          isAdmin: false,
+          routes: accessibleRoutes,
+          accessType: accessibleRoutes.length > 1 ? 'MULTIPLE_ROUTES' : 'SINGLE_ROUTE',
+          userInfo: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role
+          },
+          hasEmployee: !!user.employee,
+          employeeInfo: user.employee,
+          message: accessibleRoutes.length === 0 ? 
+            'No tienes rutas asignadas. Contacta al administrador.' : undefined
+        };
+
+      } catch (error) {
+        console.error('Error in getUserAccessibleRoutes:', error);
+        throw new Error(`Error getting user accessible routes: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     },
   }),

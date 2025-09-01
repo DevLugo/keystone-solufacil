@@ -17,12 +17,20 @@ interface DashboardHeaderProps {
   selectedRouteId: string;
   onRouteChange: (routeId: string) => void;
   isAdmin: boolean;
+  hasMultipleRoutes: boolean;
+  accessType: 'ADMIN_ALL_ROUTES' | 'MULTIPLE_ROUTES' | 'SINGLE_ROUTE';
   periodLabel?: string;
   onRefresh?: () => void;
   isLoading?: boolean;
   userInfo?: {
     name: string;
     role: string;
+  };
+  employeeInfo?: {
+    personalData?: {
+      fullName: string;
+    };
+    type?: string;
   };
 }
 
@@ -162,29 +170,64 @@ export const DashboardHeader = ({
   selectedRouteId,
   onRouteChange,
   isAdmin,
+  hasMultipleRoutes,
+  accessType,
   periodLabel,
   onRefresh,
   isLoading,
   userInfo,
+  employeeInfo,
 }: DashboardHeaderProps) => {
+  
+  const getAccessTypeLabel = () => {
+    switch (accessType) {
+      case 'ADMIN_ALL_ROUTES':
+        return 'Acceso Administrativo';
+      case 'MULTIPLE_ROUTES':
+        return 'Múltiples Rutas';
+      case 'SINGLE_ROUTE':
+        return 'Ruta Asignada';
+      default:
+        return '';
+    }
+  };
   return (
     <div css={styles.header}>
       <div css={styles.titleRow}>
         <div css={styles.titleContainer}>
           <h1 css={styles.title}>Dashboard del Cobrador</h1>
           {isAdmin && <span css={styles.adminBadge}>Admin</span>}
+          {!isAdmin && hasMultipleRoutes && (
+            <span css={{
+              ...styles.adminBadge,
+              backgroundColor: '#10b981',
+            }}>
+              Múltiples Rutas
+            </span>
+          )}
         </div>
         
         {userInfo && (
           <div css={styles.userInfo}>
             <FaUser />
             <span>{userInfo.name}</span>
+            {employeeInfo?.personalData?.fullName && 
+             employeeInfo.personalData.fullName !== userInfo.name && (
+              <span css={{ fontSize: '12px', fontStyle: 'italic' }}>
+                ({employeeInfo.personalData.fullName})
+              </span>
+            )}
           </div>
         )}
       </div>
       
       <p css={styles.subtitle}>
-        {periodLabel || 'Resumen de tu ruta asignada'}
+        {periodLabel || 'Resumen de tu ruta asignada'} 
+        {accessType !== 'ADMIN_ALL_ROUTES' && (
+          <span css={{ marginLeft: '8px', fontSize: '12px', opacity: 0.8 }}>
+            • {getAccessTypeLabel()}
+          </span>
+        )}
       </p>
       
       <div css={styles.controlsRow}>
@@ -227,6 +270,8 @@ export const DashboardHeader = ({
             selectedRouteId={selectedRouteId}
             onRouteChange={onRouteChange}
             isAdmin={isAdmin}
+            hasMultipleRoutes={hasMultipleRoutes}
+            accessType={accessType}
           />
         </div>
       </div>
