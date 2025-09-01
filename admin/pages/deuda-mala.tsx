@@ -153,10 +153,6 @@ const BadDebtManagementPage: React.FC = () => {
     }
   };
 
-  // Calcular estadísticas de préstamos seleccionados
-  const selectedLoansData = loansEnteringBadDebt.filter(loan => selectedLoans.has(loan.id));
-  const selectedTotalAmount = selectedLoansData.reduce((sum, loan) => sum + loan.amountOwed, 0);
-
   // Los préstamos ya vienen filtrados desde el GraphQL resolver
   const loansEnteringBadDebt = badDebtCandidates;
 
@@ -169,6 +165,10 @@ const BadDebtManagementPage: React.FC = () => {
     acc[location].push(loan);
     return acc;
   }, {} as Record<string, any[]>);
+
+  // Calcular estadísticas de préstamos seleccionados
+  const selectedLoansData = loansEnteringBadDebt.filter(loan => selectedLoans.has(loan.id));
+  const selectedTotalAmount = selectedLoansData.reduce((sum, loan) => sum + loan.amountOwed, 0);
 
   // Función para exportar a PDF
   const exportToPDF = async () => {
