@@ -171,6 +171,24 @@ const GET_REPORT_CONFIGS = gql`
   }
 `;
 
+// Query para obtener usuarios de Telegram
+const GET_TELEGRAM_USERS = gql`
+  query GetTelegramUsers {
+    telegramUsers {
+      id
+      chatId
+      name
+      username
+      isActive
+      platformUser {
+        id
+        name
+        email
+      }
+    }
+  }
+`;
+
 // Mutation para crear configuración de reporte
 const CREATE_REPORT_CONFIG = gql`
   mutation CreateReportConfig($data: ReportConfigCreateInput!) {
@@ -314,6 +332,7 @@ export default function ConfiguracionReportesPage() {
   // Estados
   const [editingConfig, setEditingConfig] = useState<ReportConfig | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [sendingReports, setSendingReports] = useState<Set<string>>(new Set());
   const [formData, setFormData] = useState<ReportConfigForm>({
     name: '',
     reportType: 'creditos_con_errores', // Valor por defecto
@@ -332,6 +351,7 @@ export default function ConfiguracionReportesPage() {
   const { data: routesData, loading: routesLoading } = useQuery(GET_ROUTES);
   const { data: usersData, loading: usersLoading } = useQuery(GET_USERS);
   const { data: configsData, loading: configsLoading } = useQuery(GET_REPORT_CONFIGS);
+  const { data: telegramUsersData, loading: telegramUsersLoading } = useQuery(GET_TELEGRAM_USERS);
 
   // Mutations
   const [createReportConfig] = useMutation(CREATE_REPORT_CONFIG);
@@ -535,6 +555,9 @@ export default function ConfiguracionReportesPage() {
 
   const handleSendNow = async (configId: string) => {
     try {
+      // Activar loading para esta configuración
+      setSendingReports(prev => new Set(prev).add(configId));
+      
       console.log('🔥 FUNCIÓN handleSendNow LLAMADA con configId:', configId);
       
       const config = configs.find(c => c.id === configId);
@@ -542,17 +565,22 @@ export default function ConfiguracionReportesPage() {
       
       if (!config) { 
         alert('Configuración no encontrada'); 
+        setSendingReports(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(configId);
+          return newSet;
+        });
         return; 
       }
       
       if (!config.isActive) { 
         alert('La configuración del reporte no está activa'); 
+        setSendingReports(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(configId);
+          return newSet;
+        });
         return; 
-      }
-      
-      if (config.channel === 'telegram' && (!config.telegramRecipients || config.telegramRecipients.length === 0)) {
-        alert('No hay destinatarios de Telegram configurados');
-        return;
       }
 
       // Obtener IDs de rutas configuradas
@@ -562,121 +590,127 @@ export default function ConfiguracionReportesPage() {
         name: config.name,
         reportType: config.reportType,
         routeIds: routeIds,
-        recipientsCount: config.telegramRecipients?.length || 0
+        recipientsCount: config.recipients?.length || 0
       });
 
-      // Enviar a todos los destinatarios de Telegram
+      // Enviar a TODOS los destinatarios configurados
       let sentCount = 0;
       let errorCount = 0;
+      let usersWithoutTelegram = [];
       
-      if (config.telegramRecipients && config.telegramRecipients.length > 0) {
-        console.log(`📱 Enviando por Telegram a ${config.telegramRecipients.length} destinatarios`);
+      if (config.recipients && config.recipients.length > 0) {
+        console.log(`📱 Procesando ${config.recipients.length} destinatarios`);
         
-        for (const recipient of config.telegramRecipients) {
+        for (const recipient of config.recipients) {
           try {
-            let sent = false;
+            // Buscar si el usuario tiene Telegram configurado
+            const telegramUser = await findTelegramUserByPlatformUserId(recipient.id);
             
-            console.log(`🔍 Verificando tipo de reporte: "${config.reportType}" === "creditos_con_errores"?`, config.reportType === 'creditos_con_errores');
-            console.log(`🔍 Tipo de dato del reportType:`, typeof config.reportType);
-            console.log(`🔍 Comparación estricta:`, config.reportType === 'creditos_con_errores');
-            console.log(`🔍 Comparación con includes:`, config.reportType.includes('creditos_con_errores'));
-            
-            // Para créditos con errores, usar la nueva mutación con PDF
-            const isCreditsWithErrors = config.reportType === 'creditos_con_errores' || 
-                                       config.reportType.includes('creditos_con_errores') ||
-                                       config.reportType.includes('Créditos con Documentos con Error');
-            
-            console.log(`🎯 ¿Es reporte de créditos con errores?`, isCreditsWithErrors);
-            
-            // TEMPORAL: Forzar uso de PDF para debug
-            const forcePDF = true;
-            console.log(`🧪 FORZANDO USO DE PDF para debug`);
-            console.log(`🔥 ANTES DE LA CONDICIÓN - forcePDF:`, forcePDF);
-            
-            if (forcePDF) {
-              console.log(`📋 DETECTADO REPORTE DE CRÉDITOS CON ERRORES`);
-              console.log(`📋 Tipo de reporte: "${config.reportType}"`);
-              console.log(`📋 Route IDs: [${routeIds.join(', ')}]`);
-              console.log(`📋 Chat ID: ${recipient.chatId}`);
-              console.log(`📋 Enviando reporte PDF de créditos con errores a ${recipient.name}`);
-              console.log(`📋 Función sendReportWithPDF disponible:`, typeof sendReportWithPDF);
+            if (telegramUser && telegramUser.isActive) {
+              console.log(`📱 Enviando por Telegram a ${recipient.name} (${telegramUser.chatId})`);
               
-              const result = await sendReportWithPDF({
-                variables: { 
-                  chatId: recipient.chatId, 
-                  reportType: config.reportType
-                }
-              });
+              // Enviar reporte por Telegram
+              const sent = await sendReportToTelegram(telegramUser.chatId, config.reportType);
               
-              console.log(`📋 Mutación ejecutada, esperando respuesta...`);
-              
-              console.log(`📋 Resultado completo de la mutación:`, result);
-              
-              if (result.data?.sendReportWithPDF) {
-                const response = result.data.sendReportWithPDF;
-                sent = response.includes('✅');
-                console.log(`📋 Respuesta PDF: ${response}`);
-              } else if (result.errors) {
-                console.error(`❌ Errores en la mutación:`, result.errors);
+              if (sent) {
+                sentCount++;
+                console.log(`✅ Reporte enviado exitosamente a ${recipient.name}`);
+              } else {
+                errorCount++;
+                console.log(`❌ Error enviando reporte a ${recipient.name}`);
               }
             } else {
-              console.log(`📝 USANDO MÉTODO ANTERIOR para tipo: "${config.reportType}"`);
-              console.log(`❌ LA CONDICIÓN FALLÓ - No se detectó creditos_con_errores`);
-              console.log(`❌ Valor exacto recibido: [${config.reportType}]`);
-              console.log(`❌ Longitud del string: ${config.reportType.length}`);
-              console.log(`❌ Caracteres: ${config.reportType.split('').map(c => c.charCodeAt(0))}`);
-              // Para otros tipos de reporte, usar el método anterior (mensaje de texto)
-              let reportContent = '';
-              switch (config.reportType) {
-                case 'creditos_sin_documentos': 
-                  reportContent = '⚠️ <b>REPORTE: Créditos Sin Documentos</b>\n\nReporte generado automáticamente\n\n✅ <b>Enviado desde Keystone Admin</b>'; 
-                  break;
-                case 'creditos_completos': 
-                  reportContent = '✅ <b>REPORTE: Créditos Completos</b>\n\nReporte generado automáticamente\n\n✅ <b>Enviado desde Keystone Admin</b>'; 
-                  break;
-                case 'resumen_semanal': 
-                  reportContent = '📊 <b>REPORTE: Resumen Semanal de Cartera</b>\n\nReporte generado automáticamente\n\n✅ <b>Enviado desde Keystone Admin</b>'; 
-                  break;
-                case 'reporte_financiero': 
-                  reportContent = '💰 <b>REPORTE: Reporte Financiero</b>\n\nReporte generado automáticamente\n\n✅ <b>Enviado desde Keystone Admin</b>'; 
-                  break;
-                default: 
-                  reportContent = `📊 <b>REPORTE: ${config.reportType}</b>\n\nReporte generado automáticamente\n\n✅ <b>Enviado desde Keystone Admin</b>`;
-              }
-              
-              sent = await sendTelegramMessage(recipient.chatId, reportContent);
-            }
-            
-            if (sent) {
-              sentCount++;
-              console.log(`✅ Reporte enviado exitosamente a ${recipient.name} (${recipient.chatId})`);
-            } else {
-              errorCount++;
-              console.log(`❌ Error enviando reporte a ${recipient.name}`);
+              usersWithoutTelegram.push(recipient.name);
+              console.log(`⚠️ Usuario ${recipient.name} no tiene Telegram configurado`);
             }
           } catch (error) {
-            console.error(`❌ Error enviando reporte a ${recipient.name}:`, error);
+            console.error(`❌ Error procesando usuario ${recipient.name}:`, error);
             errorCount++;
           }
         }
       }
 
-      const result = `Reporte enviado: ${sentCount} exitosos, ${errorCount} fallidos`;
-      console.log('✅', result);
+      // Mostrar resumen
+      let resultMessage = `📊 Reporte enviado: ${sentCount} exitosos, ${errorCount} fallidos`;
+      
+      if (usersWithoutTelegram.length > 0) {
+        resultMessage += `\n\n⚠️ Usuarios sin Telegram configurado:\n${usersWithoutTelegram.join(', ')}`;
+      }
       
       if (sentCount > 0) {
-        alert(`✅ ${result}\n\nRevisa tu Telegram para ver el ${config.reportType === 'creditos_con_errores' ? 'PDF' : 'mensaje'}.`);
+        alert(`✅ ${resultMessage}\n\nRevisa Telegram para ver el reporte.`);
       } else {
-        alert(`❌ ${result}\n\nRevisa la consola para más detalles.`);
+        alert(`❌ ${resultMessage}\n\nRevisa la consola para más detalles.`);
       }
       
     } catch (error) {
       console.error('Error sending report:', error);
       alert('Error al enviar reporte: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    } finally {
+      // Desactivar loading para esta configuración
+      setSendingReports(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(configId);
+        return newSet;
+      });
     }
   };
 
+  // Función simplificada para enviar reporte a Telegram
+  const sendReportToTelegram = async (chatId: string, reportType: string) => {
+    try {
+      console.log(`📱 Enviando reporte ${reportType} a ${chatId}`);
+      
+      // Para créditos con errores, usar PDF
+      if (reportType === 'creditos_con_errores') {
+        const result = await sendReportWithPDF({
+          variables: { 
+            chatId: chatId, 
+            reportType: reportType
+          }
+        });
+        
+        return result.data?.sendReportWithPDF?.includes('✅') || false;
+      } else {
+        // Para otros tipos, usar mensaje de texto
+        const message = `📊 <b>REPORTE AUTOMÁTICO</b>\n\nTipo: ${reportType}\nGenerado: ${new Date().toLocaleString('es-ES')}\n\n✅ Enviado desde Keystone Admin`;
+        
+        const result = await sendTestTelegram({
+          variables: { chatId, message }
+        });
+        
+        return result.data?.sendTestTelegramMessage?.includes('✅') || false;
+      }
+    } catch (error) {
+      console.error('Error enviando reporte a Telegram:', error);
+      return false;
+    }
+  };
 
+  // Función para buscar usuario de Telegram por ID de plataforma
+  const findTelegramUserByPlatformUserId = async (platformUserId: string) => {
+    try {
+      // Buscar en la lista de usuarios de Telegram que ya tenemos
+      const telegramUsers = telegramUsersData?.telegramUsers || [];
+      const telegramUser = telegramUsers.find(user => 
+        user.platformUser && user.platformUser.id === platformUserId
+      );
+      
+      if (telegramUser) {
+        return {
+          id: telegramUser.id,
+          chatId: telegramUser.chatId,
+          name: telegramUser.name,
+          isActive: telegramUser.isActive
+        };
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error buscando usuario de Telegram:', error);
+      return null;
+    }
+  };
 
   // Función para editar configuración
   const handleEditConfig = (config: ReportConfig) => {
@@ -690,7 +724,7 @@ export default function ConfiguracionReportesPage() {
       channel: config.channel,
       isActive: config.isActive
     });
-    setShowForm(true);
+    // No cambiar showForm para edición, solo editingConfig
   };
 
   // Función para cancelar edición
@@ -727,7 +761,7 @@ export default function ConfiguracionReportesPage() {
   };
 
   // Loading state
-  if (routesLoading || usersLoading || configsLoading) {
+  if (routesLoading || usersLoading || configsLoading || telegramUsersLoading) {
     return (
       <PageContainer header="Configuración de Reportes Automáticos">
         <CustomBox css={{ 
@@ -804,8 +838,8 @@ export default function ConfiguracionReportesPage() {
           </CustomButton>
         </CustomBox>
 
-        {/* Formulario de configuración */}
-        {showForm && (
+        {/* Formulario de nueva configuración */}
+        {showForm && !editingConfig && (
           <CustomBox css={{
             padding: '24px',
             backgroundColor: 'white',
@@ -987,6 +1021,236 @@ export default function ConfiguracionReportesPage() {
           </CustomBox>
         )}
 
+        {/* Modal para editar configuración */}
+        {editingConfig && (
+          <CustomBox css={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 1000,
+            padding: '20px'
+          }}>
+            <CustomBox css={{
+              backgroundColor: 'white',
+              borderRadius: '16px',
+              padding: '32px',
+              maxWidth: '800px',
+              width: '100%',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+              position: 'relative'
+            }}>
+              {/* Header del modal */}
+              <CustomBox css={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '24px',
+                paddingBottom: '16px',
+                borderBottom: '1px solid #e5e7eb'
+              }}>
+                <Text weight="bold" size="large" color="black">
+                  ✏️ Editar Configuración: {editingConfig.name}
+                </Text>
+                <CustomButton
+                  onClick={handleCancel}
+                  css={{
+                    background: 'none',
+                    border: 'none',
+                    fontSize: '24px',
+                    cursor: 'pointer',
+                    color: '#6b7280',
+                    padding: '8px',
+                    borderRadius: '50%',
+                    '&:hover': {
+                      backgroundColor: '#f3f4f6',
+                      color: '#374151'
+                    }
+                  }}
+                >
+                  ✕
+                </CustomButton>
+              </CustomBox>
+
+              {/* Formulario de edición */}
+              <CustomBox css={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                {/* Nombre de la configuración */}
+                <CustomBox>
+                  <Text weight="medium" size="small" color="black" marginBottom="small">
+                    Nombre de la Configuración
+                  </Text>
+                  <CustomInput
+                    value={formData.name}
+                    onChange={(value) => handleFormChange('name', value)}
+                    placeholder="Ej: Reporte Semanal de Errores"
+                  />
+                </CustomBox>
+
+                {/* Tipo de reporte */}
+                <CustomBox>
+                  <Text weight="medium" size="small" color="black" marginBottom="small">
+                    Tipo de Reporte
+                  </Text>
+                  <CustomSelect
+                    value={formData.reportType}
+                    onChange={(option) => handleFormChange('reportType', option?.value)}
+                    options={REPORT_TYPES}
+                    placeholder="Selecciona el tipo de reporte"
+                  />
+                </CustomBox>
+
+                {/* Días de la semana */}
+                <CustomBox>
+                  <Text weight="medium" size="small" color="black" marginBottom="small">
+                    Días de Envío
+                  </Text>
+                  <CustomBox css={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    {WEEK_DAYS.map(day => (
+                      <CustomButton
+                        key={day.value}
+                        onClick={() => handleDayToggle(day.value)}
+                        css={{
+                          padding: '8px 16px',
+                          borderRadius: '20px',
+                          border: '1px solid #d1d5db',
+                          backgroundColor: formData.schedule.days.includes(day.value) ? '#3b82f6' : 'white',
+                          color: formData.schedule.days.includes(day.value) ? 'white' : '#374151',
+                          cursor: 'pointer',
+                          fontSize: '14px',
+                          '&:hover': {
+                            backgroundColor: formData.schedule.days.includes(day.value) ? '#2563eb' : '#f3f4f6'
+                          }
+                        }}
+                      >
+                        {day.label}
+                      </CustomButton>
+                    ))}
+                  </CustomBox>
+                </CustomBox>
+
+                {/* Hora de envío */}
+                <CustomBox>
+                  <Text weight="medium" size="small" color="black" marginBottom="small">
+                    Hora de Envío
+                  </Text>
+                  <CustomSelect
+                    value={formData.schedule.hour}
+                    onChange={(option) => handleFormChange('schedule.hour', option?.value)}
+                    options={HOURS}
+                    placeholder="Selecciona la hora"
+                  />
+                </CustomBox>
+
+                {/* Rutas */}
+                <CustomBox>
+                  <Text weight="medium" size="small" color="black" marginBottom="small">
+                    Rutas a Incluir
+                  </Text>
+                  <CustomSelect
+                    value={formData.routes}
+                    onChange={(options) => handleFormChange('routes', options)}
+                    options={routes.map(route => ({ value: route.id, label: route.name }))}
+                    placeholder="Selecciona las rutas"
+                    isMulti
+                  />
+                </CustomBox>
+
+                {/* Destinatarios */}
+                <CustomBox>
+                  <Text weight="medium" size="small" color="black" marginBottom="small">
+                    Destinatarios
+                  </Text>
+                  <CustomSelect
+                    value={formData.recipients}
+                    onChange={(options) => handleFormChange('recipients', options)}
+                    options={users.map(user => ({ value: user.id, label: `${user.name} (${user.email})` }))}
+                    placeholder="Selecciona los destinatarios"
+                    isMulti
+                  />
+                </CustomBox>
+
+                {/* Canal de envío */}
+                <CustomBox>
+                  <Text weight="medium" size="small" color="black" marginBottom="small">
+                    Canal de Envío
+                  </Text>
+                  <CustomSelect
+                    value={formData.channel}
+                    onChange={(option) => handleFormChange('channel', option?.value)}
+                    options={CHANNELS}
+                    placeholder="Selecciona el canal"
+                  />
+                </CustomBox>
+
+                {/* Estado activo */}
+                <CustomBox>
+                  <Text weight="medium" size="small" color="black" marginBottom="small">
+                    Estado
+                  </Text>
+                  <CustomSelect
+                    value={formData.isActive ? 'active' : 'inactive'}
+                    onChange={(option) => handleFormChange('isActive', option?.value === 'active')}
+                    options={[
+                      { value: 'active', label: 'Activo' },
+                      { value: 'inactive', label: 'Inactivo' }
+                    ]}
+                    placeholder="Selecciona el estado"
+                  />
+                </CustomBox>
+              </CustomBox>
+
+              {/* Botones de acción del modal */}
+              <CustomBox css={{
+                display: 'flex',
+                gap: '16px',
+                justifyContent: 'flex-end',
+                marginTop: '32px',
+                paddingTop: '24px',
+                borderTop: '1px solid #e5e7eb'
+              }}>
+                <CustomButton
+                  onClick={handleCancel}
+                  css={{
+                    padding: '12px 24px',
+                    borderRadius: '8px',
+                    border: '1px solid #d1d5db',
+                    backgroundColor: 'white',
+                    color: '#374151',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    '&:hover': { backgroundColor: '#f9fafb' }
+                  }}
+                >
+                  Cancelar
+                </CustomButton>
+                <CustomButton
+                  onClick={handleUpdateConfig}
+                  css={{
+                    padding: '12px 24px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    backgroundColor: '#3b82f6',
+                    color: 'white',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    '&:hover': { backgroundColor: '#2563eb' }
+                  }}
+                >
+                  <FaSave style={{ marginRight: '8px' }} />
+                  Actualizar Configuración
+                </CustomButton>
+              </CustomBox>
+            </CustomBox>
+          </CustomBox>
+        )}
+
         {/* Lista de configuraciones existentes */}
         <CustomBox>
           <Text weight="bold" size="large" color="black" css={{ marginBottom: '24px' }}>
@@ -1042,20 +1306,42 @@ export default function ConfiguracionReportesPage() {
                     }}>
                       <CustomButton
                         onClick={() => handleSendNow(config.id)}
+                        disabled={sendingReports.has(config.id)}
                         css={{
                           padding: '8px 16px',
                           borderRadius: '8px',
                           border: 'none',
-                          backgroundColor: '#3b82f6',
+                          backgroundColor: sendingReports.has(config.id) ? '#9ca3af' : '#3b82f6',
                           color: 'white',
-                          cursor: 'pointer',
+                          cursor: sendingReports.has(config.id) ? 'not-allowed' : 'pointer',
                           fontSize: '14px',
                           fontWeight: '600',
-                          '&:hover': { backgroundColor: '#2563eb' }
+                          '&:hover': { 
+                            backgroundColor: sendingReports.has(config.id) ? '#9ca3af' : '#2563eb' 
+                          },
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px'
                         }}
                       >
-                        <FaPaperPlane style={{ marginRight: '8px' }} />
-                        Enviar Ahora
+                        {sendingReports.has(config.id) ? (
+                          <>
+                            <div style={{
+                              width: '16px',
+                              height: '16px',
+                              border: '2px solid #ffffff',
+                              borderTop: '2px solid transparent',
+                              borderRadius: '50%',
+                              animation: 'spin 1s linear infinite'
+                            }} />
+                            Enviando...
+                          </>
+                        ) : (
+                          <>
+                            <FaPaperPlane style={{ marginRight: '8px' }} />
+                            Enviar Ahora
+                          </>
+                        )}
                       </CustomButton>
                       <CustomButton
                         onClick={() => handleEditConfig(config)}
