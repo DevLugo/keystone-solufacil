@@ -1323,6 +1323,20 @@ export const extendExpressApp = (app: express.Express) => {
       // Línea decorativa
       doc.rect(40, 70, doc.page.width - 80, 2).fill('#ffffff');
 
+      // Footer profesional - aplicado a la página actual
+      const addFooterToCurrentPage = () => {
+        const footerY = doc.page.height - 60;
+        
+        // Línea separadora
+        doc.rect(40, footerY, doc.page.width - 80, 1).fill('#e2e8f0');
+        
+        // Información del footer
+        doc.fontSize(8).fillColor('#718096');
+        doc.text('SoluFacil - Sistema de Gestion Crediticia', 40, footerY + 10);
+        doc.text('Documento confidencial - Solo para uso interno', doc.page.width - 200, footerY + 10);
+        doc.text(`Generado: ${new Date().toLocaleDateString('es-SV')} ${new Date().toLocaleTimeString('es-SV')}`, 40, footerY + 25);
+      };
+
       // Información del cliente con diseño moderno
       let y = 120;
       
@@ -1794,20 +1808,6 @@ export const extendExpressApp = (app: express.Express) => {
 
         y += 30;
       }
-
-      // Footer profesional - aplicado a la página actual
-      const addFooterToCurrentPage = () => {
-        const footerY = doc.page.height - 60;
-        
-        // Línea separadora
-        doc.rect(40, footerY, doc.page.width - 80, 1).fill('#e2e8f0');
-        
-        // Información del footer
-        doc.fontSize(8).fillColor('#718096');
-        doc.text('SoluFacil - Sistema de Gestion Crediticia', 40, footerY + 10);
-        doc.text('Documento confidencial - Solo para uso interno', doc.page.width - 200, footerY + 10);
-        doc.text(`Generado: ${new Date().toLocaleDateString('es-SV')} ${new Date().toLocaleTimeString('es-SV')}`, 40, footerY + 25);
-      };
 
       // Nota final en modo resumen - solo si hay espacio en la página actual
       if (!detailed && (loansAsClient?.length > 0 || loansAsCollateral?.length > 0)) {
