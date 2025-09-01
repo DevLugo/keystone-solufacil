@@ -95,6 +95,11 @@ const menuSections: MenuSection[] = [
                     roles: ['ADMIN']
                   },
                   {
+                    label: 'Gestión de Deuda Mala',
+                    href: '/deuda-mala',
+                    roles: ['ADMIN']
+                  },
+                  {
                     label: 'Todas las Listas',
                     href: '/',
                     roles: ['ADMIN']

@@ -19,6 +19,7 @@ import express, { Request, Response } from 'express';
 import PDFDocument from 'pdfkit';
 import { extendGraphqlSchema } from './graphql/extendGraphqlSchema';
 import { extendExpressApp } from './keystone-extensions.js';
+import { components } from './admin/config';
 
 // Declare global types
 declare global {
@@ -79,6 +80,84 @@ export default withAuth(
     },
     ui: {
       isAccessAllowed: (context) => !!context.session?.data,
+      components,
+      pages: [
+        {
+          label: 'Dashboard',
+          path: '/dashboard',
+          component: () => import('./admin/pages/dashboard'),
+        },
+        {
+          label: 'Historial de Cliente',
+          path: '/historial-cliente',
+          component: () => import('./admin/pages/historial-cliente'),
+        },
+        {
+          label: 'Documentos Personales',
+          path: '/documentos-personales',
+          component: () => import('./admin/pages/documentos-personales'),
+        },
+        {
+          label: 'Transacciones',
+          path: '/transacciones',
+          component: () => import('./admin/pages/transacciones'),
+        },
+        {
+          label: 'Gastos Toka',
+          path: '/gastos-toka',
+          component: () => import('./admin/pages/gastos-toka'),
+        },
+        {
+          label: 'Generar PDFs',
+          path: '/generar-pdfs',
+          component: () => import('./admin/pages/generar-listados'),
+        },
+        {
+          label: 'Reporte Financiero',
+          path: '/reporte-financiero',
+          component: () => import('./admin/pages/reporte-financiero'),
+        },
+        {
+          label: 'Reporte de Cobranza',
+          path: '/reporte-cobranza',
+          component: () => import('./admin/pages/reporte-cobranza'),
+        },
+        {
+          label: 'Administrar Rutas',
+          path: '/administrar-rutas',
+          component: () => import('./admin/pages/administrar-rutas'),
+        },
+        {
+          label: 'Limpieza de Cartera',
+          path: '/limpieza-cartera',
+          component: () => import('./admin/pages/limpieza-cartera'),
+        },
+        {
+          label: 'Configuración de Reportes',
+          path: '/configuracion-reportes',
+          component: () => import('./admin/pages/configuracion-reportes'),
+        },
+        {
+          label: 'Usuarios de Telegram',
+          path: '/telegram-users',
+          component: () => import('./admin/pages/telegram-users'),
+        },
+        {
+          label: 'Gestión de Deuda Mala',
+          path: '/deuda-mala',
+          component: () => import('./admin/pages/deuda-mala'),
+        },
+        {
+          label: 'Cartera',
+          path: '/cartera',
+          component: () => import('./admin/pages/cartera'),
+        },
+        {
+          label: 'Ajustar Cuenta',
+          path: '/ajustar-cuenta',
+          component: () => import('./admin/pages/ajustar-cuenta'),
+        }
+      ],
     },
     server: {
       port: 3000,

@@ -6622,6 +6622,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         }
       }),
+
+      // ✅ QUERY PARA OBTENER CANDIDATOS A DEUDA MALA
+      getBadDebtCandidates,
     },
   };
 });
@@ -7346,3 +7349,143 @@ async function sendTelegramFile(chatId: string, fileBuffer: Buffer, filename: st
     return false;
   }
 }
+
+// ✅ QUERY PARA OBTENER CANDIDATOS A DEUDA MALA
+const getBadDebtCandidates = graphql.field({
+  type: graphql.nonNull(graphql.JSON),
+  args: {
+    routeId: graphql.arg({ type: graphql.String }),
+  },
+  resolve: async (root, { routeId }, context: Context) => {
+    try {
+      console.log(`🔍 getBadDebtCandidates - Procesando ruta ${routeId || 'TODAS'}`);
+
+      // Construir filtros para la consulta
+      const whereClause: any = {
+        badDebtDate: null, // Solo préstamos que NO están marcados como bad debt
+        status: { not: 'FINISHED' }, // Excluir préstamos terminados
+      };
+
+      // Si se especifica una ruta, filtrar por ella
+      if (routeId) {
+        whereClause.snapshotRouteId = routeId;
+      }
+
+      // Obtener préstamos candidatos
+      const loans = await context.prisma.loan.findMany({
+        where: whereClause,
+        include: {
+          borrower: {
+            include: {
+              personalData: {
+                include: {
+                  addresses: {
+                    include: {
+                      location: {
+                        include: {
+                          route: true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          loantype: true,
+          payments: {
+            where: {
+              type: 'PAYMENT', // Solo pagos reales, no FALCO o EXTRA_COLLECTION
+              amount: { gt: 0 }
+            },
+            orderBy: {
+              receivedAt: 'desc'
+            }
+          }
+        },
+        orderBy: {
+          signDate: 'asc'
+        }
+      });
+
+      console.log(`📊 getBadDebtCandidates - Encontrados ${loans.length} préstamos candidatos`);
+
+      const today = new Date();
+      const candidatesEnteringBadDebt = [];
+
+      for (const loan of loans) {
+        // Calcular semanas transcurridas desde la fecha del préstamo
+        const loanDate = new Date(loan.signDate);
+        const diffTime = Math.abs(today.getTime() - loanDate.getTime());
+        const weeksElapsed = Math.ceil(diffTime / (1000 * 60 * 60 * 24 * 7));
+
+        // Calcular semanas sin pago
+        let weeksWithoutPayment = 999; // Default para préstamos sin pagos
+        if (loan.payments && loan.payments.length > 0) {
+          const lastPayment = loan.payments[0]; // Ya están ordenados por fecha desc
+          const lastPaymentDate = new Date(lastPayment.receivedAt);
+          const diffPaymentTime = Math.abs(today.getTime() - lastPaymentDate.getTime());
+          weeksWithoutPayment = Math.ceil(diffPaymentTime / (1000 * 60 * 60 * 24 * 7));
+        }
+
+        // Criterio para bad debt: más de 17 semanas cuando el préstamo es de 14, y 4 semanas sin pago
+        const loanDuration = loan.loantype?.weekDuration || 14;
+        const shouldEnterBadDebt = weeksElapsed > (loanDuration + 3) && weeksWithoutPayment >= 4;
+
+        if (shouldEnterBadDebt) {
+          // Calcular monto adeudado
+          const amountGived = Number(loan.amountGived || 0);
+          const totalDebtAcquired = Number(loan.totalDebtAcquired || 0);
+          const totalPaid = Number(loan.totalPaid || 0);
+          const pendingAmount = loan.pendingAmountStored ? Number(loan.pendingAmountStored) : (totalDebtAcquired - totalPaid);
+
+          candidatesEnteringBadDebt.push({
+            id: loan.id,
+            clientName: loan.borrower?.personalData?.name || 'N/A',
+            location: loan.borrower?.personalData?.addresses?.[0]?.location?.name || 'Sin localidad',
+            routeName: loan.borrower?.personalData?.addresses?.[0]?.location?.route?.name || loan.snapshotRouteName || 'Sin ruta',
+            amountOwed: pendingAmount,
+            signDate: loan.signDate,
+            createdAt: loan.createdAt,
+            weeksElapsed,
+            weeksWithoutPayment,
+            loanType: loan.loantype?.name || 'N/A',
+            weekDuration: loan.loantype?.weekDuration || 0,
+            amountGived,
+            totalDebtAcquired,
+            totalPaid
+          });
+        }
+      }
+
+      console.log(`🚨 getBadDebtCandidates - Encontrados ${candidatesEnteringBadDebt.length} préstamos entrando en bad debt`);
+
+      // Agrupar por localidad
+      const groupedByLocation = candidatesEnteringBadDebt.reduce((acc, loan) => {
+        const location = loan.location;
+        if (!acc[location]) {
+          acc[location] = [];
+        }
+        acc[location].push(loan);
+        return acc;
+      }, {} as Record<string, any[]>);
+
+      // Estadísticas
+      const totalAmount = candidatesEnteringBadDebt.reduce((sum, loan) => sum + loan.amountOwed, 0);
+      const uniqueLocations = Object.keys(groupedByLocation).length;
+
+      return {
+        routeName: routeId ? loans.find(l => l.snapshotRouteId === routeId)?.snapshotRouteName || 'Ruta Desconocida' : 'Todas las Rutas',
+        totalLoans: candidatesEnteringBadDebt.length,
+        totalAmount,
+        uniqueLocations,
+        loans: candidatesEnteringBadDebt,
+        groupedByLocation
+      };
+
+    } catch (error) {
+      console.error(`❌ Error en getBadDebtCandidates:`, error);
+      throw new Error(`Error al obtener candidatos a deuda mala: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+});
