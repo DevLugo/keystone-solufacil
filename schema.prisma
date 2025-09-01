@@ -23,6 +23,7 @@ model User {
   reportConfigsUpdated   ReportConfig[]     @relation("ReportConfig_updatedBy")
   reportConfigRecipients ReportConfig[]     @relation("ReportConfig_recipients")
   telegramUsers          TelegramUser[]     @relation("TelegramUser_platformUser")
+  employee               Employee?          @relation("User_employee")
   createdAt              DateTime?          @default(now())
   from_AuditLog_user     AuditLog[]         @relation("AuditLog_user")
 }
@@ -40,9 +41,12 @@ model Employee {
   LeadManagedLoans          Loan[]                @relation("Loan_lead")
   LeadPaymentReceivedLead   LeadPaymentReceived[] @relation("LeadPaymentReceived_lead")
   leadPaymentsReceivedAgent LeadPaymentReceived[] @relation("LeadPaymentReceived_agent")
+  user                      User?                 @relation("User_employee", fields: [userId], references: [id])
+  userId                    String?               @unique @map("user")
   type                      String?
 
   @@index([routesId])
+  @@index([userId])
 }
 
 model Route {

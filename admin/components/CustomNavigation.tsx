@@ -17,6 +17,17 @@ interface MenuSection {
 
 const menuSections: MenuSection[] = [
   {
+    title: 'Principal',
+    roles: ['NORMAL', 'ADMIN'],
+    items: [
+      {
+        label: 'Dashboard',
+        href: '/dashboard',
+        roles: ['NORMAL', 'ADMIN']
+      }
+    ]
+  },
+  {
     title: 'Clientes',
     roles: ['NORMAL', 'ADMIN'],
     items: [
@@ -92,6 +103,21 @@ const menuSections: MenuSection[] = [
                   {
                     label: 'Usuarios de Telegram',
                     href: '/telegram-users',
+                    roles: ['ADMIN']
+                  },
+                  {
+                    label: 'Gestionar Usuarios-Empleados',
+                    href: '/gestionar-usuarios-empleados',
+                    roles: ['ADMIN']
+                  },
+                  {
+                    label: 'Debug User-Employee',
+                    href: '/debug-user-employee',
+                    roles: ['ADMIN', 'NORMAL']
+                  },
+                  {
+                    label: 'Dashboard Administrativo',
+                    href: '/admin-dashboard',
                     roles: ['ADMIN']
                   },
                   {

@@ -4528,6 +4528,671 @@ export const extendGraphqlSchema = graphql.extend(base => {
     },
   }),
 
+  // Dashboard KPIs for collectors
+  getDashboardKPIs: graphql.field({
+    type: graphql.nonNull(graphql.JSON),
+    args: {
+      routeId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+      timeframe: graphql.arg({ type: graphql.String }), // 'weekly' or 'monthly'
+      year: graphql.arg({ type: graphql.Int }),
+      month: graphql.arg({ type: graphql.Int }),
+    },
+    resolve: async (root, { routeId, timeframe = 'weekly', year, month }, context: Context) => {
+      try {
+        const currentDate = new Date();
+        const targetYear = year || currentDate.getFullYear();
+        const targetMonth = month || (currentDate.getMonth() + 1);
+
+        // Calculate date ranges based on timeframe
+        let startDate: Date, endDate: Date, previousStartDate: Date, previousEndDate: Date;
+
+        if (timeframe === 'weekly') {
+          // Current week (Monday to Sunday)
+          const today = new Date();
+          const dayOfWeek = today.getDay();
+          const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+          
+          startDate = new Date(today);
+          startDate.setDate(today.getDate() + diffToMonday);
+          startDate.setHours(0, 0, 0, 0);
+          
+          endDate = new Date(startDate);
+          endDate.setDate(startDate.getDate() + 6);
+          endDate.setHours(23, 59, 59, 999);
+
+          // Previous week
+          previousStartDate = new Date(startDate);
+          previousStartDate.setDate(startDate.getDate() - 7);
+          previousEndDate = new Date(endDate);
+          previousEndDate.setDate(endDate.getDate() - 7);
+        } else {
+          // Monthly
+          startDate = new Date(targetYear, targetMonth - 1, 1);
+          endDate = new Date(targetYear, targetMonth, 0, 23, 59, 59, 999);
+          
+          // Previous month
+          previousStartDate = new Date(targetYear, targetMonth - 2, 1);
+          previousEndDate = new Date(targetYear, targetMonth - 1, 0, 23, 59, 59, 999);
+        }
+
+        // Get all loans for the route
+        const allLoans = await context.prisma.loan.findMany({
+          where: {
+            lead: {
+              routesId: routeId
+            }
+          },
+          include: {
+            borrower: {
+              include: {
+                personalData: {
+                  include: {
+                    addresses: {
+                      include: {
+                        location: true
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            payments: {
+              orderBy: { receivedAt: 'asc' }
+            },
+            loantype: true,
+            lead: {
+              include: {
+                personalData: true
+              }
+            }
+          }
+        });
+
+        // Calculate KPIs
+        const currentPeriodLoans = allLoans.filter(loan => {
+          const signDate = new Date(loan.signDate);
+          return signDate >= startDate && signDate <= endDate;
+        });
+
+        const previousPeriodLoans = allLoans.filter(loan => {
+          const signDate = new Date(loan.signDate);
+          return signDate >= previousStartDate && signDate <= previousEndDate;
+        });
+
+        // Active loans (not finished and not excluded by cleanup)
+        const activeLoans = allLoans.filter(loan => 
+          !loan.finishedDate && !loan.excludedByCleanupId
+        );
+
+        // CV (Cartera Vencida) - loans with no payments in last 2 weeks
+        const twoWeeksAgo = new Date();
+        twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+
+        const cvLoans = activeLoans.filter(loan => {
+          const lastPayment = loan.payments[loan.payments.length - 1];
+          if (!lastPayment) return true;
+          return new Date(lastPayment.receivedAt!) < twoWeeksAgo;
+        });
+
+        // Calculate weeks without payment for each loan
+        const loansWithPaymentStreaks = activeLoans.map(loan => {
+          const weeksWithoutPayment = calculateWeeksWithoutPayment(
+            loan.id,
+            new Date(loan.signDate),
+            currentDate,
+            loan.payments,
+            loan.renewedDate
+          );
+          return {
+            ...loan,
+            weeksWithoutPayment,
+            locality: loan.borrower?.personalData?.addresses[0]?.location?.name || 'Sin localidad'
+          };
+        });
+
+        // Locality analysis
+        const localityStats = new Map();
+        loansWithPaymentStreaks.forEach(loan => {
+          const locality = loan.locality;
+          if (!localityStats.has(locality)) {
+            localityStats.set(locality, {
+              name: locality,
+              totalLoans: 0,
+              activeLoans: 0,
+              cvLoans: 0,
+              averageWeeksWithoutPayment: 0,
+              recentGrowth: 0
+            });
+          }
+          
+          const stats = localityStats.get(locality);
+          stats.totalLoans++;
+          stats.activeLoans++;
+          if (loan.weeksWithoutPayment >= 2) stats.cvLoans++;
+          stats.averageWeeksWithoutPayment += loan.weeksWithoutPayment;
+        });
+
+        // Calculate locality averages and growth
+        const localityAnalysis = Array.from(localityStats.values()).map(stats => {
+          stats.averageWeeksWithoutPayment = stats.activeLoans > 0 ? 
+            stats.averageWeeksWithoutPayment / stats.activeLoans : 0;
+          
+          // Calculate growth (new loans in current period vs previous)
+          const currentPeriodLoansInLocality = currentPeriodLoans.filter(loan =>
+            loan.borrower?.personalData?.addresses[0]?.location?.name === stats.name
+          ).length;
+          
+          const previousPeriodLoansInLocality = previousPeriodLoans.filter(loan =>
+            loan.borrower?.personalData?.addresses[0]?.location?.name === stats.name
+          ).length;
+
+          stats.recentGrowth = previousPeriodLoansInLocality > 0 ? 
+            ((currentPeriodLoansInLocality - previousPeriodLoansInLocality) / previousPeriodLoansInLocality) * 100 : 0;
+
+          return stats;
+        });
+
+        // Identify declining and fast-growing localities
+        const decliningLocalities = localityAnalysis
+          .filter(loc => loc.recentGrowth < -20) // More than 20% decline
+          .sort((a, b) => a.recentGrowth - b.recentGrowth)
+          .slice(0, 5);
+
+        const dangerousGrowingLocalities = localityAnalysis
+          .filter(loc => loc.recentGrowth > 50) // More than 50% growth
+          .sort((a, b) => b.recentGrowth - a.recentGrowth)
+          .slice(0, 5);
+
+        // Clients with longest payment streaks (no payment)
+        const clientsWithLongStreaks = loansWithPaymentStreaks
+          .filter(loan => loan.weeksWithoutPayment >= 3)
+          .sort((a, b) => b.weeksWithoutPayment - a.weeksWithoutPayment)
+          .slice(0, 10)
+          .map(loan => ({
+            clientName: loan.borrower?.personalData?.fullName || 'Sin nombre',
+            clientCode: loan.borrower?.personalData?.clientCode || 'Sin código',
+            weeksWithoutPayment: loan.weeksWithoutPayment,
+            locality: loan.locality,
+            loanAmount: parseFloat(loan.requestedAmount.toString()),
+            loanId: loan.id
+          }));
+
+        // Calculate KPI deltas
+        const currentCV = cvLoans.length;
+        const currentActiveClients = activeLoans.length;
+        const currentNewClients = currentPeriodLoans.length;
+
+        // Previous period CV calculation (simplified)
+        const previousCV = allLoans.filter(loan => {
+          if (loan.finishedDate && new Date(loan.finishedDate) < previousEndDate) return false;
+          const lastPayment = loan.payments[loan.payments.length - 1];
+          if (!lastPayment) return true;
+          return new Date(lastPayment.receivedAt!) < new Date(previousEndDate.getTime() - 14 * 24 * 60 * 60 * 1000);
+        }).length;
+
+        const previousActiveClients = allLoans.filter(loan => {
+          const signDate = new Date(loan.signDate);
+          return signDate <= previousEndDate && (!loan.finishedDate || new Date(loan.finishedDate) > previousEndDate);
+        }).length;
+
+        const previousNewClients = previousPeriodLoans.length;
+
+        return {
+          routeId,
+          timeframe,
+          period: {
+            start: startDate.toISOString(),
+            end: endDate.toISOString(),
+            label: timeframe === 'weekly' ? 
+              `Semana del ${startDate.toLocaleDateString('es-MX')}` :
+              `${new Date(targetYear, targetMonth - 1).toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })}`
+          },
+          kpis: {
+            cvIncrement: {
+              current: currentCV,
+              previous: previousCV,
+              delta: currentCV - previousCV,
+              percentage: previousCV > 0 ? ((currentCV - previousCV) / previousCV) * 100 : 0
+            },
+            clientIncrement: {
+              current: currentNewClients,
+              previous: previousNewClients,
+              delta: currentNewClients - previousNewClients,
+              percentage: previousNewClients > 0 ? ((currentNewClients - previousNewClients) / previousNewClients) * 100 : 0
+            },
+            activeClients: {
+              current: currentActiveClients,
+              previous: previousActiveClients,
+              delta: currentActiveClients - previousActiveClients,
+              percentage: previousActiveClients > 0 ? ((currentActiveClients - previousActiveClients) / previousActiveClients) * 100 : 0
+            },
+            payingPercentage: {
+              current: currentActiveClients > 0 ? ((currentActiveClients - currentCV) / currentActiveClients) * 100 : 0,
+              previous: previousActiveClients > 0 ? ((previousActiveClients - previousCV) / previousActiveClients) * 100 : 0
+            }
+          },
+          localityAnalysis: {
+            declining: decliningLocalities,
+            dangerousGrowth: dangerousGrowingLocalities,
+            total: localityAnalysis.length
+          },
+          clientsWithLongStreaks,
+          summary: {
+            totalActiveLoans: activeLoans.length,
+            totalCVLoans: cvLoans.length,
+            cvPercentage: activeLoans.length > 0 ? (cvLoans.length / activeLoans.length) * 100 : 0,
+            averageWeeksWithoutPayment: loansWithPaymentStreaks.length > 0 ?
+              loansWithPaymentStreaks.reduce((sum, loan) => sum + loan.weeksWithoutPayment, 0) / loansWithPaymentStreaks.length : 0
+          }
+        };
+
+      } catch (error) {
+        console.error('Error in getDashboardKPIs:', error);
+        throw new Error(`Error generating dashboard KPIs: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    },
+  }),
+
+  // Get user's assigned routes (fallback method for compatibility)
+  getUserRoutes: graphql.field({
+    type: graphql.nonNull(graphql.JSON),
+    resolve: async (root, args, context: Context) => {
+      try {
+        const session = context.session;
+        if (!session?.data?.id) {
+          throw new Error('Usuario no autenticado');
+        }
+
+        const userId = session.data.id;
+        console.log('🔍 getUserRoutes (fallback) - Usuario ID:', userId);
+
+        // First try the new relationship
+        let user = await context.prisma.user.findUnique({
+          where: { id: userId },
+          include: {
+            employee: {
+              include: {
+                routes: {
+                  select: {
+                    id: true,
+                    name: true
+                  }
+                },
+                personalData: {
+                  select: {
+                    fullName: true,
+                    clientCode: true
+                  }
+                }
+              }
+            }
+          }
+        });
+
+        if (!user) {
+          throw new Error('Usuario no encontrado');
+        }
+
+        console.log('🔍 getUserRoutes - Usuario con relación directa:', {
+          hasEmployee: !!user.employee,
+          employeeId: user.employee?.id
+        });
+
+        // If user is ADMIN, return all routes
+        if (user.role === 'ADMIN') {
+          const allRoutes = await context.prisma.route.findMany({
+            select: {
+              id: true,
+              name: true,
+              employees: {
+                select: {
+                  id: true,
+                  personalData: {
+                    select: {
+                      fullName: true
+                    }
+                  }
+                }
+              }
+            }
+          });
+
+          return {
+            isAdmin: true,
+            routes: allRoutes,
+            userInfo: {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              role: user.role
+            },
+            hasEmployee: !!user.employee,
+            employeeInfo: user.employee,
+            method: 'ADMIN_ACCESS'
+          };
+        }
+
+        // If new relationship exists, use it
+        if (user.employee) {
+          console.log('✅ Usando relación directa User → Employee');
+          
+          if (!user.employee.routes) {
+            return {
+              isAdmin: false,
+              routes: [],
+              userInfo: {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                role: user.role
+              },
+              hasEmployee: true,
+              employeeInfo: user.employee,
+              message: 'El empleado asociado no tiene rutas asignadas. Contacta al administrador.',
+              method: 'DIRECT_RELATION_NO_ROUTE'
+            };
+          }
+
+          return {
+            isAdmin: false,
+            routes: [user.employee.routes],
+            userInfo: {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              role: user.role
+            },
+            hasEmployee: true,
+            employeeInfo: user.employee,
+            method: 'DIRECT_RELATION_SUCCESS'
+          };
+        }
+
+        // Fallback: Try to find employee by name matching (for backwards compatibility)
+        console.log('🔄 Intentando fallback por coincidencia de nombres...');
+        const employee = await context.prisma.employee.findFirst({
+          where: {
+            personalData: {
+              fullName: {
+                contains: user.name,
+                mode: 'insensitive'
+              }
+            }
+          },
+          include: {
+            routes: {
+              select: {
+                id: true,
+                name: true
+              }
+            },
+            personalData: {
+              select: {
+                fullName: true,
+                clientCode: true
+              }
+            }
+          }
+        });
+
+        console.log('🔍 Empleado encontrado por nombre:', employee?.id);
+
+        if (employee && employee.routes) {
+          return {
+            isAdmin: false,
+            routes: [employee.routes],
+            userInfo: {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              role: user.role
+            },
+            hasEmployee: true,
+            employeeInfo: employee,
+            method: 'NAME_MATCHING_FALLBACK',
+            warning: 'Usando coincidencia por nombre. Recomendado vincular directamente en /gestionar-usuarios-empleados'
+          };
+        }
+
+        return {
+          isAdmin: false,
+          routes: [],
+          userInfo: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role
+          },
+          hasEmployee: false,
+          message: 'Usuario no tiene un empleado asociado. Contacta al administrador para vincular tu cuenta.',
+          method: 'NO_RELATION_FOUND'
+        };
+
+      } catch (error) {
+        console.error('Error in getUserRoutes:', error);
+        throw new Error(`Error getting user routes: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    },
+  }),
+
+  // Get multiple routes for users with special permissions
+  getUserAccessibleRoutes: graphql.field({
+    type: graphql.nonNull(graphql.JSON),
+    resolve: async (root, args, context: Context) => {
+      try {
+        const session = context.session;
+        if (!session?.data?.id) {
+          throw new Error('Usuario no autenticado');
+        }
+
+        const userId = session.data.id;
+        console.log('🔍 getUserAccessibleRoutes - Usuario ID:', userId);
+
+        // Get user with employee relationship
+        const user = await context.prisma.user.findUnique({
+          where: { id: userId },
+          include: {
+            employee: {
+              include: {
+                routes: {
+                  select: {
+                    id: true,
+                    name: true
+                  }
+                },
+                personalData: {
+                  select: {
+                    fullName: true,
+                    clientCode: true
+                  }
+                }
+              }
+            }
+          }
+        });
+
+        console.log('🔍 Usuario encontrado:', {
+          id: user?.id,
+          name: user?.name,
+          email: user?.email,
+          role: user?.role,
+          hasEmployee: !!user?.employee,
+          employeeId: user?.employee?.id,
+          employeeRoutes: user?.employee?.routes?.id
+        });
+
+        if (!user) {
+          throw new Error('Usuario no encontrado');
+        }
+
+        // If user is ADMIN, return all routes
+        if (user.role === 'ADMIN') {
+          const allRoutes = await context.prisma.route.findMany({
+            select: {
+              id: true,
+              name: true,
+              employees: {
+                select: {
+                  id: true,
+                  personalData: {
+                    select: {
+                      fullName: true
+                    }
+                  }
+                }
+              }
+            }
+          });
+
+          return {
+            isAdmin: true,
+            routes: allRoutes,
+            accessType: 'ADMIN_ALL_ROUTES',
+            userInfo: {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              role: user.role
+            },
+            employeeInfo: user.employee
+          };
+        }
+
+        // For regular users, find all routes they might have access to
+        // This could be through direct employee assignment or special permissions
+        const accessibleRoutes = [];
+
+        console.log('🔍 Verificando acceso para usuario regular:', {
+          hasEmployee: !!user.employee,
+          employeeId: user.employee?.id,
+          routesId: user.employee?.routesId,
+          routes: user.employee?.routes
+        });
+
+        // 1. Check direct employee route assignment
+        if (user.employee?.routesId) {
+          console.log('🔍 Buscando ruta con ID:', user.employee.routesId);
+          const employeeRoute = await context.prisma.route.findUnique({
+            where: { id: user.employee.routesId },
+            select: {
+              id: true,
+              name: true
+            }
+          });
+          console.log('🔍 Ruta encontrada:', employeeRoute);
+          if (employeeRoute) {
+            accessibleRoutes.push(employeeRoute);
+          }
+        } else {
+          console.log('❌ Usuario no tiene routesId en su empleado');
+        }
+
+        // 2. Check if user has special permissions for multiple routes
+        // This could be implemented based on business rules
+        // For example, supervisors might have access to multiple routes
+        if (user.employee?.type === 'ROUTE_LEAD') {
+          // Route leads might have access to additional routes
+          // This is a placeholder for future business logic
+        }
+
+        return {
+          isAdmin: false,
+          routes: accessibleRoutes,
+          accessType: accessibleRoutes.length > 1 ? 'MULTIPLE_ROUTES' : 'SINGLE_ROUTE',
+          userInfo: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role
+          },
+          hasEmployee: !!user.employee,
+          employeeInfo: user.employee,
+          message: accessibleRoutes.length === 0 ? 
+            'No tienes rutas asignadas. Contacta al administrador.' : undefined
+        };
+
+      } catch (error) {
+        console.error('Error in getUserAccessibleRoutes:', error);
+        throw new Error(`Error getting user accessible routes: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    },
+  }),
+
+  // Debug query to check user-employee relationship
+  debugUserEmployeeRelation: graphql.field({
+    type: graphql.nonNull(graphql.JSON),
+    resolve: async (root, args, context: Context) => {
+      try {
+        const session = context.session;
+        if (!session?.data?.id) {
+          throw new Error('Usuario no autenticado');
+        }
+
+        const userId = session.data.id;
+
+        // Get complete user information
+        const user = await context.prisma.user.findUnique({
+          where: { id: userId },
+          include: {
+            employee: {
+              include: {
+                routes: true,
+                personalData: true
+              }
+            }
+          }
+        });
+
+        // Get all employees to see if there's a match
+        const allEmployees = await context.prisma.employee.findMany({
+          include: {
+            user: true,
+            routes: true,
+            personalData: true
+          }
+        });
+
+        // Find employees that might match this user
+        const potentialMatches = allEmployees.filter(emp => {
+          const empName = emp.personalData?.fullName?.toLowerCase() || '';
+          const userName = user?.name?.toLowerCase() || '';
+          return empName.includes(userName) || userName.includes(empName);
+        });
+
+        return {
+          currentUser: {
+            id: user?.id,
+            name: user?.name,
+            email: user?.email,
+            role: user?.role,
+            hasEmployee: !!user?.employee,
+            employeeData: user?.employee
+          },
+          potentialEmployeeMatches: potentialMatches.map(emp => ({
+            id: emp.id,
+            name: emp.personalData?.fullName,
+            type: emp.type,
+            hasUser: !!emp.user,
+            connectedUserId: emp.user?.id,
+            connectedUserName: emp.user?.name,
+            routeId: emp.routesId,
+            routeName: emp.routes?.name
+          })),
+          allEmployeesCount: allEmployees.length,
+          employeesWithUser: allEmployees.filter(emp => emp.user).length,
+          employeesWithoutUser: allEmployees.filter(emp => !emp.user).length
+        };
+
+      } catch (error) {
+        console.error('Error in debugUserEmployeeRelation:', error);
+        return {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          userId: context.session?.data?.id
+        };
+      }
+    },
+  }),
+
   getFinancialReport: graphql.field({
     type: graphql.nonNull(graphql.JSON),
     args: {
