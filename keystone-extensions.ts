@@ -1461,24 +1461,24 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
       const weekRange = `${weekStart.toLocaleDateString('es-MX', { day: 'numeric', month: 'long' })} al ${weekEnd.toLocaleDateString('es-MX', { day: 'numeric', month: 'long' })}`;
 
       // Header elements (diseño de keystone2.ts)
-      const headerY = 25;
+      const headerY = 20;
       doc.fontSize(14).text(routeName as string, 30, headerY, { align: 'left', baseline: 'middle' });
       doc.fontSize(14).text('Listado de Cobranza', 0, headerY, { align: 'center', baseline: 'middle' });
-      doc.image('./solufacil.png', 450, 10, { width: 100 });
+      doc.image('./solufacil.png', 450, 5, { width: 100 });
 
-      const subtitleY = headerY + 20;
+      const subtitleY = headerY + 15;
       doc.fontSize(10).text(`Semanal del ${weekRange}`, 0, subtitleY, { align: 'center', baseline: 'middle' });
 
-      const detailsY = subtitleY + 30;
+      const detailsY = subtitleY + 20;
       doc.fontSize(8).fillColor('gray').text('Localidad:', 30, detailsY, { align: 'left', baseline: 'middle' });
       doc.fontSize(8).fillColor('black').text(localityName as string, 100, detailsY, { align: 'left', baseline: 'middle' });
       doc.fontSize(8).fillColor('gray').text('Lider:', 400, detailsY, { align: 'left', baseline: 'middle' });
       doc.fontSize(8).fillColor('black').text((leaderName as string) || 'Sin asignar', 450, detailsY, { align: 'left', baseline: 'middle' });
 
-      const additionalDetailsY = detailsY + 20;
+      const additionalDetailsY = detailsY + 15;
       doc.fontSize(8).fillColor('black').text(`Total de clientes: ${totalClientes}`, 30, additionalDetailsY, { align: 'left' });
-      doc.text(`Comisión a pagar al líder: ${formatCurrency(totalComisionEsperada)}`, 30, additionalDetailsY + 15, { align: 'left' });
-      doc.text(`Total de cobranza esperada: ${formatCurrency(totalCobranzaEsperada)}`, 30, additionalDetailsY + 30, { align: 'left' });
+      doc.text(`Comisión a pagar al líder: ${formatCurrency(totalComisionEsperada)}`, 30, additionalDetailsY + 12, { align: 'left' });
+      doc.text(`Total de cobranza esperada: ${formatCurrency(totalCobranzaEsperada)}`, 30, additionalDetailsY + 24, { align: 'left' });
 
       // Interfaces y columnas (diseño de keystone2.ts)
       interface PaymentRecord {
@@ -1527,7 +1527,7 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
       // Function to draw table headers (diseño de keystone2.ts)
       const drawTableHeaders = (y: number): number => {
         const headers = ['ID', 'NOMBRE', 'TELEFONO', 'ABONO', 'ADEUDO', 'PLAZOS', 'PAGO VDO', 'ABONO PARCIAL', 'FECHA INICIO', 'NUMERO SEMANA', 'AVAL'];
-        const headerHeight = 30;
+        const headerHeight = 24;
 
         doc.rect(30, y, Object.values(columnWidths).reduce((a, b) => a + b, 0), headerHeight).fillAndStroke('#f0f0f0', '#000');
         doc.fillColor('#000').fontSize(7);
@@ -1537,10 +1537,10 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
 
           if (header.includes(' ')) {
             const [firstLine, secondLine] = header.split(' ');
-            doc.text(firstLine, x, y + 5, { width: columnWidth, align: 'center' });
-            doc.text(secondLine, x, y + 15, { width: columnWidth, align: 'center' });
+            doc.text(firstLine, x, y + 3, { width: columnWidth, align: 'center' });
+            doc.text(secondLine, x, y + 12, { width: columnWidth, align: 'center' });
           } else {
-            doc.text(header, x, y + 10, { width: columnWidth, align: 'center' });
+            doc.text(header, x, y + 8, { width: columnWidth, align: 'center' });
           }
         });
 
@@ -1583,12 +1583,12 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
       };
 
       // Initial table headers (diseño de keystone2.ts)
-      let currentY = drawTableHeaders(additionalDetailsY + 50);
+      let currentY = drawTableHeaders(additionalDetailsY + 35);
       let pageNumber = 1;
       addPageNumber(pageNumber);
 
-      const paddingBottom = 5;
-      const lineHeight = 12;
+      const paddingBottom = 3;
+      const lineHeight = 10;
       const pageHeight = doc.page.height - doc.page.margins.bottom;
 
       // Dibujar filas con datos reales de la DB
@@ -1600,7 +1600,7 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         const nameStartX = 30 + nameOffset + 5;
         const nameBlockWidth = columnWidths.name - 10;
         const nameTextHeight = doc.heightOfString(payment.name || '', { width: nameBlockWidth });
-        const rowHeight = Math.max(nameTextHeight + paddingBottom + 10, 20);
+        const rowHeight = Math.max(nameTextHeight + paddingBottom + 6, 16);
 
         if (currentY + rowHeight > pageHeight) {
           // Add page number to current page before creating new one
