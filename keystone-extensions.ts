@@ -1548,6 +1548,15 @@ export const extendExpressApp = (app: express.Express) => {
           // Detalles del último préstamo (más reciente)
           const latestLoan = loansAsClient[0]; // Asumiendo que están ordenados por fecha desc
           if (latestLoan) {
+            // Calcular altura necesaria para el card del préstamo actual
+            const estimatedHeight = 150 + (latestLoan.payments?.length || 0) * 18;
+            
+            // Solo agregar nueva página si realmente no hay espacio
+            if (y > doc.page.height - Math.min(estimatedHeight, 200)) {
+              doc.addPage();
+              y = 40;
+            }
+            
             y += 20;
             
             // Card del préstamo actual
@@ -1592,6 +1601,9 @@ export const extendExpressApp = (app: express.Express) => {
               // Encabezados
               doc.fontSize(8).fillColor('#ffffff');
               doc.rect(paymentTableX, y, totalPaymentWidth, 18).fill('#1e40af');
+              
+              // Asegurar que el texto sea blanco sobre fondo azul
+              doc.fillColor('#ffffff');
               paymentHeaders.forEach((header, index) => {
                 const headerX = paymentTableX + paymentColumnWidths.slice(0, index).reduce((a, b) => a + b, 0);
                 doc.text(header, headerX + 5, y + 6, { width: paymentColumnWidths[index] - 10, align: 'center' });
@@ -1605,8 +1617,8 @@ export const extendExpressApp = (app: express.Express) => {
                   y = 40;
                 }
 
-                              const paymentRowColor = paymentIndex % 2 === 0 ? '#f0f9ff' : '#ffffff';
-              doc.rect(paymentTableX, y - 2, totalPaymentWidth, 16).fill(paymentRowColor);
+                const paymentRowColor = paymentIndex % 2 === 0 ? '#f0f9ff' : '#ffffff';
+                doc.rect(paymentTableX, y - 2, totalPaymentWidth, 16).fill(paymentRowColor);
 
                 const paymentData = [
                   formatDate(payment.receivedAt),
@@ -1628,8 +1640,8 @@ export const extendExpressApp = (app: express.Express) => {
 
           // Resumen de préstamos anteriores (si hay más de uno)
           if (loansAsClient.length > 1) {
-            // Solo agregar nueva página si realmente no hay espacio
-            if (y > doc.page.height - 120) {
+            // Solo agregar nueva página si realmente no hay espacio para el card completo
+            if (y > doc.page.height - 90) {
               doc.addPage();
               y = 40;
             }
@@ -1713,8 +1725,8 @@ export const extendExpressApp = (app: express.Express) => {
         } else {
           // MODO RESUMEN: Solo estadísticas de avales
           if (collateralStats) {
-            // Solo agregar nueva página si realmente no hay espacio
-            if (y > doc.page.height - 120) {
+            // Solo agregar nueva página si realmente no hay espacio para el card completo
+            if (y > doc.page.height - 110) {
               doc.addPage();
               y = 40;
             }
@@ -1764,29 +1776,25 @@ export const extendExpressApp = (app: express.Express) => {
         doc.text('Documento confidencial - Solo para uso interno', doc.page.width - 200, footerY + 25);
       };
 
+      // Nota final en modo resumen - directamente después del contenido
+      if (!detailed && (loansAsClient?.length > 0 || loansAsCollateral?.length > 0)) {
+        y += 20; // Espacio antes de la nota
+        
+        // Card de información sobre el reporte más compacto
+        doc.roundedRect(40, y, doc.page.width - 80, 50, 6).fill('#f0f9ff');
+        doc.roundedRect(40, y, doc.page.width - 80, 50, 6).stroke('#1e40af');
+        
+        y += 12;
+        doc.fontSize(9).fillColor('#1e40af').text('INFORMACION DEL REPORTE', 55, y);
+        y += 15;
+        doc.fontSize(8).fillColor('#1e40af').text('Este es un reporte resumido. Para ver el historial completo active la opcion "PDF detallado completo".', 55, y);
+      }
+
       // Agregar footer a todas las páginas
       const range = doc.bufferedPageRange();
       for (let i = range.start; i < range.start + range.count; i++) {
         doc.switchToPage(i);
         addFooter();
-      }
-
-      // Nota final en modo resumen - solo si hay espacio suficiente
-      if (!detailed && (loansAsClient?.length > 0 || loansAsCollateral?.length > 0)) {
-        // Solo agregar la nota si hay espacio suficiente en la página actual
-        if (y <= doc.page.height - 100) {
-          y += 20; // Espacio antes de la nota
-          
-          // Card de información sobre el reporte más compacto
-          doc.roundedRect(40, y, doc.page.width - 80, 50, 6).fill('#f0f9ff');
-          doc.roundedRect(40, y, doc.page.width - 80, 50, 6).stroke('#1e40af');
-          
-          y += 12;
-          doc.fontSize(9).fillColor('#1e40af').text('INFORMACION DEL REPORTE', 55, y);
-          y += 15;
-          doc.fontSize(8).fillColor('#1e40af').text('Este es un reporte resumido. Para ver el historial completo active la opcion "PDF detallado completo".', 55, y);
-        }
-        // Si no hay espacio, simplemente no agregamos la nota para evitar páginas casi vacías
       }
 
       console.log('📄 Finalizando PDF');
