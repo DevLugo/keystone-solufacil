@@ -1409,7 +1409,7 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
           pagoVdo: formatCurrency(arrearsAmount || 0),
           abonoParcial: formatCurrency(abonoParcialAmount || 0),
           fInicio: formatDate(loan.signDate),
-          nSemana: String(nSemanaValue + 1),
+          nSemana: String(nSemanaValue),
           aval: avalDisplay
         };
       });
@@ -1603,10 +1603,11 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         const rowHeight = Math.max(nameTextHeight + paddingBottom + 10, 20);
 
         if (currentY + rowHeight > pageHeight) {
+          // Add page number to current page before creating new one
+          addPageNumber(pageNumber);
           doc.addPage();
           pageNumber++;
           currentY = drawTableHeaders(30);
-          addPageNumber(pageNumber);
         }
 
         // Dibujar nombre en bloque con auto-wrap
@@ -1658,6 +1659,7 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         currentY += rowHeight;
       });
 
+      // Add page number to the final page
       addPageNumber(pageNumber);
       doc.end();
 
