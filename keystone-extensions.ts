@@ -1286,12 +1286,17 @@ export const extendExpressApp = (app: express.Express) => {
             }, 0) / completedLoans.length)
           : 0;
         
+        // Calcular fallos promedio de manera más precisa
+        const avgFailuresPerLoan = loans.length > 0 
+          ? Math.round((failedPayments / loans.length) * 100) / 100 // Más precisión
+          : 0;
+        
         const result = {
           totalLoans: loans.length,
           completedLoans: completedLoans.length,
           avgWeeksToComplete,
           totalFailures: failedPayments,
-          avgFailuresPerLoan: loans.length > 0 ? Math.round((failedPayments / loans.length) * 10) / 10 : 0
+          avgFailuresPerLoan: avgFailuresPerLoan
         };
         
         console.log('📊 Estadísticas calculadas:', result);
@@ -1304,9 +1309,9 @@ export const extendExpressApp = (app: express.Express) => {
       // Fondo azul profesional para el header
       doc.rect(0, 0, doc.page.width, headerHeight).fill('#1e40af');
 
-      // Logo (si existe)
+      // Logo (si existe) - más grande
       try {
-        doc.image('./solufacil.png', doc.page.width - 80, 15, { width: 50 });
+        doc.image('./solufacil.png', doc.page.width - 100, 10, { width: 80 });
       } catch (e) {
         // Si no hay logo, continuamos sin él
       }
@@ -1321,8 +1326,14 @@ export const extendExpressApp = (app: express.Express) => {
       // Información del cliente con diseño moderno
       let y = 120;
       
-      // Card de información del cliente
-      const clientCardHeight = 80 + (clientAddresses?.length || 0) * 12;
+      // Card de información del cliente (calculado dinámicamente)
+      let clientCardHeight = 90; // Base height
+      if (clientDui) clientCardHeight += 18;
+      if (clientPhones && clientPhones.length > 0) clientCardHeight += 18;
+      if (clientAddresses && clientAddresses.length > 0) {
+        clientCardHeight += 15 + (clientAddresses.length * 12);
+      }
+      
       doc.roundedRect(40, y, doc.page.width - 80, clientCardHeight, 8).fill('#f0f9ff');
       doc.roundedRect(40, y, doc.page.width - 80, clientCardHeight, 8).stroke('#1e40af');
       
@@ -1365,7 +1376,6 @@ export const extendExpressApp = (app: express.Express) => {
         // Métricas principales en grid
         const totalLoans = (loansAsClient?.length || 0) + (loansAsCollateral?.length || 0);
         const activeLoans = (summary?.activeLoansAsClient || 0) + (summary?.activeLoansAsCollateral || 0);
-        const totalPaid = summary?.totalAmountPaidAsClient || 0;
         const pendingDebt = summary?.currentPendingDebtAsClient || 0;
         
         // Primera fila de métricas
@@ -1377,14 +1387,41 @@ export const extendExpressApp = (app: express.Express) => {
         y += 20;
         
         // Segunda fila de métricas
-        doc.fontSize(11).fillColor('#1e40af').text('Total Pagado:', 55, y);
-        doc.fontSize(12).fillColor('#1e40af').text(formatCurrency(totalPaid), 250, y);
-        doc.fontSize(11).fillColor('#1e40af').text('Deuda Pendiente:', 350, y);
-        doc.fontSize(12).fillColor(pendingDebt > 0 ? '#dc2626' : '#16a34a').text(formatCurrency(pendingDebt), 480, y);
+        doc.fontSize(11).fillColor('#1e40af').text('Deuda Pendiente:', 55, y);
+        doc.fontSize(12).fillColor(pendingDebt > 0 ? '#dc2626' : '#16a34a').text(formatCurrency(pendingDebt), 250, y);
         y += 20;
         
-        // Indicador de confiabilidad
-        const reliabilityScore = totalLoans > 0 ? Math.round(((totalLoans - activeLoans) / totalLoans) * 100) : 0;
+        // Indicador de cumplimiento basado en pagos semanales
+        const calculateComplianceScore = (loans: any[]) => {
+          if (!loans || loans.length === 0) return 0;
+          
+          let totalExpectedPayments = 0;
+          let totalMissedPayments = 0;
+          
+          console.log('📊 Calculando índice de cumplimiento...');
+          
+          loans.forEach((loan, index) => {
+            // Calcular semanas esperadas del préstamo
+            const expectedWeeks = loan.weekDuration || 16; // Default 16 semanas si no está especificado
+            const missedWeeks = loan.noPaymentPeriods?.length || 0;
+            
+            totalExpectedPayments += expectedWeeks;
+            totalMissedPayments += missedWeeks;
+            
+            console.log(`Préstamo ${index + 1}: ${expectedWeeks} semanas esperadas, ${missedWeeks} fallos`);
+          });
+          
+          if (totalExpectedPayments === 0) return 0;
+          
+          // Calcular porcentaje de cumplimiento
+          const complianceScore = Math.max(0, Math.round(((totalExpectedPayments - totalMissedPayments) / totalExpectedPayments) * 100));
+          
+          console.log(`📊 Total esperado: ${totalExpectedPayments}, Total fallos: ${totalMissedPayments}, Score: ${complianceScore}%`);
+          
+          return complianceScore;
+        };
+        
+        const reliabilityScore = calculateComplianceScore(loansAsClient || []);
         doc.fontSize(11).fillColor('#1e40af').text('Indice de Cumplimiento:', 55, y);
         doc.fontSize(12).fillColor(reliabilityScore >= 80 ? '#16a34a' : reliabilityScore >= 60 ? '#f59e0b' : '#dc2626').text(`${reliabilityScore}%`, 250, y);
         
@@ -1591,7 +1628,8 @@ export const extendExpressApp = (app: express.Express) => {
 
           // Resumen de préstamos anteriores (si hay más de uno)
           if (loansAsClient.length > 1) {
-            if (y > doc.page.height - 150) {
+            // Solo agregar nueva página si realmente no hay espacio
+            if (y > doc.page.height - 120) {
               doc.addPage();
               y = 40;
             }
@@ -1675,6 +1713,12 @@ export const extendExpressApp = (app: express.Express) => {
         } else {
           // MODO RESUMEN: Solo estadísticas de avales
           if (collateralStats) {
+            // Solo agregar nueva página si realmente no hay espacio
+            if (y > doc.page.height - 120) {
+              doc.addPage();
+              y = 40;
+            }
+            
             doc.roundedRect(40, y, doc.page.width - 80, 100, 6).fill('#f0f9ff');
             doc.roundedRect(40, y, doc.page.width - 80, 100, 6).stroke('#1e40af');
             
@@ -1727,24 +1771,22 @@ export const extendExpressApp = (app: express.Express) => {
         addFooter();
       }
 
-      // Nota final en modo resumen
+      // Nota final en modo resumen - solo si hay espacio suficiente
       if (!detailed && (loansAsClient?.length > 0 || loansAsCollateral?.length > 0)) {
-        // Verificar si necesitamos nueva página para la nota
-        if (y > doc.page.height - 150) {
-          doc.addPage();
-          y = 40;
+        // Solo agregar la nota si hay espacio suficiente en la página actual
+        if (y <= doc.page.height - 100) {
+          y += 20; // Espacio antes de la nota
+          
+          // Card de información sobre el reporte más compacto
+          doc.roundedRect(40, y, doc.page.width - 80, 50, 6).fill('#f0f9ff');
+          doc.roundedRect(40, y, doc.page.width - 80, 50, 6).stroke('#1e40af');
+          
+          y += 12;
+          doc.fontSize(9).fillColor('#1e40af').text('INFORMACION DEL REPORTE', 55, y);
+          y += 15;
+          doc.fontSize(8).fillColor('#1e40af').text('Este es un reporte resumido. Para ver el historial completo active la opcion "PDF detallado completo".', 55, y);
         }
-        
-        // Card de información sobre el reporte
-        doc.roundedRect(40, y, doc.page.width - 80, 60, 6).fill('#f0f9ff');
-        doc.roundedRect(40, y, doc.page.width - 80, 60, 6).stroke('#1e40af');
-        
-        y += 15;
-        doc.fontSize(10).fillColor('#1e40af').text('INFORMACION DEL REPORTE', 55, y);
-        y += 20;
-        doc.fontSize(9).fillColor('#1e40af').text('Este es un reporte resumido. Para ver el historial completo de pagos de todos los prestamos,', 55, y);
-        y += 12;
-        doc.fontSize(9).fillColor('#1e40af').text('active la opcion "PDF detallado completo" antes de exportar.', 55, y);
+        // Si no hay espacio, simplemente no agregamos la nota para evitar páginas casi vacías
       }
 
       console.log('📄 Finalizando PDF');
