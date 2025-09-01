@@ -976,7 +976,7 @@ export const extendExpressApp = (app: express.Express) => {
     }
   });
 
-  (app as any).get('/resumen', async (req, res) => {
+  app.get('/resumen', async (req, res) => {
     const { startDate, endDate, routeId } = req.query;
 
     if (!startDate || !endDate || !routeId) {
@@ -1184,7 +1184,7 @@ export const extendExpressApp = (app: express.Express) => {
   });
 
   // Endpoint para exportar historial del cliente a PDF
-  (app as any).post('/export-client-history-pdf', async (req, res) => {
+  app.post('/export-client-history-pdf', express.json(), async (req, res) => {
     try {
       console.log('📄 Iniciando generación de PDF del historial del cliente');
       console.log('📋 req.body:', req.body);
