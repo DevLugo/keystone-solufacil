@@ -272,6 +272,9 @@ const HistorialClientePage: React.FC = () => {
 
   // Estado para detectar si es mobile
   const [isMobile, setIsMobile] = useState(false);
+  
+  // Estado para el toggle de PDF detallado
+  const [showDetailedPDF, setShowDetailedPDF] = useState(false);
 
   // Detectar tamaño de pantalla
   useEffect(() => {
@@ -452,7 +455,7 @@ const HistorialClientePage: React.FC = () => {
     return 'TITULAR'; // Por defecto
   };
 
-  const handleExportPDF = async (historyData: ClientHistoryData) => {
+  const handleExportPDF = async (historyData: ClientHistoryData, detailed: boolean = false) => {
     try {
       const response = await fetch('/export-client-history-pdf', {
         method: 'POST',
@@ -467,7 +470,8 @@ const HistorialClientePage: React.FC = () => {
           clientAddresses: historyData.client.addresses,
           summary: historyData.summary,
           loansAsClient: historyData.loansAsClient,
-          loansAsCollateral: historyData.loansAsCollateral
+          loansAsCollateral: historyData.loansAsCollateral,
+          detailed: detailed
         }),
       });
 
@@ -694,21 +698,52 @@ const HistorialClientePage: React.FC = () => {
             </Button>
 
             {showClientHistory && historyResult && (
-              <Button 
-                onClick={() => handleExportPDF(historyResult)}
-                style={{
-                  backgroundColor: '#38a169',
-                  color: 'white',
-                  padding: isMobile ? '12px 16px' : '10px 20px',
-                  border: 'none',
+              <div style={{
+                display: 'flex',
+                flexDirection: isMobile ? 'column' : 'row',
+                alignItems: isMobile ? 'stretch' : 'center',
+                gap: '8px',
+                marginLeft: isMobile ? '0px' : '8px',
+              }}>
+                {/* Toggle para PDF detallado */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '8px 12px',
+                  backgroundColor: '#f7fafc',
                   borderRadius: '6px',
-                  marginLeft: isMobile ? '0px' : '8px',
-                  width: isMobile ? '100%' : 'auto',
-                  fontSize: isMobile ? '14px' : 'inherit'
-                }}
-              >
-                📄 Exportar PDF
-              </Button>
+                  border: '1px solid #e2e8f0',
+                  fontSize: '12px'
+                }}>
+                  <input
+                    type="checkbox"
+                    id="detailed-pdf-toggle"
+                    checked={showDetailedPDF}
+                    onChange={(e) => setShowDetailedPDF(e.target.checked)}
+                    style={{ marginRight: '4px' }}
+                  />
+                  <label htmlFor="detailed-pdf-toggle" style={{ color: '#4a5568', cursor: 'pointer' }}>
+                    PDF detallado completo
+                  </label>
+                </div>
+                
+                {/* Botón de exportar PDF */}
+                <Button 
+                  onClick={() => handleExportPDF(historyResult, showDetailedPDF)}
+                  style={{
+                    backgroundColor: '#38a169',
+                    color: 'white',
+                    padding: isMobile ? '12px 16px' : '10px 20px',
+                    border: 'none',
+                    borderRadius: '6px',
+                    width: isMobile ? '100%' : 'auto',
+                    fontSize: isMobile ? '14px' : 'inherit'
+                  }}
+                >
+                  📄 {showDetailedPDF ? 'Exportar PDF Completo' : 'Exportar PDF Resumen'}
+                </Button>
+              </div>
             )}
 
             {selectedClient && (

@@ -1204,7 +1204,8 @@ export const extendExpressApp = (app: express.Express) => {
         clientAddresses,
         summary,
         loansAsClient,
-        loansAsCollateral
+        loansAsCollateral,
+        detailed = false
       } = req.body;
 
       // Validar parámetros requeridos
@@ -1214,14 +1215,21 @@ export const extendExpressApp = (app: express.Express) => {
       }
 
       console.log('✅ Parámetros válidos, procediendo con la generación');
+      console.log(`📊 Modo: ${detailed ? 'Detallado' : 'Resumen'}`);
 
-      // Crear PDF simple y funcional
+      // Crear PDF profesional y moderno
       const doc = new PDFDocument({
-        margin: 30,
+        margin: 40,
         size: 'A4',
-        layout: 'portrait'
+        layout: 'portrait',
+        info: {
+          Title: `Historial Crediticio - ${clientName}`,
+          Author: 'SoluFácil',
+          Subject: 'Historial Crediticio del Cliente',
+          Creator: 'SoluFácil Sistema de Gestión'
+        }
       });
-      const filename = `historial_${clientName.replace(/\s+/g, '_')}.pdf`;
+      const filename = `historial_${clientName.replace(/\s+/g, '_')}_${detailed ? 'completo' : 'resumen'}.pdf`;
 
       res.setHeader('Content-disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
       res.setHeader('Content-type', 'application/pdf');
@@ -1244,466 +1252,477 @@ export const extendExpressApp = (app: express.Express) => {
         });
       };
 
-      // Header profesional y consistente
-      const headerHeight = 70;
-      doc.rect(0, 0, doc.page.width, headerHeight).fill('#ffffff');
-      doc.rect(0, 0, doc.page.width, 1).fill('#e2e8f0');
+      // Funciones auxiliares para cálculos estadísticos
+      const calculateLoanStats = (loans: any[]) => {
+        if (!loans || loans.length === 0) return null;
+        
+        const completedLoans = loans.filter(loan => loan.status === 'TERMINADO');
+        const failedPayments = loans.reduce((total, loan) => {
+          return total + (loan.noPaymentPeriods?.length || 0);
+        }, 0);
+        
+        const avgWeeksToComplete = completedLoans.length > 0 
+          ? Math.round(completedLoans.reduce((sum, loan) => {
+              const startDate = new Date(loan.signDate);
+              const endDate = new Date(loan.finishedDate);
+              const weeks = Math.ceil((endDate.getTime() - startDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
+              return sum + weeks;
+            }, 0) / completedLoans.length)
+          : 0;
+        
+        return {
+          totalLoans: loans.length,
+          completedLoans: completedLoans.length,
+          avgWeeksToComplete,
+          totalFailures: failedPayments,
+          avgFailuresPerLoan: loans.length > 0 ? Math.round((failedPayments / loans.length) * 10) / 10 : 0
+        };
+      };
 
-      // Logo discreto
-      doc.image('./solufacil.png', doc.page.width - 70, 8, { width: 45 });
+      // Header moderno y profesional
+      const headerHeight = 90;
+      
+      // Fondo degradado sutil para el header
+      const gradient = doc.linearGradient(0, 0, 0, headerHeight);
+      gradient.stop(0, '#667eea');
+      gradient.stop(1, '#764ba2');
+      doc.rect(0, 0, doc.page.width, headerHeight).fill(gradient);
 
-      // Título principal con tipografía profesional
-      doc.fontSize(20).fillColor('#1a202c').text('HISTORIAL DE CLIENTE', 0, 15, { align: 'center' });
-      doc.fontSize(9).fillColor('#718096').text(`Generado el ${new Date().toLocaleDateString('es-SV')} a las ${new Date().toLocaleTimeString('es-SV')}`, 0, 40, { align: 'center' });
+      // Logo (si existe)
+      try {
+        doc.image('./solufacil.png', doc.page.width - 80, 15, { width: 50 });
+      } catch (e) {
+        // Si no hay logo, continuamos sin él
+      }
 
-      // Información del cliente con formato profesional
-      let y = 80;
-      doc.fontSize(12).fillColor('#1a202c').text('INFORMACIÓN DEL CLIENTE', 30, y);
+      // Título principal con tipografía moderna
+      doc.fontSize(24).fillColor('#ffffff').text('HISTORIAL CREDITICIO', 40, 20, { align: 'left' });
+      doc.fontSize(11).fillColor('#e2e8f0').text(`${detailed ? 'Reporte Completo' : 'Reporte Resumen'} • Generado: ${new Date().toLocaleDateString('es-SV')} ${new Date().toLocaleTimeString('es-SV', { hour: '2-digit', minute: '2-digit' })}`, 40, 45, { align: 'left' });
+      
+      // Línea decorativa
+      doc.rect(40, 70, doc.page.width - 80, 2).fill('#ffffff');
+
+      // Información del cliente con diseño moderno
+      let y = 120;
+      
+      // Card de información del cliente
+      const clientCardHeight = 80 + (clientAddresses?.length || 0) * 12;
+      doc.roundedRect(40, y, doc.page.width - 80, clientCardHeight, 8).fill('#f8fafc');
+      doc.roundedRect(40, y, doc.page.width - 80, clientCardHeight, 8).stroke('#e2e8f0');
+      
+      y += 15;
+      doc.fontSize(14).fillColor('#2d3748').text('INFORMACIÓN DEL CLIENTE', 55, y, { underline: true });
+      y += 25;
+
+      doc.fontSize(12).fillColor('#1a202c').text(`Nombre: ${clientName}`, 55, y);
       y += 18;
-
-      doc.fontSize(10).fillColor('#2d3748').text(`Nombre: ${clientName}`, 30, y);
-      y += 16;
+      
+      if (clientDui) {
+        doc.fontSize(10).fillColor('#4a5568').text(`DUI: ${clientDui}`, 55, y);
+        y += 15;
+      }
 
       if (clientPhones && clientPhones.length > 0) {
-        doc.fontSize(9).fillColor('#4a5568').text(`Teléfonos: ${clientPhones.join(', ')}`, 30, y);
-        y += 16;
+        doc.fontSize(10).fillColor('#4a5568').text(`Teléfonos: ${clientPhones.join(', ')}`, 55, y);
+        y += 15;
       }
 
       if (clientAddresses && clientAddresses.length > 0) {
-        doc.fontSize(9).fillColor('#4a5568').text('Direcciones:', 30, y);
+        doc.fontSize(10).fillColor('#4a5568').text('Direcciones:', 55, y);
         y += 12;
         clientAddresses.forEach((addr: any) => {
-          doc.fontSize(8).fillColor('#718096').text(`${addr.street}, ${addr.city}, ${addr.location} (${addr.route})`, 50, y);
-          y += 10;
+          doc.fontSize(9).fillColor('#718096').text(`• ${addr.street}, ${addr.city}, ${addr.location} (${addr.route})`, 70, y);
+          y += 12;
         });
       }
 
-      y += 20;
-
-
-
-      // Préstamos como cliente con diseño profesional
-      if (loansAsClient && loansAsClient.length > 0) {
-        doc.fontSize(12).fillColor('#1a202c').text('PRÉSTAMOS COMO CLIENTE', 30, y);
-        y += 20;
-
-        // Tabla con ancho optimizado para mejor distribución
-        const tableHeaders = ['Fecha', 'Tipo', 'Prestado', 'Total a Pagar', 'Pagado', 'Deuda Pendiente', 'Estado', 'Líder'];
-        const columnWidths = [65, 55, 65, 75, 65, 75, 55, 65];
-        const totalTableWidth = columnWidths.reduce((a, b) => a + b, 0);
-        const tableX = 30; // Alineado a la izquierda como las tablas de pagos
-
-        // Encabezados con diseño profesional (mismo formato que tablas de pagos)
-        doc.fontSize(8).fillColor('#ffffff');
-        doc.rect(tableX, y, totalTableWidth, 25).fill('#2c3e50'); // Aumentado altura para más padding
-        doc.fillColor('#ffffff');
-
-        tableHeaders.forEach((header, index) => {
-          const headerX = tableX + columnWidths.slice(0, index).reduce((a, b) => a + b, 0);
-          const headerWidth = columnWidths[index];
-
-          // Manejar encabezados de dos líneas con mejor espaciado
-          if (header.includes(' ')) {
-            const words = header.split(' ');
-            const midPoint = Math.ceil(words.length / 2);
-            const firstLine = words.slice(0, midPoint).join(' ');
-            const secondLine = words.slice(midPoint).join(' ');
-
-            doc.text(firstLine, headerX, y + 7, { width: headerWidth, align: 'center' });
-            doc.text(secondLine, headerX, y + 17, { width: headerWidth, align: 'center' });
-          } else {
-            doc.text(header, headerX, y + 12, { width: headerWidth, align: 'center' });
-          }
-        });
-
+      // RESUMEN EJECUTIVO - Solo en modo resumen
+      if (!detailed && (loansAsClient?.length > 0 || loansAsCollateral?.length > 0)) {
+        // Card de resumen ejecutivo
+        doc.roundedRect(40, y, doc.page.width - 80, 120, 8).fill('#f0f9ff');
+        doc.roundedRect(40, y, doc.page.width - 80, 120, 8).stroke('#0ea5e9');
+        
+        y += 15;
+        doc.fontSize(16).fillColor('#0369a1').text('📈 RESUMEN EJECUTIVO', 55, y);
         y += 30;
-
-        // Filas de datos con diseño moderno (mismo formato que tablas de pagos)
-        loansAsClient.forEach((loan: any, index: number) => {
-          if (y > doc.page.height - 120) {
-            doc.addPage();
-            y = 30;
-          }
-
-          const rowData = [
-            formatDate(loan.signDate),
-            loan.loanType,
-            formatCurrency(loan.amountRequested),
-            formatCurrency(loan.totalAmountDue),
-            formatCurrency(loan.totalPaid),
-            formatCurrency(loan.pendingDebt),
-            loan.status,
-            loan.leadName
-          ];
-
-          // Calcular altura máxima de la fila basada en el contenido
-          let maxLines = 1;
-          rowData.forEach((cell, cellIndex) => {
-            const cellWidth = columnWidths[cellIndex];
-            const lines = doc.heightOfString(cell, { width: cellWidth - 4 }) / 8; // 8px por línea
-            maxLines = Math.max(maxLines, Math.ceil(lines));
-          });
-
-          const rowHeight = Math.max(20, maxLines * 12); // Mínimo 20px, máximo basado en contenido
-
-          // Fondo alternado sutil
-          const rowColor = index % 2 === 0 ? '#f8f9fa' : '#ffffff';
-          doc.rect(tableX, y - 3, totalTableWidth, rowHeight).fill(rowColor);
-
-          rowData.forEach((cell, cellIndex) => {
-            const cellX = tableX + columnWidths.slice(0, cellIndex).reduce((a, b) => a + b, 0);
-            const cellWidth = columnWidths[cellIndex];
-
-            // Color del estado
-            let textColor = '#2c3e50';
-            if (cellIndex === 6) { // Columna de estado
-              textColor = loan.status === 'ACTIVO' ? '#38a169' :
-                loan.status === 'VENCIDO' ? '#e53e3e' :
-                  loan.status === 'TERMINADO' ? '#3182ce' : '#718096';
-            }
-
-            // Centrar verticalmente el texto
-            const textHeight = doc.heightOfString(cell, { width: cellWidth - 4 });
-            const verticalOffset = (rowHeight - textHeight) / 2;
-
-            doc.fontSize(8).fillColor(textColor).text(cell, cellX, y + verticalOffset, { width: cellWidth - 4, align: 'center' });
-          });
-
-          y += rowHeight + 2; // Espacio adicional entre filas
-        });
-
+        
+        // Métricas principales en grid
+        const totalLoans = (loansAsClient?.length || 0) + (loansAsCollateral?.length || 0);
+        const activeLoans = summary?.activeLoansAsClient + summary?.activeLoansAsCollateral || 0;
+        const totalPaid = summary?.totalAmountPaidAsClient || 0;
+        const pendingDebt = summary?.currentPendingDebtAsClient || 0;
+        
+        // Primera fila de métricas
+        doc.fontSize(11).fillColor('#0369a1');
+        doc.text('Total de Relaciones Crediticias:', 55, y);
+        doc.fontSize(12).fillColor('#1e40af').text(totalLoans.toString(), 250, y);
+        doc.fontSize(11).fillColor('#0369a1').text('Préstamos Activos:', 350, y);
+        doc.fontSize(12).fillColor('#1e40af').text(activeLoans.toString(), 480, y);
+        y += 20;
+        
+        // Segunda fila de métricas
+        doc.fontSize(11).fillColor('#0369a1').text('Total Pagado:', 55, y);
+        doc.fontSize(12).fillColor('#1e40af').text(formatCurrency(totalPaid), 250, y);
+        doc.fontSize(11).fillColor('#0369a1').text('Deuda Pendiente:', 350, y);
+        doc.fontSize(12).fillColor(pendingDebt > 0 ? '#dc2626' : '#16a34a').text(formatCurrency(pendingDebt), 480, y);
+        y += 20;
+        
+        // Indicador de confiabilidad
+        const reliabilityScore = totalLoans > 0 ? Math.round(((totalLoans - activeLoans) / totalLoans) * 100) : 0;
+        doc.fontSize(11).fillColor('#0369a1').text('Índice de Cumplimiento:', 55, y);
+        doc.fontSize(12).fillColor(reliabilityScore >= 80 ? '#16a34a' : reliabilityScore >= 60 ? '#f59e0b' : '#dc2626').text(`${reliabilityScore}%`, 250, y);
+        
         y += 40;
-
-        // DETALLE DE PAGOS - VERSIÓN EXPANDIDA
-        doc.fontSize(12).fillColor('#1a202c').text('DETALLE DE PAGOS - PRÉSTAMOS COMO CLIENTE', 30, y);
-        y += 20;
+      }
 
 
 
-        loansAsClient.forEach((loan: any, loanIndex: number) => {
-          // Verificar si necesitamos nueva página
-          if (y > doc.page.height - 150) {
-            doc.addPage();
-            y = 30;
-          }
+      // PRÉSTAMOS COMO CLIENTE - Nueva implementación
+      if (loansAsClient && loansAsClient.length > 0) {
+        // Calcular estadísticas
+        const clientStats = calculateLoanStats(loansAsClient);
+        
+        // Header de sección con diseño moderno
+        doc.roundedRect(40, y, doc.page.width - 80, 40, 6).fill('#4299e1');
+        doc.fontSize(16).fillColor('#ffffff').text('💼 PRÉSTAMOS COMO CLIENTE', 55, y + 12);
+        y += 50;
 
-          // Encabezado del préstamo
-          doc.fontSize(10).fillColor('#2d3748').text(`PRÉSTAMO ${loanIndex + 1}: ${loan.loanType}`, 30, y);
-          y += 12;
-          doc.fontSize(8).fillColor('#718096').text(`Fecha de inicio: ${formatDate(loan.signDate)} | Monto: ${formatCurrency(loan.amountRequested)} | Estado: ${loan.status}`, 30, y);
-          y += 12;
-
-          // Tabla de pagos del préstamo con ancho optimizado
-          if (loan.payments && loan.payments.length > 0) {
-            const paymentHeaders = ['Fecha', 'Monto', 'Método', 'N° Pago', 'Balance Antes', 'Balance Después'];
-            const paymentColumnWidths = [70, 60, 50, 40, 70, 70];
-
-            // Encabezados de la tabla de pagos alineada a la izquierda
-            const totalPaymentWidth = paymentColumnWidths.reduce((a, b) => a + b, 0);
-            const paymentTableX = 30; // Alineado a la izquierda para consistencia
-            doc.fontSize(7).fillColor('#ffffff');
-            doc.rect(paymentTableX, y, totalPaymentWidth, 16).fill('#2c3e50');
-            doc.fillColor('#ffffff');
-
-            paymentHeaders.forEach((header, index) => {
-              const headerX = paymentTableX + paymentColumnWidths.slice(0, index).reduce((a, b) => a + b, 0);
-              doc.text(header, headerX, y + 6, { width: paymentColumnWidths[index], align: 'center' });
-            });
-
-            y += 25;
-
-            // Filas de pagos
-            loan.payments.forEach((payment: any, paymentIndex: number) => {
-              if (y > doc.page.height - 100) {
-                doc.addPage();
-                y = 30;
-              }
-
-              const paymentRowColor = paymentIndex % 2 === 0 ? '#f8f9fa' : '#ffffff';
-              doc.rect(paymentTableX, y - 3, totalPaymentWidth, 16).fill(paymentRowColor);
-
-              const paymentData = [
-                formatDate(payment.receivedAt),
-                formatCurrency(payment.amount),
-                payment.paymentMethod || 'N/A',
-                payment.paymentNumber?.toString() || 'N/A',
-                formatCurrency(payment.balanceBeforePayment),
-                formatCurrency(payment.balanceAfterPayment)
-              ];
-
-              paymentData.forEach((cell, cellIndex) => {
-                const cellX = paymentTableX + paymentColumnWidths.slice(0, cellIndex).reduce((a, b) => a + b, 0);
-                doc.fontSize(7).fillColor('#2c3e50').text(cell, cellX, y + 4, { width: paymentColumnWidths[cellIndex], align: 'center' });
-              });
-
-              y += 20;
-            });
-
-            y += 10;
-          } else {
-            doc.fontSize(10).fillColor('#e74c3c').text('No hay pagos registrados para este préstamo', 30, y);
-            y += 20;
-          }
-
-          // ✅ NUEVA FUNCIONALIDAD: Mostrar períodos sin pagos con diseño profesional
-          if (loan.noPaymentPeriods && loan.noPaymentPeriods.length > 0) {
-            // Verificar espacio para la sección completa
-            const estimatedHeight = 50 + (loan.noPaymentPeriods.length * 25);
-            if (y + estimatedHeight > doc.page.height - 100) {
+        if (detailed) {
+          // MODO DETALLADO: Mostrar todos los préstamos con pagos completos
+          loansAsClient.forEach((loan: any, loanIndex: number) => {
+            if (y > doc.page.height - 200) {
               doc.addPage();
-              y = 30;
+              y = 40;
             }
 
-            // Encabezado con fondo similar a las tablas
-            doc.fontSize(9).fillColor('#ffffff');
-            doc.rect(30, y, 360, 20).fill('#e74c3c');
-            doc.fillColor('#ffffff').text('PERÍODOS SIN PAGO', 30, y + 6, { width: 360, align: 'center' });
+            // Card del préstamo
+            const loanCardHeight = 60 + (loan.payments?.length || 0) * 20 + (loan.noPaymentPeriods?.length || 0) * 15;
+            doc.roundedRect(40, y, doc.page.width - 80, Math.min(loanCardHeight, 300), 6).fill('#f7fafc');
+            doc.roundedRect(40, y, doc.page.width - 80, Math.min(loanCardHeight, 300), 6).stroke('#cbd5e0');
+            
+            y += 15;
+            doc.fontSize(12).fillColor('#2d3748').text(`PRÉSTAMO ${loanIndex + 1}: ${loan.loanType}`, 55, y);
+            y += 20;
+            
+            // Información básica del préstamo
+            doc.fontSize(10).fillColor('#4a5568');
+            doc.text(`Fecha: ${formatDate(loan.signDate)}`, 55, y);
+            doc.text(`Monto: ${formatCurrency(loan.amountRequested)}`, 250, y);
+            y += 15;
+            doc.text(`Estado: ${loan.status}`, 55, y);
+            doc.text(`Líder: ${loan.leadName}`, 250, y);
             y += 25;
 
-            // Contenedor con borde para los períodos
-            const periodsHeight = loan.noPaymentPeriods.length * 22 + 10;
-            doc.rect(30, y, 360, periodsHeight).stroke('#e74c3c');
-            doc.rect(30, y, 360, periodsHeight).fill('#fef5f5');
+            // Tabla de pagos si los hay
+            if (loan.payments && loan.payments.length > 0) {
+              doc.fontSize(10).fillColor('#2d3748').text('Historial de Pagos:', 55, y);
+              y += 15;
 
-            y += 8;
+              const paymentHeaders = ['Fecha', 'Monto', 'N° Pago', 'Balance Final'];
+              const paymentColumnWidths = [80, 80, 60, 80];
+              const totalPaymentWidth = paymentColumnWidths.reduce((a, b) => a + b, 0);
+              const paymentTableX = 55;
 
-            loan.noPaymentPeriods.forEach((period: any, index: number) => {
-              const periodText = period.weekCount === 1
-                ? `${period.startDateFormatted} (1 semana)`
-                : `${period.startDateFormatted} al ${period.endDateFormatted} (${period.weekCount} semanas)`;
+              // Encabezados
+              doc.fontSize(8).fillColor('#ffffff');
+              doc.rect(paymentTableX, y, totalPaymentWidth, 18).fill('#4a5568');
+              paymentHeaders.forEach((header, index) => {
+                const headerX = paymentTableX + paymentColumnWidths.slice(0, index).reduce((a, b) => a + b, 0);
+                doc.text(header, headerX + 5, y + 6, { width: paymentColumnWidths[index] - 10, align: 'center' });
+              });
+              y += 20;
 
-              // Texto sin símbolo para evitar problemas de codificación
-              doc.fontSize(8).fillColor('#dc2626').text(periodText, 50, y, { width: 330 });
-              y += 18;
-            });
+              // Filas de pagos (máximo 10 para evitar páginas muy largas)
+              const paymentsToShow = loan.payments.slice(0, 10);
+              paymentsToShow.forEach((payment: any, paymentIndex: number) => {
+                const paymentRowColor = paymentIndex % 2 === 0 ? '#f8f9fa' : '#ffffff';
+                doc.rect(paymentTableX, y - 2, totalPaymentWidth, 16).fill(paymentRowColor);
 
-            y += 15;
-          }
+                const paymentData = [
+                  formatDate(payment.receivedAt),
+                  formatCurrency(payment.amount),
+                  payment.paymentNumber?.toString() || 'N/A',
+                  formatCurrency(payment.balanceAfterPayment)
+                ];
 
-          // Resumen del préstamo
-          doc.fontSize(10).fillColor('#2c3e50').text(`Total pagado en este préstamo: ${formatCurrency(loan.totalPaid)}`, 30, y);
-          y += 15;
-          doc.fontSize(10).fillColor('#2c3e50').text(`Deuda pendiente: ${formatCurrency(loan.pendingDebt)}`, 30, y);
-          y += 20;
+                paymentData.forEach((cell, cellIndex) => {
+                  const cellX = paymentTableX + paymentColumnWidths.slice(0, cellIndex).reduce((a, b) => a + b, 0);
+                  doc.fontSize(7).fillColor('#2d3748').text(cell, cellX + 5, y + 4, { width: paymentColumnWidths[cellIndex] - 10, align: 'center' });
+                });
+                y += 16;
+              });
 
-          // Separador entre préstamos
-          if (loanIndex < loansAsClient.length - 1) {
-            doc.rect(30, y, doc.page.width - 60, 1).fill('#e9ecef');
+              if (loan.payments.length > 10) {
+                doc.fontSize(8).fillColor('#718096').text(`... y ${loan.payments.length - 10} pagos más`, 55, y);
+                y += 15;
+              }
+            }
+
             y += 20;
+          });
+
+        } else {
+          // MODO RESUMEN: Mostrar estadísticas y solo detalles del último préstamo
+          
+          // Estadísticas generales
+          if (clientStats) {
+            doc.roundedRect(40, y, doc.page.width - 80, 100, 6).fill('#edf2f7');
+            doc.roundedRect(40, y, doc.page.width - 80, 100, 6).stroke('#cbd5e0');
+            
+            y += 15;
+            doc.fontSize(12).fillColor('#2d3748').text('📊 RESUMEN ESTADÍSTICO', 55, y);
+            y += 25;
+            
+            // Grid de estadísticas
+            const statsData = [
+              { label: 'Total de Préstamos:', value: clientStats.totalLoans.toString() },
+              { label: 'Préstamos Completados:', value: clientStats.completedLoans.toString() },
+              { label: 'Promedio de Semanas:', value: `${clientStats.avgWeeksToComplete} semanas` },
+              { label: 'Promedio de Fallos:', value: `${clientStats.avgFailuresPerLoan} por préstamo` }
+            ];
+            
+            statsData.forEach((stat, index) => {
+              const x = index % 2 === 0 ? 55 : 300;
+              const currentY = y + Math.floor(index / 2) * 20;
+              
+              doc.fontSize(9).fillColor('#4a5568').text(stat.label, x, currentY);
+              doc.fontSize(9).fillColor('#1a202c').text(stat.value, x + 120, currentY);
+            });
+            
+            y += 60;
           }
-        });
+
+          // Detalles del último préstamo (más reciente)
+          const latestLoan = loansAsClient[0]; // Asumiendo que están ordenados por fecha desc
+          if (latestLoan) {
+            y += 20;
+            
+            // Card del préstamo actual
+            const currentLoanHeight = 120 + (latestLoan.payments?.length || 0) * 16;
+            doc.roundedRect(40, y, doc.page.width - 80, Math.min(currentLoanHeight, 400), 6).fill('#f0fff4');
+            doc.roundedRect(40, y, doc.page.width - 80, Math.min(currentLoanHeight, 400), 6).stroke('#38a169');
+            
+            y += 15;
+            doc.fontSize(14).fillColor('#38a169').text('💳 PRÉSTAMO ACTUAL/RECIENTE', 55, y);
+            y += 25;
+            
+            // Información del préstamo actual
+            doc.fontSize(11).fillColor('#2d3748');
+            doc.text(`Tipo: ${latestLoan.loanType}`, 55, y);
+            doc.text(`Estado: ${latestLoan.status}`, 300, y);
+            y += 18;
+            doc.text(`Fecha: ${formatDate(latestLoan.signDate)}`, 55, y);
+            doc.text(`Monto: ${formatCurrency(latestLoan.amountRequested)}`, 300, y);
+            y += 18;
+            doc.text(`Total a Pagar: ${formatCurrency(latestLoan.totalAmountDue)}`, 55, y);
+            doc.text(`Pagado: ${formatCurrency(latestLoan.totalPaid)}`, 300, y);
+            y += 18;
+            doc.text(`Deuda Pendiente: ${formatCurrency(latestLoan.pendingDebt)}`, 55, y);
+            y += 25;
+
+            // Pagos del préstamo actual
+            if (latestLoan.payments && latestLoan.payments.length > 0) {
+              doc.fontSize(10).fillColor('#2d3748').text('Historial de Pagos:', 55, y);
+              y += 15;
+
+              const paymentHeaders = ['Fecha', 'Monto', 'N° Pago', 'Balance Final'];
+              const paymentColumnWidths = [80, 80, 60, 80];
+              const totalPaymentWidth = paymentColumnWidths.reduce((a, b) => a + b, 0);
+              const paymentTableX = 55;
+
+              // Encabezados
+              doc.fontSize(8).fillColor('#ffffff');
+              doc.rect(paymentTableX, y, totalPaymentWidth, 18).fill('#38a169');
+              paymentHeaders.forEach((header, index) => {
+                const headerX = paymentTableX + paymentColumnWidths.slice(0, index).reduce((a, b) => a + b, 0);
+                doc.text(header, headerX + 5, y + 6, { width: paymentColumnWidths[index] - 10, align: 'center' });
+              });
+              y += 20;
+
+              // Todas las filas de pagos del préstamo actual
+              latestLoan.payments.forEach((payment: any, paymentIndex: number) => {
+                if (y > doc.page.height - 80) {
+                  doc.addPage();
+                  y = 40;
+                }
+
+                const paymentRowColor = paymentIndex % 2 === 0 ? '#f0fff4' : '#ffffff';
+                doc.rect(paymentTableX, y - 2, totalPaymentWidth, 16).fill(paymentRowColor);
+
+                const paymentData = [
+                  formatDate(payment.receivedAt),
+                  formatCurrency(payment.amount),
+                  payment.paymentNumber?.toString() || 'N/A',
+                  formatCurrency(payment.balanceAfterPayment)
+                ];
+
+                paymentData.forEach((cell, cellIndex) => {
+                  const cellX = paymentTableX + paymentColumnWidths.slice(0, cellIndex).reduce((a, b) => a + b, 0);
+                  doc.fontSize(7).fillColor('#2d3748').text(cell, cellX + 5, y + 4, { width: paymentColumnWidths[cellIndex] - 10, align: 'center' });
+                });
+                y += 16;
+              });
+            }
+
+            y += 30;
+          }
+
+          // Resumen de préstamos anteriores (si hay más de uno)
+          if (loansAsClient.length > 1) {
+            if (y > doc.page.height - 150) {
+              doc.addPage();
+              y = 40;
+            }
+
+            doc.roundedRect(40, y, doc.page.width - 80, 80, 6).fill('#fef5e7');
+            doc.roundedRect(40, y, doc.page.width - 80, 80, 6).stroke('#f6ad55');
+            
+            y += 15;
+            doc.fontSize(12).fillColor('#d69e2e').text(`📋 RESUMEN DE ${loansAsClient.length - 1} PRÉSTAMOS ANTERIORES`, 55, y);
+            y += 25;
+            
+            const previousLoans = loansAsClient.slice(1);
+            const previousStats = calculateLoanStats(previousLoans);
+            
+            if (previousStats) {
+              doc.fontSize(10).fillColor('#744210');
+              doc.text(`• Total de préstamos anteriores: ${previousStats.totalLoans}`, 55, y);
+              y += 15;
+              doc.text(`• Préstamos completados: ${previousStats.completedLoans}`, 55, y);
+              doc.text(`• Promedio de finalización: ${previousStats.avgWeeksToComplete} semanas`, 300, y);
+              y += 15;
+              doc.text(`• Fallos promedio: ${previousStats.avgFailuresPerLoan} por préstamo`, 55, y);
+            }
+            
+            y += 25;
+          }
+        }
 
         y += 30;
       }
 
-      // Préstamos como aval con diseño profesional
+      // PRÉSTAMOS COMO AVAL - Nueva implementación
       if (loansAsCollateral && loansAsCollateral.length > 0) {
-        doc.fontSize(12).fillColor('#1a202c').text('PRÉSTAMOS COMO AVAL', 30, y);
-        y += 20;
+        // Calcular estadísticas para avales
+        const collateralStats = calculateLoanStats(loansAsCollateral);
+        
+        // Header de sección con diseño moderno
+        doc.roundedRect(40, y, doc.page.width - 80, 40, 6).fill('#ed8936');
+        doc.fontSize(16).fillColor('#ffffff').text('🤝 PRÉSTAMOS COMO AVAL', 55, y + 12);
+        y += 50;
 
-        // Tabla de préstamos como aval con ancho optimizado
-        const collateralHeaders = ['Cliente', 'Fecha', 'Tipo', 'Prestado', 'Pagado', 'Deuda Pendiente', 'Estado', 'Líder'];
-        const collateralColumnWidths = [65, 55, 65, 75, 65, 75, 55, 65];
-        const totalCollateralWidth = collateralColumnWidths.reduce((a, b) => a + b, 0);
-        const collateralTableX = 30; // Alineado a la izquierda para consistencia
-
-        // Dibujar encabezados con fondo (mismo formato que otras tablas)
-        doc.fontSize(8).fillColor('#ffffff');
-        doc.rect(collateralTableX, y, totalCollateralWidth, 25).fill('#2c3e50'); // Aumentado altura para más padding
-        doc.fillColor('#ffffff');
-
-        collateralHeaders.forEach((header, index) => {
-          const headerX = collateralTableX + collateralColumnWidths.slice(0, index).reduce((a, b) => a + b, 0);
-          const headerWidth = collateralColumnWidths[index];
-
-          // Manejar encabezados de dos líneas con mejor espaciado
-          if (header.includes(' ')) {
-            const words = header.split(' ');
-            const midPoint = Math.ceil(words.length / 2);
-            const firstLine = words.slice(0, midPoint).join(' ');
-            const secondLine = words.slice(midPoint).join(' ');
-
-            doc.text(firstLine, headerX, y + 7, { width: headerWidth, align: 'center' });
-            doc.text(secondLine, headerX, y + 17, { width: headerWidth, align: 'center' });
-          } else {
-            doc.text(header, headerX, y + 12, { width: headerWidth, align: 'center' });
-          }
-        });
-
-        y += 30;
-
-        // Dibujar filas de datos con diseño alternado (mismo formato que otras tablas)
-        loansAsCollateral.forEach((loan: any, index: number) => {
-          if (y > doc.page.height - 100) {
-            doc.addPage();
-            y = 30;
-          }
-
-          const rowData = [
-            loan.clientName || 'N/A',
-            formatDate(loan.signDate),
-            loan.loanType,
-            formatCurrency(loan.amountRequested),
-            formatCurrency(loan.totalPaid),
-            formatCurrency(loan.pendingDebt),
-            loan.status,
-            loan.leadName
-          ];
-
-          // Calcular altura máxima de la fila basada en el contenido
-          let maxLines = 1;
-          rowData.forEach((cell, cellIndex) => {
-            const cellWidth = collateralColumnWidths[cellIndex];
-            const lines = doc.heightOfString(cell, { width: cellWidth - 4 }) / 8; // 8px por línea
-            maxLines = Math.max(maxLines, Math.ceil(lines));
-          });
-
-          const rowHeight = Math.max(20, maxLines * 12); // Mínimo 20px, máximo basado en contenido
-
-          // Fondo alternado para las filas
-          const rowColor = index % 2 === 0 ? '#f8f9fa' : '#ffffff';
-          doc.rect(collateralTableX, y - 3, totalCollateralWidth, rowHeight).fill(rowColor);
-
-          rowData.forEach((cell, cellIndex) => {
-            const cellX = collateralTableX + collateralColumnWidths.slice(0, cellIndex).reduce((a, b) => a + b, 0);
-            const cellWidth = collateralColumnWidths[cellIndex];
-
-            // Color del estado
-            let textColor = '#2c3e50';
-            if (cellIndex === 6) { // Columna de estado
-              textColor = loan.status === 'ACTIVO' ? '#38a169' :
-                loan.status === 'VENCIDO' ? '#e53e3e' :
-                  loan.status === 'TERMINADO' ? '#3182ce' : '#718096';
-            }
-
-            // Centrar verticalmente el texto
-            const textHeight = doc.heightOfString(cell, { width: cellWidth - 4 });
-            const verticalOffset = (rowHeight - textHeight) / 2;
-
-            doc.fontSize(8).fillColor(textColor).text(cell, cellX, y + verticalOffset, { width: cellWidth - 4, align: 'center' });
-          });
-
-          y += rowHeight + 2; // Espacio adicional entre filas
-        });
-
-        y += 30;
-
-        // DETALLE DE PAGOS - VERSIÓN EXPANDIDA PARA AVALES
-        doc.fontSize(12).fillColor('#1a202c').text('DETALLE DE PAGOS - PRÉSTAMOS COMO AVAL', 30, y);
-        y += 20;
-
-        loansAsCollateral.forEach((loan: any, loanIndex: number) => {
-          // Verificar si necesitamos nueva página
-          if (y > doc.page.height - 150) {
-            doc.addPage();
-            y = 30;
-          }
-
-          // Encabezado del préstamo como aval
-          doc.fontSize(10).fillColor('#2d3748').text(`PRÉSTAMO COMO AVAL ${loanIndex + 1}: ${loan.loanType}`, 30, y);
-          y += 12;
-          doc.fontSize(8).fillColor('#718096').text(`Cliente: ${loan.clientName} | Fecha: ${formatDate(loan.signDate)} | Monto: ${formatCurrency(loan.amountRequested)} | Estado: ${loan.status}`, 30, y);
-          y += 12;
-
-          // Tabla de pagos del préstamo como aval con ancho optimizado
-          if (loan.payments && loan.payments.length > 0) {
-            const paymentHeaders = ['Fecha', 'Monto', 'Método', 'N° Pago', 'Balance Antes', 'Balance Después'];
-            const paymentColumnWidths = [70, 60, 50, 40, 70, 70];
-
-            // Encabezados de la tabla de pagos alineada a la izquierda
-            const totalPaymentWidth = paymentColumnWidths.reduce((a, b) => a + b, 0);
-            const paymentTableX = 30; // Alineado a la izquierda para consistencia
-            doc.fontSize(9).fillColor('#ffffff');
-            doc.rect(paymentTableX, y, totalPaymentWidth, 20).fill('#2c3e50');
-            doc.fillColor('#ffffff');
-
-            paymentHeaders.forEach((header, index) => {
-              const headerX = paymentTableX + paymentColumnWidths.slice(0, index).reduce((a, b) => a + b, 0);
-              doc.text(header, headerX, y + 6, { width: paymentColumnWidths[index], align: 'center' });
-            });
-
-            y += 25;
-
-            // Filas de pagos
-            loan.payments.forEach((payment: any, paymentIndex: number) => {
-              if (y > doc.page.height - 100) {
-                doc.addPage();
-                y = 30;
-              }
-
-              const paymentRowColor = paymentIndex % 2 === 0 ? '#f8f9fa' : '#ffffff';
-              doc.rect(paymentTableX, y - 3, totalPaymentWidth, 16).fill(paymentRowColor);
-
-              const paymentData = [
-                formatDate(payment.receivedAt),
-                formatCurrency(payment.amount),
-                payment.paymentMethod || 'N/A',
-                payment.paymentNumber?.toString() || 'N/A',
-                formatCurrency(payment.balanceBeforePayment),
-                formatCurrency(payment.balanceAfterPayment)
-              ];
-
-              paymentData.forEach((cell, cellIndex) => {
-                const cellX = paymentTableX + paymentColumnWidths.slice(0, cellIndex).reduce((a, b) => a + b, 0);
-                doc.fontSize(7).fillColor('#2c3e50').text(cell, cellX, y + 4, { width: paymentColumnWidths[cellIndex], align: 'center' });
-              });
-
-              y += 20;
-            });
-
-            y += 10;
-          } else {
-            doc.fontSize(10).fillColor('#e74c3c').text('No hay pagos registrados para este préstamo', 30, y);
-            y += 20;
-          }
-
-          // ✅ NUEVA FUNCIONALIDAD: Mostrar períodos sin pagos para préstamos como aval con diseño profesional
-          if (loan.noPaymentPeriods && loan.noPaymentPeriods.length > 0) {
-            // Verificar espacio para la sección completa
-            const estimatedHeight = 50 + (loan.noPaymentPeriods.length * 25);
-            if (y + estimatedHeight > doc.page.height - 100) {
+        if (detailed) {
+          // MODO DETALLADO: Mostrar todos los préstamos como aval
+          loansAsCollateral.forEach((loan: any, loanIndex: number) => {
+            if (y > doc.page.height - 200) {
               doc.addPage();
-              y = 30;
+              y = 40;
             }
 
-            // Encabezado con fondo similar a las tablas
-            doc.fontSize(9).fillColor('#ffffff');
-            doc.rect(30, y, 360, 20).fill('#e74c3c');
-            doc.fillColor('#ffffff').text('PERÍODOS SIN PAGO', 30, y + 6, { width: 360, align: 'center' });
+            // Card del préstamo como aval
+            const loanCardHeight = 80 + (loan.payments?.length || 0) * 16;
+            doc.roundedRect(40, y, doc.page.width - 80, Math.min(loanCardHeight, 300), 6).fill('#fffaf0');
+            doc.roundedRect(40, y, doc.page.width - 80, Math.min(loanCardHeight, 300), 6).stroke('#f6ad55');
+            
+            y += 15;
+            doc.fontSize(12).fillColor('#c05621').text(`AVAL ${loanIndex + 1}: ${loan.loanType}`, 55, y);
+            y += 20;
+            
+            // Información del préstamo como aval
+            doc.fontSize(10).fillColor('#744210');
+            doc.text(`Cliente: ${loan.clientName || 'N/A'}`, 55, y);
+            doc.text(`Estado: ${loan.status}`, 300, y);
+            y += 15;
+            doc.text(`Fecha: ${formatDate(loan.signDate)}`, 55, y);
+            doc.text(`Monto: ${formatCurrency(loan.amountRequested)}`, 300, y);
+            y += 15;
+            doc.text(`Pagado: ${formatCurrency(loan.totalPaid)}`, 55, y);
+            doc.text(`Pendiente: ${formatCurrency(loan.pendingDebt)}`, 300, y);
             y += 25;
 
-            // Contenedor con borde para los períodos
-            const periodsHeight = loan.noPaymentPeriods.length * 22 + 10;
-            doc.rect(30, y, 360, periodsHeight).stroke('#e74c3c');
-            doc.rect(30, y, 360, periodsHeight).fill('#fef5f5');
+            // Pagos del préstamo como aval (resumen)
+            if (loan.payments && loan.payments.length > 0) {
+              doc.fontSize(9).fillColor('#744210').text(`Pagos registrados: ${loan.payments.length}`, 55, y);
+              doc.text(`Último pago: ${formatDate(loan.payments[loan.payments.length - 1].receivedAt)}`, 300, y);
+              y += 15;
+            }
 
-            y += 8;
-
-            loan.noPaymentPeriods.forEach((period: any, index: number) => {
-              const periodText = period.weekCount === 1
-                ? `${period.startDateFormatted} (1 semana)`
-                : `${period.startDateFormatted} al ${period.endDateFormatted} (${period.weekCount} semanas)`;
-
-              // Texto sin símbolo para evitar problemas de codificación
-              doc.fontSize(8).fillColor('#dc2626').text(periodText, 50, y, { width: 330 });
-              y += 18;
-            });
-
-            y += 15;
-          }
-
-          // Resumen del préstamo como aval
-          doc.fontSize(10).fillColor('#2c3e50').text(`Total pagado en este préstamo: ${formatCurrency(loan.totalPaid)}`, 30, y);
-          y += 15;
-          doc.fontSize(10).fillColor('#2c3e50').text(`Deuda pendiente: ${formatCurrency(loan.pendingDebt)}`, 30, y);
-          y += 20;
-
-          // Separador entre préstamos como aval
-          if (loanIndex < loansAsCollateral.length - 1) {
-            doc.rect(30, y, doc.page.width - 60, 1).fill('#e9ecef');
             y += 20;
+          });
+
+        } else {
+          // MODO RESUMEN: Solo estadísticas de avales
+          if (collateralStats) {
+            doc.roundedRect(40, y, doc.page.width - 80, 100, 6).fill('#fffaf0');
+            doc.roundedRect(40, y, doc.page.width - 80, 100, 6).stroke('#f6ad55');
+            
+            y += 15;
+            doc.fontSize(12).fillColor('#c05621').text('📊 RESUMEN COMO AVAL', 55, y);
+            y += 25;
+            
+            // Estadísticas de avales
+            const avalStats = [
+              { label: 'Total como Aval:', value: collateralStats.totalLoans.toString() },
+              { label: 'Avales Completados:', value: collateralStats.completedLoans.toString() },
+              { label: 'Promedio de Semanas:', value: `${collateralStats.avgWeeksToComplete} semanas` },
+              { label: 'Promedio de Fallos:', value: `${collateralStats.avgFailuresPerLoan} por préstamo` }
+            ];
+            
+            avalStats.forEach((stat, index) => {
+              const x = index % 2 === 0 ? 55 : 300;
+              const currentY = y + Math.floor(index / 2) * 20;
+              
+              doc.fontSize(9).fillColor('#744210').text(stat.label, x, currentY);
+              doc.fontSize(9).fillColor('#c05621').text(stat.value, x + 120, currentY);
+            });
+            
+            y += 60;
           }
-        });
+        }
+
+        y += 30;
+      }
+
+      // Footer profesional
+      const addFooter = () => {
+        const footerY = doc.page.height - 60;
+        
+        // Línea separadora
+        doc.rect(40, footerY, doc.page.width - 80, 1).fill('#e2e8f0');
+        
+        // Información del footer
+        doc.fontSize(8).fillColor('#718096');
+        doc.text('SoluFácil - Sistema de Gestión Crediticia', 40, footerY + 10);
+        doc.text(`Página ${doc.bufferedPageRange().count}`, doc.page.width - 100, footerY + 10);
+        doc.text(`Generado: ${new Date().toLocaleDateString('es-SV')} ${new Date().toLocaleTimeString('es-SV')}`, 40, footerY + 25);
+        doc.text('Documento confidencial - Solo para uso interno', doc.page.width - 200, footerY + 25);
+      };
+
+      // Agregar footer a todas las páginas
+      const range = doc.bufferedPageRange();
+      for (let i = range.start; i < range.start + range.count; i++) {
+        doc.switchToPage(i);
+        addFooter();
+      }
+
+      // Nota final en modo resumen
+      if (!detailed && (loansAsClient?.length > 0 || loansAsCollateral?.length > 0)) {
+        // Verificar si necesitamos nueva página para la nota
+        if (y > doc.page.height - 150) {
+          doc.addPage();
+          y = 40;
+        }
+        
+        // Card de información sobre el reporte
+        doc.roundedRect(40, y, doc.page.width - 80, 60, 6).fill('#fef3c7');
+        doc.roundedRect(40, y, doc.page.width - 80, 60, 6).stroke('#f59e0b');
+        
+        y += 15;
+        doc.fontSize(10).fillColor('#92400e').text('ℹ️ INFORMACIÓN DEL REPORTE', 55, y);
+        y += 20;
+        doc.fontSize(9).fillColor('#78350f').text('Este es un reporte resumido. Para ver el historial completo de pagos de todos los préstamos,', 55, y);
+        y += 12;
+        doc.fontSize(9).fillColor('#78350f').text('active la opción "PDF detallado completo" antes de exportar.', 55, y);
       }
 
       console.log('📄 Finalizando PDF');
