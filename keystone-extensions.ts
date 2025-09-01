@@ -1225,14 +1225,13 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         weekEnd.setDate(weekEnd.getDate() + 7);
       }
 
-      // Obtener préstamos activos
+      // Obtener préstamos activos (misma lógica que abonosTab.tsx)
       const activeLoans = await prisma.loan.findMany({
         where: {
           AND: [
-            { finishedDate: null },
-            { badDebtDate: null },
-            // ✅ AGREGAR: Filtrar préstamos con deuda pendiente mayor a 0
-            { pendingAmountStored: { gt: "0" } },
+            { finishedDate: null },           // ✅ Solo préstamos NO finalizados
+            { pendingAmountStored: { gt: "0" } }, // ✅ Solo con monto pendiente > 0
+            { excludedByCleanup: null },     // ✅ NO excluidos por limpieza
             leaderId ? { leadId: leaderId as string } : {}
           ]
         },
@@ -1265,8 +1264,10 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         }
       }) as any[];
 
-      // Excluir préstamos ya limpiados (tienen excludedByCleanupId asignado)
-      const filteredActiveLoans = activeLoans.filter((loan: any) => !loan.excludedByCleanupId);
+      // Ya no necesitamos filtrar aquí porque se hace en la consulta Prisma
+      const filteredActiveLoans = activeLoans;
+      
+
 
       // Procesar datos para el PDF
       const formatCurrency = (amount: number | string) => {
@@ -1425,8 +1426,28 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         return sum + weeklyPaymentAmount;
       }, 0);
 
-      const comisionPorcentaje = 0.08;
-      const totalComisionEsperada = totalCobranzaEsperada * comisionPorcentaje;
+      // ✅ CORREGIDO: Calcular comisión esperada basada en loanPaymentComission de cada préstamo
+      const totalComisionEsperada = filteredActiveLoans.reduce((sum: number, loan: any) => {
+        if (loan.loantype?.loanPaymentComission) {
+          const commission = parseFloat(loan.loantype.loanPaymentComission.toString());
+          return sum + commission;
+        }
+        return sum;
+      }, 0);
+      
+      // Debug específico para "Nuevo Progreso"
+      const nuevoProgresoLoans = filteredActiveLoans.filter((loan: any) => {
+        const locality = loan.borrower?.personalData?.addresses?.[0]?.location?.name || '';
+        return locality.toLowerCase().includes('nuevo progreso');
+      });
+      console.log(`   - Préstamos en "Nuevo Progreso": ${nuevoProgresoLoans.length}`);
+      
+      // Debug de comisiones
+      const loansWithCommission = filteredActiveLoans.filter((loan: any) => 
+        loan.loantype?.loanPaymentComission && parseFloat(loan.loantype.loanPaymentComission.toString()) > 0
+      );
+      console.log(`   - Préstamos con comisión > 0: ${loansWithCommission.length}`);
+      console.log(`   - Comisión total esperada: ${totalComisionEsperada}`);
 
       // Crear PDF con diseño de keystone2.ts
       const doc = new PDFDocument({ margin: 30 });
