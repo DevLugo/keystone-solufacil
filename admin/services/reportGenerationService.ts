@@ -132,7 +132,7 @@ export async function generateCreditsWithDocumentErrorsReport(
           const detailedObservations = clientDocErrors
             .map(doc => doc.errorDescription)
             .filter(Boolean)
-            .join('; ') || '';
+            .join('; ') || 'Sin observaciones específicas';
           
           tableData.push({
             locality,
@@ -155,7 +155,7 @@ export async function generateCreditsWithDocumentErrorsReport(
           const avalDetailedObservations = avalDocErrors
             .map(doc => doc.errorDescription)
             .filter(Boolean)
-            .join('; ') || '';
+            .join('; ') || 'Sin observaciones específicas';
           
           tableData.push({
             locality,
@@ -705,8 +705,8 @@ async function generateRealDocumentErrorTable(
       }
       // Columna de observaciones con formato mejorado
       else if (index === 5) {
-        // Solo mostrar observaciones si realmente hay contenido
-        if (cellText && cellText.trim() && cellText !== 'N/A' && cellText !== '') {
+        // Solo mostrar observaciones si NO es el texto por defecto
+        if (cellText && cellText.trim() && cellText !== 'N/A' && cellText !== 'Sin observaciones específicas') {
           doc.fillColor('#374151');
           doc.fontSize(8);
           
@@ -718,7 +718,7 @@ async function generateRealDocumentErrorTable(
             align: 'left'
           });
         }
-        // Si no hay observaciones, no dibujar nada (celda completamente vacía)
+        // Si es "Sin observaciones específicas" o vacío, no dibujar nada
       }
       // Otras columnas con formato estándar mejorado
       else {
