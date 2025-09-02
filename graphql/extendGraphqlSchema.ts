@@ -930,6 +930,29 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
             }
 
+            // ✅ NUEVO: Crear transacción de pérdida (EXPENSE) si hay falco
+            if (falcoAmount > 0) {
+              await tx.transaction.create({
+                data: {
+                  amount: falcoAmount.toFixed(2),
+                  date: new Date(paymentDate),
+                  type: 'EXPENSE',
+                  expenseSource: 'FALCO_LOSS',
+                  sourceAccountId: cashAccount.id,
+                  leadPaymentReceivedId: leadPaymentReceived.id,
+                  leadId: leadId,
+                  description: `Pérdida por falco - ${leadPaymentReceived.id}`,
+                }
+              });
+              
+              // Descontar el falco del balance de efectivo
+              const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
+              await tx.account.update({
+                where: { id: cashAccount.id },
+                data: { amount: (currentCashAmount - falcoAmount).toString() }
+              });
+            }
+
             return {
               id: leadPaymentReceived.id,
               expectedAmount: parseFloat(leadPaymentReceived.expectedAmount?.toString() || '0'),
@@ -1180,6 +1203,65 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 where: { id: bankAccount.id },
                 data: { amount: newBankBalance.toString() }
               });
+            }
+
+            // ✅ NUEVO: Manejar cambios en falco (crear/actualizar/eliminar transacciones de pérdida)
+            const oldFalcoAmount = parseFloat(existingPayment.falcoAmount?.toString() || '0');
+            const newFalcoAmount = falcoAmount;
+            const falcoChange = newFalcoAmount - oldFalcoAmount;
+
+            if (falcoChange !== 0) {
+              // Buscar transacción de falco existente
+              const existingFalcoTransaction = await tx.transaction.findFirst({
+                where: {
+                  leadPaymentReceivedId: id,
+                  type: 'EXPENSE',
+                  expenseSource: 'FALCO_LOSS'
+                }
+              });
+
+              if (existingFalcoTransaction) {
+                if (newFalcoAmount > 0) {
+                  // Actualizar transacción existente
+                  await tx.transaction.update({
+                    where: { id: existingFalcoTransaction.id },
+                    data: {
+                      amount: newFalcoAmount.toFixed(2),
+                      date: new Date(paymentDate),
+                      description: `Pérdida por falco actualizada - ${id}`,
+                    }
+                  });
+                } else {
+                  // Eliminar transacción si no hay más falco
+                  await tx.transaction.delete({
+                    where: { id: existingFalcoTransaction.id }
+                  });
+                }
+              } else if (newFalcoAmount > 0) {
+                // Crear nueva transacción de falco
+                await tx.transaction.create({
+                  data: {
+                    amount: newFalcoAmount.toFixed(2),
+                    date: new Date(paymentDate),
+                    type: 'EXPENSE',
+                    expenseSource: 'FALCO_LOSS',
+                    sourceAccountId: cashAccount.id,
+                    leadPaymentReceivedId: id,
+                    leadId: leadId,
+                    description: `Pérdida por falco - ${id}`,
+                  }
+                });
+              }
+
+              // Ajustar balance de efectivo por el cambio en falco
+              if (falcoChange !== 0) {
+                const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
+                const adjustedCashAmount = currentCashAmount - falcoChange; // Restar aumento de falco, sumar disminución
+                await tx.account.update({
+                  where: { id: cashAccount.id },
+                  data: { amount: adjustedCashAmount.toString() }
+                });
+              }
             }
 
             return {

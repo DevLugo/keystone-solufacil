@@ -124,6 +124,62 @@ const GET_LEAD_PAYMENTS = gql`
             fullName
           }
         }
+        falcoCompensatoryPayments {
+          id
+          amount
+          createdAt
+        }
+      }
+    }
+  }
+`;
+
+// Query to get existing falcos in the locality (any date)
+const GET_LEAD_FALCOS = gql`
+  query GetLeadFalcos($leadId: ID!) {
+    leadPaymentReceiveds(where: { 
+      AND: [
+        { lead: { id: { equals: $leadId } } },
+        { falcoAmount: { gt: "0" } },
+        { paymentStatus: { in: ["FALCO", "PARTIAL"] } }
+      ]
+    }) {
+      id
+      expectedAmount
+      paidAmount
+      cashPaidAmount
+      bankPaidAmount
+      falcoAmount
+      paymentStatus
+      createdAt
+      agent {
+        personalData {
+          fullName
+        }
+      }
+      falcoCompensatoryPayments {
+        id
+        amount
+        createdAt
+      }
+    }
+  }
+`;
+
+// Mutation to create falco compensatory payment
+const CREATE_FALCO_PAYMENT = gql`
+  mutation CreateFalcoCompensatoryPayment($leadPaymentReceivedId: ID!, $amount: Float!) {
+    createFalcoCompensatoryPayment(data: {
+      amount: $amount
+      leadPaymentReceived: { connect: { id: $leadPaymentReceivedId } }
+    }) {
+      id
+      amount
+      createdAt
+      leadPaymentReceived {
+        id
+        falcoAmount
+        paymentStatus
       }
     }
   }
@@ -260,6 +316,7 @@ type Route = {
 
 const paymentTypeOptions: Option[] = [
   { label: 'ABONO', value: 'PAYMENT' },
+  { label: 'FALCO', value: 'FALCO' },
   { label: 'EXTRA COBRANZA', value: 'EXTRA_COLLECTION' },
 ];
 
@@ -345,6 +402,9 @@ export const CreatePaymentForm = ({
     payments: LoanPayment[];
     comission: number;
     isModalOpen: boolean;
+    isFalcoModalOpen: boolean;
+    falcoPaymentAmount: number;
+    selectedFalcoId: string | null;
     loadPaymentDistribution: {
       cashPaidAmount: number;
       bankPaidAmount: number;
@@ -372,6 +432,9 @@ export const CreatePaymentForm = ({
     payments: [],
     comission: 8,
     isModalOpen: false,
+    isFalcoModalOpen: false,
+    falcoPaymentAmount: 0,
+    selectedFalcoId: null,
     loadPaymentDistribution: {
       cashPaidAmount: 0,
       bankPaidAmount: 0,
@@ -387,8 +450,8 @@ export const CreatePaymentForm = ({
   const [massCommission, setMassCommission] = useState<string>('0');
 
   const { 
-    payments, comission, isModalOpen, loadPaymentDistribution,
-    existingPayments, editedPayments, isEditing, groupedPayments
+    payments, comission, isModalOpen, isFalcoModalOpen, falcoPaymentAmount, selectedFalcoId,
+    loadPaymentDistribution, existingPayments, editedPayments, isEditing, groupedPayments
   } = state;
 
   // Estado separado para trackear pagos eliminados visualmente
@@ -405,6 +468,14 @@ export const CreatePaymentForm = ({
       leadId: selectedLead?.id || ''
     },
     skip: !selectedDate || !selectedLead,
+  });
+
+  // Query to get existing falcos for the selected lead
+  const { data: falcosData, loading: falcosLoading, refetch: refetchFalcos } = useQuery(GET_LEAD_FALCOS, {
+    variables: {
+      leadId: selectedLead?.id || ''
+    },
+    skip: !selectedLead,
   });
 
   const { data: migratedPaymentsData, loading: migratedPaymentsLoading, refetch: refetchMigratedPayments } = useQuery(GET_MIGRATED_PAYMENTS, {
@@ -483,6 +554,7 @@ export const CreatePaymentForm = ({
   const [createCustomLeadPaymentReceived, { error: customLeadPaymentError, loading: customLeadPaymentLoading }] = useMutation(CREATE_LEAD_PAYMENT_RECEIVED);
   const [updateLeadPayment, { loading: updateLoading }] = useMutation(UPDATE_LEAD_PAYMENT);
   const [updateLoanPayment, { loading: updateLoanPaymentLoading }] = useMutation(UPDATE_LOAN_PAYMENT);
+  const [createFalcoPayment, { loading: falcoPaymentLoading }] = useMutation(CREATE_FALCO_PAYMENT);
 
   const router = useRouter();
 
@@ -502,6 +574,42 @@ export const CreatePaymentForm = ({
         [paymentId]: updatedPayment
       }
     }));
+  };
+
+  // Handle falco payment
+  const handleFalcoPayment = async () => {
+    try {
+      if (!selectedFalcoId || falcoPaymentAmount <= 0) {
+        alert('Por favor seleccione un falco válido y una cantidad mayor a 0');
+        return;
+      }
+
+      await createFalcoPayment({
+        variables: {
+          leadPaymentReceivedId: selectedFalcoId,
+          amount: falcoPaymentAmount
+        }
+      });
+
+      // Refresh data
+      await Promise.all([
+        refetchFalcos(),
+        refetchPayments(),
+        refetchMigratedPayments()
+      ]);
+
+      // Reset state
+      updateState({
+        isFalcoModalOpen: false,
+        falcoPaymentAmount: 0,
+        selectedFalcoId: null
+      });
+
+      alert('Pago de falco registrado exitosamente');
+    } catch (error) {
+      console.error('Error creating falco payment:', error);
+      alert('Error al registrar el pago de falco');
+    }
   };
 
 
@@ -668,6 +776,7 @@ export const CreatePaymentForm = ({
       await Promise.all([
         refetchPayments(),
         refetchMigratedPayments(),
+        refetchFalcos(),
         // Aquí deberías llamar a refetchRoute si tienes acceso a esa query
         // Por ahora solo refrescamos los pagos
       ]);
@@ -854,9 +963,10 @@ export const CreatePaymentForm = ({
   useEffect(() => {
     refetchPayments();
     refetchMigratedPayments();
-  }, [refreshKey, refetchPayments, refetchMigratedPayments]);
+    refetchFalcos();
+  }, [refreshKey, refetchPayments, refetchMigratedPayments, refetchFalcos]);
 
-  if (loansLoading || paymentsLoading || migratedPaymentsLoading) return <LoadingDots label="Loading data" size="large" />;
+  if (loansLoading || paymentsLoading || migratedPaymentsLoading || falcosLoading) return <LoadingDots label="Loading data" size="large" />;
   if (loansError) return <GraphQLErrorNotice errors={loansError?.graphQLErrors || []} networkError={loansError?.networkError} />;
 
   return (
@@ -866,6 +976,57 @@ export const CreatePaymentForm = ({
           networkError={customLeadPaymentError?.networkError}
           errors={customLeadPaymentError?.graphQLErrors}
         />
+      )}
+
+      {/* Banner de falcos pendientes */}
+      {falcosData?.leadPaymentReceiveds && falcosData.leadPaymentReceiveds.length > 0 && (
+        <div style={{
+          backgroundColor: '#FEE2E2',
+          border: '2px solid #EF4444',
+          borderRadius: '8px',
+          padding: '16px',
+          marginBottom: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+        }}>
+          <div style={{
+            fontSize: '24px',
+          }}>
+            ⚠️
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{
+              fontWeight: '700',
+              color: '#DC2626',
+              fontSize: '16px',
+              marginBottom: '4px',
+            }}>
+              FALCOS PENDIENTES DETECTADOS
+            </div>
+            <div style={{
+              color: '#991B1B',
+              fontSize: '14px',
+              lineHeight: '1.4',
+              marginBottom: '8px',
+            }}>
+              Se encontraron {falcosData.leadPaymentReceiveds.length} falco(s) pendientes en esta localidad. 
+              Total pendiente: ${falcosData.leadPaymentReceiveds.reduce((sum: number, falco: any) => {
+                const falcoAmount = parseFloat(falco.falcoAmount || '0');
+                const compensatedAmount = falco.falcoCompensatoryPayments?.reduce((compensatedSum: number, comp: any) => 
+                  compensatedSum + parseFloat(comp.amount || '0'), 0) || 0;
+                return sum + (falcoAmount - compensatedAmount);
+              }, 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <Button
+              tone="negative"
+              size="small"
+              onClick={() => updateState({ isFalcoModalOpen: true })}
+            >
+              💰 Abonar a Falcos
+            </Button>
+          </div>
+        </div>
       )}
 
       {/* Banner informativo para datos migrados */}
@@ -1297,44 +1458,80 @@ export const CreatePaymentForm = ({
                       {index + 1}
                     </td>
                     <td>
-                      {payment.isMigrated ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {payment.isMigrated ? (
+                          <>
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              padding: '4px 8px',
+                              backgroundColor: '#FEF3C7',
+                              color: '#D97706',
+                              borderRadius: '4px',
+                              fontSize: '12px',
+                              fontWeight: '500',
+                              border: '1px solid #F59E0B',
+                            }}>
+                              📊 Migrado Excel
+                            </span>
+                            <span style={{
+                              fontSize: '10px',
+                              color: '#6B7280',
+                              fontStyle: 'italic',
+                              lineHeight: '1.2',
+                            }}>
+                              Solo lectura - No editable
+                            </span>
+                          </>
+                        ) : (
                           <span style={{
                             display: 'inline-flex',
                             alignItems: 'center',
                             padding: '4px 8px',
-                            backgroundColor: '#FEF3C7',
-                            color: '#D97706',
+                            backgroundColor: '#E0F2FE',
+                            color: '#0277BD',
                             borderRadius: '4px',
                             fontSize: '12px',
                             fontWeight: '500',
+                          }}>
+                            Registrado
+                          </span>
+                        )}
+                        
+                        {/* Indicador de falco si el pago tiene falco */}
+                        {payment.leadPaymentReceived?.paymentStatus === 'FALCO' && parseFloat(payment.leadPaymentReceived?.falcoAmount || '0') > 0 && (
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '3px 6px',
+                            backgroundColor: '#FEE2E2',
+                            color: '#DC2626',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: '600',
+                            border: '1px solid #EF4444',
+                          }}>
+                            ⚠️ FALCO: ${parseFloat(payment.leadPaymentReceived?.falcoAmount || '0').toFixed(2)}
+                          </span>
+                        )}
+                        
+                        {/* Indicador de falco parcial */}
+                        {payment.leadPaymentReceived?.paymentStatus === 'PARTIAL' && parseFloat(payment.leadPaymentReceived?.falcoAmount || '0') > 0 && (
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '3px 6px',
+                            backgroundColor: '#FEF3C7',
+                            color: '#D97706',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: '600',
                             border: '1px solid #F59E0B',
                           }}>
-                            📊 Migrado Excel
+                            ⚠️ FALCO PARCIAL: ${parseFloat(payment.leadPaymentReceived?.falcoAmount || '0').toFixed(2)}
                           </span>
-                          <span style={{
-                            fontSize: '10px',
-                            color: '#6B7280',
-                            fontStyle: 'italic',
-                            lineHeight: '1.2',
-                          }}>
-                            Solo lectura - No editable
-                          </span>
-                        </div>
-                      ) : (
-                        <span style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          padding: '4px 8px',
-                          backgroundColor: '#E0F2FE',
-                          color: '#0277BD',
-                          borderRadius: '4px',
-                          fontSize: '12px',
-                          fontWeight: '500',
-                        }}>
-                          Registrado
-                        </span>
-                      )}
+                        )}
+                      </div>
                     </td>
                     <td>{payment.loan?.borrower?.personalData?.fullName}</td>
                     <td>
@@ -1579,6 +1776,97 @@ export const CreatePaymentForm = ({
           {isEditing ? 'Guardar Cambios' : 'Registrar pagos'}
         </Button>
       </Box>
+
+      {/* Modal para abonar a falcos */}
+      <AlertDialog 
+        title="Abonar a Falcos Pendientes" 
+        isOpen={isFalcoModalOpen} 
+        actions={{
+          confirm: { 
+            label: 'Registrar Abono', 
+            action: () => handleFalcoPayment(), 
+            loading: falcoPaymentLoading 
+          },
+          cancel: { 
+            label: 'Cancelar', 
+            action: () => updateState({ isFalcoModalOpen: false, selectedFalcoId: null, falcoPaymentAmount: 0 }) 
+          }
+        }}
+      >
+        <Box padding="large">
+          <Box marginBottom="large">
+            <h4>Seleccionar Falco a Abonar</h4>
+          </Box>
+          
+          {falcosData?.leadPaymentReceiveds && falcosData.leadPaymentReceiveds.length > 0 && (
+            <div style={{ marginBottom: '20px' }}>
+              {falcosData.leadPaymentReceiveds.map((falco: any) => {
+                const falcoAmount = parseFloat(falco.falcoAmount || '0');
+                const compensatedAmount = falco.falcoCompensatoryPayments?.reduce((sum: number, comp: any) => 
+                  sum + parseFloat(comp.amount || '0'), 0) || 0;
+                const remainingAmount = falcoAmount - compensatedAmount;
+                
+                if (remainingAmount <= 0) return null;
+                
+                return (
+                  <div 
+                    key={falco.id} 
+                    style={{
+                      border: selectedFalcoId === falco.id ? '2px solid #EF4444' : '1px solid #E5E7EB',
+                      borderRadius: '8px',
+                      padding: '12px',
+                      marginBottom: '8px',
+                      cursor: 'pointer',
+                      backgroundColor: selectedFalcoId === falco.id ? '#FEE2E2' : 'white',
+                    }}
+                    onClick={() => updateState({ selectedFalcoId: falco.id, falcoPaymentAmount: remainingAmount })}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div style={{ fontWeight: '600', color: '#DC2626' }}>
+                          Falco del {new Date(falco.createdAt).toLocaleDateString('es-MX')}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#6B7280' }}>
+                          Agente: {falco.agent?.personalData?.fullName}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#6B7280' }}>
+                          Compensado: ${compensatedAmount.toFixed(2)} de ${falcoAmount.toFixed(2)}
+                        </div>
+                      </div>
+                      <div style={{ fontWeight: '700', color: '#DC2626', fontSize: '16px' }}>
+                        ${remainingAmount.toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          
+          <Box marginBottom="large">
+            <label>Cantidad a Abonar</label>
+            <TextInput
+              type="number"
+              value={falcoPaymentAmount}
+              onChange={(e) => updateState({ falcoPaymentAmount: parseFloat(e.target.value) || 0 })}
+              placeholder="0.00"
+            />
+          </Box>
+          
+          {selectedFalcoId && (
+            <div style={{
+              backgroundColor: '#F3F4F6',
+              padding: '12px',
+              borderRadius: '6px',
+              fontSize: '13px',
+              color: '#374151'
+            }}>
+              <strong>Nota:</strong> Este abono se registrará como pago compensatorio del falco. 
+              Cuando el falco esté completamente pagado, se cancelará la pérdida asociada.
+            </div>
+          )}
+        </Box>
+      </AlertDialog>
 
       <AlertDialog 
         title="Distribución del pago" 
