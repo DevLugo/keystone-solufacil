@@ -703,51 +703,31 @@ async function generateRealDocumentErrorTable(
           doc.text(`+${problems.length - 3} más...`, x + 6, textY, { width: col.width - 12 });
         }
       }
-      // Columna de observaciones con formato mejorado
-      else if (index === 5) {
-        // Solo mostrar observaciones si NO es el texto por defecto
-        if (cellText && cellText.trim() && cellText !== 'N/A' && cellText !== 'Sin observaciones específicas') {
-          doc.fillColor('#374151');
-          doc.fontSize(8);
-          
-          // Usar toda la altura disponible para multilínea completa
-          doc.text(cellText, x + 6, y + 8, { 
-            width: col.width - 12,
-            lineBreak: true,
-            height: rowHeight - 16,
-            align: 'left'
-          });
-        }
-        // Si es "Sin observaciones específicas" o vacío, no dibujar nada
-      }
       // Otras columnas con formato estándar mejorado
       else {
         doc.fillColor('#374151');
-        doc.fontSize(10);
+        
+        // Formato estándar para todas las columnas
+        doc.fontSize(index === 5 ? 8 : 10); // Observaciones más pequeñas
+        
+        // Solo para observaciones: ocultar el texto por defecto
+        if (index === 5 && cellText === 'Sin observaciones específicas') {
+          cellText = ''; // Mostrar vacío en lugar del texto por defecto
+        }
+        
+        // Truncar texto si es muy largo (excepto observaciones)
+        if (index !== 5 && cellText.length > 20) {
+          cellText = cellText.substring(0, 17) + '...';
+        }
         
         const textAlign = col.align === 'center' ? 'center' : col.align === 'right' ? 'right' : 'left';
-        
-        // Columna de cliente - soportar multilínea sin truncar
-        if (index === 2) {
-          doc.fontSize(9);
-          doc.text(cellText, x + 8, y + 12, { 
-            width: col.width - 16,
-            align: textAlign,
-            lineBreak: true,
-            height: rowHeight - 20
-          });
-        } else {
-          // Otras columnas - truncar si es necesario
-          if (cellText.length > 12) {
-            cellText = cellText.substring(0, 9) + '...';
-          }
-          
-          doc.text(cellText, x + 8, y + 20, { 
-            width: col.width - 16,
-            align: textAlign,
-            ellipsis: true
-          });
-        }
+        doc.text(cellText, x + 8, y + (index === 5 ? 12 : 20), { 
+          width: col.width - 16,
+          align: textAlign,
+          ellipsis: index !== 5, // No truncar observaciones
+          lineBreak: index === 5, // Solo multilínea para observaciones
+          height: index === 5 ? rowHeight - 20 : undefined
+        });
       }
       
       x += col.width;
