@@ -7150,13 +7150,13 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
 // ✅ FUNCIÓN PARA AGREGAR HEADER MODERNO DE LA EMPRESA
 async function addModernCompanyHeader(doc: any): Promise<void> {
   try {
-    // Fondo del header con colores de marca Solufácil
-    doc.fillColor('#171334').rect(0, 0, 612, 90).fill();
-    doc.fillColor('#f15c2a').rect(0, 70, 612, 20).fill();
+    // Fondo del header con gradiente azul
+    doc.fillColor('#1e40af').rect(0, 0, 612, 90).fill();
+    doc.fillColor('#3b82f6').rect(0, 70, 612, 20).fill();
     
     // Logo y nombre de la empresa
     doc.fontSize(28).fillColor('white').text('SOLUFÁCIL', 50, 25, { align: 'left' });
-    doc.fontSize(11).fillColor('#ffffff').text('SISTEMA DE GESTIÓN DE CRÉDITOS', 50, 58);
+    doc.fontSize(11).fillColor('#e0f2fe').text('SISTEMA DE GESTIÓN DE CRÉDITOS', 50, 58);
     
     // Información de generación en la esquina derecha
     doc.fontSize(9).fillColor('white');
@@ -7171,8 +7171,8 @@ async function addModernCompanyHeader(doc: any): Promise<void> {
     doc.text('Reporte Oficial', 350, 40, { align: 'right', width: 200 });
     doc.text('Confidencial', 350, 55, { align: 'right', width: 200 });
     
-    // Línea divisoria con color de marca
-    doc.strokeColor('#f15c2a').lineWidth(3).moveTo(50, 95).lineTo(562, 95).stroke();
+    // Línea divisoria elegante
+    doc.strokeColor('#60a5fa').lineWidth(3).moveTo(50, 95).lineTo(562, 95).stroke();
     
     // Espacio después del header
     doc.y = 110;
@@ -7181,7 +7181,7 @@ async function addModernCompanyHeader(doc: any): Promise<void> {
   } catch (error) {
     console.error('Error agregando header moderno:', error);
     // Fallback simple si hay error
-    doc.fontSize(18).fillColor('#171334').text('SOLUFÁCIL - REPORTE DE CRÉDITOS', 50, 50, { align: 'center' });
+    doc.fontSize(18).fillColor('#1e40af').text('SOLUFÁCIL - REPORTE DE CRÉDITOS', 50, 50, { align: 'center' });
     doc.y = 80;
     doc.fillColor('black');
   }
@@ -7198,7 +7198,7 @@ async function generateExecutiveSummary(doc: any, tableData: any[]): Promise<voi
     const totalRoutes = new Set(tableData.map(row => row.routeName)).size;
     
     // Título del resumen
-    doc.fontSize(16).fillColor('#171334').text('RESUMEN EJECUTIVO', 50, doc.y, { width: 500, align: 'center' });
+    doc.fontSize(16).fillColor('#1e40af').text('RESUMEN EJECUTIVO', 50, doc.y, { width: 500, align: 'center' });
     doc.moveDown(1);
     
     // Caja principal de estadísticas con diseño moderno
@@ -7206,8 +7206,8 @@ async function generateExecutiveSummary(doc: any, tableData: any[]): Promise<voi
     const statsBoxHeight = 100;
     
     // Fondo de la caja
-    doc.fillColor('#f9fafb').rect(50, statsBoxY, 500, statsBoxHeight).fill();
-    doc.strokeColor('#171334').lineWidth(2).rect(50, statsBoxY, 500, statsBoxHeight).stroke();
+    doc.fillColor('#f8fafc').rect(50, statsBoxY, 500, statsBoxHeight).fill();
+    doc.strokeColor('#1e40af').lineWidth(2).rect(50, statsBoxY, 500, statsBoxHeight).stroke();
     
     // Estadísticas en grid de 3x2
     const statItems = [
@@ -7233,7 +7233,7 @@ async function generateExecutiveSummary(doc: any, tableData: any[]): Promise<voi
     doc.y = statsBoxY + statsBoxHeight + 20;
     
     // Desglose por tipo de documento
-    doc.fontSize(14).fillColor('#171334').text('ANÁLISIS POR TIPO DE DOCUMENTO', 50, doc.y, { width: 500, align: 'left' });
+    doc.fontSize(14).fillColor('#1e40af').text('ANÁLISIS POR TIPO DE DOCUMENTO', 50, doc.y, { width: 500, align: 'left' });
     doc.moveDown(1);
     
     const problemTypes = ['INE', 'DOMICILIO', 'PAGARE'];
@@ -7253,7 +7253,7 @@ async function generateExecutiveSummary(doc: any, tableData: any[]): Promise<voi
         doc.text(`• ${docType}:`, 70, y, { width: 80, align: 'left' });
         doc.text(`${clientProblems} clientes`, 150, y, { width: 100, align: 'left' });
         doc.text(`${avalProblems} avales`, 250, y, { width: 100, align: 'left' });
-        doc.fillColor(clientProblems > avalProblems ? '#dc2626' : '#f15c2a');
+        doc.fillColor(clientProblems > avalProblems ? '#dc2626' : '#ea580c');
         doc.text(`${clientProblems + avalProblems} total`, 350, y, { width: 100, align: 'left' });
       }
     });
@@ -7279,24 +7279,24 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
     const rowHeight = 50;
     let currentY = doc.y;
     
-    // Configuración de columnas optimizada - más espacio para observaciones
+    // Configuración de columnas con más espacio para observaciones
     const columns = [
-      { header: 'RUTA', width: 70, align: 'left' },
+      { header: 'RUTA', width: 60, align: 'left' },
       { header: 'LOCALIDAD', width: 90, align: 'left' },
-      { header: 'CLIENTE', width: 120, align: 'left' },
+      { header: 'CLIENTE', width: 130, align: 'left' },
       { header: 'TIPO', width: 50, align: 'center' },
-      { header: 'PROBLEMAS', width: 100, align: 'left' },
-      { header: 'OBSERVACIONES', width: 182, align: 'left' }
+      { header: 'PROBLEMAS', width: 90, align: 'left' },
+      { header: 'OBSERVACIONES', width: 192, align: 'left' }
     ];
     
     // Función para dibujar header moderno
     const drawModernTableHeader = (y: number) => {
-      // Fondo del header con colores de marca
-      doc.fillColor('#171334').rect(startX, y, pageWidth, headerHeight).fill();
-      doc.fillColor('#f15c2a').rect(startX, y + headerHeight - 5, pageWidth, 5).fill();
+      // Fondo del header con gradiente azul
+      doc.fillColor('#1e40af').rect(startX, y, pageWidth, headerHeight).fill();
+      doc.fillColor('#3b82f6').rect(startX, y + headerHeight - 5, pageWidth, 5).fill();
       
       // Bordes del header
-      doc.strokeColor('#171334').lineWidth(2).rect(startX, y, pageWidth, headerHeight).stroke();
+      doc.strokeColor('#1e40af').lineWidth(2).rect(startX, y, pageWidth, headerHeight).stroke();
       
       // Texto del header
       doc.fillColor('white').fontSize(10);
@@ -7304,7 +7304,7 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
       columns.forEach((col, index) => {
         if (index > 0) {
           // Líneas divisorias verticales
-          doc.strokeColor('#f15c2a').lineWidth(1);
+          doc.strokeColor('#60a5fa').lineWidth(1);
           doc.moveTo(x, y).lineTo(x, y + headerHeight).stroke();
         }
         doc.text(col.header, x + 8, y + 12, { 
@@ -7376,10 +7376,10 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
             if (textY < y + rowHeight - 10) {
                           if (problem.includes('con error')) {
               doc.fillColor('#dc2626');
-              doc.text(`⚠ ${problem.replace('con error', '').trim()}`, x + 4, textY, { width: col.width - 8 });
+              doc.text(`ERROR: ${problem.replace('con error', '').trim()}`, x + 4, textY, { width: col.width - 8 });
             } else if (problem.includes('faltante')) {
-              doc.fillColor('#f15c2a');
-              doc.text(`✗ ${problem.replace('faltante', '').trim()}`, x + 4, textY, { width: col.width - 8 });
+              doc.fillColor('#ea580c');
+              doc.text(`FALTA: ${problem.replace('faltante', '').trim()}`, x + 4, textY, { width: col.width - 8 });
               } else {
                 doc.fillColor('#374151');
                 doc.text(`• ${problem}`, x + 4, textY, { width: col.width - 8 });
@@ -7398,17 +7398,27 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
           doc.fillColor('#374151');
           doc.fontSize(9);
           
-          // Truncar texto si es muy largo
-          if (cellText.length > 25) {
-            cellText = cellText.substring(0, 22) + '...';
+          // Columna de cliente - soportar multilínea sin truncar
+          if (index === 2) {
+            doc.fontSize(9);
+            doc.text(cellText, x + 8, y + 12, { 
+              width: col.width - 16,
+              align: 'left',
+              lineBreak: true,
+              height: rowHeight - 20
+            });
+          } else {
+            // Otras columnas - truncar si es necesario
+            if (cellText.length > 12) {
+              cellText = cellText.substring(0, 9) + '...';
+            }
+            
+            doc.text(cellText, x + 8, y + 18, { 
+              width: col.width - 16,
+              ellipsis: true,
+              lineBreak: false
+            });
           }
-          
-          doc.text(cellText, x + 8, y + 18, { 
-            width: col.width - 16,
-            ellipsis: true,
-            lineBreak: true,
-            height: rowHeight - 20
-          });
         }
         
         x += col.width;
@@ -7419,7 +7429,7 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
     };
     
     // Título de la tabla
-    doc.fontSize(14).fillColor('#171334').text('DETALLE DE PROBLEMAS DOCUMENTALES', 50, currentY, { width: 500, align: 'left' });
+    doc.fontSize(14).fillColor('#1e40af').text('DETALLE DE PROBLEMAS DOCUMENTALES', 50, currentY, { width: 500, align: 'left' });
     doc.moveDown(1);
     currentY = doc.y;
     
@@ -7450,7 +7460,7 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
       if (currentY > 650) {
         doc.addPage();
         await addModernCompanyHeader(doc);
-        doc.fontSize(16).fillColor('#171334').text('REPORTE DE CRÉDITOS (Continuación)', 50, doc.y, { align: 'center' });
+        doc.fontSize(16).fillColor('#1e40af').text('REPORTE DE CRÉDITOS (Continuación)', 50, doc.y, { align: 'center' });
         doc.moveDown(2);
         currentY = doc.y;
         currentY = drawModernTableHeader(currentY);
@@ -7458,11 +7468,11 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
       
       // Header de semana con diseño moderno
       const weekHeaderY = currentY;
-      doc.fillColor('#fef7f0').rect(startX, weekHeaderY, pageWidth, 25).fill();
-      doc.strokeColor('#f15c2a').lineWidth(1).rect(startX, weekHeaderY, pageWidth, 25).stroke();
+      doc.fillColor('#e0f2fe').rect(startX, weekHeaderY, pageWidth, 25).fill();
+      doc.strokeColor('#0284c7').lineWidth(1).rect(startX, weekHeaderY, pageWidth, 25).stroke();
       
-      doc.fontSize(11).fillColor('#f15c2a');
-      doc.text(`📅 Semana del ${weekStart.toLocaleDateString('es-ES')}`, startX + 10, weekHeaderY + 8);
+      doc.fontSize(11).fillColor('#0284c7');
+      doc.text(`Semana del ${weekStart.toLocaleDateString('es-ES')}`, startX + 10, weekHeaderY + 8);
       doc.text(`(${weekData.length} registro${weekData.length !== 1 ? 's' : ''})`, startX + 300, weekHeaderY + 8);
       
       currentY = weekHeaderY + 25;
@@ -7485,7 +7495,7 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
       
       // Separador entre semanas
       if (weekKey !== sortedWeeks[sortedWeeks.length - 1]) {
-        doc.strokeColor('#f15c2a').lineWidth(1);
+        doc.strokeColor('#0284c7').lineWidth(1);
         doc.moveTo(startX, currentY + 5).lineTo(startX + pageWidth, currentY + 5).stroke();
         currentY += 15;
       }
@@ -7509,7 +7519,7 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
 // ✅ FUNCIÓN PARA GENERAR RESUMEN FINAL DE ACCIONES
 async function generateFinalActionSummary(doc: any, tableData: any[]): Promise<void> {
   try {
-    doc.fontSize(18).fillColor('#171334').text('PLAN DE ACCIÓN RECOMENDADO', 50, doc.y, { width: 500, align: 'center' });
+    doc.fontSize(18).fillColor('#1e40af').text('PLAN DE ACCIÓN RECOMENDADO', 50, doc.y, { width: 500, align: 'center' });
     doc.moveDown(2);
     
     // Caja de acción prioritaria
