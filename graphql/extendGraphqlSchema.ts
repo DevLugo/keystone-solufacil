@@ -3853,6 +3853,12 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 weekEnd.setDate(weekEnd.getDate() + 6);
                 weekEnd.setHours(23, 59, 59, 999);
                 
+                // ✅ CORRECCIÓN: Asegurar que weekEnd no se extienda más allá del mes
+                const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
+                if (weekEnd > monthEnd) {
+                  weekEnd.setTime(monthEnd.getTime());
+                }
+                
                 // contar mayoría en L-V para decidir pertenencia al mes
                 let workDaysInMonth = 0;
                 let tempDate = new Date(weekStart);
@@ -3864,6 +3870,11 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 if (workDaysInMonth >= 3) { // mayoría de 5 días
                   const weekKey = `SEMANA ${weekNumber}`;
                   weeks[weekKey] = { start: new Date(weekStart), end: weekEnd };
+                  
+                  // ✅ DEBUG: Log de fechas generadas
+                  console.log(`📅 SEMANA GENERADA ${weekKey}: start=${weekStart.toISOString()} end=${weekEnd.toISOString()}`);
+                  console.log(`📅 VERIFICACIÓN: start día=${weekStart.getDay()} (1=lunes), end día=${weekEnd.getDay()} (0=domingo)`);
+                  
                   weekNumber++;
                 }
                 
@@ -3901,6 +3912,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
                 
                 weeks[weekKey] = { start: weekStart, end: weekEnd };
+                
+                // ✅ DEBUG: Log de fechas generadas (modo mes real)
+                console.log(`📅 SEMANA GENERADA ${weekKey} (mes real): start=${weekStart.toISOString()} end=${weekEnd.toISOString()}`);
+                console.log(`📅 VERIFICACIÓN: start día=${weekStart.getDay()} (1=lunes), end día=${weekEnd.getDay()} (0=domingo)`);
               }
               
               tempDate.setDate(tempDate.getDate() + 1);
@@ -4749,6 +4764,18 @@ export const extendGraphqlSchema = graphql.extend(base => {
               gasolineCurrent = Number(aggCurr?._sum?.amount || 0);
               gasolinePrevious = Number(aggPrev?._sum?.amount || 0);
             } catch (_) {}
+
+            // ✅ DEBUG FINAL: Log del resultado de semanas generadas
+            console.log(`📅 RESUMEN FINAL DE SEMANAS para ${year}-${month}:`, {
+              weekOrder,
+              weekDates: Object.keys(weeks).map(key => ({
+                week: key,
+                start: weeks[key].start.toISOString(),
+                end: weeks[key].end.toISOString(),
+                startDay: weeks[key].start.getDay(),
+                endDay: weeks[key].end.getDay()
+              }))
+            });
 
             return {
               route: {
