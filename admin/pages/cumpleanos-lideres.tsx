@@ -236,18 +236,11 @@ const styles = {
   },
 };
 
-// Función para calcular la edad
-const calculateAge = (birthDate: string): number => {
+// Función para calcular la edad que cumplirán este año
+const calculateAgeThisYear = (birthDate: string): number => {
   const today = new Date();
   const birth = new Date(birthDate);
-  let age = today.getFullYear() - birth.getFullYear();
-  const monthDiff = today.getMonth() - birth.getMonth();
-  
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
-    age--;
-  }
-  
-  return age;
+  return today.getFullYear() - birth.getFullYear();
 };
 
 // Función para formatear la fecha de nacimiento
@@ -479,7 +472,7 @@ export default function CumpleanosLideresPage() {
         ${birthdays.length === 0 ? 
           '<div class="empty-state">No hay cumpleaños registrados para este mes</div>' :
           birthdays.map(birthday => {
-            const age = calculateAge(birthday.birthDate);
+            const ageThisYear = calculateAgeThisYear(birthday.birthDate);
             const formattedBirthDate = formatBirthDate(birthday.birthDate);
             
             return `
@@ -489,7 +482,7 @@ export default function CumpleanosLideresPage() {
                     <div class="leader-name">${birthday.fullName}</div>
                     <div class="leader-details">
                         <div class="detail-item">
-                            🎂 <span class="age-highlight">Cumple ${age + 1} años</span>
+                            🎂 <span class="age-highlight">Cumple ${ageThisYear} años</span>
                         </div>
                         <div class="detail-item">
                             📅 <span class="birthdate-highlight">${formattedBirthDate}</span>
@@ -529,9 +522,23 @@ export default function CumpleanosLideresPage() {
     value: (index + 1).toString(),
   }));
 
+  // Función auxiliar para calcular edad actual (para promedios)
+  const calculateCurrentAge = (birthDate: string): number => {
+    const today = new Date();
+    const birth = new Date(birthDate);
+    let age = today.getFullYear() - birth.getFullYear();
+    const monthDiff = today.getMonth() - birth.getMonth();
+    
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+      age--;
+    }
+    
+    return age;
+  };
+
   const uniqueRoutes = new Set(birthdays.map(b => b.route?.name).filter(Boolean)).size;
   const averageAge = birthdays.length > 0 
-    ? Math.round(birthdays.reduce((sum, birthday) => sum + calculateAge(birthday.birthDate), 0) / birthdays.length)
+    ? Math.round(birthdays.reduce((sum, birthday) => sum + calculateCurrentAge(birthday.birthDate), 0) / birthdays.length)
     : 0;
 
   if (error) {
@@ -620,7 +627,7 @@ export default function CumpleanosLideresPage() {
               ) : (
                 <div css={styles.birthdayList}>
                   {birthdays.map((birthday) => {
-                    const age = calculateAge(birthday.birthDate);
+                    const ageThisYear = calculateAgeThisYear(birthday.birthDate);
                     const formattedBirthDate = formatBirthDate(birthday.birthDate);
                     
                     return (
@@ -636,7 +643,7 @@ export default function CumpleanosLideresPage() {
                             <div css={styles.detailItem}>
                               <FaBirthdayCake css={styles.detailIcon} />
                               <span css={styles.ageHighlight}>
-                                Cumple {age + 1} años
+                                Cumple {ageThisYear} años
                               </span>
                             </div>
                             <div css={styles.detailItem}>
