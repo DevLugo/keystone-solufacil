@@ -2958,6 +2958,7 @@ type Query {
   telegramUsersCount(where: TelegramUserWhereInput! = {}): Int
   keystone: KeystoneMeta!
   authenticatedItem: AuthenticatedItem
+  getLeadersBirthdays(month: Int!): [LeaderBirthday!]!
   getTransactionsSummary(startDate: String!, endDate: String!): [TransactionSummary!]!
   getMonthlyResume(routeId: String!, year: Int!): JSON!
   getLoansReport(routeId: String!, year: Int!, month: Int!): JSON!
@@ -2972,6 +2973,25 @@ type Query {
   previewBulkPortfolioCleanup(routeId: String!, fromDate: String!, toDate: String!, weeksWithoutPaymentThreshold: Int): JSON!
   debugTelegram: String!
   telegramStatus: String!
+}
+
+type LeaderBirthday {
+  id: ID!
+  fullName: String!
+  birthDate: String
+  day: Int!
+  route: RouteInfo
+  location: LocationInfo
+}
+
+type RouteInfo {
+  id: ID!
+  name: String!
+}
+
+type LocationInfo {
+  id: ID!
+  name: String!
 }
 
 type TransactionSummary {
