@@ -134,7 +134,7 @@ const GET_MIGRATED_PAYMENTS = gql`
     loanPayments(where: { 
       AND: [
         { receivedAt: { gte: $date, lt: $nextDate } },
-        { leadPaymentReceivedId: null },
+        { leadPaymentReceived: null },
         { loan: { lead: { id: { equals: $leadId } } } }
       ]
     }) {
