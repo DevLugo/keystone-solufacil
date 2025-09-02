@@ -846,6 +846,11 @@ export const CreatePaymentForm = ({
 
 
 
+  // Contar pagos migrados para mostrar información (debe estar antes de los returns condicionales)
+  const migratedPaymentsCount = useMemo(() => {
+    return existingPayments.filter((payment: any) => payment.isMigrated).length;
+  }, [existingPayments]);
+
   useEffect(() => {
     refetchPayments();
     refetchMigratedPayments();
@@ -853,11 +858,6 @@ export const CreatePaymentForm = ({
 
   if (loansLoading || paymentsLoading || migratedPaymentsLoading) return <LoadingDots label="Loading data" size="large" />;
   if (loansError) return <GraphQLErrorNotice errors={loansError?.graphQLErrors || []} networkError={loansError?.networkError} />;
-
-  // Contar pagos migrados para mostrar información
-  const migratedPaymentsCount = useMemo(() => {
-    return existingPayments.filter((payment: any) => payment.isMigrated).length;
-  }, [existingPayments]);
 
   return (
     <Box paddingTop="xlarge">
