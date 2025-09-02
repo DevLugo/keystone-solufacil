@@ -67,6 +67,11 @@ const menuSections: MenuSection[] = [
         label: 'Reporte de Cobranza',
         href: '/reporte-cobranza',
         roles: ['NORMAL', 'ADMIN']
+      },
+      {
+        label: 'Cumpleaños de Líderes',
+        href: '/cumpleanos-lideres',
+        roles: ['NORMAL', 'ADMIN']
       }
     ]
   },
