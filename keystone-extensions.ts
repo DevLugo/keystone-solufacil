@@ -1475,10 +1475,10 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
       doc.fontSize(8).fillColor('gray').text('Lider:', 400, detailsY, { align: 'left', baseline: 'middle' });
       doc.fontSize(8).fillColor('black').text((leaderName as string) || 'Sin asignar', 450, detailsY, { align: 'left', baseline: 'middle' });
 
-      const additionalDetailsY = detailsY + 20;
+      const additionalDetailsY = detailsY + 15; // Reducido de 20 a 15
       doc.fontSize(8).fillColor('black').text(`Total de clientes: ${totalClientes}`, 30, additionalDetailsY, { align: 'left' });
-      doc.text(`Comisión a pagar al líder: ${formatCurrency(totalComisionEsperada)}`, 30, additionalDetailsY + 15, { align: 'left' });
-      doc.text(`Total de cobranza esperada: ${formatCurrency(totalCobranzaEsperada)}`, 30, additionalDetailsY + 30, { align: 'left' });
+      doc.text(`Comisión a pagar al líder: ${formatCurrency(totalComisionEsperada)}`, 30, additionalDetailsY + 12, { align: 'left' }); // Reducido de 15 a 12
+      doc.text(`Total de cobranza esperada: ${formatCurrency(totalCobranzaEsperada)}`, 30, additionalDetailsY + 24, { align: 'left' }); // Reducido de 30 a 24
 
       // Interfaces y columnas (diseño de keystone2.ts)
       interface PaymentRecord {
@@ -1527,20 +1527,20 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
       // Function to draw table headers (diseño de keystone2.ts)
       const drawTableHeaders = (y: number): number => {
         const headers = ['ID', 'NOMBRE', 'TELEFONO', 'ABONO', 'ADEUDO', 'PLAZOS', 'PAGO VDO', 'ABONO PARCIAL', 'FECHA INICIO', 'NUMERO SEMANA', 'AVAL'];
-        const headerHeight = 30;
+        const headerHeight = 20; // Reducido de 30 a 20
 
         doc.rect(30, y, Object.values(columnWidths).reduce((a, b) => a + b, 0), headerHeight).fillAndStroke('#f0f0f0', '#000');
-        doc.fillColor('#000').fontSize(7);
+        doc.fillColor('#000').fontSize(6); // Reducido de 7 a 6
         headers.forEach((header, i) => {
           const x = 30 + Object.values(columnWidths).slice(0, i).reduce((a, b) => a + b, 0);
           const columnWidth = Object.values(columnWidths)[i];
 
           if (header.includes(' ')) {
             const [firstLine, secondLine] = header.split(' ');
-            doc.text(firstLine, x, y + 5, { width: columnWidth, align: 'center' });
-            doc.text(secondLine, x, y + 15, { width: columnWidth, align: 'center' });
+            doc.text(firstLine, x, y + 3, { width: columnWidth, align: 'center' }); // Ajustado de 5 a 3
+            doc.text(secondLine, x, y + 12, { width: columnWidth, align: 'center' }); // Ajustado de 15 a 12
           } else {
-            doc.text(header, x, y + 10, { width: columnWidth, align: 'center' });
+            doc.text(header, x, y + 8, { width: columnWidth, align: 'center' }); // Ajustado de 10 a 8
           }
         });
 
@@ -1583,24 +1583,24 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
       };
 
       // Initial table headers (diseño de keystone2.ts)
-      let currentY = drawTableHeaders(additionalDetailsY + 50);
+      let currentY = drawTableHeaders(additionalDetailsY + 35); // Reducido de 50 a 35
       let pageNumber = 1;
       addPageNumber(pageNumber);
 
-      const paddingBottom = 5;
-      const lineHeight = 12;
+      const paddingBottom = 1; // Reducido de 3 a 1
+      const lineHeight = 8; // Reducido de 10 a 8
       const pageHeight = doc.page.height - doc.page.margins.bottom;
 
       // Dibujar filas con datos reales de la DB
       payments.forEach((payment, rowIndex) => {
         // Calcular alto real del nombre con el ancho de columna para evitar texto encimado
-        doc.fontSize(6);
+        doc.fontSize(5); // Reducido de 6 a 5
         const columnKeys = Object.keys(columnWidths);
         const nameOffset = columnKeys.slice(0, columnKeys.indexOf('name')).reduce((sum, key) => sum + (columnWidths as any)[key], 0);
-        const nameStartX = 30 + nameOffset + 5;
-        const nameBlockWidth = columnWidths.name - 10;
+        const nameStartX = 30 + nameOffset + 2; // Reducido de 3 a 2
+        const nameBlockWidth = columnWidths.name - 4; // Reducido de 6 a 4
         const nameTextHeight = doc.heightOfString(payment.name || '', { width: nameBlockWidth });
-        const rowHeight = Math.max(nameTextHeight + paddingBottom + 10, 20);
+        const rowHeight = Math.max(nameTextHeight + paddingBottom + 3, 14); // Reducido de 16 a 14
 
         if (currentY + rowHeight > pageHeight) {
           // Add page number to current page before creating new one
@@ -1611,11 +1611,11 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         }
 
         // Dibujar nombre en bloque con auto-wrap
-        doc.text(payment.name || '', nameStartX, currentY + 5, { width: nameBlockWidth, align: 'left' });
+        doc.text(payment.name || '', nameStartX, currentY + 2, { width: nameBlockWidth, align: 'left' }); // Reducido de 3 a 2
 
         // Dibujar columnas individuales para evitar problemas de TypeScript
         const drawColumn = (key: string, x: number, width: number) => {
-          const paddingLeft = key === 'name' ? 5 : 0;
+          const paddingLeft = key === 'name' ? 2 : 0; // Reducido de 3 a 2
           if (key === 'abono') {
             const left = '';
             const right = payment[key];
@@ -1636,7 +1636,7 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
 
             if (key === 'aval') {
               // Padding especial para aval
-              doc.text(value, x + 5, currentY + verticalOffset, { width: width - 10, align: 'left' });
+              doc.text(value, x + 2, currentY + verticalOffset, { width: width - 4, align: 'left' }); // Reducido de 3 a 2 y de 6 a 4
             } else {
               doc.text(value, x + paddingLeft, currentY + verticalOffset, { width, align: 'center' });
             }
