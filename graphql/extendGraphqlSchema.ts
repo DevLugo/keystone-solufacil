@@ -684,35 +684,43 @@ export const extendGraphqlSchema = graphql.extend(base => {
               paymentStatus = 'PARTIAL';
             }
 
-            // Obtener todas las cuentas del agente en una sola query
-            const agentAccounts = await tx.account.findMany({
-              where: { 
-                route: { 
-                  employees: { 
-                    some: { id: agentId } 
-                  } 
-                },
-                type: { 
-                  in: ['EMPLOYEE_CASH_FUND', 'BANK'] 
+            // Obtener el agente con su ruta para acceder a las cuentas
+            const agent = await tx.employee.findUnique({
+              where: { id: agentId },
+              include: {
+                routes: {
+                  include: {
+                    accounts: {
+                      where: {
+                        type: { in: ['EMPLOYEE_CASH_FUND', 'BANK'] }
+                      }
+                    }
+                  }
                 }
               }
             });
 
-            console.log('🔍 DEBUG - Agent Accounts:', { agentId, agentAccounts: agentAccounts?.length });
+            if (!agent || !agent.routes) {
+              throw new Error(`Agente no encontrado o sin ruta asignada: ${agentId}`);
+            }
 
-            if (!agentAccounts || !Array.isArray(agentAccounts)) {
-              throw new Error(`No se pudieron obtener las cuentas del agente: ${agentId}`);
+            // Obtener las cuentas de la ruta del agente
+            const agentAccounts = agent.routes.accounts || [];
+            console.log('🔍 DEBUG - Agent Accounts:', { agentId, routeId: agent.routes.id, accountsCount: agentAccounts.length });
+
+            if (!agentAccounts || agentAccounts.length === 0) {
+              throw new Error(`No se encontraron cuentas para la ruta del agente: ${agentId}`);
             }
 
             const cashAccount = agentAccounts.find((account: any) => account.type === 'EMPLOYEE_CASH_FUND');
             const bankAccount = agentAccounts.find((account: any) => account.type === 'BANK');
 
             if (!cashAccount) {
-              throw new Error('Cuenta de efectivo no encontrada');
+              throw new Error('Cuenta de efectivo no encontrada en la ruta del agente');
             }
 
             if (!bankAccount) {
-              throw new Error('Cuenta bancaria no encontrada');
+              throw new Error('Cuenta bancaria no encontrada en la ruta del agente');
             }
 
             // Crear el LeadPaymentReceived
@@ -1026,29 +1034,38 @@ export const extendGraphqlSchema = graphql.extend(base => {
             const agentId = existingPayment.agentId || '';
             const leadId = existingPayment.leadId || '';
 
-            // Obtener cuentas del agente para calcular cambios en balances
-            const agentAccounts = await tx.account.findMany({
-              where: { 
-                route: { 
-                  employees: { 
-                    some: { id: agentId } 
-                  } 
-                },
-                type: { 
-                  in: ['EMPLOYEE_CASH_FUND', 'BANK'] 
+            // Obtener el agente con su ruta para acceder a las cuentas
+            const agent = await tx.employee.findUnique({
+              where: { id: agentId },
+              include: {
+                routes: {
+                  include: {
+                    accounts: {
+                      where: {
+                        type: { in: ['EMPLOYEE_CASH_FUND', 'BANK'] }
+                      }
+                    }
+                  }
                 }
               }
             });
 
-            if (!agentAccounts || !Array.isArray(agentAccounts)) {
-              throw new Error(`No se pudieron obtener las cuentas del agente: ${agentId}`);
+            if (!agent || !agent.routes) {
+              throw new Error(`Agente no encontrado o sin ruta asignada: ${agentId}`);
+            }
+
+            // Obtener las cuentas de la ruta del agente
+            const agentAccounts = agent.routes.accounts || [];
+
+            if (!agentAccounts || agentAccounts.length === 0) {
+              throw new Error(`No se encontraron cuentas para la ruta del agente: ${agentId}`);
             }
 
             const cashAccount = agentAccounts.find((account: any) => account.type === 'EMPLOYEE_CASH_FUND');
             const bankAccount = agentAccounts.find((account: any) => account.type === 'BANK');
 
             if (!cashAccount || !bankAccount) {
-              throw new Error('Cuentas del agente no encontradas');
+              throw new Error('Cuentas del agente no encontradas en su ruta');
             }
 
             // Calcular cambios en balances de pagos existentes (para revertir)

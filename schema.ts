@@ -2025,13 +2025,12 @@ export const FalcoCompensatoryPayment = list({
           const originalFalcoAmount = parseFloat(leadPaymentReceived.falcoAmount?.toString() || '0');
           const remainingFalcoAmount = Math.max(0, originalFalcoAmount - totalCompensated);
 
-          // Obtener cuentas del agente
-          const cashAccount = leadPaymentReceived.agent?.routes?.accounts?.find(
-            (account: any) => account.type === 'EMPLOYEE_CASH_FUND'
-          );
+          // Obtener cuentas del agente desde la ruta
+          const agentAccounts = leadPaymentReceived.agent?.routes?.accounts || [];
+          const cashAccount = agentAccounts.find((account: any) => account.type === 'EMPLOYEE_CASH_FUND');
 
           if (!cashAccount) {
-            console.error('No se encontró cuenta de efectivo para el agente');
+            console.error('No se encontró cuenta de efectivo para el agente en su ruta');
             return;
           }
 
