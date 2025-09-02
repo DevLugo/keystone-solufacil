@@ -4767,61 +4767,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
             // Usar la fecha específica de la semana si se proporciona, sino usar fin del mes
             const referenceDate = weekEndDate ? new Date(weekEndDate) : new Date(year, month, 0, 23, 59, 59, 999);
             
-            // Obtener TODOS los préstamos de la ruta para aplicar la lógica de fecha manualmente
-            const baseFilters = [
-              { signDate: { lte: referenceDate } },      // ✅ Firmados antes o durante la fecha de referencia
-              {
+            // ✅ NUEVA ESTRATEGIA: Usar la misma lógica exacta que el reporte principal
+            // Obtener TODOS los préstamos de la ruta para aplicar la lógica temporal
+            const allLoans = await (context.prisma as any).loan.findMany({
+              where: {
                 lead: {
                   routes: {
                     id: routeId
                   }
                 }
-              }
-            ];
-
-            // Construir el filtro de localidad si no es TOTALES o GRAN TOTAL
-            let whereClause: any = {
-              AND: baseFilters
-            };
-
-            // Si es TOTALES o GRAN TOTAL, obtener todos los préstamos de la ruta
-            // Si es una localidad específica, filtrar por localidad
-            if (localityName !== 'TOTALES' && localityName !== 'GRAN TOTAL') {
-              whereClause.AND.push({
-                OR: [
-                  {
-                    borrower: {
-                      personalData: {
-                        addresses: {
-                          some: {
-                            location: {
-                              name: localityName
-                            }
-                          }
-                        }
-                      }
-                    }
-                  },
-                  {
-                    lead: {
-                      personalData: {
-                        addresses: {
-                          some: {
-                            location: {
-                              name: localityName
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                ]
-              });
-            }
-            
-            // Obtener préstamos activos usando la misma lógica sincronizada que generar-listados/abonosTab
-            const activeLoans = await (context.prisma as any).loan.findMany({
-              where: whereClause,
+              },
               include: {
                 borrower: {
                   include: {
@@ -4849,14 +4804,22 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     }
                   }
                 },
-                loantype: true
-              },
-              orderBy: [
-                { signDate: 'desc' }
-              ]
+                loantype: true,
+                payments: {
+                  orderBy: {
+                    receivedAt: 'asc'
+                  }
+                },
+                excludedByCleanup: {
+                  include: {
+                    executedBy: true
+                  }
+                },
+                previousLoan: true
+              }
             });
 
-            // ✅ NUEVA LÓGICA: Aplicar la misma función isLoanConsideredOnDate que usa el reporte
+            // ✅ REPLICAR EXACTAMENTE la lógica del reporte principal
             const isLoanConsideredOnDate = (loan: any, date: Date) => {
               const signDate = new Date(loan.signDate);
               if (signDate > date) return false;
@@ -4875,11 +4838,115 @@ export const extendGraphqlSchema = graphql.extend(base => {
               return true;
             };
 
-            // Filtrar préstamos que estén activos en la fecha de referencia
-            const filteredActiveLoans = activeLoans.filter(loan => isLoanConsideredOnDate(loan, referenceDate));
-
+            // ✅ NUEVA LÓGICA: Simular exactamente lo que hace el reporte principal
+            // Si es para una semana específica, necesitamos calcular activeAtEnd usando la fórmula del reporte
+            let activeLoansAtDate = [];
+            
+            if (weekEndDate) {
+              // Para semanas específicas: usar la lógica temporal del reporte
+              const weekEnd = new Date(weekEndDate);
+              const weekStart = new Date(weekEnd);
+              weekStart.setDate(weekStart.getDate() - 6); // Retroceder 6 días para obtener el lunes
+              weekStart.setHours(0, 0, 0, 0);
+              
+              const startReferenceDate = new Date(weekStart.getTime() - 1); // Domingo antes del lunes
+              
+              // Calcular activeAtStart para esta localidad
+              let activeAtStart = 0;
+              allLoans.forEach((loan: any) => {
+                const loanLocality = loan.borrower?.personalData?.addresses?.[0]?.location?.name ||
+                                   loan.lead?.personalData?.addresses?.[0]?.location?.name ||
+                                   'Sin localidad';
+                
+                if (localityName !== 'TOTALES' && localityName !== 'GRAN TOTAL' && loanLocality !== localityName) {
+                  return; // Skip si no es la localidad correcta
+                }
+                
+                let activeAtStartCond = isLoanConsideredOnDate(loan, startReferenceDate);
+                
+                // Neutralizar renovaciones dentro de la misma semana
+                if (activeAtStartCond && loan.previousLoanId) {
+                  const sd = new Date(loan.signDate);
+                  const prevFinished = loan.previousLoan?.finishedDate ? new Date(loan.previousLoan.finishedDate) : null;
+                  if (sd >= weekStart && sd <= weekEnd && prevFinished && prevFinished <= startReferenceDate) {
+                    activeAtStartCond = false;
+                  }
+                }
+                
+                if (activeAtStartCond) {
+                  activeAtStart++;
+                }
+              });
+              
+              // Calcular granted y finished en la semana
+              let granted = 0;
+              let finished = 0;
+              
+              allLoans.forEach((loan: any) => {
+                const loanLocality = loan.borrower?.personalData?.addresses?.[0]?.location?.name ||
+                                   loan.lead?.personalData?.addresses?.[0]?.location?.name ||
+                                   'Sin localidad';
+                
+                if (localityName !== 'TOTALES' && localityName !== 'GRAN TOTAL' && loanLocality !== localityName) {
+                  return;
+                }
+                
+                // Préstamos otorgados durante la semana
+                const signDate = new Date(loan.signDate);
+                if (signDate >= weekStart && signDate <= weekEnd) {
+                  granted++;
+                }
+                
+                // Préstamos finalizados durante la semana
+                if (loan.finishedDate) {
+                  const finishedDate = new Date(loan.finishedDate);
+                  if (finishedDate >= weekStart && finishedDate <= weekEnd) {
+                    finished++;
+                  }
+                }
+                
+                // Préstamos excluidos por cleanup durante la semana
+                if (loan.excludedByCleanup?.cleanupDate) {
+                  const cleanupDate = new Date(loan.excludedByCleanup.cleanupDate);
+                  if (cleanupDate >= weekStart && cleanupDate <= weekEnd) {
+                    finished++;
+                  }
+                }
+              });
+              
+              // Calcular activeAtEnd usando la misma fórmula del reporte
+              const activeAtEnd = activeAtStart + granted - finished;
+              
+              // Obtener todos los préstamos activos al final de la semana
+              activeLoansAtDate = allLoans.filter(loan => {
+                const loanLocality = loan.borrower?.personalData?.addresses?.[0]?.location?.name ||
+                                   loan.lead?.personalData?.addresses?.[0]?.location?.name ||
+                                   'Sin localidad';
+                
+                if (localityName !== 'TOTALES' && localityName !== 'GRAN TOTAL' && loanLocality !== localityName) {
+                  return false;
+                }
+                
+                return isLoanConsideredOnDate(loan, weekEnd);
+              });
+              
+            } else {
+              // Para resúmenes mensuales: usar consulta simple
+              activeLoansAtDate = allLoans.filter(loan => {
+                const loanLocality = loan.borrower?.personalData?.addresses?.[0]?.location?.name ||
+                                   loan.lead?.personalData?.addresses?.[0]?.location?.name ||
+                                   'Sin localidad';
+                
+                if (localityName !== 'TOTALES' && localityName !== 'GRAN TOTAL' && loanLocality !== localityName) {
+                  return false;
+                }
+                
+                return isLoanConsideredOnDate(loan, referenceDate);
+              });
+            }
+            
             // Formatear datos para el hover tooltip
-            const activeClients = filteredActiveLoans.map((loan: any) => {
+            const activeClients = activeLoansAtDate.map((loan: any) => {
               const clientName = loan.borrower?.personalData?.fullName || 'Sin nombre';
               const leadName = loan.lead?.personalData?.fullName || 'Sin líder';
               const loanTypeName = loan.loantype?.name || 'Sin tipo';
@@ -4905,11 +4972,29 @@ export const extendGraphqlSchema = graphql.extend(base => {
               };
             });
 
+            // ✅ DEBUG: Log para verificar la consulta
+            console.log(`🔍 getActiveClientsForLocality DEBUG:`, {
+              locality: localityName,
+              routeId,
+              referenceDate: referenceDate.toISOString(),
+              weekEndDate,
+              totalLoansFound: allLoans.length,
+              activeLoansAtDate: activeLoansAtDate.length,
+              sampleLoan: activeLoansAtDate[0] ? {
+                id: activeLoansAtDate[0].id,
+                signDate: activeLoansAtDate[0].signDate,
+                finishedDate: activeLoansAtDate[0].finishedDate,
+                pendingAmount: activeLoansAtDate[0].pendingAmountStored,
+                excludedByCleanup: activeLoansAtDate[0].excludedByCleanup
+              } : 'No loans found'
+            });
+
             return {
               locality: localityName,
               totalActiveClients: activeClients.length,
               clients: activeClients,
-              generatedAt: new Date().toISOString()
+              generatedAt: new Date().toISOString(),
+              referenceDate: referenceDate.toISOString() // Para debugging
             };
 
           } catch (error) {

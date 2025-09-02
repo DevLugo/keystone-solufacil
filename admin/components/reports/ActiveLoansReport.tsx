@@ -627,14 +627,14 @@ const ActiveClientsHoverCard = ({
   year, 
   month, 
   activeCount,
-  weekEndDate 
+  weekEndDate
 }: { 
   locality: string;
   routeId: string;
   year: number;
   month: number;
   activeCount: number;
-  weekEndDate?: string; // Fecha específica del final de la semana
+  weekEndDate?: string;
 }) => {
   const [open, setOpen] = React.useState(false);
   const [clientsData, setClientsData] = React.useState<any>(null);
@@ -2396,6 +2396,7 @@ export default function ActiveLoansReport() {
                                     month={selectedMonth}
                                     activeCount={weekData.activeAtEnd || 0}
                                     weekEndDate={processedData.weekDates?.[week]?.end ? new Date(processedData.weekDates[week].end).toISOString() : undefined}
+
                                   />
                                 </span>
                               </div>
@@ -2553,6 +2554,7 @@ export default function ActiveLoansReport() {
                                       month={selectedMonth}
                                       activeCount={endValue || 0}
                                       weekEndDate={undefined} // Usar fin del mes para resumen mensual
+
                                     />
                                   </span>
                                 </div>
@@ -2769,6 +2771,7 @@ export default function ActiveLoansReport() {
                                   month={selectedMonth}
                                   activeCount={weekTotal.activeAtEnd || 0}
                                   weekEndDate={processedData.weekDates?.[week]?.end ? new Date(processedData.weekDates[week].end).toISOString() : undefined}
+
                                 />
                               </span>
                             </div>
@@ -2885,6 +2888,7 @@ export default function ActiveLoansReport() {
                               month={selectedMonth}
                               activeCount={processedData.summary.totalActiveAtMonthEnd || 0}
                               weekEndDate={undefined} // Usar fin del mes para gran total
+
                             />
                           </span>
                         </div>
