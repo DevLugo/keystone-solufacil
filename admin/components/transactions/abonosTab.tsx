@@ -1011,7 +1011,11 @@ export const CreatePaymentForm = ({
     refetchFalcos();
   }, [refreshKey, refetchPayments, refetchMigratedPayments, refetchFalcos]);
 
-  if (loansLoading || paymentsLoading || migratedPaymentsLoading || falcosLoading) return <LoadingDots label="Loading data" size="large" />;
+  // Solo mostrar loading si alguna query está realmente cargando (no skipped)
+  const isLoading = (selectedLead && (loansLoading || falcosLoading)) || 
+                   (selectedDate && selectedLead && (paymentsLoading || migratedPaymentsLoading));
+  
+  if (isLoading) return <LoadingDots label="Loading data" size="large" />;
   if (loansError) return <GraphQLErrorNotice errors={loansError?.graphQLErrors || []} networkError={loansError?.networkError} />;
 
   return (
