@@ -38,8 +38,8 @@ const GET_ROUTES = gql`
 
 // Query para obtener clientes activos de una localidad
 const GET_ACTIVE_CLIENTS_FOR_LOCALITY = gql`
-  query GetActiveClientsForLocality($routeId: String!, $localityName: String!, $year: Int!, $month: Int!) {
-    getActiveClientsForLocality(routeId: $routeId, localityName: $localityName, year: $year, month: $month)
+  query GetActiveClientsForLocality($routeId: String!, $localityName: String!, $year: Int!, $month: Int!, $weekEndDate: String) {
+    getActiveClientsForLocality(routeId: $routeId, localityName: $localityName, year: $year, month: $month, weekEndDate: $weekEndDate)
   }
 `;
 
@@ -52,6 +52,7 @@ interface ReportData {
   route: { id: string; name: string };
   month: { year: number; month: number; name: string };
   weeks: string[];
+  weekDates: { [week: string]: { start: Date; end: Date } }; // ✅ AGREGAR: Fechas de cada semana
   data: { [week: string]: { [locality: string]: any } };
   weeklyTotals: { [week: string]: any };
   summary: {
@@ -625,13 +626,15 @@ const ActiveClientsHoverCard = ({
   routeId, 
   year, 
   month, 
-  activeCount 
+  activeCount,
+  weekEndDate 
 }: { 
   locality: string;
   routeId: string;
   year: number;
   month: number;
   activeCount: number;
+  weekEndDate?: string; // Fecha específica del final de la semana
 }) => {
   const [open, setOpen] = React.useState(false);
   const [clientsData, setClientsData] = React.useState<any>(null);
@@ -639,7 +642,7 @@ const ActiveClientsHoverCard = ({
   const closeTimerRef = React.useRef<number | null>(null);
 
   const { data: activeClientsData, loading: activeClientsLoading } = useQuery(GET_ACTIVE_CLIENTS_FOR_LOCALITY, {
-    variables: { routeId, localityName: locality, year, month },
+    variables: { routeId, localityName: locality, year, month, weekEndDate },
     skip: !open,
   });
 
@@ -659,7 +662,14 @@ const ActiveClientsHoverCard = ({
     
     let whatsappText = `📊 *Clientes Activos - ${locality}*\n\n`;
     whatsappText += `🏠 *Localidad:* ${locality}\n`;
-    whatsappText += `📅 *Mes:* ${month}/${year}\n`;
+    
+    if (weekEndDate) {
+      const weekDate = new Date(weekEndDate);
+      whatsappText += `📅 *Fecha de corte:* ${weekDate.toLocaleDateString('es-MX')} (semana específica)\n`;
+    } else {
+      whatsappText += `📅 *Mes:* ${month}/${year} (resumen mensual)\n`;
+    }
+    
     whatsappText += `👥 *Total Clientes Activos:* ${clientsData.totalActiveClients}\n\n`;
     
     whatsappText += `📋 *Detalle de Clientes:*\n\n`;
@@ -752,6 +762,11 @@ const ActiveClientsHoverCard = ({
           }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
               Clientes Activos - {locality}
+              {weekEndDate && (
+                <div style={{ fontSize: 11, fontWeight: 400, color: '#64748b' }}>
+                  Al {new Date(weekEndDate).toLocaleDateString('es-MX')}
+                </div>
+              )}
             </div>
             <button
               id={`whatsapp-copy-btn-${locality.replace(/\s+/g, '-')}`}
@@ -2380,6 +2395,7 @@ export default function ActiveLoansReport() {
                                     year={selectedYear}
                                     month={selectedMonth}
                                     activeCount={weekData.activeAtEnd || 0}
+                                    weekEndDate={processedData.weekDates?.[week]?.end?.toISOString()}
                                   />
                                 </span>
                               </div>
@@ -2536,6 +2552,7 @@ export default function ActiveLoansReport() {
                                       year={selectedYear}
                                       month={selectedMonth}
                                       activeCount={endValue || 0}
+                                      weekEndDate={undefined} // Usar fin del mes para resumen mensual
                                     />
                                   </span>
                                 </div>
@@ -2751,6 +2768,7 @@ export default function ActiveLoansReport() {
                                   year={selectedYear}
                                   month={selectedMonth}
                                   activeCount={weekTotal.activeAtEnd || 0}
+                                  weekEndDate={processedData.weekDates?.[week]?.end?.toISOString()}
                                 />
                               </span>
                             </div>
@@ -2866,6 +2884,7 @@ export default function ActiveLoansReport() {
                               year={selectedYear}
                               month={selectedMonth}
                               activeCount={processedData.summary.totalActiveAtMonthEnd || 0}
+                              weekEndDate={undefined} // Usar fin del mes para gran total
                             />
                           </span>
                         </div>

@@ -4708,6 +4708,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 name: new Date(year, month - 1).toLocaleDateString('es-MX', { year: 'numeric', month: 'long' })
               },
               weeks: weekOrder,
+              weekDates: weeks, // ✅ AGREGAR: Incluir las fechas de cada semana
               data: reportData,
               weeklyTotals,
               summary: {
@@ -4759,18 +4760,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
           localityName: graphql.arg({ type: graphql.nonNull(graphql.String) }),
           year: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
           month: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
+          weekEndDate: graphql.arg({ type: graphql.String }), // Fecha específica del final de la semana
         },
-        resolve: async (root, { routeId, localityName, year, month }, context: Context) => {
+        resolve: async (root, { routeId, localityName, year, month, weekEndDate }, context: Context) => {
           try {
-            // Calcular fin del mes para obtener los clientes activos actuales
-            const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
+            // Usar la fecha específica de la semana si se proporciona, sino usar fin del mes
+            const referenceDate = weekEndDate ? new Date(weekEndDate) : new Date(year, month, 0, 23, 59, 59, 999);
             
-            // Construir filtros base
+            // Obtener TODOS los préstamos de la ruta para aplicar la lógica de fecha manualmente
             const baseFilters = [
-              { finishedDate: null },                    // ✅ Solo préstamos NO finalizados
-              { pendingAmountStored: { gt: "0" } },      // ✅ Solo con monto pendiente > 0
-              { excludedByCleanup: null },               // ✅ NO excluidos por limpieza
-              { signDate: { lte: monthEnd } },           // ✅ Firmados antes o durante el mes
+              { signDate: { lte: referenceDate } },      // ✅ Firmados antes o durante la fecha de referencia
               {
                 lead: {
                   routes: {
@@ -4857,8 +4856,30 @@ export const extendGraphqlSchema = graphql.extend(base => {
               ]
             });
 
+            // ✅ NUEVA LÓGICA: Aplicar la misma función isLoanConsideredOnDate que usa el reporte
+            const isLoanConsideredOnDate = (loan: any, date: Date) => {
+              const signDate = new Date(loan.signDate);
+              if (signDate > date) return false;
+              
+              // ✅ CAMBIO PRINCIPAL: Usar la misma lógica que generar-listados
+              // Solo préstamos NO finalizados
+              if (loan.finishedDate !== null) return false;
+              
+              // Solo con monto pendiente > 0
+              const pendingAmount = parseFloat(loan.pendingAmountStored || '0');
+              if (pendingAmount <= 0) return false;
+              
+              // NO excluidos por limpieza
+              if (loan.excludedByCleanup !== null) return false;
+
+              return true;
+            };
+
+            // Filtrar préstamos que estén activos en la fecha de referencia
+            const filteredActiveLoans = activeLoans.filter(loan => isLoanConsideredOnDate(loan, referenceDate));
+
             // Formatear datos para el hover tooltip
-            const activeClients = activeLoans.map((loan: any) => {
+            const activeClients = filteredActiveLoans.map((loan: any) => {
               const clientName = loan.borrower?.personalData?.fullName || 'Sin nombre';
               const leadName = loan.lead?.personalData?.fullName || 'Sin líder';
               const loanTypeName = loan.loantype?.name || 'Sin tipo';
