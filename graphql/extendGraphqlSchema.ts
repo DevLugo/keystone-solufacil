@@ -684,29 +684,43 @@ export const extendGraphqlSchema = graphql.extend(base => {
               paymentStatus = 'PARTIAL';
             }
 
-            // Obtener todas las cuentas del agente en una sola query
-            const agentAccounts = await tx.account.findMany({
-              where: { 
-                route: { 
-                  employees: { 
-                    some: { id: agentId } 
-                  } 
-                },
-                type: { 
-                  in: ['EMPLOYEE_CASH_FUND', 'BANK'] 
+            // Obtener el agente con su ruta para acceder a las cuentas
+            const agent = await tx.employee.findUnique({
+              where: { id: agentId },
+              include: {
+                routes: {
+                  include: {
+                    accounts: {
+                      where: {
+                        type: { in: ['EMPLOYEE_CASH_FUND', 'BANK'] }
+                      }
+                    }
+                  }
                 }
               }
             });
+
+            if (!agent || !agent.routes) {
+              throw new Error(`Agente no encontrado o sin ruta asignada: ${agentId}`);
+            }
+
+            // Obtener las cuentas de la ruta del agente
+            const agentAccounts = agent.routes.accounts || [];
+            console.log('🔍 DEBUG - Agent Accounts:', { agentId, routeId: agent.routes.id, accountsCount: agentAccounts.length });
+
+            if (!agentAccounts || agentAccounts.length === 0) {
+              throw new Error(`No se encontraron cuentas para la ruta del agente: ${agentId}`);
+            }
 
             const cashAccount = agentAccounts.find((account: any) => account.type === 'EMPLOYEE_CASH_FUND');
             const bankAccount = agentAccounts.find((account: any) => account.type === 'BANK');
 
             if (!cashAccount) {
-              throw new Error('Cuenta de efectivo no encontrada');
+              throw new Error('Cuenta de efectivo no encontrada en la ruta del agente');
             }
 
             if (!bankAccount) {
-              throw new Error('Cuenta bancaria no encontrada');
+              throw new Error('Cuenta bancaria no encontrada en la ruta del agente');
             }
 
             // Crear el LeadPaymentReceived
@@ -930,6 +944,29 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
             }
 
+            // ✅ NUEVO: Crear transacción de pérdida (EXPENSE) si hay falco
+            if (falcoAmount > 0) {
+              await tx.transaction.create({
+                data: {
+                  amount: falcoAmount.toFixed(2),
+                  date: new Date(paymentDate),
+                  type: 'EXPENSE',
+                  expenseSource: 'FALCO_LOSS',
+                  sourceAccountId: cashAccount.id,
+                  leadPaymentReceivedId: leadPaymentReceived.id,
+                  leadId: leadId,
+                  description: `Pérdida por falco - ${leadPaymentReceived.id}`,
+                }
+              });
+              
+              // Descontar el falco del balance de efectivo
+              const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
+              await tx.account.update({
+                where: { id: cashAccount.id },
+                data: { amount: (currentCashAmount - falcoAmount).toString() }
+              });
+            }
+
             return {
               id: leadPaymentReceived.id,
               expectedAmount: parseFloat(leadPaymentReceived.expectedAmount?.toString() || '0'),
@@ -997,25 +1034,38 @@ export const extendGraphqlSchema = graphql.extend(base => {
             const agentId = existingPayment.agentId || '';
             const leadId = existingPayment.leadId || '';
 
-            // Obtener cuentas del agente para calcular cambios en balances
-            const agentAccounts = await tx.account.findMany({
-              where: { 
-                route: { 
-                  employees: { 
-                    some: { id: agentId } 
-                  } 
-                },
-                type: { 
-                  in: ['EMPLOYEE_CASH_FUND', 'BANK'] 
+            // Obtener el agente con su ruta para acceder a las cuentas
+            const agent = await tx.employee.findUnique({
+              where: { id: agentId },
+              include: {
+                routes: {
+                  include: {
+                    accounts: {
+                      where: {
+                        type: { in: ['EMPLOYEE_CASH_FUND', 'BANK'] }
+                      }
+                    }
+                  }
                 }
               }
             });
+
+            if (!agent || !agent.routes) {
+              throw new Error(`Agente no encontrado o sin ruta asignada: ${agentId}`);
+            }
+
+            // Obtener las cuentas de la ruta del agente
+            const agentAccounts = agent.routes.accounts || [];
+
+            if (!agentAccounts || agentAccounts.length === 0) {
+              throw new Error(`No se encontraron cuentas para la ruta del agente: ${agentId}`);
+            }
 
             const cashAccount = agentAccounts.find((account: any) => account.type === 'EMPLOYEE_CASH_FUND');
             const bankAccount = agentAccounts.find((account: any) => account.type === 'BANK');
 
             if (!cashAccount || !bankAccount) {
-              throw new Error('Cuentas del agente no encontradas');
+              throw new Error('Cuentas del agente no encontradas en su ruta');
             }
 
             // Calcular cambios en balances de pagos existentes (para revertir)
@@ -1180,6 +1230,65 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 where: { id: bankAccount.id },
                 data: { amount: newBankBalance.toString() }
               });
+            }
+
+            // ✅ NUEVO: Manejar cambios en falco (crear/actualizar/eliminar transacciones de pérdida)
+            const oldFalcoAmount = parseFloat(existingPayment.falcoAmount?.toString() || '0');
+            const newFalcoAmount = falcoAmount;
+            const falcoChange = newFalcoAmount - oldFalcoAmount;
+
+            if (falcoChange !== 0) {
+              // Buscar transacción de falco existente
+              const existingFalcoTransaction = await tx.transaction.findFirst({
+                where: {
+                  leadPaymentReceivedId: id,
+                  type: 'EXPENSE',
+                  expenseSource: 'FALCO_LOSS'
+                }
+              });
+
+              if (existingFalcoTransaction) {
+                if (newFalcoAmount > 0) {
+                  // Actualizar transacción existente
+                  await tx.transaction.update({
+                    where: { id: existingFalcoTransaction.id },
+                    data: {
+                      amount: newFalcoAmount.toFixed(2),
+                      date: new Date(paymentDate),
+                      description: `Pérdida por falco actualizada - ${id}`,
+                    }
+                  });
+                } else {
+                  // Eliminar transacción si no hay más falco
+                  await tx.transaction.delete({
+                    where: { id: existingFalcoTransaction.id }
+                  });
+                }
+              } else if (newFalcoAmount > 0) {
+                // Crear nueva transacción de falco
+                await tx.transaction.create({
+                  data: {
+                    amount: newFalcoAmount.toFixed(2),
+                    date: new Date(paymentDate),
+                    type: 'EXPENSE',
+                    expenseSource: 'FALCO_LOSS',
+                    sourceAccountId: cashAccount.id,
+                    leadPaymentReceivedId: id,
+                    leadId: leadId,
+                    description: `Pérdida por falco - ${id}`,
+                  }
+                });
+              }
+
+              // Ajustar balance de efectivo por el cambio en falco
+              if (falcoChange !== 0) {
+                const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
+                const adjustedCashAmount = currentCashAmount - falcoChange; // Restar aumento de falco, sumar disminución
+                await tx.account.update({
+                  where: { id: cashAccount.id },
+                  data: { amount: adjustedCashAmount.toString() }
+                });
+              }
             }
 
             return {

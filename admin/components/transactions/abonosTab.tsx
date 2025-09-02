@@ -124,6 +124,61 @@ const GET_LEAD_PAYMENTS = gql`
             fullName
           }
         }
+        falcoCompensatoryPayments {
+          id
+          amount
+          createdAt
+        }
+      }
+    }
+  }
+`;
+
+// Query to get existing falcos in the locality (any date) - including completed ones
+const GET_LEAD_FALCOS = gql`
+  query GetLeadFalcos($leadId: ID!) {
+    leadPaymentReceiveds(where: { 
+      AND: [
+        { lead: { id: { equals: $leadId } } },
+        { falcoAmount: { gt: "0" } }
+      ]
+    }) {
+      id
+      expectedAmount
+      paidAmount
+      cashPaidAmount
+      bankPaidAmount
+      falcoAmount
+      paymentStatus
+      createdAt
+      agent {
+        personalData {
+          fullName
+        }
+      }
+      falcoCompensatoryPayments {
+        id
+        amount
+        createdAt
+      }
+    }
+  }
+`;
+
+// Mutation to create falco compensatory payment
+const CREATE_FALCO_PAYMENT = gql`
+  mutation CreateFalcoCompensatoryPayment($leadPaymentReceivedId: ID!, $amount: Decimal!) {
+    createFalcoCompensatoryPayment(data: {
+      amount: $amount
+      leadPaymentReceived: { connect: { id: $leadPaymentReceivedId } }
+    }) {
+      id
+      amount
+      createdAt
+      leadPaymentReceived {
+        id
+        falcoAmount
+        paymentStatus
       }
     }
   }
@@ -260,6 +315,7 @@ type Route = {
 
 const paymentTypeOptions: Option[] = [
   { label: 'ABONO', value: 'PAYMENT' },
+  { label: 'FALCO', value: 'FALCO' },
   { label: 'EXTRA COBRANZA', value: 'EXTRA_COLLECTION' },
 ];
 
@@ -345,6 +401,11 @@ export const CreatePaymentForm = ({
     payments: LoanPayment[];
     comission: number;
     isModalOpen: boolean;
+    isFalcoModalOpen: boolean;
+    isCreateFalcoModalOpen: boolean;
+    falcoPaymentAmount: number;
+    selectedFalcoId: string | null;
+    createFalcoAmount: number;
     loadPaymentDistribution: {
       cashPaidAmount: number;
       bankPaidAmount: number;
@@ -372,6 +433,11 @@ export const CreatePaymentForm = ({
     payments: [],
     comission: 8,
     isModalOpen: false,
+    isFalcoModalOpen: false,
+    isCreateFalcoModalOpen: false,
+    falcoPaymentAmount: 0,
+    selectedFalcoId: null,
+    createFalcoAmount: 0,
     loadPaymentDistribution: {
       cashPaidAmount: 0,
       bankPaidAmount: 0,
@@ -387,8 +453,9 @@ export const CreatePaymentForm = ({
   const [massCommission, setMassCommission] = useState<string>('0');
 
   const { 
-    payments, comission, isModalOpen, loadPaymentDistribution,
-    existingPayments, editedPayments, isEditing, groupedPayments
+    payments, comission, isModalOpen, isFalcoModalOpen, isCreateFalcoModalOpen, falcoPaymentAmount, 
+    selectedFalcoId, createFalcoAmount, loadPaymentDistribution, existingPayments, editedPayments, 
+    isEditing, groupedPayments
   } = state;
 
   // Estado separado para trackear pagos eliminados visualmente
@@ -405,6 +472,14 @@ export const CreatePaymentForm = ({
       leadId: selectedLead?.id || ''
     },
     skip: !selectedDate || !selectedLead,
+  });
+
+  // Query to get existing falcos for the selected lead
+  const { data: falcosData, loading: falcosLoading, refetch: refetchFalcos } = useQuery(GET_LEAD_FALCOS, {
+    variables: {
+      leadId: selectedLead?.id || ''
+    },
+    skip: !selectedLead,
   });
 
   const { data: migratedPaymentsData, loading: migratedPaymentsLoading, refetch: refetchMigratedPayments } = useQuery(GET_MIGRATED_PAYMENTS, {
@@ -483,6 +558,7 @@ export const CreatePaymentForm = ({
   const [createCustomLeadPaymentReceived, { error: customLeadPaymentError, loading: customLeadPaymentLoading }] = useMutation(CREATE_LEAD_PAYMENT_RECEIVED);
   const [updateLeadPayment, { loading: updateLoading }] = useMutation(UPDATE_LEAD_PAYMENT);
   const [updateLoanPayment, { loading: updateLoanPaymentLoading }] = useMutation(UPDATE_LOAN_PAYMENT);
+  const [createFalcoPayment, { loading: falcoPaymentLoading }] = useMutation(CREATE_FALCO_PAYMENT);
 
   const router = useRouter();
 
@@ -502,6 +578,83 @@ export const CreatePaymentForm = ({
         [paymentId]: updatedPayment
       }
     }));
+  };
+
+  // Handle falco payment
+  const handleFalcoPayment = async () => {
+    try {
+      if (!selectedFalcoId || falcoPaymentAmount <= 0) {
+        alert('Por favor seleccione un falco válido y una cantidad mayor a 0');
+        return;
+      }
+
+      await createFalcoPayment({
+        variables: {
+          leadPaymentReceivedId: selectedFalcoId,
+          amount: falcoPaymentAmount.toString()
+        }
+      });
+
+      // Refresh data
+      await Promise.all([
+        refetchFalcos(),
+        refetchPayments(),
+        refetchMigratedPayments()
+      ]);
+
+      // Reset state
+      updateState({
+        isFalcoModalOpen: false,
+        falcoPaymentAmount: 0,
+        selectedFalcoId: null
+      });
+
+      alert('Pago de falco registrado exitosamente');
+    } catch (error) {
+      console.error('Error creating falco payment:', error);
+      alert('Error al registrar el pago de falco');
+    }
+  };
+
+  // Handle create falco
+  const handleCreateFalco = async () => {
+    try {
+      if (!selectedLead?.id || !selectedDate || createFalcoAmount <= 0) {
+        alert('Por favor complete todos los campos y asegúrese de que la cantidad sea mayor a 0');
+        return;
+      }
+
+      // Crear un LeadPaymentReceived con falco (sin pagos reales)
+      await createCustomLeadPaymentReceived({
+        variables: {
+          expectedAmount: createFalcoAmount,
+          cashPaidAmount: 0,
+          bankPaidAmount: 0,
+          agentId: selectedLead.id,
+          leadId: selectedLead.id,
+          paymentDate: selectedDate.toISOString(),
+          payments: []
+        }
+      });
+
+      // Refresh data
+      await Promise.all([
+        refetchFalcos(),
+        refetchPayments(),
+        refetchMigratedPayments()
+      ]);
+
+      // Reset state
+      updateState({
+        isCreateFalcoModalOpen: false,
+        createFalcoAmount: 0
+      });
+
+      alert('Falco registrado exitosamente');
+    } catch (error) {
+      console.error('Error creating falco:', error);
+      alert('Error al registrar el falco');
+    }
   };
 
 
@@ -668,6 +821,7 @@ export const CreatePaymentForm = ({
       await Promise.all([
         refetchPayments(),
         refetchMigratedPayments(),
+        refetchFalcos(),
         // Aquí deberías llamar a refetchRoute si tienes acceso a esa query
         // Por ahora solo refrescamos los pagos
       ]);
@@ -854,9 +1008,10 @@ export const CreatePaymentForm = ({
   useEffect(() => {
     refetchPayments();
     refetchMigratedPayments();
-  }, [refreshKey, refetchPayments, refetchMigratedPayments]);
+    refetchFalcos();
+  }, [refreshKey, refetchPayments, refetchMigratedPayments, refetchFalcos]);
 
-  if (loansLoading || paymentsLoading || migratedPaymentsLoading) return <LoadingDots label="Loading data" size="large" />;
+  if (loansLoading || paymentsLoading || migratedPaymentsLoading || falcosLoading) return <LoadingDots label="Loading data" size="large" />;
   if (loansError) return <GraphQLErrorNotice errors={loansError?.graphQLErrors || []} networkError={loansError?.networkError} />;
 
   return (
@@ -866,6 +1021,162 @@ export const CreatePaymentForm = ({
           networkError={customLeadPaymentError?.networkError}
           errors={customLeadPaymentError?.graphQLErrors}
         />
+      )}
+
+      {/* Banner de falcos pendientes */}
+      {(() => {
+        if (!falcosData?.leadPaymentReceiveds || falcosData.leadPaymentReceiveds.length === 0) return null;
+        
+        const pendingFalcos = falcosData.leadPaymentReceiveds.filter((falco: any) => {
+          const falcoAmount = parseFloat(falco.falcoAmount || '0');
+          const compensatedAmount = falco.falcoCompensatoryPayments?.reduce((sum: number, comp: any) => 
+            sum + parseFloat(comp.amount || '0'), 0) || 0;
+          return (falcoAmount - compensatedAmount) > 0;
+        });
+        
+        const completedFalcos = falcosData.leadPaymentReceiveds.length - pendingFalcos.length;
+        
+        const totalPendingAmount = pendingFalcos.reduce((sum: number, falco: any) => {
+          const falcoAmount = parseFloat(falco.falcoAmount || '0');
+          const compensatedAmount = falco.falcoCompensatoryPayments?.reduce((compensatedSum: number, comp: any) => 
+            compensatedSum + parseFloat(comp.amount || '0'), 0) || 0;
+          return sum + (falcoAmount - compensatedAmount);
+        }, 0);
+        
+        if (pendingFalcos.length === 0 && completedFalcos > 0) {
+          // Solo falcos completados
+          return (
+            <div style={{
+              backgroundColor: '#F0FDF4',
+              border: '2px solid #059669',
+              borderRadius: '8px',
+              padding: '16px',
+              marginBottom: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+            }}>
+              <div style={{ fontSize: '24px' }}>✅</div>
+              <div style={{ flex: 1 }}>
+                <div style={{
+                  fontWeight: '700',
+                  color: '#059669',
+                  fontSize: '16px',
+                  marginBottom: '4px',
+                }}>
+                  TODOS LOS FALCOS COMPENSADOS
+                </div>
+                <div style={{
+                  color: '#065F46',
+                  fontSize: '14px',
+                  lineHeight: '1.4',
+                  marginBottom: '8px',
+                }}>
+                  Se encontraron {completedFalcos} falco(s) completamente compensados en esta localidad.
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <Button
+                    tone="active"
+                    size="small"
+                    onClick={() => updateState({ isFalcoModalOpen: true })}
+                  >
+                    📋 Ver Historial
+                  </Button>
+                  <Button
+                    tone="active"
+                    size="small"
+                    onClick={() => updateState({ isCreateFalcoModalOpen: true })}
+                  >
+                    ⚠️ Reportar Falco
+                  </Button>
+                </div>
+              </div>
+            </div>
+          );
+        }
+        
+        if (pendingFalcos.length > 0) {
+          // Hay falcos pendientes
+          return (
+            <div style={{
+              backgroundColor: '#FEE2E2',
+              border: '2px solid #EF4444',
+              borderRadius: '8px',
+              padding: '16px',
+              marginBottom: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+            }}>
+              <div style={{ fontSize: '24px' }}>⚠️</div>
+              <div style={{ flex: 1 }}>
+                <div style={{
+                  fontWeight: '700',
+                  color: '#DC2626',
+                  fontSize: '16px',
+                  marginBottom: '4px',
+                }}>
+                  FALCOS PENDIENTES DETECTADOS
+                </div>
+                <div style={{
+                  color: '#991B1B',
+                  fontSize: '14px',
+                  lineHeight: '1.4',
+                  marginBottom: '8px',
+                }}>
+                  {pendingFalcos.length} falco(s) pendientes, {completedFalcos > 0 && `${completedFalcos} completados. `}
+                  Total pendiente: ${totalPendingAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <Button
+                    tone="negative"
+                    size="small"
+                    onClick={() => updateState({ isFalcoModalOpen: true })}
+                  >
+                    💰 Abonar a Falcos
+                  </Button>
+                  <Button
+                    tone="active"
+                    size="small"
+                    onClick={() => updateState({ isCreateFalcoModalOpen: true })}
+                  >
+                    ⚠️ Reportar Falco
+                  </Button>
+                </div>
+              </div>
+            </div>
+          );
+        }
+        
+        return null;
+      })()}
+
+      {/* Botón para crear falco cuando no hay falcos existentes */}
+      {(!falcosData?.leadPaymentReceiveds || falcosData.leadPaymentReceiveds.length === 0) && selectedLead && (
+        <div style={{
+          backgroundColor: '#F3F4F6',
+          border: '1px solid #D1D5DB',
+          borderRadius: '8px',
+          padding: '12px',
+          marginBottom: '16px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}>
+          <div style={{
+            fontSize: '14px',
+            color: '#374151',
+          }}>
+            No se detectaron falcos en esta localidad.
+          </div>
+          <Button
+            tone="active"
+            size="small"
+            onClick={() => updateState({ isCreateFalcoModalOpen: true })}
+          >
+            ⚠️ Reportar Falco
+          </Button>
+        </div>
       )}
 
       {/* Banner informativo para datos migrados */}
@@ -1234,13 +1545,16 @@ export const CreatePaymentForm = ({
                 </div>
               ) : (
                 <>
-                  <Button
-                    tone="active"
-                    weight="bold"
-                    onClick={() => setState(prev => ({ ...prev, isEditing: true }))}
-                  >
-                    Editar Pagos
-                  </Button>
+                  {/* Solo mostrar botón de editar si hay pagos existentes */}
+                  {existingPayments.length > 0 && (
+                    <Button
+                      tone="active"
+                      weight="bold"
+                      onClick={() => setState(prev => ({ ...prev, isEditing: true }))}
+                    >
+                      Editar Pagos
+                    </Button>
+                  )}
                   <Button
                     tone="active"
                     size="medium"
@@ -1297,44 +1611,80 @@ export const CreatePaymentForm = ({
                       {index + 1}
                     </td>
                     <td>
-                      {payment.isMigrated ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {payment.isMigrated ? (
+                          <>
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              padding: '4px 8px',
+                              backgroundColor: '#FEF3C7',
+                              color: '#D97706',
+                              borderRadius: '4px',
+                              fontSize: '12px',
+                              fontWeight: '500',
+                              border: '1px solid #F59E0B',
+                            }}>
+                              📊 Migrado Excel
+                            </span>
+                            <span style={{
+                              fontSize: '10px',
+                              color: '#6B7280',
+                              fontStyle: 'italic',
+                              lineHeight: '1.2',
+                            }}>
+                              Solo lectura - No editable
+                            </span>
+                          </>
+                        ) : (
                           <span style={{
                             display: 'inline-flex',
                             alignItems: 'center',
                             padding: '4px 8px',
-                            backgroundColor: '#FEF3C7',
-                            color: '#D97706',
+                            backgroundColor: '#E0F2FE',
+                            color: '#0277BD',
                             borderRadius: '4px',
                             fontSize: '12px',
                             fontWeight: '500',
+                          }}>
+                            Registrado
+                          </span>
+                        )}
+                        
+                        {/* Indicador de falco si el pago tiene falco */}
+                        {payment.leadPaymentReceived?.paymentStatus === 'FALCO' && parseFloat(payment.leadPaymentReceived?.falcoAmount || '0') > 0 && (
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '3px 6px',
+                            backgroundColor: '#FEE2E2',
+                            color: '#DC2626',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: '600',
+                            border: '1px solid #EF4444',
+                          }}>
+                            ⚠️ FALCO: ${parseFloat(payment.leadPaymentReceived?.falcoAmount || '0').toFixed(2)}
+                          </span>
+                        )}
+                        
+                        {/* Indicador de falco parcial */}
+                        {payment.leadPaymentReceived?.paymentStatus === 'PARTIAL' && parseFloat(payment.leadPaymentReceived?.falcoAmount || '0') > 0 && (
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '3px 6px',
+                            backgroundColor: '#FEF3C7',
+                            color: '#D97706',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: '600',
                             border: '1px solid #F59E0B',
                           }}>
-                            📊 Migrado Excel
+                            ⚠️ FALCO PARCIAL: ${parseFloat(payment.leadPaymentReceived?.falcoAmount || '0').toFixed(2)}
                           </span>
-                          <span style={{
-                            fontSize: '10px',
-                            color: '#6B7280',
-                            fontStyle: 'italic',
-                            lineHeight: '1.2',
-                          }}>
-                            Solo lectura - No editable
-                          </span>
-                        </div>
-                      ) : (
-                        <span style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          padding: '4px 8px',
-                          backgroundColor: '#E0F2FE',
-                          color: '#0277BD',
-                          borderRadius: '4px',
-                          fontSize: '12px',
-                          fontWeight: '500',
-                        }}>
-                          Registrado
-                        </span>
-                      )}
+                        )}
+                      </div>
                     </td>
                     <td>{payment.loan?.borrower?.personalData?.fullName}</td>
                     <td>
@@ -1579,6 +1929,265 @@ export const CreatePaymentForm = ({
           {isEditing ? 'Guardar Cambios' : 'Registrar pagos'}
         </Button>
       </Box>
+
+      {/* Modal para crear falco */}
+      <AlertDialog 
+        title="Reportar Nuevo Falco" 
+        isOpen={isCreateFalcoModalOpen} 
+        actions={{
+          confirm: { 
+            label: 'Reportar Falco', 
+            action: () => handleCreateFalco(), 
+            loading: customLeadPaymentLoading 
+          },
+          cancel: { 
+            label: 'Cancelar', 
+            action: () => updateState({ isCreateFalcoModalOpen: false, createFalcoAmount: 0 }) 
+          }
+        }}
+      >
+        <Box padding="large">
+          <Box marginBottom="large">
+            <h4>Información del Falco</h4>
+          </Box>
+          
+          <Box marginBottom="large">
+            <div style={{ marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+              Localidad: {selectedLead?.personalData?.fullName}
+            </div>
+            <div style={{ marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+              Fecha: {selectedDate?.toLocaleDateString('es-MX')}
+            </div>
+          </Box>
+          
+          <Box marginBottom="large">
+            <label>Cantidad del Falco</label>
+            <TextInput
+              type="number"
+              value={createFalcoAmount}
+              onChange={(e) => updateState({ createFalcoAmount: parseFloat(e.target.value) || 0 })}
+              placeholder="0.00"
+            />
+          </Box>
+          
+          <div style={{
+            backgroundColor: '#FEE2E2',
+            padding: '12px',
+            borderRadius: '6px',
+            fontSize: '13px',
+            color: '#991B1B',
+            border: '1px solid #FCA5A5'
+          }}>
+            <strong>⚠️ Advertencia:</strong> Al reportar este falco se registrará automáticamente como una pérdida (EXPENSE) 
+            en el sistema y se descontará del balance de efectivo de la localidad. Esta acción no se puede deshacer fácilmente.
+          </div>
+        </Box>
+      </AlertDialog>
+
+      {/* Modal para abonar a falcos */}
+      <AlertDialog 
+        title="Abonar a Falcos Pendientes" 
+        isOpen={isFalcoModalOpen} 
+        actions={{
+          confirm: { 
+            label: 'Registrar Abono', 
+            action: () => handleFalcoPayment(), 
+            loading: falcoPaymentLoading 
+          },
+          cancel: { 
+            label: 'Cancelar', 
+            action: () => updateState({ isFalcoModalOpen: false, selectedFalcoId: null, falcoPaymentAmount: 0 }) 
+          }
+        }}
+      >
+        <Box padding="large">
+          <Box marginBottom="large">
+            <h4>Seleccionar Falco a Abonar</h4>
+          </Box>
+          
+          {falcosData?.leadPaymentReceiveds && falcosData.leadPaymentReceiveds.length > 0 && (
+            <div style={{ marginBottom: '20px' }}>
+              {falcosData.leadPaymentReceiveds.map((falco: any) => {
+                const falcoAmount = parseFloat(falco.falcoAmount || '0');
+                const compensatedAmount = falco.falcoCompensatoryPayments?.reduce((sum: number, comp: any) => 
+                  sum + parseFloat(comp.amount || '0'), 0) || 0;
+                const remainingAmount = falcoAmount - compensatedAmount;
+                const isCompleted = remainingAmount <= 0;
+                
+                return (
+                  <div 
+                    key={falco.id} 
+                    style={{
+                      border: isCompleted ? '2px solid #059669' : (selectedFalcoId === falco.id ? '2px solid #EF4444' : '1px solid #E5E7EB'),
+                      borderRadius: '8px',
+                      padding: '12px',
+                      marginBottom: '8px',
+                      cursor: isCompleted ? 'default' : 'pointer',
+                      backgroundColor: isCompleted ? '#F0FDF4' : (selectedFalcoId === falco.id ? '#FEE2E2' : 'white'),
+                      opacity: isCompleted ? 0.8 : 1,
+                    }}
+                    onClick={() => {
+                      if (!isCompleted) {
+                        updateState({ 
+                          selectedFalcoId: falco.id, 
+                          falcoPaymentAmount: remainingAmount > 0 ? remainingAmount : 0 
+                        });
+                      }
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div style={{ 
+                          fontWeight: '600', 
+                          color: isCompleted ? '#059669' : '#DC2626',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}>
+                          {isCompleted && '✅'} Falco del {new Date(falco.createdAt).toLocaleDateString('es-MX')}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#6B7280' }}>
+                          Agente: {falco.agent?.personalData?.fullName}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#6B7280' }}>
+                          Compensado: ${compensatedAmount.toFixed(2)} de ${falcoAmount.toFixed(2)}
+                          {isCompleted && ' (COMPLETADO)'}
+                        </div>
+                        {falco.falcoCompensatoryPayments && falco.falcoCompensatoryPayments.length > 0 && (
+                          <div style={{ fontSize: '11px', color: '#059669', marginTop: '4px' }}>
+                            📋 {falco.falcoCompensatoryPayments.length} abono(s) realizado(s)
+                          </div>
+                        )}
+                        {isCompleted && (
+                          <div style={{ 
+                            fontSize: '11px', 
+                            color: '#059669', 
+                            marginTop: '4px',
+                            fontWeight: '600'
+                          }}>
+                            🎉 Falco completamente compensado
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ 
+                        fontWeight: '700', 
+                        color: isCompleted ? '#059669' : '#DC2626', 
+                        fontSize: '16px' 
+                      }}>
+                        {isCompleted ? '✅ $0.00' : `$${remainingAmount.toFixed(2)}`}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          
+          {/* Historial de abonos del falco seleccionado */}
+          {selectedFalcoId && falcosData?.leadPaymentReceiveds && (
+            <Box marginBottom="large">
+              <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', color: '#374151' }}>
+                📋 Historial de Abonos
+              </h4>
+              {(() => {
+                const selectedFalco = falcosData.leadPaymentReceiveds.find((f: any) => f.id === selectedFalcoId);
+                const payments = selectedFalco?.falcoCompensatoryPayments || [];
+                
+                if (payments.length === 0) {
+                  return (
+                    <div style={{
+                      padding: '12px',
+                      backgroundColor: '#F9FAFB',
+                      borderRadius: '6px',
+                      fontSize: '13px',
+                      color: '#6B7280',
+                      fontStyle: 'italic'
+                    }}>
+                      No hay abonos registrados para este falco
+                    </div>
+                  );
+                }
+                
+                return (
+                  <div style={{
+                    maxHeight: '150px',
+                    overflowY: 'auto',
+                    border: '1px solid #E5E7EB',
+                    borderRadius: '6px'
+                  }}>
+                    {payments.map((payment: any, index: number) => (
+                      <div key={payment.id} style={{
+                        padding: '8px 12px',
+                        borderBottom: index < payments.length - 1 ? '1px solid #F3F4F6' : 'none',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        fontSize: '13px'
+                      }}>
+                        <div>
+                          <div style={{ color: '#374151', fontWeight: '500' }}>
+                            Abono #{index + 1}
+                          </div>
+                          <div style={{ color: '#6B7280', fontSize: '12px' }}>
+                            {new Date(payment.createdAt).toLocaleDateString('es-MX', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </div>
+                        </div>
+                        <div style={{ 
+                          fontWeight: '600', 
+                          color: '#059669',
+                          fontSize: '14px'
+                        }}>
+                          +${parseFloat(payment.amount || '0').toFixed(2)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </Box>
+          )}
+          
+          <Box marginBottom="large">
+            <label>Cantidad a Abonar</label>
+
+            <TextInput
+              type="number"
+              value={falcoPaymentAmount.toString()}
+              onChange={(e) => {
+                const value = e.target.value;
+                const numValue = value === '' ? 0 : parseFloat(value);
+                updateState({ falcoPaymentAmount: isNaN(numValue) ? 0 : numValue });
+              }}
+              placeholder="0.00"
+            />
+          </Box>
+          
+          {selectedFalcoId && (
+            <>
+              <div style={{
+                backgroundColor: '#E0F2FE',
+                padding: '12px',
+                borderRadius: '6px',
+                fontSize: '13px',
+                color: '#0C4A6E',
+                marginBottom: '8px',
+                border: '1px solid #7DD3FC'
+              }}>
+                <strong>💡 Información:</strong> Este abono se registrará como pago compensatorio del falco. 
+                Se creará una transacción de compensación (INCOME) por el monto abonado. 
+                La transacción original de pérdida se mantendrá como historial y se marcará como compensada cuando esté completa.
+              </div>
+
+            </>
+          )}
+        </Box>
+      </AlertDialog>
 
       <AlertDialog 
         title="Distribución del pago" 

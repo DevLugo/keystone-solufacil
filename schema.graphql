@@ -1535,6 +1535,7 @@ type Transaction {
   destinationAccount: Account
   loan: Loan
   loanPayment: LoanPayment
+  leadPaymentReceived: LeadPaymentReceived
   profitAmount: Decimal
   returnToCapital: Decimal
   createdAt: DateTime
@@ -1563,6 +1564,7 @@ input TransactionWhereInput {
   destinationAccount: AccountWhereInput
   loan: LoanWhereInput
   loanPayment: LoanPaymentWhereInput
+  leadPaymentReceived: LeadPaymentReceivedWhereInput
   profitAmount: DecimalNullableFilter
   returnToCapital: DecimalNullableFilter
   createdAt: DateTimeNullableFilter
@@ -1598,6 +1600,7 @@ input TransactionUpdateInput {
   destinationAccount: AccountRelateToOneForUpdateInput
   loan: LoanRelateToOneForUpdateInput
   loanPayment: LoanPaymentRelateToOneForUpdateInput
+  leadPaymentReceived: LeadPaymentReceivedRelateToOneForUpdateInput
   profitAmount: Decimal
   returnToCapital: Decimal
   createdAt: DateTime
@@ -1635,6 +1638,7 @@ input TransactionCreateInput {
   destinationAccount: AccountRelateToOneForCreateInput
   loan: LoanRelateToOneForCreateInput
   loanPayment: LoanPaymentRelateToOneForCreateInput
+  leadPaymentReceived: LeadPaymentReceivedRelateToOneForCreateInput
   profitAmount: Decimal
   returnToCapital: Decimal
   createdAt: DateTime
@@ -1794,6 +1798,8 @@ type LeadPaymentReceived {
   falcoCompensatoryPaymentsCount(where: FalcoCompensatoryPaymentWhereInput! = {}): Int
   payments(where: LoanPaymentWhereInput! = {}, orderBy: [LoanPaymentOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: LoanPaymentWhereUniqueInput): [LoanPayment!]
   paymentsCount(where: LoanPaymentWhereInput! = {}): Int
+  transactions(where: TransactionWhereInput! = {}, orderBy: [TransactionOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TransactionWhereUniqueInput): [Transaction!]
+  transactionsCount(where: TransactionWhereInput! = {}): Int
 }
 
 input LeadPaymentReceivedWhereUniqueInput {
@@ -1817,6 +1823,7 @@ input LeadPaymentReceivedWhereInput {
   lead: EmployeeWhereInput
   falcoCompensatoryPayments: FalcoCompensatoryPaymentManyRelationFilter
   payments: LoanPaymentManyRelationFilter
+  transactions: TransactionManyRelationFilter
 }
 
 input FalcoCompensatoryPaymentManyRelationFilter {
@@ -1850,6 +1857,7 @@ input LeadPaymentReceivedUpdateInput {
   lead: EmployeeRelateToOneForUpdateInput
   falcoCompensatoryPayments: FalcoCompensatoryPaymentRelateToManyForUpdateInput
   payments: LoanPaymentRelateToManyForUpdateInput
+  transactions: TransactionRelateToManyForUpdateInput
 }
 
 input FalcoCompensatoryPaymentRelateToManyForUpdateInput {
@@ -1877,6 +1885,7 @@ input LeadPaymentReceivedCreateInput {
   lead: EmployeeRelateToOneForCreateInput
   falcoCompensatoryPayments: FalcoCompensatoryPaymentRelateToManyForCreateInput
   payments: LoanPaymentRelateToManyForCreateInput
+  transactions: TransactionRelateToManyForCreateInput
 }
 
 input FalcoCompensatoryPaymentRelateToManyForCreateInput {

@@ -1609,6 +1609,7 @@ export const Transaction = list({
         { label: 'CASH_LOAN_PAYMENT', value: 'CASH_LOAN_PAYMENT' },
         { label: 'BANK_LOAN_PAYMENT', value: 'BANK_LOAN_PAYMENT' },
         { label: 'MONEY_INVESMENT', value: 'MONEY_INVESMENT' },
+        { label: 'Compensación por Falco', value: 'FALCO_COMPENSATION' },
       ],
     }),
     expenseSource: select({
@@ -1624,6 +1625,7 @@ export const Transaction = list({
         { label: 'Comisión de Otorgamiento de Préstamo', value: 'LOAN_GRANTED_COMISSION' },
         { label: 'Comisión de Líder', value: 'LEAD_COMISSION' },
         { label: 'Gasto de Líder', value: 'LEAD_EXPENSE' },
+        { label: 'Pérdida por Falco', value: 'FALCO_LOSS' },
         { label: 'Lavado de Auto', value: 'LAVADO_DE_AUTO' },
         { label: 'Caseta', value: 'CASETA' },
         { label: 'Papelería', value: 'PAPELERIA' }
@@ -1638,6 +1640,7 @@ export const Transaction = list({
     destinationAccount: relationship({ ref: 'Account.receivedTransactions' }),
     loan: relationship({ ref: 'Loan.transactions' }),
     loanPayment: relationship({ ref: 'LoanPayment.transactions' }),
+    leadPaymentReceived: relationship({ ref: 'LeadPaymentReceived.transactions' }),
     profitAmount: decimal({
       precision: 10,
       scale: 2,
@@ -1988,6 +1991,121 @@ export const FalcoCompensatoryPayment = list({
     updatedAt: timestamp(),
     leadPaymentReceived: relationship({ ref: 'LeadPaymentReceived.falcoCompensatoryPayments' }),
   },
+  hooks: {
+    afterOperation: async ({ operation, item, context, originalItem }) => {
+      if (operation === 'create' && item && item.leadPaymentReceivedId) {
+        try {
+          // Obtener el LeadPaymentReceived relacionado
+          const leadPaymentReceived = await context.prisma.leadPaymentReceived.findUnique({
+            where: { id: item.leadPaymentReceivedId },
+            include: {
+              falcoCompensatoryPayments: true,
+              agent: {
+                include: {
+                  routes: {
+                    include: {
+                      accounts: {
+                        where: {
+                          type: { in: ['EMPLOYEE_CASH_FUND', 'BANK'] }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          });
+
+          if (!leadPaymentReceived) return;
+
+          // Calcular el total compensado
+          const totalCompensated = leadPaymentReceived.falcoCompensatoryPayments?.reduce(
+            (sum: number, comp: any) => sum + parseFloat(comp.amount?.toString() || '0'), 0
+          ) || 0;
+
+          const originalFalcoAmount = parseFloat(leadPaymentReceived.falcoAmount?.toString() || '0');
+          const remainingFalcoAmount = Math.max(0, originalFalcoAmount - totalCompensated);
+
+          // Obtener cuentas del agente desde la ruta
+          const agentAccounts = leadPaymentReceived.agent?.routes?.accounts || [];
+          const cashAccount = agentAccounts.find((account: any) => account.type === 'EMPLOYEE_CASH_FUND');
+
+          if (!cashAccount) {
+            console.error('No se encontró cuenta de efectivo para el agente en su ruta');
+            return;
+          }
+
+          // Buscar la transacción de pérdida por falco
+          const falcoLossTransaction = await context.prisma.transaction.findFirst({
+            where: {
+              leadPaymentReceivedId: item.leadPaymentReceivedId,
+              type: 'EXPENSE',
+              expenseSource: 'FALCO_LOSS'
+            }
+          });
+
+          if (falcoLossTransaction) {
+            // La cantidad compensada actual (solo este abono)
+            const compensatedAmount = parseFloat(item.amount?.toString() || '0');
+            
+            // Crear transacción de compensación (INCOME) por el abono recibido
+            await context.prisma.transaction.create({
+              data: {
+                amount: compensatedAmount.toFixed(2),
+                date: new Date(),
+                type: 'INCOME',
+                incomeSource: 'FALCO_COMPENSATION',
+                leadPaymentReceivedId: item.leadPaymentReceivedId,
+                leadId: leadPaymentReceived.agent?.id || '',
+                description: `Compensación por abono a falco - ${leadPaymentReceived.id}`,
+              }
+            });
+
+            if (remainingFalcoAmount <= 0) {
+              // Falco completamente pagado - marcar transacción original como compensada
+              await context.prisma.transaction.update({
+                where: { id: falcoLossTransaction.id },
+                data: {
+                  description: `Pérdida por falco - COMPLETAMENTE COMPENSADO - ${leadPaymentReceived.id}`,
+                }
+              });
+
+              console.log(`✅ Falco completamente pagado. Pérdida original mantenida como historial: $${originalFalcoAmount}`);
+            } else {
+              // Falco parcialmente pagado - mantener transacción original sin cambios
+              console.log(`✅ Falco parcialmente pagado. Pérdida original: $${originalFalcoAmount}, Restante: $${remainingFalcoAmount}, Compensado: $${compensatedAmount}`);
+            }
+
+            // Devolver la cantidad compensada a la cuenta de efectivo
+            const currentCashAmount = parseFloat(cashAccount.amount?.toString() || '0');
+            await context.prisma.account.update({
+              where: { id: cashAccount.id },
+              data: { amount: (currentCashAmount + compensatedAmount).toString() }
+            });
+
+            console.log(`💰 Dinero devuelto a la cuenta: $${compensatedAmount}. Nuevo balance: $${(currentCashAmount + compensatedAmount).toFixed(2)}`);
+          }
+
+          // Actualizar el estado del LeadPaymentReceived si está completamente compensado
+          if (remainingFalcoAmount <= 0) {
+            const totalPaidAmount = parseFloat(leadPaymentReceived.paidAmount?.toString() || '0');
+            const expectedAmount = parseFloat(leadPaymentReceived.expectedAmount?.toString() || '0');
+            
+            await context.prisma.leadPaymentReceived.update({
+              where: { id: leadPaymentReceived.id },
+              data: {
+                paymentStatus: totalPaidAmount >= expectedAmount ? 'COMPLETE' : 'PARTIAL',
+                falcoAmount: '0.00'
+              }
+            });
+          }
+
+        } catch (error) {
+          console.error('Error en hook de FalcoCompensatoryPayment:', error);
+        }
+      }
+    }
+  }
 });
 
 export const LeadPaymentReceived = list({
@@ -2011,6 +2129,7 @@ export const LeadPaymentReceived = list({
     lead: relationship({ ref: 'Employee.LeadPaymentReceivedLead' }),
     falcoCompensatoryPayments: relationship({ ref: 'FalcoCompensatoryPayment.leadPaymentReceived', many: true }),
     payments: relationship({ ref: 'LoanPayment.leadPaymentReceived', many: true }),
+    transactions: relationship({ ref: 'Transaction.leadPaymentReceived', many: true }),
   },
   ui: {
     listView: {
