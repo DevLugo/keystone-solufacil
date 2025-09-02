@@ -36,6 +36,13 @@ const GET_ROUTES = gql`
   }
 `;
 
+// Query para obtener clientes activos de una localidad
+const GET_ACTIVE_CLIENTS_FOR_LOCALITY = gql`
+  query GetActiveClientsForLocality($routeId: String!, $localityName: String!, $year: Int!, $month: Int!, $weekEndDate: String) {
+    getActiveClientsForLocality(routeId: $routeId, localityName: $localityName, year: $year, month: $month, weekEndDate: $weekEndDate)
+  }
+`;
+
 interface Route {
   id: string;
   name: string;
@@ -45,6 +52,7 @@ interface ReportData {
   route: { id: string; name: string };
   month: { year: number; month: number; name: string };
   weeks: string[];
+  weekDates: { [week: string]: { start: Date; end: Date } }; // ✅ AGREGAR: Fechas de cada semana
   data: { [week: string]: { [locality: string]: any } };
   weeklyTotals: { [week: string]: any };
   summary: {
@@ -605,6 +613,268 @@ const InfoHoverCard = ({ items, title = 'Detalle' }: { items: Array<{ id: string
             </div>
           ) : (
             <div style={{ fontSize: 11, color: '#64748b' }}>Sin préstamos finalizados esta semana</div>
+          )}
+        </div>
+      )}
+    </span>
+  );
+};
+
+// Componente hover específico para clientes activos con opción de copia para WhatsApp
+const ActiveClientsHoverCard = ({ 
+  locality, 
+  routeId, 
+  year, 
+  month, 
+  activeCount,
+  weekEndDate
+}: { 
+  locality: string;
+  routeId: string;
+  year: number;
+  month: number;
+  activeCount: number;
+  weekEndDate?: string;
+}) => {
+  const [open, setOpen] = React.useState(false);
+  const [clientsData, setClientsData] = React.useState<any>(null);
+  const [loading, setLoading] = React.useState(false);
+  const closeTimerRef = React.useRef<number | null>(null);
+
+  const { data: activeClientsData, loading: activeClientsLoading } = useQuery(GET_ACTIVE_CLIENTS_FOR_LOCALITY, {
+    variables: { routeId, localityName: locality, year, month, weekEndDate },
+    skip: !open,
+  });
+
+  React.useEffect(() => {
+    if (activeClientsData?.getActiveClientsForLocality) {
+      setClientsData(activeClientsData.getActiveClientsForLocality);
+    }
+  }, [activeClientsData]);
+
+  const formatMoney = (num: number) => new Intl.NumberFormat('es-MX', {
+    style: 'currency', currency: 'MXN', minimumFractionDigits: 0, maximumFractionDigits: 0
+  }).format(Number(num || 0));
+
+  // Función para copiar con formato de WhatsApp
+  const copyToWhatsApp = () => {
+    if (!clientsData?.clients?.length) return;
+    
+    let whatsappText = `📊 *Clientes Activos - ${locality}*\n\n`;
+    whatsappText += `🏠 *Localidad:* ${locality}\n`;
+    
+    if (weekEndDate) {
+      const weekDate = new Date(weekEndDate);
+      whatsappText += `📅 *Fecha de corte:* ${weekDate.toLocaleDateString('es-MX')} (semana específica)\n`;
+    } else {
+      whatsappText += `📅 *Mes:* ${month}/${year} (resumen mensual)\n`;
+    }
+    
+    whatsappText += `👥 *Total Clientes Activos:* ${clientsData.totalActiveClients}\n\n`;
+    
+    whatsappText += `📋 *Detalle de Clientes:*\n\n`;
+    
+    clientsData.clients.forEach((client: any, index: number) => {
+      const amountGived = formatMoney(Number(client.amountGived || 0));
+      const pendingAmount = formatMoney(Number(client.pendingAmount || 0));
+      
+      whatsappText += `${index + 1}. *${client.clientName}*\n`;
+      whatsappText += `   💰 Monto otorgado: ${amountGived}\n`;
+      whatsappText += `   📊 Monto pendiente: ${pendingAmount}\n`;
+      whatsappText += `   📅 Fecha firma: ${client.signDate}\n`;
+      whatsappText += `   👤 Líder: ${client.leadName}\n`;
+      whatsappText += `   📝 Tipo: ${client.loanTypeName}\n`;
+      
+      // Incluir localidad si estamos mostrando totales
+      if (locality === 'TOTALES' || locality === 'GRAN TOTAL') {
+        whatsappText += `   🏠 Localidad: ${client.locality}\n`;
+      }
+      
+      whatsappText += `\n`;
+    });
+    
+    whatsappText += `_Generado el ${new Date().toLocaleDateString('es-MX')} a las ${new Date().toLocaleTimeString('es-MX')}_`;
+    
+    // Copiar al portapapeles
+    navigator.clipboard.writeText(whatsappText).then(() => {
+      // Mostrar feedback visual
+      const button = document.getElementById(`whatsapp-copy-btn-${locality.replace(/\s+/g, '-')}`);
+      if (button) {
+        const originalText = button.innerHTML;
+        button.innerHTML = '✅ ¡Copiado!';
+        button.style.backgroundColor = '#10b981';
+        setTimeout(() => {
+          button.innerHTML = originalText;
+          button.style.backgroundColor = '#25d366';
+        }, 2000);
+      }
+    }).catch(err => {
+      console.error('Error al copiar:', err);
+      alert('Error al copiar al portapapeles');
+    });
+  };
+
+  const clearCloseTimer = () => {
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+
+  const delayedClose = () => {
+    clearCloseTimer();
+    closeTimerRef.current = window.setTimeout(() => setOpen(false), 200) as unknown as number;
+  };
+
+  return (
+    <span
+      style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', marginLeft: 8, cursor: 'pointer' }}
+      onMouseEnter={() => { clearCloseTimer(); setOpen(true); }}
+      onMouseLeave={delayedClose}
+    >
+      <FaInfoCircle color={activeCount > 0 ? '#0ea5e9' : '#cbd5e1'} />
+
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            marginTop: 8,
+            zIndex: 9999,
+            minWidth: 420,
+            maxWidth: 500,
+            background: 'white',
+            border: '1px solid #e5e7eb',
+            borderRadius: 8,
+            boxShadow: '0 10px 20px rgba(0,0,0,0.12)',
+            padding: 16
+          }}
+          onMouseEnter={() => { clearCloseTimer(); setOpen(true); }}
+          onMouseLeave={delayedClose}
+        >
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            marginBottom: 12 
+          }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
+              Clientes Activos - {locality}
+              {weekEndDate && (
+                <div style={{ fontSize: 11, fontWeight: 400, color: '#64748b' }}>
+                  Al {new Date(weekEndDate).toLocaleDateString('es-MX')}
+                </div>
+              )}
+            </div>
+            <button
+              id={`whatsapp-copy-btn-${locality.replace(/\s+/g, '-')}`}
+              onClick={copyToWhatsApp}
+              style={{
+                backgroundColor: '#25d366',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '8px 12px',
+                fontSize: '11px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                transition: 'all 0.2s ease'
+              }}
+              title="Copiar con formato de WhatsApp"
+            >
+              <FaWhatsapp size={12} />
+              <FaCopy size={10} />
+              Copiar WhatsApp
+            </button>
+          </div>
+
+          {activeClientsLoading ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '20px' }}>
+              <LoadingDots label="Cargando clientes..." size="small" />
+            </div>
+          ) : clientsData?.clients?.length > 0 ? (
+            <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+              {/* Resumen */}
+              <div style={{
+                backgroundColor: '#f8fafc',
+                padding: '8px 12px',
+                borderRadius: '6px',
+                marginBottom: '12px',
+                fontSize: '12px',
+                color: '#374151'
+              }}>
+                <strong>Total: {clientsData.totalActiveClients} clientes activos</strong>
+              </div>
+
+              {/* Encabezados */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: locality === 'TOTALES' || locality === 'GRAN TOTAL' 
+                  ? '2fr 1fr 1fr 1fr 1.5fr 1fr' 
+                  : '2fr 1fr 1fr 1fr 1.5fr',
+                gap: 8,
+                fontSize: 10,
+                fontWeight: 700,
+                padding: '6px 4px',
+                color: '#475569',
+                borderBottom: '1px solid #e2e8f0',
+                background: '#f8fafc',
+                position: 'sticky',
+                top: 0,
+                zIndex: 1
+              }}>
+                <div>Cliente</div>
+                <div style={{ textAlign: 'right' }}>Otorgado</div>
+                <div style={{ textAlign: 'right' }}>Pendiente</div>
+                <div style={{ textAlign: 'center' }}>Fecha</div>
+                <div>Líder</div>
+                {(locality === 'TOTALES' || locality === 'GRAN TOTAL') && <div>Localidad</div>}
+              </div>
+
+              {/* Datos de clientes */}
+              {clientsData.clients.map((client: any, idx: number) => (
+                <div key={`${client.id}-${idx}`} style={{
+                  display: 'grid',
+                  gridTemplateColumns: locality === 'TOTALES' || locality === 'GRAN TOTAL' 
+                    ? '2fr 1fr 1fr 1fr 1.5fr 1fr' 
+                    : '2fr 1fr 1fr 1fr 1.5fr',
+                  gap: 8,
+                  fontSize: 11,
+                  padding: '8px 4px',
+                  borderBottom: '1px dashed #e5e7eb'
+                }}>
+                  <div style={{ color: '#334155', fontWeight: '500' }}>
+                    {client.clientName}
+                  </div>
+                  <div style={{ color: '#059669', textAlign: 'right', fontWeight: '600' }}>
+                    {formatMoney(Number(client.amountGived || 0))}
+                  </div>
+                  <div style={{ color: '#dc2626', textAlign: 'right', fontWeight: '600' }}>
+                    {formatMoney(Number(client.pendingAmount || 0))}
+                  </div>
+                  <div style={{ color: '#64748b', textAlign: 'center', fontSize: '10px' }}>
+                    {client.signDate}
+                  </div>
+                  <div style={{ color: '#64748b', fontSize: '10px' }}>
+                    {client.leadName}
+                  </div>
+                  {(locality === 'TOTALES' || locality === 'GRAN TOTAL') && (
+                    <div style={{ color: '#64748b', fontSize: '10px' }}>
+                      {client.locality}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: 11, color: '#64748b' }}>
+              No hay clientes activos en esta localidad
+            </div>
           )}
         </div>
       )}
@@ -2119,6 +2389,15 @@ export default function ActiveLoansReport() {
                                   ...getChangeColor(weekData.activeAtEnd - weekData.activeAtStart)
                                 }}>
                                   {weekData.activeAtStart} → {weekData.activeAtEnd}
+                                  <ActiveClientsHoverCard
+                                    locality={locality}
+                                    routeId={selectedRoute?.id || ''}
+                                    year={selectedYear}
+                                    month={selectedMonth}
+                                    activeCount={weekData.activeAtEnd || 0}
+                                    weekEndDate={processedData.weekDates?.[week]?.end ? new Date(processedData.weekDates[week].end).toISOString() : undefined}
+
+                                  />
                                 </span>
                               </div>
                               <div style={styles.statRow}>
@@ -2268,6 +2547,15 @@ export default function ActiveLoansReport() {
                                     ...getChangeColor(totalChange)
                                   }}>
                                     {startValue} → {endValue}
+                                    <ActiveClientsHoverCard
+                                      locality={locality}
+                                      routeId={selectedRoute?.id || ''}
+                                      year={selectedYear}
+                                      month={selectedMonth}
+                                      activeCount={endValue || 0}
+                                      weekEndDate={undefined} // Usar fin del mes para resumen mensual
+
+                                    />
                                   </span>
                                 </div>
                                 <div style={styles.statRow}>
@@ -2476,6 +2764,15 @@ export default function ActiveLoansReport() {
                               <span>Activos:</span>
                               <span style={getChangeColor(change)}>
                                 {weekTotal.activeAtStart} → {weekTotal.activeAtEnd}
+                                <ActiveClientsHoverCard
+                                  locality="TOTALES"
+                                  routeId={selectedRoute?.id || ''}
+                                  year={selectedYear}
+                                  month={selectedMonth}
+                                  activeCount={weekTotal.activeAtEnd || 0}
+                                  weekEndDate={processedData.weekDates?.[week]?.end ? new Date(processedData.weekDates[week].end).toISOString() : undefined}
+
+                                />
                               </span>
                             </div>
                             <div style={styles.statRow}>
@@ -2584,6 +2881,15 @@ export default function ActiveLoansReport() {
                           <span>Total:</span>
                           <span>
                             {processedData.summary.totalActiveAtMonthStart} → {processedData.summary.totalActiveAtMonthEnd}
+                            <ActiveClientsHoverCard
+                              locality="GRAN TOTAL"
+                              routeId={selectedRoute?.id || ''}
+                              year={selectedYear}
+                              month={selectedMonth}
+                              activeCount={processedData.summary.totalActiveAtMonthEnd || 0}
+                              weekEndDate={undefined} // Usar fin del mes para gran total
+
+                            />
                           </span>
                         </div>
                         <div style={styles.statRow}>
