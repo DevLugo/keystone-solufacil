@@ -15,8 +15,8 @@ import { FaDownload, FaCalendarAlt, FaBirthdayCake, FaMapMarkerAlt, FaRoute } fr
 
 // GraphQL Query
 const GET_LEADERS_BIRTHDAYS = gql`
-  query GetLeadersBirthdays($month: Int!, $year: Int!) {
-    getLeadersBirthdays(month: $month, year: $year) {
+  query GetLeadersBirthdays($month: Int!) {
+    getLeadersBirthdays(month: $month) {
       id
       fullName
       birthDate
@@ -193,11 +193,10 @@ const styles = {
 export default function CumpleanosLideresPage() {
   const currentDate = new Date();
   const [selectedMonth, setSelectedMonth] = useState(currentDate.getMonth() + 1);
-  const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear());
   const [isExporting, setIsExporting] = useState(false);
 
   const { data, loading, error, refetch } = useQuery(GET_LEADERS_BIRTHDAYS, {
-    variables: { month: selectedMonth, year: selectedYear },
+    variables: { month: selectedMonth },
     fetchPolicy: 'cache-and-network',
   });
 
@@ -205,10 +204,6 @@ export default function CumpleanosLideresPage() {
 
   const handleMonthChange = (value: string) => {
     setSelectedMonth(parseInt(value));
-  };
-
-  const handleYearChange = (value: string) => {
-    setSelectedYear(parseInt(value));
   };
 
   const handleExportPDF = async () => {
@@ -221,7 +216,7 @@ export default function CumpleanosLideresPage() {
       const element = document.createElement('a');
       const file = new Blob([pdfContent], { type: 'text/html' });
       element.href = URL.createObjectURL(file);
-      element.download = `cumpleanos-lideres-${monthNames[selectedMonth - 1].toLowerCase()}-${selectedYear}.html`;
+      element.download = `cumpleanos-lideres-${monthNames[selectedMonth - 1].toLowerCase()}.html`;
       document.body.appendChild(element);
       element.click();
       document.body.removeChild(element);
@@ -246,7 +241,7 @@ export default function CumpleanosLideresPage() {
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Cumpleaños de Líderes - ${monthName} ${selectedYear}</title>
+    <title>Cumpleaños de Líderes - ${monthName}</title>
     <style>
         @media print {
             body { margin: 20px; }
@@ -356,7 +351,7 @@ export default function CumpleanosLideresPage() {
 <body>
     <div class="header">
         <div class="title">🎂 Cumpleaños de Líderes</div>
-        <div class="subtitle">${monthName} ${selectedYear}</div>
+        <div class="subtitle">${monthName}</div>
     </div>
     
     <div class="stats">
@@ -403,12 +398,6 @@ export default function CumpleanosLideresPage() {
     `;
   };
 
-  // Generate year options (current year ± 2)
-  const yearOptions = [];
-  for (let i = selectedYear - 2; i <= selectedYear + 2; i++) {
-    yearOptions.push({ label: i.toString(), value: i.toString() });
-  }
-
   const monthOptions = monthNames.map((month, index) => ({
     label: month,
     value: (index + 1).toString(),
@@ -442,13 +431,6 @@ export default function CumpleanosLideresPage() {
                 value={{ label: monthNames[selectedMonth - 1], value: selectedMonth.toString() }}
                 onChange={(option) => option && handleMonthChange(option.value)}
                 options={monthOptions}
-              />
-            </Box>
-            <Box>
-              <Select
-                value={{ label: selectedYear.toString(), value: selectedYear.toString() }}
-                onChange={(option) => option && handleYearChange(option.value)}
-                options={yearOptions}
               />
             </Box>
             <Box>
@@ -493,14 +475,14 @@ export default function CumpleanosLideresPage() {
             <div css={styles.contentCard}>
               <Heading type="h2" css={{ marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <FaCalendarAlt />
-                Cumpleaños en {monthNames[selectedMonth - 1]} {selectedYear}
+                Cumpleaños en {monthNames[selectedMonth - 1]}
               </Heading>
 
               {birthdays.length === 0 ? (
                 <div css={styles.emptyState}>
                   <div css={styles.emptyIcon}>🎂</div>
                   <h3>No hay cumpleaños registrados</h3>
-                  <p>No se encontraron líderes con cumpleaños en {monthNames[selectedMonth - 1]} {selectedYear}</p>
+                  <p>No se encontraron líderes con cumpleaños en {monthNames[selectedMonth - 1]}</p>
                 </div>
               ) : (
                 <div css={styles.birthdayList}>

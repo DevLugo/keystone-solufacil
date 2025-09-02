@@ -2385,11 +2385,12 @@ export const extendGraphqlSchema = graphql.extend(base => {
       getLeadersBirthdays: graphql.field({
         type: graphql.nonNull(graphql.list(graphql.nonNull(LeaderBirthdayType))),
         args: {
-          month: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
-          year: graphql.arg({ type: graphql.nonNull(graphql.Int) })
+          month: graphql.arg({ type: graphql.nonNull(graphql.Int) })
         },
-        resolve: async (source, { month, year }, context: Context) => {
+        resolve: async (source, { month }, context: Context) => {
           try {
+            console.log(`🎂 Buscando cumpleaños para el mes: ${month}`);
+            
             // Get all employees with type ROUTE_LEAD who have birthDate
             const leaders = await context.db.Employee.findMany({
               where: {
@@ -2404,12 +2405,24 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
             });
 
+            console.log(`📊 Total líderes con fecha de nacimiento: ${leaders.length}`);
+            
+            // Log some birth dates for debugging
+            leaders.forEach(leader => {
+              if (leader.personalData?.birthDate) {
+                const birthDate = new Date(leader.personalData.birthDate);
+                console.log(`👤 ${leader.personalData.fullName}: ${birthDate.toISOString()} (mes: ${birthDate.getMonth() + 1})`);
+              }
+            });
+
             // Filter by month and format data
             const birthdaysInMonth = leaders
               .filter(leader => {
                 if (!leader.personalData?.birthDate) return false;
                 const birthDate = new Date(leader.personalData.birthDate);
-                return birthDate.getMonth() + 1 === month; // getMonth() returns 0-11
+                const birthMonth = birthDate.getMonth() + 1;
+                console.log(`🔍 Comparando: ${leader.personalData.fullName} - mes ${birthMonth} vs ${month}`);
+                return birthMonth === month; // getMonth() returns 0-11
               })
               .map(leader => {
                 const birthDate = new Date(leader.personalData.birthDate);
@@ -2443,6 +2456,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
             }
 
+            console.log(`🎉 Cumpleaños encontrados en el mes ${month}: ${birthdaysInMonth.length}`);
             return birthdaysInMonth;
           } catch (error) {
             console.error('Error fetching leaders birthdays:', error);
