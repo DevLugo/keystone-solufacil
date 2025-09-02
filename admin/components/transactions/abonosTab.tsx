@@ -326,7 +326,7 @@ const paymentMethods: Option[] = [
 
 // Route selector component to isolate route-related logic
 const RouteSelector = React.memo(({ onRouteSelect, value }: { onRouteSelect: (route: Option | null) => void, value: Option | null }) => {
-  const { data: routesData, loading: routesLoading, error: routesError } = useQuery<{ routes: Route[] }>(GET_ROUTES, {
+  const { data: routesData, loading: routesLoading = false, error: routesError } = useQuery<{ routes: Route[] }>(GET_ROUTES, {
     variables: { where: { } },
   });
 
@@ -353,7 +353,7 @@ const RouteSelector = React.memo(({ onRouteSelect, value }: { onRouteSelect: (ro
 
 // Agregar el componente LeadSelector
 const LeadSelector = React.memo(({ routeId, onLeadSelect, value }: { routeId: string | undefined, onLeadSelect: (lead: Option | null) => void, value: Option | null }) => {
-  const { data: leadsData, loading: leadsLoading, error: leadsError } = useQuery<{ employees: Lead[] }>(GET_LEADS, {
+  const { data: leadsData, loading: leadsLoading = false, error: leadsError } = useQuery<{ employees: Lead[] }>(GET_LEADS, {
     variables: { routeId: routeId || '' },
     skip: !routeId,
   });
@@ -366,7 +366,7 @@ const LeadSelector = React.memo(({ routeId, onLeadSelect, value }: { routeId: st
     [leadsData]
   );
 
-  if (leadsLoading) return <LoadingDots label="Loading leads" />;
+  if (routeId && leadsLoading) return <LoadingDots label="Loading leads" />;
   if (leadsError) return <GraphQLErrorNotice errors={leadsError?.graphQLErrors || []} networkError={leadsError?.networkError} />;
 
   return (
@@ -465,7 +465,7 @@ export const CreatePaymentForm = ({
     setState(prev => ({ ...prev, ...updates }));
   };
 
-  const { data: paymentsData, loading: paymentsLoading, refetch: refetchPayments } = useQuery(GET_LEAD_PAYMENTS, {
+  const { data: paymentsData, loading: paymentsLoading = false, refetch: refetchPayments } = useQuery(GET_LEAD_PAYMENTS, {
     variables: {
       date: selectedDate ? new Date(new Date(selectedDate).setHours(0, 0, 0, 0)).toISOString() : new Date().toISOString(),
       nextDate: selectedDate ? new Date(new Date(selectedDate).setHours(23, 59, 59, 999)).toISOString() : new Date().toISOString(),
@@ -475,14 +475,14 @@ export const CreatePaymentForm = ({
   });
 
   // Query to get existing falcos for the selected lead
-  const { data: falcosData, loading: falcosLoading, refetch: refetchFalcos } = useQuery(GET_LEAD_FALCOS, {
+  const { data: falcosData, loading: falcosLoading = false, refetch: refetchFalcos } = useQuery(GET_LEAD_FALCOS, {
     variables: {
       leadId: selectedLead?.id || ''
     },
     skip: !selectedLead,
   });
 
-  const { data: migratedPaymentsData, loading: migratedPaymentsLoading, refetch: refetchMigratedPayments } = useQuery(GET_MIGRATED_PAYMENTS, {
+  const { data: migratedPaymentsData, loading: migratedPaymentsLoading = false, refetch: refetchMigratedPayments } = useQuery(GET_MIGRATED_PAYMENTS, {
     variables: {
       date: selectedDate ? new Date(new Date(selectedDate).setHours(0, 0, 0, 0)).toISOString() : new Date().toISOString(),
       nextDate: selectedDate ? new Date(new Date(selectedDate).setHours(23, 59, 59, 999)).toISOString() : new Date().toISOString(),
@@ -535,7 +535,7 @@ export const CreatePaymentForm = ({
     }
   }, [paymentsData, migratedPaymentsData, selectedDate, selectedLead?.id]);
 
-  const { data: loansData, loading: loansLoading, error: loansError } = useQuery<{ loans: Loan[] }>(GET_LOANS_BY_LEAD, {
+  const { data: loansData, loading: loansLoading = false, error: loansError } = useQuery<{ loans: Loan[] }>(GET_LOANS_BY_LEAD, {
     variables: { 
       where: {
         lead: {
@@ -555,10 +555,10 @@ export const CreatePaymentForm = ({
     skip: !selectedLead,
   });
 
-  const [createCustomLeadPaymentReceived, { error: customLeadPaymentError, loading: customLeadPaymentLoading }] = useMutation(CREATE_LEAD_PAYMENT_RECEIVED);
-  const [updateLeadPayment, { loading: updateLoading }] = useMutation(UPDATE_LEAD_PAYMENT);
-  const [updateLoanPayment, { loading: updateLoanPaymentLoading }] = useMutation(UPDATE_LOAN_PAYMENT);
-  const [createFalcoPayment, { loading: falcoPaymentLoading }] = useMutation(CREATE_FALCO_PAYMENT);
+  const [createCustomLeadPaymentReceived, { error: customLeadPaymentError, loading: customLeadPaymentLoading = false }] = useMutation(CREATE_LEAD_PAYMENT_RECEIVED);
+  const [updateLeadPayment, { loading: updateLoading = false }] = useMutation(UPDATE_LEAD_PAYMENT);
+  const [updateLoanPayment, { loading: updateLoanPaymentLoading = false }] = useMutation(UPDATE_LOAN_PAYMENT);
+  const [createFalcoPayment, { loading: falcoPaymentLoading = false }] = useMutation(CREATE_FALCO_PAYMENT);
 
   const router = useRouter();
 
@@ -1011,7 +1011,11 @@ export const CreatePaymentForm = ({
     refetchFalcos();
   }, [refreshKey, refetchPayments, refetchMigratedPayments, refetchFalcos]);
 
-  if (loansLoading || paymentsLoading || migratedPaymentsLoading || falcosLoading) return <LoadingDots label="Loading data" size="large" />;
+  // Solo mostrar loading si alguna query está realmente cargando (no skipped)
+  const isLoading = (selectedLead && (loansLoading || falcosLoading)) || 
+                   (selectedDate && selectedLead && (paymentsLoading || migratedPaymentsLoading));
+  
+  if (isLoading) return <LoadingDots label="Loading data" size="large" />;
   if (loansError) return <GraphQLErrorNotice errors={loansError?.graphQLErrors || []} networkError={loansError?.networkError} />;
 
   return (
@@ -1076,18 +1080,18 @@ export const CreatePaymentForm = ({
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <Button
-                    tone="active"
+                    tone="positive"
                     size="small"
                     onClick={() => updateState({ isFalcoModalOpen: true })}
                   >
-                    📋 Ver Historial
+                    📋 Ver Historial Completo
                   </Button>
                   <Button
                     tone="active"
                     size="small"
                     onClick={() => updateState({ isCreateFalcoModalOpen: true })}
                   >
-                    ⚠️ Reportar Falco
+                    ⚠️ Reportar Nuevo Falco
                   </Button>
                 </div>
               </div>
@@ -1140,7 +1144,7 @@ export const CreatePaymentForm = ({
                     size="small"
                     onClick={() => updateState({ isCreateFalcoModalOpen: true })}
                   >
-                    ⚠️ Reportar Falco
+                    ⚠️ Reportar Nuevo Falco
                   </Button>
                 </div>
               </div>
@@ -1986,102 +1990,237 @@ export const CreatePaymentForm = ({
 
       {/* Modal para abonar a falcos */}
       <AlertDialog 
-        title="Abonar a Falcos Pendientes" 
+        title={(() => {
+          if (!falcosData?.leadPaymentReceiveds || falcosData.leadPaymentReceiveds.length === 0) return "Historial de Falcos";
+          
+          const pendingFalcos = falcosData.leadPaymentReceiveds.filter((falco: any) => {
+            const falcoAmount = parseFloat(falco.falcoAmount || '0');
+            const compensatedAmount = falco.falcoCompensatoryPayments?.reduce((sum: number, comp: any) => 
+              sum + parseFloat(comp.amount || '0'), 0) || 0;
+            return (falcoAmount - compensatedAmount) > 0;
+          });
+          
+          return pendingFalcos.length > 0 ? "Gestionar Falcos - Pendientes y Historial" : "Historial Completo de Falcos";
+        })()} 
         isOpen={isFalcoModalOpen} 
         actions={{
-          confirm: { 
+          confirm: selectedFalcoId ? { 
             label: 'Registrar Abono', 
             action: () => handleFalcoPayment(), 
             loading: falcoPaymentLoading 
-          },
+          } : undefined,
           cancel: { 
-            label: 'Cancelar', 
+            label: 'Cerrar', 
             action: () => updateState({ isFalcoModalOpen: false, selectedFalcoId: null, falcoPaymentAmount: 0 }) 
           }
         }}
       >
         <Box padding="large">
-          <Box marginBottom="large">
-            <h4>Seleccionar Falco a Abonar</h4>
-          </Box>
-          
-          {falcosData?.leadPaymentReceiveds && falcosData.leadPaymentReceiveds.length > 0 && (
-            <div style={{ marginBottom: '20px' }}>
-              {falcosData.leadPaymentReceiveds.map((falco: any) => {
-                const falcoAmount = parseFloat(falco.falcoAmount || '0');
-                const compensatedAmount = falco.falcoCompensatoryPayments?.reduce((sum: number, comp: any) => 
-                  sum + parseFloat(comp.amount || '0'), 0) || 0;
-                const remainingAmount = falcoAmount - compensatedAmount;
-                const isCompleted = remainingAmount <= 0;
-                
-                return (
-                  <div 
-                    key={falco.id} 
-                    style={{
-                      border: isCompleted ? '2px solid #059669' : (selectedFalcoId === falco.id ? '2px solid #EF4444' : '1px solid #E5E7EB'),
-                      borderRadius: '8px',
-                      padding: '12px',
-                      marginBottom: '8px',
-                      cursor: isCompleted ? 'default' : 'pointer',
-                      backgroundColor: isCompleted ? '#F0FDF4' : (selectedFalcoId === falco.id ? '#FEE2E2' : 'white'),
-                      opacity: isCompleted ? 0.8 : 1,
-                    }}
-                    onClick={() => {
-                      if (!isCompleted) {
-                        updateState({ 
-                          selectedFalcoId: falco.id, 
-                          falcoPaymentAmount: remainingAmount > 0 ? remainingAmount : 0 
-                        });
-                      }
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <div style={{ 
-                          fontWeight: '600', 
-                          color: isCompleted ? '#059669' : '#DC2626',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px'
-                        }}>
-                          {isCompleted && '✅'} Falco del {new Date(falco.createdAt).toLocaleDateString('es-MX')}
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#6B7280' }}>
-                          Agente: {falco.agent?.personalData?.fullName}
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#6B7280' }}>
-                          Compensado: ${compensatedAmount.toFixed(2)} de ${falcoAmount.toFixed(2)}
-                          {isCompleted && ' (COMPLETADO)'}
-                        </div>
-                        {falco.falcoCompensatoryPayments && falco.falcoCompensatoryPayments.length > 0 && (
-                          <div style={{ fontSize: '11px', color: '#059669', marginTop: '4px' }}>
-                            📋 {falco.falcoCompensatoryPayments.length} abono(s) realizado(s)
-                          </div>
-                        )}
-                        {isCompleted && (
-                          <div style={{ 
-                            fontSize: '11px', 
-                            color: '#059669', 
-                            marginTop: '4px',
-                            fontWeight: '600'
-                          }}>
-                            🎉 Falco completamente compensado
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ 
-                        fontWeight: '700', 
-                        color: isCompleted ? '#059669' : '#DC2626', 
-                        fontSize: '16px' 
+          {(() => {
+            if (!falcosData?.leadPaymentReceiveds || falcosData.leadPaymentReceiveds.length === 0) {
+              return (
+                <div style={{
+                  textAlign: 'center',
+                  padding: '40px',
+                  color: '#6B7280',
+                  fontSize: '14px'
+                }}>
+                  <div style={{ fontSize: '48px', marginBottom: '16px' }}>📋</div>
+                  <div style={{ fontWeight: '600', marginBottom: '8px' }}>No hay historial de falcos</div>
+                  <div>Esta localidad no tiene falcos registrados.</div>
+                </div>
+              );
+            }
+            
+            const pendingFalcos = falcosData.leadPaymentReceiveds.filter((falco: any) => {
+              const falcoAmount = parseFloat(falco.falcoAmount || '0');
+              const compensatedAmount = falco.falcoCompensatoryPayments?.reduce((sum: number, comp: any) => 
+                sum + parseFloat(comp.amount || '0'), 0) || 0;
+              return (falcoAmount - compensatedAmount) > 0;
+            });
+            
+            const completedFalcos = falcosData.leadPaymentReceiveds.filter((falco: any) => {
+              const falcoAmount = parseFloat(falco.falcoAmount || '0');
+              const compensatedAmount = falco.falcoCompensatoryPayments?.reduce((sum: number, comp: any) => 
+                sum + parseFloat(comp.amount || '0'), 0) || 0;
+              return (falcoAmount - compensatedAmount) <= 0;
+            });
+            
+            return (
+              <>
+                {pendingFalcos.length > 0 && (
+                  <>
+                    <Box marginBottom="large">
+                      <h4 style={{ 
+                        color: '#DC2626', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '8px',
+                        margin: '0 0 12px 0'
                       }}>
-                        {isCompleted ? '✅ $0.00' : `$${remainingAmount.toFixed(2)}`}
+                        ⚠️ Falcos Pendientes ({pendingFalcos.length})
+                      </h4>
+                      <div style={{
+                        fontSize: '13px',
+                        color: '#991B1B',
+                        marginBottom: '16px',
+                        fontStyle: 'italic'
+                      }}>
+                        Haz clic en un falco pendiente para abonarlo
                       </div>
+                    </Box>
+                    
+                    <div style={{ marginBottom: '24px' }}>
+                      {pendingFalcos.map((falco: any) => {
+                        const falcoAmount = parseFloat(falco.falcoAmount || '0');
+                        const compensatedAmount = falco.falcoCompensatoryPayments?.reduce((sum: number, comp: any) => 
+                          sum + parseFloat(comp.amount || '0'), 0) || 0;
+                        const remainingAmount = falcoAmount - compensatedAmount;
+                        
+                        return (
+                          <div 
+                            key={falco.id} 
+                            style={{
+                              border: selectedFalcoId === falco.id ? '2px solid #EF4444' : '1px solid #E5E7EB',
+                              borderRadius: '8px',
+                              padding: '12px',
+                              marginBottom: '8px',
+                              cursor: 'pointer',
+                              backgroundColor: selectedFalcoId === falco.id ? '#FEE2E2' : 'white',
+                            }}
+                            onClick={() => {
+                              updateState({ 
+                                selectedFalcoId: falco.id, 
+                                falcoPaymentAmount: remainingAmount > 0 ? remainingAmount : 0 
+                              });
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div>
+                                <div style={{ 
+                                  fontWeight: '600', 
+                                  color: '#DC2626',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px'
+                                }}>
+                                  ⚠️ Falco del {new Date(falco.createdAt).toLocaleDateString('es-MX')}
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#6B7280' }}>
+                                  Agente: {falco.agent?.personalData?.fullName}
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#6B7280' }}>
+                                  Compensado: ${compensatedAmount.toFixed(2)} de ${falcoAmount.toFixed(2)}
+                                </div>
+                                {falco.falcoCompensatoryPayments && falco.falcoCompensatoryPayments.length > 0 && (
+                                  <div style={{ fontSize: '11px', color: '#059669', marginTop: '4px' }}>
+                                    📋 {falco.falcoCompensatoryPayments.length} abono(s) realizado(s)
+                                  </div>
+                                )}
+                              </div>
+                              <div style={{ 
+                                fontWeight: '700', 
+                                color: '#DC2626', 
+                                fontSize: '16px' 
+                              }}>
+                                $${remainingAmount.toFixed(2)}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  </>
+                )}
+                
+                {completedFalcos.length > 0 && (
+                  <>
+                    <Box marginBottom="large">
+                      <h4 style={{ 
+                        color: '#059669', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '8px',
+                        margin: '0 0 12px 0'
+                      }}>
+                        ✅ Historial Completado ({completedFalcos.length})
+                      </h4>
+                      <div style={{
+                        fontSize: '13px',
+                        color: '#065F46',
+                        marginBottom: '16px',
+                        fontStyle: 'italic'
+                      }}>
+                        Falcos que ya han sido completamente compensados
+                      </div>
+                    </Box>
+                    
+                    <div style={{ marginBottom: '24px' }}>
+                      {completedFalcos.map((falco: any) => {
+                        const falcoAmount = parseFloat(falco.falcoAmount || '0');
+                        const compensatedAmount = falco.falcoCompensatoryPayments?.reduce((sum: number, comp: any) => 
+                          sum + parseFloat(comp.amount || '0'), 0) || 0;
+                        
+                        return (
+                          <div 
+                            key={falco.id} 
+                            style={{
+                              border: '2px solid #059669',
+                              borderRadius: '8px',
+                              padding: '12px',
+                              marginBottom: '8px',
+                              backgroundColor: '#F0FDF4',
+                              opacity: 0.9,
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div>
+                                <div style={{ 
+                                  fontWeight: '600', 
+                                  color: '#059669',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px'
+                                }}>
+                                  ✅ Falco del {new Date(falco.createdAt).toLocaleDateString('es-MX')}
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#065F46' }}>
+                                  Agente: {falco.agent?.personalData?.fullName}
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#065F46' }}>
+                                  Monto original: ${falcoAmount.toFixed(2)} - Completamente compensado
+                                </div>
+                                {falco.falcoCompensatoryPayments && falco.falcoCompensatoryPayments.length > 0 && (
+                                  <div style={{ fontSize: '11px', color: '#059669', marginTop: '4px' }}>
+                                    📋 {falco.falcoCompensatoryPayments.length} abono(s) realizado(s)
+                                  </div>
+                                )}
+                                <div style={{ 
+                                  fontSize: '11px', 
+                                  color: '#059669', 
+                                  marginTop: '4px',
+                                  fontWeight: '600'
+                                }}>
+                                  🎉 Falco completamente compensado
+                                </div>
+                              </div>
+                              <div style={{ 
+                                fontWeight: '700', 
+                                color: '#059669', 
+                                fontSize: '16px' 
+                              }}>
+                                ✅ $0.00
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </>
+            );
+          })()} 
           
           {/* Historial de abonos del falco seleccionado */}
           {selectedFalcoId && falcosData?.leadPaymentReceiveds && (
@@ -2153,20 +2292,21 @@ export const CreatePaymentForm = ({
             </Box>
           )}
           
-          <Box marginBottom="large">
-            <label>Cantidad a Abonar</label>
-
-            <TextInput
-              type="number"
-              value={falcoPaymentAmount.toString()}
-              onChange={(e) => {
-                const value = e.target.value;
-                const numValue = value === '' ? 0 : parseFloat(value);
-                updateState({ falcoPaymentAmount: isNaN(numValue) ? 0 : numValue });
-              }}
-              placeholder="0.00"
-            />
-          </Box>
+          {selectedFalcoId && (
+            <Box marginBottom="large">
+              <label>Cantidad a Abonar</label>
+              <TextInput
+                type="number"
+                value={falcoPaymentAmount.toString()}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  const numValue = value === '' ? 0 : parseFloat(value);
+                  updateState({ falcoPaymentAmount: isNaN(numValue) ? 0 : numValue });
+                }}
+                placeholder="0.00"
+              />
+            </Box>
+          )}
           
           {selectedFalcoId && (
             <>

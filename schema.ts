@@ -2086,7 +2086,8 @@ export const FalcoCompensatoryPayment = list({
             console.log(`💰 Dinero devuelto a la cuenta: $${compensatedAmount}. Nuevo balance: $${(currentCashAmount + compensatedAmount).toFixed(2)}`);
           }
 
-          // Actualizar el estado del LeadPaymentReceived si está completamente compensado
+          // ✅ CORREGIDO: Actualizar el estado del LeadPaymentReceived si está completamente compensado
+          // NO eliminamos el falcoAmount para mantener el historial
           if (remainingFalcoAmount <= 0) {
             const totalPaidAmount = parseFloat(leadPaymentReceived.paidAmount?.toString() || '0');
             const expectedAmount = parseFloat(leadPaymentReceived.expectedAmount?.toString() || '0');
@@ -2094,8 +2095,17 @@ export const FalcoCompensatoryPayment = list({
             await context.prisma.leadPaymentReceived.update({
               where: { id: leadPaymentReceived.id },
               data: {
-                paymentStatus: totalPaidAmount >= expectedAmount ? 'COMPLETE' : 'PARTIAL',
-                falcoAmount: '0.00'
+                paymentStatus: totalPaidAmount >= expectedAmount ? 'COMPLETE' : 'PARTIAL'
+                // ❌ NO eliminamos falcoAmount para mantener el historial del falco original
+                // La compensación se maneja a través de las transacciones, no eliminando el registro
+              }
+            });
+          } else {
+            // Si aún hay falco pendiente, actualizar status a PARTIAL
+            await context.prisma.leadPaymentReceived.update({
+              where: { id: leadPaymentReceived.id },
+              data: {
+                paymentStatus: 'PARTIAL'
               }
             });
           }
