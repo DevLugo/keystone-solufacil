@@ -3963,24 +3963,21 @@ export const extendGraphqlSchema = graphql.extend(base => {
             // Ya se excluyeron en la consulta (where: excludedByCleanup: { is: null })
             let filteredLoans = allLoans;
 
-            // Determina si el préstamo se considera ACTIVO en la fecha dada según las reglas solicitadas
+            // ✅ SINCRONIZADO: Determina si el préstamo se considera ACTIVO usando la misma lógica que abonosTab.tsx y generar-listados
             const isLoanConsideredOnDate = (loan: any, date: Date) => {
               const signDate = new Date(loan.signDate);
               if (signDate > date) return false;
               
-              // Solo los marcados como ACTIVE o RENOVATED en la DB
-              const isActiveByStatus = ['ACTIVE'].includes(loan.status || '');
-              if (!isActiveByStatus) return false;
-
-              // Excluir si existe un registro de limpieza aplicado antes de la fecha de referencia
-              if (loan.excludedByCleanup?.cleanupDate) {
-                const cleanupDate = new Date(loan.excludedByCleanup.cleanupDate as any);
-                // A partir del día de la limpieza ya no se considera activo
-                if (date >= cleanupDate) return false;
-              }
-
-              // Excluir si ya tiene finishedDate en o antes de la fecha (consistencia temporal)
-              if (loan.finishedDate && new Date(loan.finishedDate) <= date) return false;
+              // ✅ CAMBIO PRINCIPAL: Usar la misma lógica que generar-listados
+              // Solo préstamos NO finalizados
+              if (loan.finishedDate !== null) return false;
+              
+              // Solo con monto pendiente > 0
+              const pendingAmount = parseFloat(loan.pendingAmountStored || '0');
+              if (pendingAmount <= 0) return false;
+              
+              // NO excluidos por limpieza
+              if (loan.excludedByCleanup !== null) return false;
 
               return true;
             };
@@ -4751,6 +4748,152 @@ export const extendGraphqlSchema = graphql.extend(base => {
           } catch (error) {
             console.error('Error in getActiveLoansReport:', error);
             throw new Error(`Error generating active loans report: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        },
+      }),
+
+      getActiveClientsForLocality: graphql.field({
+        type: graphql.nonNull(graphql.JSON),
+        args: {
+          routeId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          localityName: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          year: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
+          month: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
+        },
+        resolve: async (root, { routeId, localityName, year, month }, context: Context) => {
+          try {
+            // Calcular fin del mes para obtener los clientes activos actuales
+            const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
+            
+            // Construir filtros base
+            const baseFilters = [
+              { finishedDate: null },                    // ✅ Solo préstamos NO finalizados
+              { pendingAmountStored: { gt: "0" } },      // ✅ Solo con monto pendiente > 0
+              { excludedByCleanup: null },               // ✅ NO excluidos por limpieza
+              { signDate: { lte: monthEnd } },           // ✅ Firmados antes o durante el mes
+              {
+                lead: {
+                  routes: {
+                    id: routeId
+                  }
+                }
+              }
+            ];
+
+            // Construir el filtro de localidad si no es TOTALES o GRAN TOTAL
+            let whereClause: any = {
+              AND: baseFilters
+            };
+
+            // Si es TOTALES o GRAN TOTAL, obtener todos los préstamos de la ruta
+            // Si es una localidad específica, filtrar por localidad
+            if (localityName !== 'TOTALES' && localityName !== 'GRAN TOTAL') {
+              whereClause.AND.push({
+                OR: [
+                  {
+                    borrower: {
+                      personalData: {
+                        addresses: {
+                          some: {
+                            location: {
+                              name: localityName
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    lead: {
+                      personalData: {
+                        addresses: {
+                          some: {
+                            location: {
+                              name: localityName
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              });
+            }
+            
+            // Obtener préstamos activos usando la misma lógica sincronizada que generar-listados/abonosTab
+            const activeLoans = await (context.prisma as any).loan.findMany({
+              where: whereClause,
+              include: {
+                borrower: {
+                  include: {
+                    personalData: {
+                      include: {
+                        addresses: {
+                          include: {
+                            location: true
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                lead: {
+                  include: {
+                    personalData: {
+                      include: {
+                        addresses: {
+                          include: {
+                            location: true
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                loantype: true
+              },
+              orderBy: [
+                { signDate: 'desc' }
+              ]
+            });
+
+            // Formatear datos para el hover tooltip
+            const activeClients = activeLoans.map((loan: any) => {
+              const clientName = loan.borrower?.personalData?.fullName || 'Sin nombre';
+              const leadName = loan.lead?.personalData?.fullName || 'Sin líder';
+              const loanTypeName = loan.loantype?.name || 'Sin tipo';
+              const amountGived = parseFloat(loan.amountGived || '0');
+              const pendingAmount = parseFloat(loan.pendingAmountStored || '0');
+              const signDate = loan.signDate ? new Date(loan.signDate) : null;
+              
+              // Obtener la localidad real del préstamo
+              const actualLocality = loan.borrower?.personalData?.addresses?.[0]?.location?.name ||
+                                  loan.lead?.personalData?.addresses?.[0]?.location?.name ||
+                                  'Sin localidad';
+              
+              return {
+                id: loan.id,
+                clientName,
+                leadName,
+                loanTypeName,
+                amountGived,
+                pendingAmount,
+                signDate: signDate ? signDate.toLocaleDateString('es-MX') : 'N/A',
+                locality: actualLocality,
+                requestedLocality: localityName // Para referencia
+              };
+            });
+
+            return {
+              locality: localityName,
+              totalActiveClients: activeClients.length,
+              clients: activeClients,
+              generatedAt: new Date().toISOString()
+            };
+
+          } catch (error) {
+            console.error('Error in getActiveClientsForLocality:', error);
+            throw new Error(`Error getting active clients for locality: ${error instanceof Error ? error.message : 'Unknown error'}`);
           }
         },
       }),
