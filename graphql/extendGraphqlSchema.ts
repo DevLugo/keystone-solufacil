@@ -698,6 +698,12 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
             });
 
+            console.log('🔍 DEBUG - Agent Accounts:', { agentId, agentAccounts: agentAccounts?.length });
+
+            if (!agentAccounts || !Array.isArray(agentAccounts)) {
+              throw new Error(`No se pudieron obtener las cuentas del agente: ${agentId}`);
+            }
+
             const cashAccount = agentAccounts.find((account: any) => account.type === 'EMPLOYEE_CASH_FUND');
             const bankAccount = agentAccounts.find((account: any) => account.type === 'BANK');
 
@@ -1033,6 +1039,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
               }
             });
+
+            if (!agentAccounts || !Array.isArray(agentAccounts)) {
+              throw new Error(`No se pudieron obtener las cuentas del agente: ${agentId}`);
+            }
 
             const cashAccount = agentAccounts.find((account: any) => account.type === 'EMPLOYEE_CASH_FUND');
             const bankAccount = agentAccounts.find((account: any) => account.type === 'BANK');

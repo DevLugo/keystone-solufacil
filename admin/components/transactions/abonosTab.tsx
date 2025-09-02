@@ -403,8 +403,10 @@ export const CreatePaymentForm = ({
     comission: number;
     isModalOpen: boolean;
     isFalcoModalOpen: boolean;
+    isCreateFalcoModalOpen: boolean;
     falcoPaymentAmount: number;
     selectedFalcoId: string | null;
+    createFalcoAmount: number;
     loadPaymentDistribution: {
       cashPaidAmount: number;
       bankPaidAmount: number;
@@ -433,8 +435,10 @@ export const CreatePaymentForm = ({
     comission: 8,
     isModalOpen: false,
     isFalcoModalOpen: false,
+    isCreateFalcoModalOpen: false,
     falcoPaymentAmount: 0,
     selectedFalcoId: null,
+    createFalcoAmount: 0,
     loadPaymentDistribution: {
       cashPaidAmount: 0,
       bankPaidAmount: 0,
@@ -450,8 +454,9 @@ export const CreatePaymentForm = ({
   const [massCommission, setMassCommission] = useState<string>('0');
 
   const { 
-    payments, comission, isModalOpen, isFalcoModalOpen, falcoPaymentAmount, selectedFalcoId,
-    loadPaymentDistribution, existingPayments, editedPayments, isEditing, groupedPayments
+    payments, comission, isModalOpen, isFalcoModalOpen, isCreateFalcoModalOpen, falcoPaymentAmount, 
+    selectedFalcoId, createFalcoAmount, loadPaymentDistribution, existingPayments, editedPayments, 
+    isEditing, groupedPayments
   } = state;
 
   // Estado separado para trackear pagos eliminados visualmente
@@ -609,6 +614,47 @@ export const CreatePaymentForm = ({
     } catch (error) {
       console.error('Error creating falco payment:', error);
       alert('Error al registrar el pago de falco');
+    }
+  };
+
+  // Handle create falco
+  const handleCreateFalco = async () => {
+    try {
+      if (!selectedLead?.id || !selectedDate || createFalcoAmount <= 0) {
+        alert('Por favor complete todos los campos y asegúrese de que la cantidad sea mayor a 0');
+        return;
+      }
+
+      // Crear un LeadPaymentReceived con falco (sin pagos reales)
+      await createCustomLeadPaymentReceived({
+        variables: {
+          expectedAmount: createFalcoAmount,
+          cashPaidAmount: 0,
+          bankPaidAmount: 0,
+          agentId: selectedLead.id,
+          leadId: selectedLead.id,
+          paymentDate: selectedDate.toISOString(),
+          payments: []
+        }
+      });
+
+      // Refresh data
+      await Promise.all([
+        refetchFalcos(),
+        refetchPayments(),
+        refetchMigratedPayments()
+      ]);
+
+      // Reset state
+      updateState({
+        isCreateFalcoModalOpen: false,
+        createFalcoAmount: 0
+      });
+
+      alert('Falco registrado exitosamente');
+    } catch (error) {
+      console.error('Error creating falco:', error);
+      alert('Error al registrar el falco');
     }
   };
 
@@ -1018,14 +1064,51 @@ export const CreatePaymentForm = ({
                 return sum + (falcoAmount - compensatedAmount);
               }, 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
-            <Button
-              tone="negative"
-              size="small"
-              onClick={() => updateState({ isFalcoModalOpen: true })}
-            >
-              💰 Abonar a Falcos
-            </Button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <Button
+                tone="negative"
+                size="small"
+                onClick={() => updateState({ isFalcoModalOpen: true })}
+              >
+                💰 Abonar a Falcos
+              </Button>
+              <Button
+                tone="active"
+                size="small"
+                onClick={() => updateState({ isCreateFalcoModalOpen: true })}
+              >
+                ⚠️ Reportar Falco
+              </Button>
+            </div>
           </div>
+        </div>
+      )}
+
+      {/* Botón para crear falco cuando no hay falcos existentes */}
+      {(!falcosData?.leadPaymentReceiveds || falcosData.leadPaymentReceiveds.length === 0) && selectedLead && (
+        <div style={{
+          backgroundColor: '#F3F4F6',
+          border: '1px solid #D1D5DB',
+          borderRadius: '8px',
+          padding: '12px',
+          marginBottom: '16px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}>
+          <div style={{
+            fontSize: '14px',
+            color: '#374151',
+          }}>
+            No se detectaron falcos en esta localidad.
+          </div>
+          <Button
+            tone="active"
+            size="small"
+            onClick={() => updateState({ isCreateFalcoModalOpen: true })}
+          >
+            ⚠️ Reportar Falco
+          </Button>
         </div>
       )}
 
@@ -1395,13 +1478,16 @@ export const CreatePaymentForm = ({
                 </div>
               ) : (
                 <>
-                  <Button
-                    tone="active"
-                    weight="bold"
-                    onClick={() => setState(prev => ({ ...prev, isEditing: true }))}
-                  >
-                    Editar Pagos
-                  </Button>
+                  {/* Solo mostrar botón de editar si hay pagos existentes */}
+                  {existingPayments.length > 0 && (
+                    <Button
+                      tone="active"
+                      weight="bold"
+                      onClick={() => setState(prev => ({ ...prev, isEditing: true }))}
+                    >
+                      Editar Pagos
+                    </Button>
+                  )}
                   <Button
                     tone="active"
                     size="medium"
@@ -1776,6 +1862,60 @@ export const CreatePaymentForm = ({
           {isEditing ? 'Guardar Cambios' : 'Registrar pagos'}
         </Button>
       </Box>
+
+      {/* Modal para crear falco */}
+      <AlertDialog 
+        title="Reportar Nuevo Falco" 
+        isOpen={isCreateFalcoModalOpen} 
+        actions={{
+          confirm: { 
+            label: 'Reportar Falco', 
+            action: () => handleCreateFalco(), 
+            loading: customLeadPaymentLoading 
+          },
+          cancel: { 
+            label: 'Cancelar', 
+            action: () => updateState({ isCreateFalcoModalOpen: false, createFalcoAmount: 0 }) 
+          }
+        }}
+      >
+        <Box padding="large">
+          <Box marginBottom="large">
+            <h4>Información del Falco</h4>
+          </Box>
+          
+          <Box marginBottom="large">
+            <div style={{ marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+              Localidad: {selectedLead?.personalData?.fullName}
+            </div>
+            <div style={{ marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+              Fecha: {selectedDate?.toLocaleDateString('es-MX')}
+            </div>
+          </Box>
+          
+          <Box marginBottom="large">
+            <label>Cantidad del Falco</label>
+            <TextInput
+              type="number"
+              value={createFalcoAmount}
+              onChange={(e) => updateState({ createFalcoAmount: parseFloat(e.target.value) || 0 })}
+              placeholder="0.00"
+            />
+          </Box>
+          
+          <div style={{
+            backgroundColor: '#FEE2E2',
+            padding: '12px',
+            borderRadius: '6px',
+            fontSize: '13px',
+            color: '#991B1B',
+            border: '1px solid #FCA5A5'
+          }}>
+            <strong>⚠️ Advertencia:</strong> Al reportar este falco se registrará automáticamente como una pérdida (EXPENSE) 
+            en el sistema y se descontará del balance de efectivo de la localidad. Esta acción no se puede deshacer fácilmente.
+          </div>
+        </Box>
+      </AlertDialog>
 
       {/* Modal para abonar a falcos */}
       <AlertDialog 
