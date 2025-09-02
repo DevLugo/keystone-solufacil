@@ -35,23 +35,23 @@ export const sendCronReportToTelegram = async (
       console.log(`📊 [CRON] Generando reporte de créditos con errores usando función unificada...`);
       
       try {
-        // ✅ USAR FUNCIÓN UNIFICADA PARA GENERAR PDF
+        // ✅ GENERAR PDF USANDO LA FUNCIÓN UNIFICADA MEJORADA
         const routeIds = reportConfig.routes?.map(r => r.id) || [];
         const pdfBuffer = await generateCreditsWithDocumentErrorsReport({ prisma }, routeIds);
         
-        if (pdfBuffer) {
-          console.log(`📱 [CRON] PDF generado exitosamente (${pdfBuffer.length} bytes), enviando archivo a Telegram...`);
+        if (pdfBuffer && pdfBuffer.length > 0) {
+          console.log(`📱 [CRON] PDF moderno generado exitosamente (${pdfBuffer.length} bytes), enviando archivo a Telegram...`);
           
-          // Enviar el PDF real usando el servicio de Telegram
-          const filename = `reporte_creditos_con_errores_${Date.now()}.pdf`;
-          const caption = `📊 <b>REPORTE AUTOMÁTICO</b>\n\nTipo: ${reportType}\nGenerado: ${new Date().toLocaleString('es-ES')}\n\n✅ Enviado automáticamente por el sistema de cron`;
+          // Enviar el PDF mejorado usando el servicio de Telegram
+          const filename = `reporte_creditos_errores_${new Date().toISOString().slice(0, 10)}_${Date.now()}.pdf`;
+          const caption = `📊 <b>REPORTE AUTOMÁTICO - CRÉDITOS CON ERRORES</b>\n\n📅 Generado: ${new Date().toLocaleString('es-ES')}\n📊 Rutas: ${routeIds.length > 0 ? routeIds.length + ' específicas' : 'Todas'}\n\n✅ Reporte moderno y profesional\n🤖 Enviado automáticamente por el sistema`;
           
           const result = await telegramService.sendPdfFromBuffer(chatId, pdfBuffer, filename, caption);
           return result.ok || false;
         } else {
-          console.error(`❌ [CRON] No se pudo generar el PDF`);
-          // Fallback: enviar mensaje de texto
-          const message = `📊 <b>REPORTE AUTOMÁTICO</b>\n\nTipo: ${reportType}\nGenerado: ${new Date().toLocaleString('es-ES')}\n\n⚠️ Error generando PDF, enviando mensaje de texto\n✅ Enviado automáticamente por el sistema de cron`;
+          console.error(`❌ [CRON] No se pudo generar el PDF o está vacío`);
+          // Fallback: enviar mensaje de texto con más información
+          const message = `📊 <b>REPORTE AUTOMÁTICO - CRÉDITOS CON ERRORES</b>\n\n📅 Generado: ${new Date().toLocaleString('es-ES')}\n⚠️ Error generando PDF\n\n🔧 Posibles causas:\n• Error en la consulta de datos\n• Problemas con la generación del PDF\n• Configuración incorrecta\n\n✅ Enviado automáticamente por el sistema de cron`;
           const result = await telegramService.sendHtmlMessage(chatId, message);
           return result.ok || false;
         }
