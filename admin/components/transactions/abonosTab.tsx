@@ -326,7 +326,7 @@ const paymentMethods: Option[] = [
 
 // Route selector component to isolate route-related logic
 const RouteSelector = React.memo(({ onRouteSelect, value }: { onRouteSelect: (route: Option | null) => void, value: Option | null }) => {
-  const { data: routesData, loading: routesLoading, error: routesError } = useQuery<{ routes: Route[] }>(GET_ROUTES, {
+  const { data: routesData, loading: routesLoading = false, error: routesError } = useQuery<{ routes: Route[] }>(GET_ROUTES, {
     variables: { where: { } },
   });
 
@@ -353,7 +353,7 @@ const RouteSelector = React.memo(({ onRouteSelect, value }: { onRouteSelect: (ro
 
 // Agregar el componente LeadSelector
 const LeadSelector = React.memo(({ routeId, onLeadSelect, value }: { routeId: string | undefined, onLeadSelect: (lead: Option | null) => void, value: Option | null }) => {
-  const { data: leadsData, loading: leadsLoading, error: leadsError } = useQuery<{ employees: Lead[] }>(GET_LEADS, {
+  const { data: leadsData, loading: leadsLoading = false, error: leadsError } = useQuery<{ employees: Lead[] }>(GET_LEADS, {
     variables: { routeId: routeId || '' },
     skip: !routeId,
   });
@@ -366,7 +366,7 @@ const LeadSelector = React.memo(({ routeId, onLeadSelect, value }: { routeId: st
     [leadsData]
   );
 
-  if (leadsLoading) return <LoadingDots label="Loading leads" />;
+  if (routeId && leadsLoading) return <LoadingDots label="Loading leads" />;
   if (leadsError) return <GraphQLErrorNotice errors={leadsError?.graphQLErrors || []} networkError={leadsError?.networkError} />;
 
   return (
@@ -465,7 +465,7 @@ export const CreatePaymentForm = ({
     setState(prev => ({ ...prev, ...updates }));
   };
 
-  const { data: paymentsData, loading: paymentsLoading, refetch: refetchPayments } = useQuery(GET_LEAD_PAYMENTS, {
+  const { data: paymentsData, loading: paymentsLoading = false, refetch: refetchPayments } = useQuery(GET_LEAD_PAYMENTS, {
     variables: {
       date: selectedDate ? new Date(new Date(selectedDate).setHours(0, 0, 0, 0)).toISOString() : new Date().toISOString(),
       nextDate: selectedDate ? new Date(new Date(selectedDate).setHours(23, 59, 59, 999)).toISOString() : new Date().toISOString(),
@@ -475,14 +475,14 @@ export const CreatePaymentForm = ({
   });
 
   // Query to get existing falcos for the selected lead
-  const { data: falcosData, loading: falcosLoading, refetch: refetchFalcos } = useQuery(GET_LEAD_FALCOS, {
+  const { data: falcosData, loading: falcosLoading = false, refetch: refetchFalcos } = useQuery(GET_LEAD_FALCOS, {
     variables: {
       leadId: selectedLead?.id || ''
     },
     skip: !selectedLead,
   });
 
-  const { data: migratedPaymentsData, loading: migratedPaymentsLoading, refetch: refetchMigratedPayments } = useQuery(GET_MIGRATED_PAYMENTS, {
+  const { data: migratedPaymentsData, loading: migratedPaymentsLoading = false, refetch: refetchMigratedPayments } = useQuery(GET_MIGRATED_PAYMENTS, {
     variables: {
       date: selectedDate ? new Date(new Date(selectedDate).setHours(0, 0, 0, 0)).toISOString() : new Date().toISOString(),
       nextDate: selectedDate ? new Date(new Date(selectedDate).setHours(23, 59, 59, 999)).toISOString() : new Date().toISOString(),
@@ -535,7 +535,7 @@ export const CreatePaymentForm = ({
     }
   }, [paymentsData, migratedPaymentsData, selectedDate, selectedLead?.id]);
 
-  const { data: loansData, loading: loansLoading, error: loansError } = useQuery<{ loans: Loan[] }>(GET_LOANS_BY_LEAD, {
+  const { data: loansData, loading: loansLoading = false, error: loansError } = useQuery<{ loans: Loan[] }>(GET_LOANS_BY_LEAD, {
     variables: { 
       where: {
         lead: {
@@ -555,10 +555,10 @@ export const CreatePaymentForm = ({
     skip: !selectedLead,
   });
 
-  const [createCustomLeadPaymentReceived, { error: customLeadPaymentError, loading: customLeadPaymentLoading }] = useMutation(CREATE_LEAD_PAYMENT_RECEIVED);
-  const [updateLeadPayment, { loading: updateLoading }] = useMutation(UPDATE_LEAD_PAYMENT);
-  const [updateLoanPayment, { loading: updateLoanPaymentLoading }] = useMutation(UPDATE_LOAN_PAYMENT);
-  const [createFalcoPayment, { loading: falcoPaymentLoading }] = useMutation(CREATE_FALCO_PAYMENT);
+  const [createCustomLeadPaymentReceived, { error: customLeadPaymentError, loading: customLeadPaymentLoading = false }] = useMutation(CREATE_LEAD_PAYMENT_RECEIVED);
+  const [updateLeadPayment, { loading: updateLoading = false }] = useMutation(UPDATE_LEAD_PAYMENT);
+  const [updateLoanPayment, { loading: updateLoanPaymentLoading = false }] = useMutation(UPDATE_LOAN_PAYMENT);
+  const [createFalcoPayment, { loading: falcoPaymentLoading = false }] = useMutation(CREATE_FALCO_PAYMENT);
 
   const router = useRouter();
 
