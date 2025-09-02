@@ -70,7 +70,7 @@ const styles = {
   title: {
     fontSize: '28px',
     fontWeight: '700',
-    color: '#1a202c',
+    color: '#0052CC',
     marginBottom: '8px',
     display: 'flex',
     alignItems: 'center',
@@ -102,51 +102,78 @@ const styles = {
   birthdayCard: {
     display: 'flex',
     alignItems: 'center',
-    padding: '20px',
-    backgroundColor: '#f7fafc',
-    border: '2px solid #e2e8f0',
+    padding: '24px',
+    backgroundColor: 'white',
+    border: '1px solid #e2e8f0',
     borderRadius: '12px',
     transition: 'all 0.2s ease',
     cursor: 'default',
-  },
-  birthdayCardHover: {
-    borderColor: '#3182ce',
-    backgroundColor: '#ebf8ff',
+    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+    ':hover': {
+      borderColor: '#0ea5e9',
+      boxShadow: '0 4px 12px rgba(14, 165, 233, 0.15)',
+      transform: 'translateY(-2px)',
+    },
   },
   dayCircle: {
-    width: '60px',
-    height: '60px',
+    width: '70px',
+    height: '70px',
     borderRadius: '50%',
-    backgroundColor: '#3182ce',
+    backgroundColor: '#0052CC',
     color: 'white',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontSize: '24px',
+    fontSize: '28px',
     fontWeight: '700',
-    marginRight: '20px',
+    marginRight: '24px',
     flexShrink: 0,
+    boxShadow: '0 4px 12px rgba(0, 82, 204, 0.3)',
   },
   birthdayInfo: {
     flex: 1,
   },
   leaderName: {
-    fontSize: '20px',
-    fontWeight: '600',
+    fontSize: '22px',
+    fontWeight: '700',
     color: '#1a202c',
-    marginBottom: '8px',
+    marginBottom: '12px',
   },
   leaderDetails: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '4px',
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+    gap: '8px',
   },
   detailItem: {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
     fontSize: '14px',
-    color: '#718096',
+    color: '#4a5568',
+    padding: '4px 0',
+  },
+  detailIcon: {
+    color: '#0ea5e9',
+    fontSize: '16px',
+    width: '20px',
+  },
+  ageHighlight: {
+    backgroundColor: '#f0f9ff',
+    color: '#0369a1',
+    padding: '4px 12px',
+    borderRadius: '20px',
+    fontSize: '14px',
+    fontWeight: '600',
+    border: '1px solid #0ea5e9',
+  },
+  birthdateHighlight: {
+    backgroundColor: '#fef3c7',
+    color: '#92400e',
+    padding: '4px 12px',
+    borderRadius: '20px',
+    fontSize: '14px',
+    fontWeight: '600',
+    border: '1px solid #f59e0b',
   },
   emptyState: {
     textAlign: 'center' as const,
@@ -168,26 +195,69 @@ const styles = {
     backgroundColor: 'white',
     borderRadius: '12px',
     padding: '20px',
-    boxShadow: '0 1px 2px rgba(16,24,40,.06)',
+    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
     border: '1px solid #e2e8f0',
     textAlign: 'center' as const,
+    transition: 'all 0.2s ease',
+    ':hover': {
+      borderColor: '#0ea5e9',
+      boxShadow: '0 4px 12px rgba(14, 165, 233, 0.15)',
+      transform: 'translateY(-2px)',
+    },
   },
   statValue: {
     fontSize: '32px',
     fontWeight: '700',
-    color: '#1a202c',
+    color: '#0052CC',
     marginBottom: '4px',
   },
   statLabel: {
     fontSize: '14px',
     color: '#718096',
-    fontWeight: '500',
+    fontWeight: '600',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.5px',
   },
   exportButton: {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
   },
+  sectionTitle: {
+    fontSize: '20px',
+    fontWeight: '700',
+    color: '#0052CC',
+    marginBottom: '24px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    borderBottom: '2px solid #0052CC',
+    paddingBottom: '8px',
+  },
+};
+
+// Función para calcular la edad
+const calculateAge = (birthDate: string): number => {
+  const today = new Date();
+  const birth = new Date(birthDate);
+  let age = today.getFullYear() - birth.getFullYear();
+  const monthDiff = today.getMonth() - birth.getMonth();
+  
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+    age--;
+  }
+  
+  return age;
+};
+
+// Función para formatear la fecha de nacimiento
+const formatBirthDate = (birthDate: string): string => {
+  const date = new Date(birthDate);
+  return date.toLocaleDateString('es-ES', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
 };
 
 export default function CumpleanosLideresPage() {
@@ -260,14 +330,17 @@ export default function CumpleanosLideresPage() {
             padding-bottom: 20px; 
         }
         .title { 
-            font-size: 24px; 
+            font-size: 28px; 
             font-weight: bold; 
-            color: #1a202c; 
-            margin-bottom: 10px; 
+            color: #0052CC; 
+            margin-bottom: 15px; 
         }
         .subtitle { 
-            font-size: 16px; 
+            font-size: 18px; 
             color: #718096; 
+            border-bottom: 2px solid #0052CC;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
         }
         .stats { 
             display: flex; 
@@ -278,56 +351,89 @@ export default function CumpleanosLideresPage() {
         }
         .stat { 
             text-align: center; 
-            min-width: 120px;
+            min-width: 140px;
+            padding: 15px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background: white;
         }
         .stat-value { 
-            font-size: 32px; 
+            font-size: 36px; 
             font-weight: bold; 
-            color: #3182ce; 
+            color: #0052CC; 
         }
         .stat-label { 
-            font-size: 14px; 
+            font-size: 12px; 
             color: #718096; 
+            text-transform: uppercase;
+            font-weight: 600;
+            letter-spacing: 0.5px;
         }
         .birthday-list { 
             margin-top: 30px; 
         }
         .birthday-item { 
             display: flex; 
-            align-items: center; 
-            padding: 15px; 
-            margin: 10px 0; 
+            align-items: flex-start; 
+            padding: 20px; 
+            margin: 15px 0; 
             border: 1px solid #e2e8f0; 
-            border-radius: 8px;
-            background: #f7fafc;
+            border-radius: 12px;
+            background: white;
             break-inside: avoid;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         .day-circle { 
-            width: 50px; 
-            height: 50px; 
+            width: 60px; 
+            height: 60px; 
             border-radius: 50%; 
-            background: #3182ce; 
+            background: #0052CC; 
             color: white; 
             display: flex; 
             align-items: center; 
             justify-content: center; 
             font-weight: bold; 
-            font-size: 18px;
+            font-size: 24px;
             margin-right: 20px;
             flex-shrink: 0;
+            box-shadow: 0 4px 8px rgba(0, 82, 204, 0.3);
         }
         .leader-info { 
             flex: 1; 
         }
         .leader-name { 
-            font-size: 18px; 
+            font-size: 20px; 
             font-weight: bold; 
-            margin-bottom: 5px; 
+            margin-bottom: 10px; 
             color: #1a202c;
         }
         .leader-details { 
-            font-size: 14px; 
-            color: #718096; 
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 8px;
+        }
+        .detail-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            padding: 4px 0;
+        }
+        .age-highlight {
+            background: #f0f9ff;
+            color: #0369a1;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-weight: 600;
+            border: 1px solid #0ea5e9;
+        }
+        .birthdate-highlight {
+            background: #fef3c7;
+            color: #92400e;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-weight: 600;
+            border: 1px solid #f59e0b;
         }
         .empty-state { 
             text-align: center; 
@@ -361,25 +467,45 @@ export default function CumpleanosLideresPage() {
         </div>
         <div class="stat">
             <div class="stat-value">${new Set(birthdays.map(b => b.route?.name).filter(Boolean)).size}</div>
-            <div class="stat-label">Rutas</div>
+            <div class="stat-label">Rutas Representadas</div>
+        </div>
+        <div class="stat">
+            <div class="stat-value">${averageAge > 0 ? `${averageAge} años` : '-'}</div>
+            <div class="stat-label">Edad Promedio</div>
         </div>
     </div>
 
     <div class="birthday-list">
         ${birthdays.length === 0 ? 
           '<div class="empty-state">No hay cumpleaños registrados para este mes</div>' :
-          birthdays.map(birthday => `
+          birthdays.map(birthday => {
+            const age = calculateAge(birthday.birthDate);
+            const formattedBirthDate = formatBirthDate(birthday.birthDate);
+            
+            return `
             <div class="birthday-item">
                 <div class="day-circle">${birthday.day}</div>
                 <div class="leader-info">
                     <div class="leader-name">${birthday.fullName}</div>
                     <div class="leader-details">
-                        ${birthday.route ? `📍 Ruta: ${birthday.route.name}` : ''}
-                        ${birthday.location ? ` • Localidad: ${birthday.location.name}` : ''}
+                        <div class="detail-item">
+                            🎂 <span class="age-highlight">Cumple ${age + 1} años</span>
+                        </div>
+                        <div class="detail-item">
+                            📅 <span class="birthdate-highlight">${formattedBirthDate}</span>
+                        </div>
+                        ${birthday.route ? `
+                        <div class="detail-item">
+                            🛣️ Ruta: <strong>${birthday.route.name}</strong>
+                        </div>` : ''}
+                        ${birthday.location ? `
+                        <div class="detail-item">
+                            📍 Localidad: <strong>${birthday.location.name}</strong>
+                        </div>` : ''}
                     </div>
                 </div>
-            </div>
-          `).join('')
+            </div>`;
+          }).join('')
         }
     </div>
 
@@ -404,6 +530,9 @@ export default function CumpleanosLideresPage() {
   }));
 
   const uniqueRoutes = new Set(birthdays.map(b => b.route?.name).filter(Boolean)).size;
+  const averageAge = birthdays.length > 0 
+    ? Math.round(birthdays.reduce((sum, birthday) => sum + calculateAge(birthday.birthDate), 0) / birthdays.length)
+    : 0;
 
   if (error) {
     return (
@@ -467,16 +596,20 @@ export default function CumpleanosLideresPage() {
                 <div css={styles.statLabel}>Rutas Representadas</div>
               </div>
               <div css={styles.statCard}>
+                <div css={styles.statValue}>{averageAge > 0 ? `${averageAge} años` : '-'}</div>
+                <div css={styles.statLabel}>Edad Promedio</div>
+              </div>
+              <div css={styles.statCard}>
                 <div css={styles.statValue}>{monthNames[selectedMonth - 1]}</div>
                 <div css={styles.statLabel}>Mes Seleccionado</div>
               </div>
             </div>
 
             <div css={styles.contentCard}>
-              <Heading type="h2" css={{ marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div css={styles.sectionTitle}>
                 <FaCalendarAlt />
                 Cumpleaños en {monthNames[selectedMonth - 1]}
-              </Heading>
+              </div>
 
               {birthdays.length === 0 ? (
                 <div css={styles.emptyState}>
@@ -486,41 +619,49 @@ export default function CumpleanosLideresPage() {
                 </div>
               ) : (
                 <div css={styles.birthdayList}>
-                  {birthdays.map((birthday) => (
-                    <div key={birthday.id} css={styles.birthdayCard}>
-                      <div css={styles.dayCircle}>
-                        {birthday.day}
-                      </div>
-                      <div css={styles.birthdayInfo}>
-                        <div css={styles.leaderName}>
-                          {birthday.fullName}
+                  {birthdays.map((birthday) => {
+                    const age = calculateAge(birthday.birthDate);
+                    const formattedBirthDate = formatBirthDate(birthday.birthDate);
+                    
+                    return (
+                      <div key={birthday.id} css={styles.birthdayCard}>
+                        <div css={styles.dayCircle}>
+                          {birthday.day}
                         </div>
-                        <div css={styles.leaderDetails}>
-                          {birthday.route && (
+                        <div css={styles.birthdayInfo}>
+                          <div css={styles.leaderName}>
+                            {birthday.fullName}
+                          </div>
+                          <div css={styles.leaderDetails}>
                             <div css={styles.detailItem}>
-                              <FaRoute />
-                              <span>Ruta: {birthday.route.name}</span>
+                              <FaBirthdayCake css={styles.detailIcon} />
+                              <span css={styles.ageHighlight}>
+                                Cumple {age + 1} años
+                              </span>
                             </div>
-                          )}
-                          {birthday.location && (
                             <div css={styles.detailItem}>
-                              <FaMapMarkerAlt />
-                              <span>Localidad: {birthday.location.name}</span>
+                              <FaCalendarAlt css={styles.detailIcon} />
+                              <span css={styles.birthdateHighlight}>
+                                {formattedBirthDate}
+                              </span>
                             </div>
-                          )}
-                          <div css={styles.detailItem}>
-                            <FaCalendarAlt />
-                            <span>
-                              {new Date(birthday.birthDate).toLocaleDateString('es-ES', {
-                                day: 'numeric',
-                                month: 'long'
-                              })}
-                            </span>
+                            {birthday.route && (
+                              <div css={styles.detailItem}>
+                                <FaRoute css={styles.detailIcon} />
+                                <span>Ruta: <strong>{birthday.route.name}</strong></span>
+                              </div>
+                            )}
+                            {birthday.location && (
+                              <div css={styles.detailItem}>
+                                <FaMapMarkerAlt css={styles.detailIcon} />
+                                <span>Localidad: <strong>{birthday.location.name}</strong></span>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
