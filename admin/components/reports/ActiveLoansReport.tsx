@@ -2395,7 +2395,7 @@ export default function ActiveLoansReport() {
                                     year={selectedYear}
                                     month={selectedMonth}
                                     activeCount={weekData.activeAtEnd || 0}
-                                    weekEndDate={processedData.weekDates?.[week]?.end?.toISOString()}
+                                    weekEndDate={processedData.weekDates?.[week]?.end ? new Date(processedData.weekDates[week].end).toISOString() : undefined}
                                   />
                                 </span>
                               </div>
@@ -2768,7 +2768,7 @@ export default function ActiveLoansReport() {
                                   year={selectedYear}
                                   month={selectedMonth}
                                   activeCount={weekTotal.activeAtEnd || 0}
-                                  weekEndDate={processedData.weekDates?.[week]?.end?.toISOString()}
+                                  weekEndDate={processedData.weekDates?.[week]?.end ? new Date(processedData.weekDates[week].end).toISOString() : undefined}
                                 />
                               </span>
                             </div>
