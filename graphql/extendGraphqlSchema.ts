@@ -7040,7 +7040,7 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
           const detailedObservations = clientDocErrors
             .map(doc => doc.errorDescription)
             .filter(Boolean)
-            .join('; ') || 'Sin observaciones específicas';
+            .join('; ') || '';
           
           tableData.push({
             locality,
@@ -7063,7 +7063,7 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
           const avalDetailedObservations = avalDocErrors
             .map(doc => doc.errorDescription)
             .filter(Boolean)
-            .join('; ') || 'Sin observaciones específicas';
+            .join('; ') || '';
           
           tableData.push({
             locality,
@@ -7392,6 +7392,23 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
             doc.fontSize(7).fillColor('#64748b');
             doc.text(`+${problems.length - 3} más...`, x + 4, textY, { width: col.width - 8 });
           }
+        }
+        // Columna de observaciones con formato mejorado
+        else if (index === 5) {
+          // Solo mostrar observaciones si realmente hay contenido
+          if (cellText && cellText.trim() && cellText !== 'N/A' && cellText !== '') {
+            doc.fillColor('#374151');
+            doc.fontSize(8);
+            
+            // No truncar - usar toda la altura disponible para multilínea
+            doc.text(cellText, x + 6, y + 8, { 
+              width: col.width - 12,
+              lineBreak: true,
+              height: rowHeight - 16,
+              align: 'left'
+            });
+          }
+          // Si no hay observaciones, no dibujar nada (celda vacía)
         }
         // Otras columnas con formato estándar
         else {

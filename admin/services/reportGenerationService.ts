@@ -705,22 +705,20 @@ async function generateRealDocumentErrorTable(
       }
       // Columna de observaciones con formato mejorado
       else if (index === 5) {
-        doc.fillColor('#374151');
-        doc.fontSize(8);
-        
-        // Solo mostrar observaciones si no están vacías
-        if (cellText && cellText.trim() && cellText !== 'N/A') {
-          let obsText = cellText;
-          if (obsText.length > 140) {
-            obsText = obsText.substring(0, 137) + '...';
-          }
+        // Solo mostrar observaciones si realmente hay contenido
+        if (cellText && cellText.trim() && cellText !== 'N/A' && cellText !== '') {
+          doc.fillColor('#374151');
+          doc.fontSize(8);
           
-          doc.text(obsText, x + 6, y + 12, { 
+          // Usar toda la altura disponible para multilínea completa
+          doc.text(cellText, x + 6, y + 8, { 
             width: col.width - 12,
             lineBreak: true,
-            height: rowHeight - 20
+            height: rowHeight - 16,
+            align: 'left'
           });
         }
+        // Si no hay observaciones, no dibujar nada (celda completamente vacía)
       }
       // Otras columnas con formato estándar mejorado
       else {
