@@ -9,7 +9,7 @@ import { Select, TextInput } from '@keystone-ui/fields';
 import { LoadingDots } from '@keystone-ui/loading';
 import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
 import { gql } from '@apollo/client';
-import { FaDownload, FaSync, FaChartLine, FaTable, FaFilter, FaInfoCircle } from 'react-icons/fa';
+import { FaDownload, FaSync, FaChartLine, FaTable, FaFilter, FaInfoCircle, FaWhatsapp, FaCopy } from 'react-icons/fa';
 import { ExportButton } from './ExportButton';
 
 // Query para obtener el reporte
@@ -401,17 +401,71 @@ if (typeof document !== 'undefined') {
 }
 
 // Componente pequeño para mostrar un hover-card con detalles de préstamos finalizados
-const InfoHoverCard = ({ items, title = 'Detalle' }: { items: Array<{ id: string; fullName?: string; amountGived?: number; finishedDate?: string | Date; previousFinishedDate?: string | Date; date?: string | Date; startDate?: string | Date }>; title?: string }) => {
+const InfoHoverCard = ({ items, title = 'Detalle' }: { items: Array<{ id: string; fullName?: string; amountGived?: number; finishedDate?: string | Date; previousFinishedDate?: string | Date; date?: string | Date; startDate?: string | Date; weeklyPaid?: number; expectedWeekly?: number; cvContribution?: number; cvReason?: string }>; title?: string }) => {
   const hasItems = Array.isArray(items) && items.length > 0;
   const [open, setOpen] = React.useState(false);
   const closeTimerRef = React.useRef<number | null>(null);
   const hasPrevColumn = hasItems && items.some(i => !!(i as any).previousFinishedDate);
   const hasStartColumn = hasItems && items.some(i => !!(i as any).startDate || !!(i as any).date);
+  const hasCVDetails = hasItems && items.some(i => !!(i as any).cvContribution);
   const mainDateLabel = /finalizados/i.test(title) ? 'Fecha fin' : 'Fecha firma';
 
   const formatMoney = (num: number) => new Intl.NumberFormat('es-MX', {
     style: 'currency', currency: 'MXN', minimumFractionDigits: 0, maximumFractionDigits: 0
   }).format(Number(num || 0));
+
+  // Función para copiar con formato de WhatsApp
+  const copyToWhatsApp = () => {
+    if (!hasItems) return;
+    
+    let whatsappText = `📊 ${title}\n\n`;
+    
+    if (hasCVDetails) {
+      // Formato especial para CV
+      whatsappText += `🔍 *Detalle de Clientes con CV:*\n\n`;
+      items.forEach((item, index) => {
+        const amount = formatMoney(Number(item.amountGived || 0));
+        const weeklyPaid = formatMoney(Number(item.weeklyPaid || 0));
+        const expectedWeekly = formatMoney(Number(item.expectedWeekly || 0));
+        const cvContribution = item.cvContribution || 0;
+        const cvReason = item.cvReason || '';
+        
+        whatsappText += `${index + 1}. *${item.fullName || 'N/A'}*\n`;
+        whatsappText += `   💰 Monto: ${amount}\n`;
+        whatsappText += `   💳 Pago semanal: ${weeklyPaid}\n`;
+        whatsappText += `   📈 Esperado: ${expectedWeekly}\n`;
+        whatsappText += `   ⚠️ CV: ${cvContribution} (${cvReason})\n\n`;
+      });
+    } else {
+      // Formato para otros tipos de préstamos
+      items.forEach((item, index) => {
+        const amount = formatMoney(Number(item.amountGived || 0));
+        const date = item.date ? new Date(item.date).toLocaleDateString('es-MX') : 'N/A';
+        
+        whatsappText += `${index + 1}. *${item.fullName || 'N/A'}*\n`;
+        whatsappText += `   💰 Monto: ${amount}\n`;
+        whatsappText += `   📅 Fecha: ${date}\n\n`;
+      });
+    }
+    
+    // Copiar al portapapeles
+    navigator.clipboard.writeText(whatsappText).then(() => {
+      // Mostrar feedback visual
+      const button = document.getElementById('whatsapp-copy-btn');
+      if (button) {
+        const originalText = button.innerHTML;
+        button.innerHTML = '✅ Copiado!';
+        button.style.backgroundColor = '#10b981';
+        setTimeout(() => {
+          button.innerHTML = originalText;
+          button.style.backgroundColor = '#25d366';
+        }, 2000);
+      }
+    }).catch(err => {
+      console.error('Error al copiar:', err);
+      alert('Error al copiar al portapapeles');
+    });
+  };
 
   const clearCloseTimer = () => {
     if (closeTimerRef.current) {
@@ -453,15 +507,48 @@ const InfoHoverCard = ({ items, title = 'Detalle' }: { items: Array<{ id: string
           onMouseEnter={() => { clearCloseTimer(); setOpen(true); }}
           onMouseLeave={delayedClose}
         >
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>{title}</div>
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            marginBottom: 8 
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>{title}</div>
+            {hasItems && (
+              <button
+                id="whatsapp-copy-btn"
+                onClick={copyToWhatsApp}
+                style={{
+                  backgroundColor: '#25d366',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '6px 12px',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  transition: 'all 0.2s ease'
+                }}
+                title="Copiar con formato de WhatsApp"
+              >
+                <FaWhatsapp size={12} />
+                Copiar WhatsApp
+              </button>
+            )}
+          </div>
           {hasItems ? (
             <div style={{ maxHeight: 260, overflowY: 'auto' }}>
               {/* Encabezados */}
               <div style={{
                 display: 'grid',
-                gridTemplateColumns: hasPrevColumn
-                  ? (hasStartColumn ? '1fr 2fr 1fr 1fr 1fr 1fr' : '1fr 2fr 1fr 1fr 1fr')
-                  : (hasStartColumn ? '1fr 2fr 1fr 1fr 1fr' : '1fr 2fr 1fr 1fr'),
+                gridTemplateColumns: hasCVDetails
+                  ? '1fr 2fr 1fr 1fr 1fr 1fr 1fr'
+                  : hasPrevColumn
+                    ? (hasStartColumn ? '1fr 2fr 1fr 1fr 1fr 1fr' : '1fr 2fr 1fr 1fr 1fr')
+                    : (hasStartColumn ? '1fr 2fr 1fr 1fr 1fr' : '1fr 2fr 1fr 1fr'),
                 gap: 8,
                 fontSize: 10,
                 fontWeight: 700,
@@ -477,8 +564,11 @@ const InfoHoverCard = ({ items, title = 'Detalle' }: { items: Array<{ id: string
                 <div>Nombre</div>
                 <div style={{ textAlign: 'right' }}>Monto</div>
                 <div style={{ textAlign: 'right' }}>{mainDateLabel}</div>
-                {hasStartColumn && <div style={{ textAlign: 'right' }}>{/finalizados/i.test(title) ? 'Fecha inicio' : 'Fecha fin'}</div>}
-                {hasPrevColumn && <div style={{ textAlign: 'right' }}>Fin anterior</div>}
+                {hasStartColumn && !hasCVDetails && <div style={{ textAlign: 'right' }}>{/finalizados/i.test(title) ? 'Fecha inicio' : 'Fecha fin'}</div>}
+                {hasPrevColumn && !hasCVDetails && <div style={{ textAlign: 'right' }}>Fin anterior</div>}
+                {hasCVDetails && <div style={{ textAlign: 'right' }}>Pago semanal</div>}
+                {hasCVDetails && <div style={{ textAlign: 'right' }}>CV (1/0.5)</div>}
+                {hasCVDetails && <div style={{ textAlign: 'right' }}>Razón</div>}
               </div>
               {items.map((l, idx) => {
                 const mainDate = (/finalizados/i.test(title) ? l.finishedDate : (l.date || l.finishedDate));
@@ -490,9 +580,11 @@ const InfoHoverCard = ({ items, title = 'Detalle' }: { items: Array<{ id: string
                 return (
                   <div key={`${l.id}-${idx}`} style={{
                     display: 'grid',
-                    gridTemplateColumns: hasPrevColumn
-                      ? (hasStartColumn ? '1fr 2fr 1fr 1fr 1fr 1fr' : '1fr 2fr 1fr 1fr 1fr')
-                      : (hasStartColumn ? '1fr 2fr 1fr 1fr 1fr' : '1fr 2fr 1fr 1fr'),
+                    gridTemplateColumns: hasCVDetails
+                      ? '1fr 2fr 1fr 1fr 1fr 1fr 1fr'
+                      : hasPrevColumn
+                        ? (hasStartColumn ? '1fr 2fr 1fr 1fr 1fr 1fr' : '1fr 2fr 1fr 1fr 1fr')
+                        : (hasStartColumn ? '1fr 2fr 1fr 1fr 1fr' : '1fr 2fr 1fr 1fr'),
                     gap: 8,
                     fontSize: 11,
                     padding: '6px 4px',
@@ -502,8 +594,11 @@ const InfoHoverCard = ({ items, title = 'Detalle' }: { items: Array<{ id: string
                     <div style={{ color: '#334155' }}>{l.fullName || ''}</div>
                     <div style={{ color: '#334155', textAlign: 'right' }}>{formatMoney(Number(l.amountGived || 0))}</div>
                     <div style={{ color: '#64748b', textAlign: 'right' }}>{dateStr}</div>
-                    {hasStartColumn && <div style={{ color: '#64748b', textAlign: 'right' }}>{startStr || '-'}</div>}
-                    {hasPrevColumn && <div style={{ color: '#64748b', textAlign: 'right' }}>{prevStr || '-'}</div>}
+                    {hasStartColumn && !hasCVDetails && <div style={{ color: '#64748b', textAlign: 'right' }}>{startStr || '-'}</div>}
+                    {hasPrevColumn && !hasCVDetails && <div style={{ color: '#64748b', textAlign: 'right' }}>{prevStr || '-'}</div>}
+                    {hasCVDetails && <div style={{ color: '#64748b', textAlign: 'right' }}>{formatMoney(Number(l.weeklyPaid || 0))}</div>}
+                    {hasCVDetails && <div style={{ color: '#64748b', textAlign: 'right', fontWeight: '600' }}>{l.cvContribution || 0}</div>}
+                    {hasCVDetails && <div style={{ color: '#64748b', textAlign: 'right', fontSize: '10px' }}>{l.cvReason || '-'}</div>}
                   </div>
                 );
               })}
@@ -2104,7 +2199,11 @@ export default function ActiveLoansReport() {
                                     id: l.id,
                                     fullName: l.fullName,
                                     amountGived: l.amountGived,
-                                    date: l.date
+                                    date: l.date,
+                                    weeklyPaid: l.weeklyPaid,
+                                    expectedWeekly: l.expectedWeekly,
+                                    cvContribution: l.cvContribution,
+                                    cvReason: l.cvReason
                                   }));
                                 })()} />
                               </div>
@@ -2441,7 +2540,11 @@ export default function ActiveLoansReport() {
                                   id: l.id,
                                   fullName: l.fullName,
                                   amountGived: l.amountGived,
-                                  date: l.date
+                                  date: l.date,
+                                  weeklyPaid: l.weeklyPaid,
+                                  expectedWeekly: l.expectedWeekly,
+                                  cvContribution: l.cvContribution,
+                                  cvReason: l.cvReason
                                 }));
                               })()} />
                             </div>

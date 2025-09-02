@@ -241,6 +241,7 @@ export const User = list({
     reportConfigRecipients: relationship({ ref: 'ReportConfig.recipients', many: true }),
     // ✅ NUEVA FUNCIONALIDAD: Usuarios de Telegram vinculados
     telegramUsers: relationship({ ref: 'TelegramUser.platformUser', many: true }),
+    employee: relationship({ ref: 'Employee.user' }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     adjustBalance: virtual({
       ui: {
@@ -429,6 +430,7 @@ export const Employee = list({
     LeadManagedLoans: relationship({ ref: 'Loan.lead', many: true }),
     LeadPaymentReceivedLead: relationship({ ref: 'LeadPaymentReceived.lead', many: true }),
     leadPaymentsReceivedAgent: relationship({ ref: 'LeadPaymentReceived.agent', many: true }),
+    user: relationship({ ref: 'User.employee' }),
     type: select({
       options: [
         { label: 'LIDER DE RUTA', value: 'ROUTE_LEAD' },

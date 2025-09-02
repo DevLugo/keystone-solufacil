@@ -19,6 +19,7 @@ type User {
   reportConfigRecipientsCount(where: ReportConfigWhereInput! = {}): Int
   telegramUsers(where: TelegramUserWhereInput! = {}, orderBy: [TelegramUserOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TelegramUserWhereUniqueInput): [TelegramUser!]
   telegramUsersCount(where: TelegramUserWhereInput! = {}): Int
+  employee: Employee
   createdAt: DateTime
   adjustBalance: JSON
 }
@@ -32,6 +33,7 @@ scalar DateTime @specifiedBy(url: "https://datatracker.ietf.org/doc/html/rfc3339
 input UserWhereUniqueInput {
   id: ID
   email: String
+  employee: EmployeeWhereUniqueInput
 }
 
 input UserWhereInput {
@@ -49,6 +51,7 @@ input UserWhereInput {
   reportConfigsUpdated: ReportConfigManyRelationFilter
   reportConfigRecipients: ReportConfigManyRelationFilter
   telegramUsers: TelegramUserManyRelationFilter
+  employee: EmployeeWhereInput
   createdAt: DateTimeNullableFilter
 }
 
@@ -175,6 +178,7 @@ input UserUpdateInput {
   reportConfigsUpdated: ReportConfigRelateToManyForUpdateInput
   reportConfigRecipients: ReportConfigRelateToManyForUpdateInput
   telegramUsers: TelegramUserRelateToManyForUpdateInput
+  employee: EmployeeRelateToOneForUpdateInput
   createdAt: DateTime
 }
 
@@ -206,6 +210,12 @@ input TelegramUserRelateToManyForUpdateInput {
   connect: [TelegramUserWhereUniqueInput!]
 }
 
+input EmployeeRelateToOneForUpdateInput {
+  create: EmployeeCreateInput
+  connect: EmployeeWhereUniqueInput
+  disconnect: Boolean
+}
+
 input UserUpdateArgs {
   where: UserWhereUniqueInput!
   data: UserUpdateInput!
@@ -222,6 +232,7 @@ input UserCreateInput {
   reportConfigsUpdated: ReportConfigRelateToManyForCreateInput
   reportConfigRecipients: ReportConfigRelateToManyForCreateInput
   telegramUsers: TelegramUserRelateToManyForCreateInput
+  employee: EmployeeRelateToOneForCreateInput
   createdAt: DateTime
 }
 
@@ -245,6 +256,11 @@ input TelegramUserRelateToManyForCreateInput {
   connect: [TelegramUserWhereUniqueInput!]
 }
 
+input EmployeeRelateToOneForCreateInput {
+  create: EmployeeCreateInput
+  connect: EmployeeWhereUniqueInput
+}
+
 type Employee {
   id: ID!
   oldId: String
@@ -262,6 +278,7 @@ type Employee {
   LeadPaymentReceivedLeadCount(where: LeadPaymentReceivedWhereInput! = {}): Int
   leadPaymentsReceivedAgent(where: LeadPaymentReceivedWhereInput! = {}, orderBy: [LeadPaymentReceivedOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: LeadPaymentReceivedWhereUniqueInput): [LeadPaymentReceived!]
   leadPaymentsReceivedAgentCount(where: LeadPaymentReceivedWhereInput! = {}): Int
+  user: User
   type: String
 }
 
@@ -269,6 +286,7 @@ input EmployeeWhereUniqueInput {
   id: ID
   oldId: String
   personalData: PersonalDataWhereUniqueInput
+  user: UserWhereUniqueInput
 }
 
 input EmployeeWhereInput {
@@ -285,6 +303,7 @@ input EmployeeWhereInput {
   LeadManagedLoans: LoanManyRelationFilter
   LeadPaymentReceivedLead: LeadPaymentReceivedManyRelationFilter
   leadPaymentsReceivedAgent: LeadPaymentReceivedManyRelationFilter
+  user: UserWhereInput
   type: StringNullableFilter
 }
 
@@ -328,6 +347,7 @@ input EmployeeUpdateInput {
   LeadManagedLoans: LoanRelateToManyForUpdateInput
   LeadPaymentReceivedLead: LeadPaymentReceivedRelateToManyForUpdateInput
   leadPaymentsReceivedAgent: LeadPaymentReceivedRelateToManyForUpdateInput
+  user: UserRelateToOneForUpdateInput
   type: String
 }
 
@@ -371,6 +391,12 @@ input LeadPaymentReceivedRelateToManyForUpdateInput {
   connect: [LeadPaymentReceivedWhereUniqueInput!]
 }
 
+input UserRelateToOneForUpdateInput {
+  create: UserCreateInput
+  connect: UserWhereUniqueInput
+  disconnect: Boolean
+}
+
 input EmployeeUpdateArgs {
   where: EmployeeWhereUniqueInput!
   data: EmployeeUpdateInput!
@@ -386,6 +412,7 @@ input EmployeeCreateInput {
   LeadManagedLoans: LoanRelateToManyForCreateInput
   LeadPaymentReceivedLead: LeadPaymentReceivedRelateToManyForCreateInput
   leadPaymentsReceivedAgent: LeadPaymentReceivedRelateToManyForCreateInput
+  user: UserRelateToOneForCreateInput
   type: String
 }
 
@@ -417,6 +444,11 @@ input CommissionPaymentRelateToManyForCreateInput {
 input LeadPaymentReceivedRelateToManyForCreateInput {
   create: [LeadPaymentReceivedCreateInput!]
   connect: [LeadPaymentReceivedWhereUniqueInput!]
+}
+
+input UserRelateToOneForCreateInput {
+  create: UserCreateInput
+  connect: UserWhereUniqueInput
 }
 
 type Route {
@@ -1093,12 +1125,6 @@ input PhoneRelateToManyForUpdateInput {
   connect: [PhoneWhereUniqueInput!]
 }
 
-input EmployeeRelateToOneForUpdateInput {
-  create: EmployeeCreateInput
-  connect: EmployeeWhereUniqueInput
-  disconnect: Boolean
-}
-
 input BorrowerRelateToOneForUpdateInput {
   create: BorrowerCreateInput
   connect: BorrowerWhereUniqueInput
@@ -1127,11 +1153,6 @@ input PersonalDataCreateInput {
 input PhoneRelateToManyForCreateInput {
   create: [PhoneCreateInput!]
   connect: [PhoneWhereUniqueInput!]
-}
-
-input EmployeeRelateToOneForCreateInput {
-  create: EmployeeCreateInput
-  connect: EmployeeWhereUniqueInput
 }
 
 input BorrowerRelateToOneForCreateInput {
@@ -2029,12 +2050,6 @@ input AuditLogUpdateInput {
   user: UserRelateToOneForUpdateInput
 }
 
-input UserRelateToOneForUpdateInput {
-  create: UserCreateInput
-  connect: UserWhereUniqueInput
-  disconnect: Boolean
-}
-
 input AuditLogUpdateArgs {
   where: AuditLogWhereUniqueInput!
   data: AuditLogUpdateInput!
@@ -2057,11 +2072,6 @@ input AuditLogCreateInput {
   metadata: JSON
   createdAt: DateTime
   user: UserRelateToOneForCreateInput
-}
-
-input UserRelateToOneForCreateInput {
-  create: UserCreateInput
-  connect: UserWhereUniqueInput
 }
 
 type ReportExecutionLog {
