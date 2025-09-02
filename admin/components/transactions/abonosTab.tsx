@@ -129,6 +129,34 @@ const GET_LEAD_PAYMENTS = gql`
   }
 `;
 
+const GET_MIGRATED_PAYMENTS = gql`
+  query GetMigratedPayments($date: DateTime!, $nextDate: DateTime!, $leadId: ID!) {
+    loanPayments(where: { 
+      AND: [
+        { receivedAt: { gte: $date, lt: $nextDate } },
+        { leadPaymentReceivedId: null },
+        { loan: { lead: { id: { equals: $leadId } } } }
+      ]
+    }) {
+      id
+      amount
+      comission
+      type
+      paymentMethod
+      receivedAt
+      loan {
+        id
+        signDate
+        borrower {
+          personalData {
+            fullName
+          }
+        }
+      }
+    }
+  }
+`;
+
 const UPDATE_LEAD_PAYMENT = gql`
   mutation UpdateLeadPayment(
     $id: ID!
@@ -377,37 +405,60 @@ export const CreatePaymentForm = ({
       leadId: selectedLead?.id || ''
     },
     skip: !selectedDate || !selectedLead,
-        onCompleted: (data) => {
-      console.log('🚀 CONSULTA GET_LEAD_PAYMENTS COMPLETADA');
-      console.log('📅 Fecha seleccionada:', selectedDate);
-      console.log('👤 Lead seleccionado:', selectedLead?.id);
-      console.log('🔍 DATOS RECIBIDOS de GET_LEAD_PAYMENTS:', data);
-      console.log('🔍 loanPayments encontrados:', data?.loanPayments?.length || 0);
-        
-        if (data?.loanPayments) {
-          // ✅ AGREGAR: Cargar comisiones por defecto automáticamente
-          const paymentsWithDefaultCommissions = data.loanPayments.map((payment: any) => {
-            const defaultCommission = payment.loan?.loantype?.loanPaymentComission;
-            if (defaultCommission && parseFloat(defaultCommission) > 0) {
-              return {
-                ...payment,
-                comission: parseFloat(defaultCommission)
-              };
-            }
-            return payment;
-          });
-          
-          // ✅ AGREGAR: Ordenar abonos por fecha de creación del crédito (más viejo primero)
-          const sortedPayments = paymentsWithDefaultCommissions.sort((a: any, b: any) => {
-            const dateA = new Date(a.loan?.signDate || '1970-01-01');
-            const dateB = new Date(b.loan?.signDate || '1970-01-01');
-            return dateA.getTime() - dateB.getTime(); // Ascendente: crédito más viejo arriba
-          });
-          
-          updateState({ existingPayments: sortedPayments });
-        }
-      }
   });
+
+  const { data: migratedPaymentsData, loading: migratedPaymentsLoading, refetch: refetchMigratedPayments } = useQuery(GET_MIGRATED_PAYMENTS, {
+    variables: {
+      date: selectedDate ? new Date(new Date(selectedDate).setHours(0, 0, 0, 0)).toISOString() : new Date().toISOString(),
+      nextDate: selectedDate ? new Date(new Date(selectedDate).setHours(23, 59, 59, 999)).toISOString() : new Date().toISOString(),
+      leadId: selectedLead?.id || ''
+    },
+    skip: !selectedDate || !selectedLead,
+  });
+
+  // Combinar pagos regulares y migrados
+  useEffect(() => {
+    const regularPayments = paymentsData?.loanPayments || [];
+    const migratedPayments = migratedPaymentsData?.loanPayments || [];
+    
+    console.log('🚀 CONSULTA COMPLETADA');
+    console.log('📅 Fecha seleccionada:', selectedDate);
+    console.log('👤 Lead seleccionado:', selectedLead?.id);
+    console.log('🔍 Pagos regulares encontrados:', regularPayments.length);
+    console.log('🔍 Pagos migrados encontrados:', migratedPayments.length);
+    
+    if (regularPayments.length > 0 || migratedPayments.length > 0) {
+      // Marcar los pagos migrados para identificarlos en la UI
+      const markedMigratedPayments = migratedPayments.map((payment: any) => ({
+        ...payment,
+        isMigrated: true // Marcador para identificar datos migrados
+      }));
+
+      // Combinar ambos tipos de pagos
+      const allPayments = [...regularPayments, ...markedMigratedPayments];
+
+      // ✅ AGREGAR: Cargar comisiones por defecto automáticamente
+      const paymentsWithDefaultCommissions = allPayments.map((payment: any) => {
+        const defaultCommission = payment.loan?.loantype?.loanPaymentComission;
+        if (defaultCommission && parseFloat(defaultCommission) > 0) {
+          return {
+            ...payment,
+            comission: parseFloat(defaultCommission)
+          };
+        }
+        return payment;
+      });
+      
+      // ✅ AGREGAR: Ordenar abonos por fecha de creación del crédito (más viejo primero)
+      const sortedPayments = paymentsWithDefaultCommissions.sort((a: any, b: any) => {
+        const dateA = new Date(a.loan?.signDate || '1970-01-01');
+        const dateB = new Date(b.loan?.signDate || '1970-01-01');
+        return dateA.getTime() - dateB.getTime(); // Ascendente: crédito más viejo arriba
+      });
+      
+      updateState({ existingPayments: sortedPayments });
+    }
+  }, [paymentsData, migratedPaymentsData, selectedDate, selectedLead?.id]);
 
   const { data: loansData, loading: loansLoading, error: loansError } = useQuery<{ loans: Loan[] }>(GET_LOANS_BY_LEAD, {
     variables: { 
@@ -457,9 +508,9 @@ export const CreatePaymentForm = ({
 
   const handleSaveAllChanges = async () => {
     try {
-      // Agrupar los pagos por leadPaymentReceived (excluyendo los eliminados)
+      // Agrupar los pagos por leadPaymentReceived (excluyendo los eliminados y migrados)
       const paymentsByLeadPayment = existingPayments
-        .filter((payment: any) => !deletedPaymentIds.includes(payment.id))
+        .filter((payment: any) => !deletedPaymentIds.includes(payment.id) && !payment.isMigrated)
         .reduce((acc: Record<string, {
           payments: Array<{
             amount: number;
@@ -616,6 +667,7 @@ export const CreatePaymentForm = ({
       // ✅ CORREGIDO: Refrescar todos los datos para obtener el balance real de la DB
       await Promise.all([
         refetchPayments(),
+        refetchMigratedPayments(),
         // Aquí deberías llamar a refetchRoute si tienes acceso a esa query
         // Por ahora solo refrescamos los pagos
       ]);
@@ -759,7 +811,7 @@ export const CreatePaymentForm = ({
     return payments.reduce((sum, payment) => sum + parseFloat(payment.comission.toString() || '0'), 0);
   }, [payments]);
 
-  // Calcular totales de pagos existentes (considerando ediciones y eliminaciones)
+  // Calcular totales de pagos existentes (considerando ediciones y eliminaciones, incluyendo migrados)
   const totalExistingAmount = useMemo(() => {
     return existingPayments
       .filter((payment: any) => !deletedPaymentIds.includes(payment.id))
@@ -796,10 +848,16 @@ export const CreatePaymentForm = ({
 
   useEffect(() => {
     refetchPayments();
-  }, [refreshKey, refetchPayments]);
+    refetchMigratedPayments();
+  }, [refreshKey, refetchPayments, refetchMigratedPayments]);
 
-  if (loansLoading) return <LoadingDots label="Loading loans" size="large" />;
+  if (loansLoading || paymentsLoading || migratedPaymentsLoading) return <LoadingDots label="Loading data" size="large" />;
   if (loansError) return <GraphQLErrorNotice errors={loansError?.graphQLErrors || []} networkError={loansError?.networkError} />;
+
+  // Contar pagos migrados para mostrar información
+  const migratedPaymentsCount = useMemo(() => {
+    return existingPayments.filter((payment: any) => payment.isMigrated).length;
+  }, [existingPayments]);
 
   return (
     <Box paddingTop="xlarge">
@@ -808,6 +866,45 @@ export const CreatePaymentForm = ({
           networkError={customLeadPaymentError?.networkError}
           errors={customLeadPaymentError?.graphQLErrors}
         />
+      )}
+
+      {/* Banner informativo para datos migrados */}
+      {migratedPaymentsCount > 0 && (
+        <div style={{
+          backgroundColor: '#FEF3C7',
+          border: '1px solid #F59E0B',
+          borderRadius: '8px',
+          padding: '16px',
+          marginBottom: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+        }}>
+          <div style={{
+            fontSize: '20px',
+          }}>
+            📊
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{
+              fontWeight: '600',
+              color: '#D97706',
+              fontSize: '14px',
+              marginBottom: '4px',
+            }}>
+              Datos migrados de Excel detectados
+            </div>
+            <div style={{
+              color: '#92400E',
+              fontSize: '13px',
+              lineHeight: '1.4',
+            }}>
+              Se encontraron {migratedPaymentsCount} pago(s) migrados desde Excel. 
+              Estos datos son de solo lectura y no se pueden editar desde la interfaz. 
+              No funcionan igual que los pagos creados por el sistema actual.
+            </div>
+          </div>
+        </div>
       )}
 
       <div style={{
@@ -1022,6 +1119,7 @@ export const CreatePaymentForm = ({
             selectedLead={selectedLead}
             onSuccess={() => {
               refetchPayments();
+              refetchMigratedPayments();
               // Aquí deberías llamar a refetchRoute si tienes acceso a esa query
             }}
             itemCount={existingPayments.filter(p => !deletedPaymentIds.includes(p.id)).length + payments.length}
@@ -1199,18 +1297,44 @@ export const CreatePaymentForm = ({
                       {index + 1}
                     </td>
                     <td>
-                      <span style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        padding: '4px 8px',
-                        backgroundColor: '#E0F2FE',
-                        color: '#0277BD',
-                        borderRadius: '4px',
-                        fontSize: '12px',
-                        fontWeight: '500',
-                      }}>
-                        Registrado
-                      </span>
+                      {payment.isMigrated ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '4px 8px',
+                            backgroundColor: '#FEF3C7',
+                            color: '#D97706',
+                            borderRadius: '4px',
+                            fontSize: '12px',
+                            fontWeight: '500',
+                            border: '1px solid #F59E0B',
+                          }}>
+                            📊 Migrado Excel
+                          </span>
+                          <span style={{
+                            fontSize: '10px',
+                            color: '#6B7280',
+                            fontStyle: 'italic',
+                            lineHeight: '1.2',
+                          }}>
+                            Solo lectura - No editable
+                          </span>
+                        </div>
+                      ) : (
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '4px 8px',
+                          backgroundColor: '#E0F2FE',
+                          color: '#0277BD',
+                          borderRadius: '4px',
+                          fontSize: '12px',
+                          fontWeight: '500',
+                        }}>
+                          Registrado
+                        </span>
+                      )}
                     </td>
                     <td>{payment.loan?.borrower?.personalData?.fullName}</td>
                     <td>
@@ -1224,18 +1348,20 @@ export const CreatePaymentForm = ({
                       }
                     </td>
                     <td>
-                      {isEditing ? (
+                      {isEditing && !payment.isMigrated ? (
                         <TextInput
                           type="number"
                           value={editedPayment.amount}
                           onChange={e => handleEditExistingPayment(payment.id, 'amount', e.target.value)}
                         />
                       ) : (
-                        payment.amount
+                        <span style={payment.isMigrated ? { color: '#6B7280', fontStyle: 'italic' } : {}}>
+                          {payment.amount}
+                        </span>
                       )}
                     </td>
                     <td>
-                      {isEditing ? (
+                      {isEditing && !payment.isMigrated ? (
                         <div style={{ position: 'relative' }}>
                           <TextInput
                             type="number"
@@ -1261,8 +1387,10 @@ export const CreatePaymentForm = ({
                         </div>
                       ) : (
                         <div style={{ position: 'relative' }}>
-                          {payment.comission}
-                          {payment.loan?.loantype?.loanPaymentComission && 
+                          <span style={payment.isMigrated ? { color: '#6B7280', fontStyle: 'italic' } : {}}>
+                            {payment.comission}
+                          </span>
+                          {!payment.isMigrated && payment.loan?.loantype?.loanPaymentComission && 
                            parseFloat(payment.loan.loantype.loanPaymentComission) > 0 && (
                             <div style={{
                               position: 'absolute',
@@ -1282,29 +1410,33 @@ export const CreatePaymentForm = ({
                       )}
                     </td>
                     <td>
-                      {isEditing ? (
+                      {isEditing && !payment.isMigrated ? (
                         <Select
                           options={paymentTypeOptions}
                           value={paymentTypeOptions.find(option => option.value === editedPayment.type) || null}
                           onChange={(option) => handleEditExistingPayment(payment.id, 'type', (option as Option).value)}
                         />
                       ) : (
-                        paymentTypeOptions.find(opt => opt.value === payment.type)?.label
+                        <span style={payment.isMigrated ? { color: '#6B7280', fontStyle: 'italic' } : {}}>
+                          {paymentTypeOptions.find(opt => opt.value === payment.type)?.label}
+                        </span>
                       )}
                     </td>
                     <td>
-                      {isEditing ? (
+                      {isEditing && !payment.isMigrated ? (
                         <Select
                           options={paymentMethods}
                           value={paymentMethods.find(option => option.value === editedPayment.paymentMethod) || null}
                           onChange={(option) => handleEditExistingPayment(payment.id, 'paymentMethod', (option as Option).value)}
                         />
                       ) : (
-                        paymentMethods.find(opt => opt.value === payment.paymentMethod)?.label
+                        <span style={payment.isMigrated ? { color: '#6B7280', fontStyle: 'italic' } : {}}>
+                          {paymentMethods.find(opt => opt.value === payment.paymentMethod)?.label}
+                        </span>
                       )}
                     </td>
                     <td>
-                      {isEditing && (
+                      {isEditing && !payment.isMigrated && (
                         <Button
                           tone="negative"
                           size="small"
@@ -1319,6 +1451,15 @@ export const CreatePaymentForm = ({
                         >
                           <TrashIcon size="small" />
                         </Button>
+                      )}
+                      {payment.isMigrated && (
+                        <span style={{
+                          fontSize: '12px',
+                          color: '#9CA3AF',
+                          fontStyle: 'italic',
+                        }}>
+                          No editable
+                        </span>
                       )}
                     </td>
                   </tr>
