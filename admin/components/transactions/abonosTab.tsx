@@ -168,7 +168,7 @@ const GET_LEAD_FALCOS = gql`
 
 // Mutation to create falco compensatory payment
 const CREATE_FALCO_PAYMENT = gql`
-  mutation CreateFalcoCompensatoryPayment($leadPaymentReceivedId: ID!, $amount: Float!) {
+  mutation CreateFalcoCompensatoryPayment($leadPaymentReceivedId: ID!, $amount: Decimal!) {
     createFalcoCompensatoryPayment(data: {
       amount: $amount
       leadPaymentReceived: { connect: { id: $leadPaymentReceivedId } }
@@ -584,17 +584,15 @@ export const CreatePaymentForm = ({
   // Handle falco payment
   const handleFalcoPayment = async () => {
     try {
-      console.log('🔍 DEBUG - Falco Payment:', { selectedFalcoId, falcoPaymentAmount, type: typeof falcoPaymentAmount });
-      
       if (!selectedFalcoId || falcoPaymentAmount <= 0) {
-        alert(`Por favor seleccione un falco válido y una cantidad mayor a 0. Valores actuales: falcoId=${selectedFalcoId}, amount=${falcoPaymentAmount}`);
+        alert('Por favor seleccione un falco válido y una cantidad mayor a 0');
         return;
       }
 
       await createFalcoPayment({
         variables: {
           leadPaymentReceivedId: selectedFalcoId,
-          amount: falcoPaymentAmount
+          amount: falcoPaymentAmount.toString()
         }
       });
 
@@ -1961,19 +1959,10 @@ export const CreatePaymentForm = ({
                       cursor: 'pointer',
                       backgroundColor: selectedFalcoId === falco.id ? '#FEE2E2' : 'white',
                     }}
-                    onClick={() => {
-                      console.log('🔍 Falco selected:', { 
-                        falcoId: falco.id, 
-                        falcoAmount, 
-                        compensatedAmount, 
-                        remainingAmount,
-                        remainingAmountType: typeof remainingAmount
-                      });
-                      updateState({ 
-                        selectedFalcoId: falco.id, 
-                        falcoPaymentAmount: remainingAmount > 0 ? remainingAmount : 0 
-                      });
-                    }}
+                    onClick={() => updateState({ 
+                      selectedFalcoId: falco.id, 
+                      falcoPaymentAmount: remainingAmount > 0 ? remainingAmount : 0 
+                    })}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div>
@@ -1999,70 +1988,35 @@ export const CreatePaymentForm = ({
           
           <Box marginBottom="large">
             <label>Cantidad a Abonar</label>
-            <div style={{ marginBottom: '4px', fontSize: '12px', color: '#6B7280' }}>
-              Valor actual: {falcoPaymentAmount} (tipo: {typeof falcoPaymentAmount})
-            </div>
-            <input
+
+            <TextInput
               type="number"
-              value={falcoPaymentAmount}
+              value={falcoPaymentAmount.toString()}
               onChange={(e) => {
                 const value = e.target.value;
                 const numValue = value === '' ? 0 : parseFloat(value);
-                console.log('🔍 Input change:', { value, numValue, isNaN: isNaN(numValue) });
                 updateState({ falcoPaymentAmount: isNaN(numValue) ? 0 : numValue });
               }}
               placeholder="0.00"
-              step="0.01"
-              min="0"
-              style={{
-                padding: '8px 12px',
-                fontSize: '14px',
-                border: '1px solid #E5E7EB',
-                borderRadius: '6px',
-                outline: 'none',
-                width: '100%'
-              }}
             />
           </Box>
           
           {selectedFalcoId && (
             <>
               <div style={{
-                backgroundColor: '#F3F4F6',
+                backgroundColor: '#E0F2FE',
                 padding: '12px',
                 borderRadius: '6px',
                 fontSize: '13px',
-                color: '#374151',
-                marginBottom: '8px'
+                color: '#0C4A6E',
+                marginBottom: '8px',
+                border: '1px solid #7DD3FC'
               }}>
-                <strong>Nota:</strong> Este abono se registrará como pago compensatorio del falco. 
-                Cuando el falco esté completamente pagado, se cancelará la pérdida asociada.
+                <strong>💡 Información:</strong> Este abono se registrará como pago compensatorio del falco. 
+                La pérdida se cancelará proporcionalmente: si abonas $100 de un falco de $500, 
+                se cancelarán $100 de pérdida y quedarán $400 pendientes.
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  console.log('🔍 DEBUG VALUES:', {
-                    selectedFalcoId,
-                    falcoPaymentAmount,
-                    falcoPaymentAmountType: typeof falcoPaymentAmount,
-                    falcoPaymentAmountIsNumber: typeof falcoPaymentAmount === 'number',
-                    falcoPaymentAmountGreaterThanZero: falcoPaymentAmount > 0,
-                    falcoPaymentAmountLessOrEqualZero: falcoPaymentAmount <= 0
-                  });
-                  alert(`Debug: selectedFalcoId=${selectedFalcoId}, falcoPaymentAmount=${falcoPaymentAmount}, type=${typeof falcoPaymentAmount}`);
-                }}
-                style={{
-                  padding: '4px 8px',
-                  fontSize: '12px',
-                  backgroundColor: '#EF4444',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer'
-                }}
-              >
-                Debug Values
-              </button>
+
             </>
           )}
         </Box>

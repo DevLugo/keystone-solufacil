@@ -2044,40 +2044,38 @@ export const FalcoCompensatoryPayment = list({
           });
 
           if (falcoLossTransaction) {
+            // La cantidad compensada actual (solo este abono)
+            const compensatedAmount = parseFloat(item.amount?.toString() || '0');
+            
             if (remainingFalcoAmount <= 0) {
               // Falco completamente pagado - eliminar transacción de pérdida
               await context.prisma.transaction.delete({
                 where: { id: falcoLossTransaction.id }
               });
 
-              // Devolver el dinero a la cuenta de efectivo
-              const currentCashAmount = parseFloat(cashAccount.amount?.toString() || '0');
-              await context.prisma.account.update({
-                where: { id: cashAccount.id },
-                data: { amount: (currentCashAmount + originalFalcoAmount).toString() }
-              });
-
-              console.log(`✅ Falco completamente pagado. Pérdida cancelada: $${originalFalcoAmount}`);
+              console.log(`✅ Falco completamente pagado. Pérdida cancelada completamente: $${originalFalcoAmount}`);
             } else {
-              // Falco parcialmente pagado - actualizar transacción de pérdida
+              // Falco parcialmente pagado - actualizar transacción de pérdida al monto restante
               await context.prisma.transaction.update({
                 where: { id: falcoLossTransaction.id },
                 data: {
                   amount: remainingFalcoAmount.toFixed(2),
-                  description: `Pérdida por falco (restante) - ${leadPaymentReceived.id}`,
+                  description: `Pérdida por falco (restante: $${remainingFalcoAmount.toFixed(2)}) - ${leadPaymentReceived.id}`,
                 }
-              });
-
-              // Devolver la cantidad compensada a la cuenta de efectivo
-              const compensatedAmount = parseFloat(item.amount?.toString() || '0');
-              const currentCashAmount = parseFloat(cashAccount.amount?.toString() || '0');
-              await context.prisma.account.update({
-                where: { id: cashAccount.id },
-                data: { amount: (currentCashAmount + compensatedAmount).toString() }
               });
 
               console.log(`✅ Falco parcialmente pagado. Pérdida actualizada: $${remainingFalcoAmount}, Compensado: $${compensatedAmount}`);
             }
+
+            // SIEMPRE devolver la cantidad compensada a la cuenta de efectivo
+            // (independientemente de si el falco está completamente pagado o no)
+            const currentCashAmount = parseFloat(cashAccount.amount?.toString() || '0');
+            await context.prisma.account.update({
+              where: { id: cashAccount.id },
+              data: { amount: (currentCashAmount + compensatedAmount).toString() }
+            });
+
+            console.log(`💰 Dinero devuelto a la cuenta: $${compensatedAmount}. Nuevo balance: $${(currentCashAmount + compensatedAmount).toFixed(2)}`);
           }
 
           // Actualizar el estado del LeadPaymentReceived si está completamente compensado
