@@ -2048,32 +2048,31 @@ export const FalcoCompensatoryPayment = list({
             // La cantidad compensada actual (solo este abono)
             const compensatedAmount = parseFloat(item.amount?.toString() || '0');
             
-            // Crear transacción de compensación (INCOME) por el abono recibido
-            await context.prisma.transaction.create({
-              data: {
-                amount: compensatedAmount.toFixed(2),
-                date: new Date(),
-                type: 'INCOME',
-                incomeSource: 'FALCO_COMPENSATION',
-                leadPaymentReceivedId: item.leadPaymentReceivedId,
-                leadId: leadPaymentReceived.agent?.id || '',
-                description: `Compensación por abono a falco - ${leadPaymentReceived.id}`,
-              }
-            });
-
+            // NUEVA LÓGICA: En lugar de crear INCOME, reducir directamente la pérdida original
+            const newLossAmount = Math.max(0, originalFalcoAmount - totalCompensated);
+            
             if (remainingFalcoAmount <= 0) {
-              // Falco completamente pagado - marcar transacción original como compensada
+              // Falco completamente pagado - reducir la transacción original a 0
               await context.prisma.transaction.update({
                 where: { id: falcoLossTransaction.id },
                 data: {
-                  description: `Pérdida por falco - COMPLETAMENTE COMPENSADO - ${leadPaymentReceived.id}`,
+                  amount: '0.00',
+                  description: `Pérdida por falco - COMPLETAMENTE COMPENSADO - Original: $${originalFalcoAmount} - ${leadPaymentReceived.id}`,
                 }
               });
 
-              console.log(`✅ Falco completamente pagado. Pérdida original mantenida como historial: $${originalFalcoAmount}`);
+              console.log(`✅ Falco completamente pagado. Pérdida original cancelada: $${originalFalcoAmount} → $0.00`);
             } else {
-              // Falco parcialmente pagado - mantener transacción original sin cambios
-              console.log(`✅ Falco parcialmente pagado. Pérdida original: $${originalFalcoAmount}, Restante: $${remainingFalcoAmount}, Compensado: $${compensatedAmount}`);
+              // Falco parcialmente pagado - reducir proporcionalmente la pérdida
+              await context.prisma.transaction.update({
+                where: { id: falcoLossTransaction.id },
+                data: {
+                  amount: newLossAmount.toFixed(2),
+                  description: `Pérdida por falco - PARCIALMENTE COMPENSADO - Original: $${originalFalcoAmount}, Restante: $${newLossAmount.toFixed(2)} - ${leadPaymentReceived.id}`,
+                }
+              });
+              
+              console.log(`✅ Falco parcialmente pagado. Pérdida reducida: $${originalFalcoAmount} → $${newLossAmount.toFixed(2)}`);
             }
 
             // Devolver la cantidad compensada a la cuenta de efectivo
