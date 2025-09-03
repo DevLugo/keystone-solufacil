@@ -1480,7 +1480,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
           try {
             const account = await context.prisma.account.findUnique({
               where: { id: accountId },
-              include: { route: true }
+              include: { routes: true }
             });
             if (!account) {
               return { success: false, message: 'Cuenta no encontrada' } as any;
@@ -1495,12 +1495,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
             let counter = counterAccountId || null;
             if (!counter) {
+              const accountRouteIds = account.routes?.map(r => r.id) || [];
               const fallback = await context.prisma.account.findFirst({
                 where: {
                   id: { not: account.id },
                   OR: [
-                    { routeId: account.routeId || undefined },
-                    { routeId: null }
+                    { routes: { some: { id: { in: accountRouteIds } } } },
+                    { routes: { none: {} } }
                   ],
                   type: 'OFFICE_CASH_FUND'
                 }
@@ -1524,7 +1525,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 amount: amountStr,
                 type: 'TRANSFER',
                 description: description || `Ajuste de balance a ${targetAmount.toFixed ? targetAmount.toFixed(2) : targetAmount}`,
-                route: account.routeId ? { connect: { id: account.routeId } } : undefined,
+                route: account.routes && account.routes.length > 0 ? { connect: { id: account.routes[0].id } } : undefined,
                 sourceAccount: { connect: { id: isIncrease ? counter : account.id } },
                 destinationAccount: { connect: { id: isIncrease ? account.id : counter } },
               }
@@ -1862,7 +1863,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 if (lead?.routesId) {
                   const account = await tx.account.findFirst({
                     where: { 
-                      routeId: lead.routesId,
+                      routes: { some: { id: lead.routesId } },
                       type: 'EMPLOYEE_CASH_FUND'
                     },
                   });
@@ -6139,7 +6140,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
           try {
             const account = await context.prisma.account.findUnique({
               where: { id: accountId },
-              include: { route: true }
+              include: { routes: true }
             });
             if (!account) {
               return { success: false, message: 'Cuenta no encontrada' } as any;
@@ -6155,12 +6156,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
             let counter = counterAccountId || null;
             if (!counter) {
               // Buscar cuenta de respaldo en la misma ruta: OFFICE_CASH_FUND; si no, cualquier otra distinta
+              const accountRouteIds = account.routes?.map(r => r.id) || [];
               const fallback = await context.prisma.account.findFirst({
                 where: {
                   id: { not: account.id },
                   OR: [
-                    { routeId: account.routeId || undefined },
-                    { routeId: null }
+                    { routes: { some: { id: { in: accountRouteIds } } } },
+                    { routes: { none: {} } }
                   ],
                   type: 'OFFICE_CASH_FUND'
                 }
@@ -6187,7 +6189,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 amount: amountStr,
                 type: 'TRANSFER',
                 description: description || `Ajuste de balance a ${targetAmount.toFixed ? targetAmount.toFixed(2) : targetAmount}`,
-                route: account.routeId ? { connect: { id: account.routeId } } : undefined,
+                route: account.routes && account.routes.length > 0 ? { connect: { id: account.routes[0].id } } : undefined,
                 sourceAccount: { connect: { id: isIncrease ? counter : account.id } },
                 destinationAccount: { connect: { id: isIncrease ? account.id : counter } },
               }
