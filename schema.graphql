@@ -2972,6 +2972,7 @@ type Query {
   getMonthlyResume(routeId: String!, year: Int!): JSON!
   getLoansReport(routeId: String!, year: Int!, month: Int!): JSON!
   getActiveLoansReport(routeId: String!, year: Int!, month: Int!, useActiveWeeks: Boolean!): JSON!
+  getActiveClientsForLocality(routeId: String!, localityName: String!, year: Int!, month: Int!, weekEndDate: String): JSON!
   getRouteStats(routeId: String!): JSON!
   getFinancialReport(routeIds: [String!]!, year: Int!): JSON!
   getCartera(routeId: String!, weeksWithoutPayment: Int!, includeBadDebt: Boolean!, analysisMonth: String, analysisYear: Int, includeOverdue: Boolean!, includeOverdrawn: Boolean!): JSON!

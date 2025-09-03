@@ -3853,6 +3853,12 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 weekEnd.setDate(weekEnd.getDate() + 6);
                 weekEnd.setHours(23, 59, 59, 999);
                 
+                // ✅ CORRECCIÓN: Asegurar que weekEnd no se extienda más allá del mes
+                const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
+                if (weekEnd > monthEnd) {
+                  weekEnd.setTime(monthEnd.getTime());
+                }
+                
                 // contar mayoría en L-V para decidir pertenencia al mes
                 let workDaysInMonth = 0;
                 let tempDate = new Date(weekStart);
@@ -3864,6 +3870,11 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 if (workDaysInMonth >= 3) { // mayoría de 5 días
                   const weekKey = `SEMANA ${weekNumber}`;
                   weeks[weekKey] = { start: new Date(weekStart), end: weekEnd };
+                  
+                  // ✅ DEBUG: Log de fechas generadas
+                  console.log(`📅 SEMANA GENERADA ${weekKey}: start=${weekStart.toISOString()} end=${weekEnd.toISOString()}`);
+                  console.log(`📅 VERIFICACIÓN: start día=${weekStart.getDay()} (1=lunes), end día=${weekEnd.getDay()} (0=domingo)`);
+                  
                   weekNumber++;
                 }
                 
@@ -3901,6 +3912,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
                 
                 weeks[weekKey] = { start: weekStart, end: weekEnd };
+                
+                // ✅ DEBUG: Log de fechas generadas (modo mes real)
+                console.log(`📅 SEMANA GENERADA ${weekKey} (mes real): start=${weekStart.toISOString()} end=${weekEnd.toISOString()}`);
+                console.log(`📅 VERIFICACIÓN: start día=${weekStart.getDay()} (1=lunes), end día=${weekEnd.getDay()} (0=domingo)`);
               }
               
               tempDate.setDate(tempDate.getDate() + 1);
@@ -3963,26 +3978,82 @@ export const extendGraphqlSchema = graphql.extend(base => {
             // Ya se excluyeron en la consulta (where: excludedByCleanup: { is: null })
             let filteredLoans = allLoans;
 
-            // Determina si el préstamo se considera ACTIVO en la fecha dada según las reglas solicitadas
+            // ✅ CRITERIOS ESTRICTOS: Determina si el préstamo se considera ACTIVO según los 3 puntos clave
             const isLoanConsideredOnDate = (loan: any, date: Date) => {
               const signDate = new Date(loan.signDate);
               if (signDate > date) return false;
               
-              // Solo los marcados como ACTIVE o RENOVATED en la DB
-              const isActiveByStatus = ['ACTIVE'].includes(loan.status || '');
-              if (!isActiveByStatus) return false;
-
-              // Excluir si existe un registro de limpieza aplicado antes de la fecha de referencia
-              if (loan.excludedByCleanup?.cleanupDate) {
+              // ✅ PUNTO 0: Si ya fue finalizado antes de la fecha de referencia, NO está activo
+              if (loan.finishedDate !== null) {
+                const finishedDate = new Date(loan.finishedDate);
+                if (finishedDate <= date) {
+                  return false; // Ya fue finalizado antes de la fecha de referencia
+                }
+              }
+              
+              // ✅ PUNTO 1: Si para la semana de revisión fue marcado como portafolioCleanup, entonces no se contempla
+              if (loan.excludedByCleanup !== null) {
                 const cleanupDate = new Date(loan.excludedByCleanup.cleanupDate as any);
-                // A partir del día de la limpieza ya no se considera activo
-                if (date >= cleanupDate) return false;
+                if (cleanupDate <= date) {
+                  return false; // Ya fue excluido por cleanup antes de la fecha de referencia
+                }
               }
 
-              // Excluir si ya tiene finishedDate en o antes de la fecha (consistencia temporal)
-              if (loan.finishedDate && new Date(loan.finishedDate) <= date) return false;
+              // ✅ PUNTO 2: Si para la semana de revisión fue renovado, no se contempla
+              if (loan.previousLoanId) {
+                // Buscar si hay un préstamo más reciente que este (otra renovación posterior)
+                const hasNewerRenewal = filteredLoans.some((otherLoan: any) => {
+                  // Si el otro préstamo tiene este como previousLoan, es más reciente
+                  return otherLoan.previousLoanId === loan.id && 
+                         new Date(otherLoan.signDate) <= date;
+                });
+                
+                if (hasNewerRenewal) {
+                  // Este préstamo ya fue renovado por uno más reciente, no está activo
+                  return false;
+                }
+              }
 
-              return true;
+              // ✅ PUNTO 3: Si para la semana de revisión ya se pagó por completo, entonces no se contempla
+              // Calcular el monto pendiente real hasta la fecha de referencia
+              let realPendingAmount = 0;
+              
+              try {
+                // Calcular el monto total que se debe pagar
+                const rate = parseFloat(loan.loantype?.rate?.toString() || '0');
+                const requested = parseFloat(loan.requestedAmount?.toString() || '0');
+                const totalDebt = requested * (1 + rate);
+                
+                // Calcular el total pagado hasta la fecha de referencia
+                let totalPaid = 0;
+                for (const payment of loan.payments || []) {
+                  const paymentDate = new Date(payment.receivedAt || payment.createdAt);
+                  if (paymentDate <= date) {
+                    totalPaid += parseFloat((payment.amount || 0).toString());
+                  }
+                }
+                
+                // Calcular el monto pendiente real
+                realPendingAmount = Math.max(0, totalDebt - totalPaid);
+                
+                // Debug para préstamos problemáticos
+                if (loan.id === 'cmf2t4eud35t4psoekkjy44r3' || loan.id === 'cmf2t4euk35u1psoe1pdfef3a') {
+  
+                }
+                
+              } catch (error) {
+                console.error(`Error calculando monto pendiente para préstamo ${loan.id}:`, error);
+                // Fallback al campo stored si hay error en el cálculo
+                realPendingAmount = parseFloat(loan.pendingAmountStored || '0');
+              }
+              
+              // ✅ LÓGICA FINAL: Un préstamo está activo si:
+              // 1. No fue excluido por cleanup antes de la fecha
+              // 2. No fue renovado por uno más reciente
+              // 3. Aún tiene deuda pendiente real > 0
+              
+              // Solo está activo si tiene monto pendiente real > 0
+              return realPendingAmount > 0;
             };
 
             // Procesar datos por semana
@@ -3992,6 +4063,11 @@ export const extendGraphqlSchema = graphql.extend(base => {
               const numB = parseInt(b.split(' ')[1]);
               return numA - numB;
             });
+
+            // 🔍 ARRAY PARA CAPTURAR PRÉSTAMOS ACTIVOS DE VICENTE GUERRERO EN SEMANA 1
+            const vicenteGuerreroActiveLoans: Array<{
+              clientName: string;
+            }> = [];
 
             // Track previous week's activeAtEnd for each locality
             const previousWeekActiveAtEnd: { [locality: string]: number } = {};
@@ -4012,10 +4088,52 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
               // (Lógica simplificada solicitada) No neutralizamos renovaciones; los conteos N (granted) y Y (finished) se usan tal cual
 
+              // ✅ RESTAURAR CONTINUIDAD: Para semanas que no son la primera, usar activeAtEnd de la semana anterior
+              if (!isFirstWeek) {
+                // Obtener todas las localidades que tuvieron actividad en la semana anterior
+                const previousWeekKey = weekOrder[weekOrder.indexOf(weekKey) - 1];
+                const previousWeekData = reportData[previousWeekKey];
+                
+                if (previousWeekData) {
+                  Object.keys(previousWeekData).forEach(locality => {
+                    if (!localitiesData[locality]) {
+                      localitiesData[locality] = {
+                        activeAtStart: 0,
+                        activeAtEnd: 0,
+                        granted: 0,
+                        grantedNew: 0,
+                        grantedRenewed: 0,
+                        grantedLoans: [],
+                        grantedLoansNew: [],
+                        grantedLoansRenewed: [],
+                        finished: 0,
+                        finishedLoans: [],
+                        cvClients: [],
+                        cv: 0,
+                        totalAmountAtStart: 0,
+                        totalAmountAtEnd: 0,
+                        grantedAmount: 0,
+                        finishedAmount: 0,
+                        cvAmount: 0
+                      };
+                    }
+                    // ✅ CONTINUIDAD: El inicio de esta semana = fin de la semana anterior
+                    localitiesData[locality].activeAtStart = previousWeekData[locality].activeAtEnd || 0;
+                  });
+                }
+              }
+
               filteredLoans.forEach((loan: any) => {
                 const locality = loan.borrower?.personalData?.addresses?.[0]?.location?.name ||
                                 loan.lead?.personalData?.addresses?.[0]?.location?.name ||
                                 'Sin localidad';
+
+                // 🔍 DEBUG ESPECÍFICO PARA VICENTE GUERRERO
+                if (locality && locality.toLowerCase().includes('vicente guerrero')) {
+                  const clientName = loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'Sin nombre';
+                  /* console.log(`   👤 Cliente: ${clientName}`);
+                  console.log('   ---'); */
+                }
 
                 if (!localitiesData[locality]) {
                   localitiesData[locality] = {
@@ -4042,36 +4160,45 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 const data = localitiesData[locality];
                 const loanAmount = Number(loan.amountGived || 0);
 
-                // Préstamos activos al inicio de la semana (siempre domingo 23:59:59.999 antes del lunes)
-                const startReferenceDate = new Date(weekStart.getTime() - 1);
-                let activeAtStartCond = isLoanConsideredOnDate(loan, startReferenceDate);
-                // Neutralizar renovaciones dentro de la misma semana para el stock inicial:
-                // si el previousLoan se cerró antes del corte y este nuevo se firma dentro de la semana,
-                // considerar que no incrementa activos al inicio (entrará durante la semana como otorgado, afectando fin).
-                if (activeAtStartCond && loan.previousLoanId) {
-                  const sd = new Date(loan.signDate);
-                  const prevFinished = loan.previousLoan?.finishedDate ? new Date(loan.previousLoan.finishedDate as any) : null;
-                  if (sd >= weekStart && sd <= weekEnd && prevFinished && prevFinished <= startReferenceDate) {
-                    activeAtStartCond = false; // no estaba activo al inicio (es una sustitución por renovación)
+                // ✅ SOLO PARA LA PRIMERA SEMANA: Calcular préstamos activos al inicio
+                if (isFirstWeek) {
+                  const startReferenceDate = new Date(weekStart.getTime() - 1);
+                  let activeAtStartCond = isLoanConsideredOnDate(loan, startReferenceDate);
+                  // Neutralizar renovaciones dentro de la misma semana para el stock inicial:
+                  // si el previousLoan se cerró antes del corte y este nuevo se firma dentro de la semana,
+                  // considerar que no incrementa activos al inicio (entrará durante la semana como otorgado, afectando fin).
+                  if (activeAtStartCond && loan.previousLoanId) {
+                    const sd = new Date(loan.signDate);
+                    const prevFinished = loan.previousLoan?.finishedDate ? new Date(loan.previousLoan.finishedDate as any) : null;
+                    if (sd >= weekStart && sd <= weekEnd && prevFinished && prevFinished <= startReferenceDate) {
+                      activeAtStartCond = false; // no estaba activo al inicio (es una sustitución por renovación)
+                    }
                   }
-                }
-                if (activeAtStartCond) {
-                  data.activeAtStart++;
-                  data.totalAmountAtStart += loanAmount;
-                  if (isFirstWeek && debugFirstWeekCounters) {
+                  if (activeAtStartCond) {
+                    data.activeAtStart++;
+                    data.totalAmountAtStart += loanAmount;
+                    
+                    // 🔍 CAPTURAR NOMBRE DEL CLIENTE ACTIVO EN VICENTE GUERRERO SEMANA 1
+                    if (locality && locality.toLowerCase().includes('isla aguada') && isFirstWeek) {
+                      const clientName = loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'Sin nombre';
+                      vicenteGuerreroActiveLoans.push({ clientName });
+                    }
+                    
+                    if (debugFirstWeekCounters) {
+                      debugFirstWeekCounters.total++;
+                      debugFirstWeekCounters.considered++;
+                    }
+                  } else if (debugFirstWeekCounters) {
                     debugFirstWeekCounters.total++;
-                    debugFirstWeekCounters.considered++;
+                    const signDate = new Date(loan.signDate);
+                    const finishedDate = loan.finishedDate ? new Date(loan.finishedDate) : null;
+                    const cleanupDate = loan.excludedByCleanup?.cleanupDate ? new Date(loan.excludedByCleanup.cleanupDate as any) : null;
+                    const activeByStatus = ['ACTIVE'].includes(loan.status || '');
+                    if (!activeByStatus) debugFirstWeekCounters.byReason.status++;
+                    else if (signDate > startReferenceDate) debugFirstWeekCounters.byReason.signedAfter++;
+                    else if (finishedDate && finishedDate <= startReferenceDate) debugFirstWeekCounters.byReason.finishedBefore++;
+                    else if (cleanupDate && startReferenceDate >= cleanupDate) debugFirstWeekCounters.byReason.cleanupOnOrBefore++;
                   }
-                } else if (isFirstWeek && debugFirstWeekCounters) {
-                  debugFirstWeekCounters.total++;
-                  const signDate = new Date(loan.signDate);
-                  const finishedDate = loan.finishedDate ? new Date(loan.finishedDate) : null;
-                  const cleanupDate = loan.excludedByCleanup?.cleanupDate ? new Date(loan.excludedByCleanup.cleanupDate as any) : null;
-                  const activeByStatus = ['ACTIVE'].includes(loan.status || '');
-                  if (!activeByStatus) debugFirstWeekCounters.byReason.status++;
-                  else if (signDate > startReferenceDate) debugFirstWeekCounters.byReason.signedAfter++;
-                  else if (finishedDate && finishedDate <= startReferenceDate) debugFirstWeekCounters.byReason.finishedBefore++;
-                  else if (cleanupDate && startReferenceDate >= cleanupDate) debugFirstWeekCounters.byReason.cleanupOnOrBefore++;
                 }
 
                 // Préstamos otorgados durante la semana
@@ -4148,7 +4275,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
               });
 
-              // Eliminado el arrastre por previousWeekActiveAtEnd; el inicio se calcula siempre por condición en el corte del domingo
+
 
               // Calcular CV (Créditos Vencidos) basado en conteo de pagos por semana
               // Reglas:
@@ -4299,64 +4426,39 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
               });
 
+              // ✅ APLICAR CONTINUIDAD: Para semanas que no son la primera, actualizar activeAtStart usando la semana anterior
+              if (!isFirstWeek) {
+                Object.keys(localitiesData).forEach(locality => {
+                  const data = localitiesData[locality];
+                  const previousValue = previousWeekActiveAtEnd[locality];
+                  if (previousValue !== undefined) {
+    
+                    data.activeAtStart = previousValue;
+                  }
+                });
+              }
+
               // Calcular activos al final usando N-Y sobre el stock inicial
               Object.keys(localitiesData).forEach(locality => {
                 const data = localitiesData[locality];
                 const delta = (data.granted || 0) - (data.finished || 0);
+                const oldActiveAtEnd = data.activeAtEnd;
                 data.activeAtEnd = data.activeAtStart + delta;
                 if (data.activeAtEnd < 0) data.activeAtEnd = 0;
                 data.totalAmountAtEnd = Math.max(0, data.totalAmountAtStart + (data.grantedAmount || 0) - (data.finishedAmount || 0));
+                
+
+                
                 previousWeekActiveAtEnd[locality] = data.activeAtEnd;
               });
 
               reportData[weekKey] = localitiesData;
 
-              // Debug focalizado por localidad: Atasta (semana 2)
-              try {
-                const atastaKey = Object.keys(localitiesData).find(k => (k || '').toLowerCase().includes('atasta'));
-                if (atastaKey && weekKey === 'SEMANA 2') {
-                  const d = localitiesData[atastaKey];
-                  console.log(`🔎 Atasta ${weekKey}: start=${d.activeAtStart} end=${d.activeAtEnd} granted=${d.granted} (new=${d.grantedNew}, ren=${d.grantedRenewed}) finished=${d.finished} cv=${d.cv}`);
-                  console.log(`   Atasta loans: granted=${(d.grantedLoans||[]).length}, finished=${(d.finishedLoans||[]).length}`);
 
-                  // Diff de IDs activos al inicio (domingo) vs fin (domingo)
-                  const startRef = new Date(weeks[weekKey].start.getTime() - 1);
-                  const endRef = weeks[weekKey].end;
-                  const entrants: any[] = [];
-                  const leavers: any[] = [];
-                  filteredLoans.forEach((loan: any) => {
-                    const loc = (loan.borrower?.personalData?.addresses?.[0]?.location?.name || loan.lead?.personalData?.addresses?.[0]?.location?.name || '').toLowerCase();
-                    if (!loc.includes('atasta')) return;
-                    const wasActive = isLoanConsideredOnDate(loan, startRef);
-                    const isActive = isLoanConsideredOnDate(loan, endRef);
-                    if (!wasActive && isActive) {
-                      entrants.push({ id: loan.id, signDate: loan.signDate, finishedDate: loan.finishedDate, cleanupDate: loan.excludedByCleanup?.cleanupDate || null, status: loan.status, prevFinished: loan.previousLoan?.finishedDate || null });
-                    } else if (wasActive && !isActive) {
-                      leavers.push({ id: loan.id, signDate: loan.signDate, finishedDate: loan.finishedDate, cleanupDate: loan.excludedByCleanup?.cleanupDate || null, status: loan.status, prevFinished: loan.previousLoan?.finishedDate || null });
-                    }
-                  });
-                  // Subdividir por tipo para debug
-                  const inWeek = (d: Date | null) => !!d && d >= weekStart && d <= weekEnd;
-                  const renewedPrevIdsThisWeek = new Set(); // Set vacío para evitar errores
-                  const entrantsRenewed = entrants.filter(e => !!e.prevFinished && inWeek(new Date(e.signDate)));
-                  const entrantsNew = entrants.filter(e => !e.prevFinished);
-                  const leaversRenovationPrev = leavers.filter(l => renewedPrevIdsThisWeek.has(l.id));
-                  const leaversFinished = leavers.filter(l => inWeek(l.finishedDate ? new Date(l.finishedDate) : null) && !renewedPrevIdsThisWeek.has(l.id));
-                  const leaversCleanup = leavers.filter(l => inWeek(l.cleanupDate ? new Date(l.cleanupDate) : null));
-                  const leaversOther = leavers.filter(l => !leaversRenovationPrev.includes(l) && !leaversFinished.includes(l) && !leaversCleanup.includes(l));
-
-                  console.log(`   Atasta diff: entrants=${entrants.length} (new=${entrantsNew.length}, renewed=${entrantsRenewed.length}), leavers=${leavers.length} (prevRenov=${leaversRenovationPrev.length}, finished=${leaversFinished.length}, cleanup=${leaversCleanup.length}, other=${leaversOther.length})`);
-                  console.log('   Entrants NEW sample:', entrantsNew.slice(0, 5));
-                  console.log('   Entrants RENEWED sample:', entrantsRenewed.slice(0, 5));
-                  console.log('   Leavers PREV-RENOV sample:', leaversRenovationPrev.slice(0, 5));
-                  console.log('   Leavers FINISHED sample:', leaversFinished.slice(0, 5));
-                  console.log('   Leavers CLEANUP sample:', leaversCleanup.slice(0, 5));
-                }
-              } catch (_) {}
 
               if (isFirstWeek && debugFirstWeekCounters) {
                 try {
-                  console.log(`🔍 FirstWeekStartBreakdown ${routeId} ${year}-${month} ${weekKey}:`, debugFirstWeekCounters);
+      
                 } catch (_) {}
               }
             }
@@ -4413,7 +4515,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
             // Debug controlado para validar corte de meses con semanas activas
             try {
               if (useActiveWeeks && (year === 2025) && (month === 1 || month === 2)) {
-                console.log(`🧪 Debug Semanas Activas ${routeId} ${year}-${month}`);
+    
                 weekOrder.forEach(k => {
                   const w = weeks[k];
                   const s = w.start.toISOString().slice(0,10);
@@ -4700,6 +4802,30 @@ export const extendGraphqlSchema = graphql.extend(base => {
               gasolinePrevious = Number(aggPrev?._sum?.amount || 0);
             } catch (_) {}
 
+            // ✅ DEBUG FINAL: Log del resultado de semanas generadas
+            console.log(`📅 RESUMEN FINAL DE SEMANAS para ${year}-${month}:`, {
+              weekOrder,
+              weekDates: Object.keys(weeks).map(key => ({
+                week: key,
+                start: weeks[key].start.toISOString(),
+                end: weeks[key].end.toISOString(),
+                startDay: weeks[key].start.getDay(),
+                endDay: weeks[key].end.getDay()
+              }))
+            });
+
+            // 🔍 IMPRIMIR ARRAY DE PRÉSTAMOS ACTIVOS DE VICENTE GUERRERO EN SEMANA 1
+            if (vicenteGuerreroActiveLoans.length > 0) {
+              console.log('\n🔍 RESUMEN FINAL - VICENTE GUERRERO SEMANA 1 AGOSTO:');
+              console.log('==================================================');
+              console.log(`📊 Total de préstamos activos: ${vicenteGuerreroActiveLoans.length}`);
+              console.log('📋 LISTA DE NOMBRES DE CLIENTES ACTIVOS:');
+              vicenteGuerreroActiveLoans.forEach((loan, index) => {
+                console.log(`  ${index + 1}. ${loan.clientName}`);
+              });
+              console.log('==================================================\n');
+            }
+
             return {
               route: {
                 id: route?.id || '',
@@ -4711,6 +4837,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 name: new Date(year, month - 1).toLocaleDateString('es-MX', { year: 'numeric', month: 'long' })
               },
               weeks: weekOrder,
+              weekDates: weeks, // ✅ AGREGAR: Incluir las fechas de cada semana
               data: reportData,
               weeklyTotals,
               summary: {
@@ -4751,6 +4878,370 @@ export const extendGraphqlSchema = graphql.extend(base => {
           } catch (error) {
             console.error('Error in getActiveLoansReport:', error);
             throw new Error(`Error generating active loans report: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        },
+      }),
+
+      getActiveClientsForLocality: graphql.field({
+        type: graphql.nonNull(graphql.JSON),
+        args: {
+          routeId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          localityName: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          year: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
+          month: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
+          weekEndDate: graphql.arg({ type: graphql.String }), // Fecha específica del final de la semana
+        },
+        resolve: async (root, { routeId, localityName, year, month, weekEndDate }, context: Context) => {
+          try {
+            console.log(`🚀 FUNCIÓN getActiveClientsForLocality EJECUTÁNDOSE:`);
+            console.log(`   📍 Localidad: "${localityName}"`);
+            console.log(`   🛣️  Ruta ID: ${routeId}`);
+            console.log(`   📅 Año: ${year}, Mes: ${month}`);
+            console.log(`   📅 Fecha fin semana: ${weekEndDate || 'No especificada'}`);
+            
+            // Usar la fecha específica de la semana si se proporciona, sino usar fin del mes
+            const referenceDate = weekEndDate ? new Date(weekEndDate) : new Date(year, month, 0, 23, 59, 59, 999);
+            console.log(`   📅 Fecha referencia calculada: ${referenceDate.toISOString()}`);
+            
+            // ✅ NUEVA ESTRATEGIA: Usar la misma lógica exacta que el reporte principal
+            // Obtener TODOS los préstamos de la ruta para aplicar la lógica temporal
+            const allLoans = await (context.prisma as any).loan.findMany({
+              where: {
+                lead: {
+                  routes: {
+                    id: routeId
+                  }
+                }
+              },
+              include: {
+                borrower: {
+                  include: {
+                    personalData: {
+                      include: {
+                        addresses: {
+                          include: {
+                            location: true
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                lead: {
+                  include: {
+                    personalData: {
+                      include: {
+                        addresses: {
+                          include: {
+                            location: true
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                loantype: true,
+                payments: {
+                  orderBy: {
+                    receivedAt: 'asc'
+                  }
+                },
+                excludedByCleanup: {
+                  include: {
+                    executedBy: true
+                  }
+                },
+                previousLoan: true
+              }
+            });
+
+            // ✅ CALCULO EN TIEMPO REAL: Usar la misma lógica que getActiveLoansReport
+            // Un préstamo está "activo" si tiene monto pendiente real > 0 (calculado on-the-fly)
+            // Y fue firmado antes o en la fecha de referencia
+            
+            let activeLoansAtDate = allLoans.filter(loan => {
+              // Verificar que fue firmado antes de la fecha de referencia
+              const signDate = new Date(loan.signDate);
+              if (signDate > referenceDate) return false;
+              
+              // ✅ PUNTO 1: Si para la semana de revisión fue marcado como portafolioCleanup, entonces no se contempla
+              if (loan.excludedByCleanup !== null) {
+                const cleanupDate = new Date(loan.excludedByCleanup.cleanupDate as any);
+                if (cleanupDate <= referenceDate) {
+                  return false; // Ya fue excluido por cleanup antes de la fecha de referencia
+                }
+              }
+
+              // ✅ PUNTO 2: Si para la semana de revisión fue renovado, no se contempla
+              if (loan.previousLoanId) {
+                // Buscar si hay un préstamo más reciente que este (otra renovación posterior)
+                const hasNewerRenewal = allLoans.some((otherLoan: any) => {
+                  // Si el otro préstamo tiene este como previousLoan, es más reciente
+                  return otherLoan.previousLoanId === loan.id && 
+                         new Date(otherLoan.signDate) <= referenceDate;
+                });
+                
+                if (hasNewerRenewal) {
+                  // Este préstamo ya fue renovado por uno más reciente, no está activo
+                  return false;
+                }
+              }
+
+              // ✅ CALCULO ON-THE-FLY: Calcular monto pendiente real en tiempo real
+              let realPendingAmount = 0;
+              
+              try {
+                // Calcular el monto total que se debe pagar
+                const rate = parseFloat(loan.loantype?.rate?.toString() || '0');
+                const requested = parseFloat(loan.requestedAmount?.toString() || '0');
+                const totalDebt = requested * (1 + rate);
+                
+                // Calcular el total pagado hasta la fecha de referencia
+                let totalPaid = 0;
+                for (const payment of loan.payments || []) {
+                  const paymentDate = new Date(payment.receivedAt || payment.createdAt);
+                  if (paymentDate <= referenceDate) {
+                    totalPaid += parseFloat((payment.amount || 0).toString());
+                  }
+                }
+                
+                // Calcular el monto pendiente real
+                realPendingAmount = Math.max(0, totalDebt - totalPaid);
+                
+              } catch (error) {
+                console.error(`Error calculando monto pendiente para préstamo ${loan.id}:`, error);
+                // Fallback al campo stored si hay error en el cálculo
+                realPendingAmount = parseFloat(loan.pendingAmountStored || '0');
+              }
+              
+              // ✅ LÓGICA CORREGIDA: Un préstamo está activo si:
+              // 1. No está excluido por cleanup
+              // 2. No es una renovación ya superada por una más reciente
+              // 3. Tiene monto pendiente real > 0
+              
+              // Si tiene monto pendiente real > 0, está activo
+              if (realPendingAmount > 0) {
+                // Filtrar por localidad si no es TOTALES o GRAN TOTAL
+                if (localityName !== 'TOTALES' && localityName !== 'GRAN TOTAL') {
+                  const loanLocality = loan.borrower?.personalData?.addresses?.[0]?.location?.name ||
+                                     loan.lead?.personalData?.addresses?.[0]?.location?.name ||
+                                     'Sin localidad';
+                  return loanLocality === localityName;
+                }
+                return true;
+              }
+              
+              return false; // Sin deuda pendiente
+            });
+            
+            // Formatear datos para el hover tooltip
+            const activeClients = activeLoansAtDate.map((loan: any) => {
+              const clientName = loan.borrower?.personalData?.fullName || 'Sin nombre';
+              const leadName = loan.lead?.personalData?.fullName || 'Sin líder';
+              const loanTypeName = loan.loantype?.name || 'Sin tipo';
+              const amountGived = parseFloat(loan.amountGived || '0');
+              
+              // ✅ CALCULAR MONTO PENDIENTE REAL para el tooltip
+              let realPendingAmount = 0;
+              try {
+                const rate = parseFloat(loan.loantype?.rate?.toString() || '0');
+                const requested = parseFloat(loan.requestedAmount?.toString() || '0');
+                const totalDebt = requested * (1 + rate);
+                
+                let totalPaid = 0;
+                for (const payment of loan.payments || []) {
+                  const paymentDate = new Date(payment.receivedAt || payment.createdAt);
+                  if (paymentDate <= referenceDate) {
+                    totalPaid += parseFloat((payment.amount || 0).toString());
+                  }
+                }
+                
+                realPendingAmount = Math.max(0, totalDebt - totalPaid);
+              } catch (error) {
+                console.error(`Error calculando monto pendiente para tooltip del préstamo ${loan.id}:`, error);
+                realPendingAmount = parseFloat(loan.pendingAmountStored || '0');
+              }
+              
+              const signDate = loan.signDate ? new Date(loan.signDate) : null;
+              
+              // Obtener la localidad real del préstamo
+              const actualLocality = loan.borrower?.personalData?.addresses?.[0]?.location?.name ||
+                                  loan.lead?.personalData?.addresses?.[0]?.location?.name ||
+                                  'Sin localidad';
+              
+              return {
+                id: loan.id,
+                clientName,
+                leadName,
+                loanTypeName,
+                amountGived,
+                pendingAmount: realPendingAmount, // ✅ Usar el monto calculado en tiempo real
+                signDate: signDate ? signDate.toLocaleDateString('es-MX') : 'N/A',
+                locality: actualLocality,
+                requestedLocality: localityName // Para referencia
+              };
+            });
+
+
+
+            // 🔍 DEBUG GENERAL - SIEMPRE SE EJECUTA
+            console.log(`🔍 DEBUG GENERAL: Procesando localidad "${localityName}" con fecha ${referenceDate.toISOString()}`);
+            
+            // 🔍 DEBUG DETALLADO SOLO PARA VICENTE GUERRERO - SEMANA 1 AGOSTO
+            if (localityName && localityName.toLowerCase().includes('vicente guerrero')) {
+              // Debug siempre para Vicente Guerrero, pero con información específica de la fecha
+              const isAugustWeek1 = referenceDate.getMonth() === 7 && referenceDate.getDate() <= 8;
+              console.log('\n🔍 DEBUG VICENTE GUERRERO - SEMANA 1 AGOSTO 2025');
+              console.log('==================================================');
+              console.log(`📊 Total préstamos en la ruta: ${allLoans.length}`);
+              console.log(`📊 Préstamos activos después del filtro: ${activeLoansAtDate.length}`);
+              console.log(`📅 Fecha de referencia: ${referenceDate.toLocaleDateString()}`);
+              console.log(`📅 Mes: ${referenceDate.getMonth() + 1}, Día: ${referenceDate.getDate()}`);
+              console.log(`🎯 CONDICIÓN ACTIVADA: Vicente Guerrero + ${isAugustWeek1 ? 'AGOSTO SEMANA 1' : 'OTRA FECHA'}`);
+              console.log(`🔍 DEBUG SIEMPRE ACTIVO PARA VICENTE GUERRERO - FECHA: ${referenceDate.toISOString()}`);
+              console.log(`📊 Total préstamos en la ruta: ${allLoans.length}`);
+              console.log(`📊 Préstamos activos después del filtro: ${activeLoansAtDate.length}`);
+              console.log(`📅 Fecha de referencia: ${referenceDate.toLocaleDateString()}`);
+              console.log(`📅 Mes: ${referenceDate.getMonth() + 1}, Día: ${referenceDate.getDate()}`);
+              console.log(`🎯 CONDICIÓN ACTIVADA: Vicente Guerrero + Agosto (mes ${referenceDate.getMonth() + 1}) + Semana 1 (día ≤ 8)`);
+              
+              // Mostrar detalles de cada préstamo activo
+              console.log('\n📋 PRÉSTAMOS ACTIVOS:');
+              activeLoansAtDate.forEach((loan: any, index: number) => {
+                const clientName = loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'Sin nombre';
+                const locality = loan.borrower?.personalData?.addresses?.[0]?.location?.name || 
+                                loan.lead?.personalData?.addresses?.[0]?.location?.name || 'Sin localidad';
+                const signDate = loan.signDate ? new Date(loan.signDate).toLocaleDateString() : 'Sin fecha';
+                const requested = parseFloat(loan.requestedAmount?.toString() || '0');
+                const rate = parseFloat(loan.loantype?.rate?.toString() || '0');
+                const totalDebt = requested * (1 + rate);
+                
+                // Calcular monto pendiente real
+                let totalPaid = 0;
+                for (const payment of loan.payments || []) {
+                  const paymentDate = new Date(payment.receivedAt || payment.createdAt);
+                  if (paymentDate <= referenceDate) {
+                    totalPaid += parseFloat((payment.amount || 0).toString());
+                  }
+                }
+                const realPendingAmount = totalDebt - totalPaid;
+                
+                console.log(`  ${index + 1}. ${clientName} (${locality})`);
+                console.log(`     📅 Firma: ${signDate}`);
+                console.log(`     💰 Solicitado: $${requested.toFixed(2)}`);
+                console.log(`     📈 Tasa: ${(rate * 100).toFixed(1)}%`);
+                console.log(`     💳 Total deuda: $${totalDebt.toFixed(2)}`);
+                console.log(`     💵 Total pagado: $${totalPaid.toFixed(2)}`);
+                console.log(`     ⚖️  Pendiente real: $${realPendingAmount.toFixed(2)}`);
+                console.log(`     🔄 Es renovación: ${loan.previousLoanId ? 'SÍ' : 'NO'}`);
+                if (loan.previousLoanId) {
+                  console.log(`        📋 ID préstamo anterior: ${loan.previousLoanId}`);
+                }
+                console.log(`     🧹 Excluido por cleanup: ${loan.excludedByCleanup ? 'SÍ' : 'NO'}`);
+                if (loan.excludedByCleanup) {
+                  const cleanupDate = new Date(loan.excludedByCleanup.cleanupDate as any);
+                  console.log(`        📅 Fecha cleanup: ${cleanupDate.toLocaleDateString()}`);
+                }
+                console.log('');
+              });
+              
+              // Mostrar préstamos que NO están activos y por qué
+              const inactiveLoans = allLoans.filter(loan => {
+                const signDate = new Date(loan.signDate);
+                if (signDate > referenceDate) return false;
+                
+                // Verificar cada criterio
+                if (loan.excludedByCleanup !== null) {
+                  const cleanupDate = new Date(loan.excludedByCleanup.cleanupDate as any);
+                  if (cleanupDate <= referenceDate) return false;
+                }
+                
+                if (loan.previousLoanId) {
+                  const hasNewerRenewal = allLoans.some((otherLoan: any) => {
+                    return otherLoan.previousLoanId === loan.id && 
+                           new Date(otherLoan.signDate) <= referenceDate;
+                  });
+                  if (hasNewerRenewal) return false;
+                }
+                
+                // Calcular monto pendiente
+                const rate = parseFloat(loan.loantype?.rate?.toString() || '0');
+                const requested = parseFloat(loan.requestedAmount?.toString() || '0');
+                const totalDebt = requested * (1 + rate);
+                
+                let totalPaid = 0;
+                for (const payment of loan.payments || []) {
+                  const paymentDate = new Date(payment.receivedAt || payment.createdAt);
+                  if (paymentDate <= referenceDate) {
+                    totalPaid += parseFloat((payment.amount || 0).toString());
+                  }
+                }
+                const realPendingAmount = totalDebt - totalPaid;
+                
+                return realPendingAmount > 0;
+              });
+              
+              console.log('\n❌ PRÉSTAMOS INACTIVOS (y por qué):');
+              inactiveLoans.forEach((loan: any, index: number) => {
+                const clientName = loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'Sin nombre';
+                const locality = loan.borrower?.personalData?.addresses?.[0]?.location?.name || 
+                                loan.lead?.personalData?.addresses?.[0]?.location?.name || 'Sin localidad';
+                
+                console.log(`  ${index + 1}. ${clientName} (${locality})`);
+                
+                // Verificar cada criterio
+                if (loan.excludedByCleanup !== null) {
+                  const cleanupDate = new Date(loan.excludedByCleanup.cleanupDate as any);
+                  if (cleanupDate <= referenceDate) {
+                    console.log(`     🧹 EXCLUIDO: Cleanup el ${cleanupDate.toLocaleDateString()}`);
+                  }
+                }
+                
+                if (loan.previousLoanId) {
+                  const hasNewerRenewal = allLoans.some((otherLoan: any) => {
+                    return otherLoan.previousLoanId === loan.id && 
+                           new Date(otherLoan.signDate) <= referenceDate;
+                  });
+                  if (hasNewerRenewal) {
+                    console.log(`     🔄 EXCLUIDO: Ya fue renovado por un préstamo más reciente`);
+                  }
+                }
+                
+                // Calcular monto pendiente
+                const rate = parseFloat(loan.loantype?.rate?.toString() || '0');
+                const requested = parseFloat(loan.requestedAmount?.toString() || '0');
+                const totalDebt = requested * (1 + rate);
+                
+                let totalPaid = 0;
+                for (const payment of loan.payments || []) {
+                  const paymentDate = new Date(payment.receivedAt || payment.createdAt);
+                  if (paymentDate <= referenceDate) {
+                    totalPaid += parseFloat((payment.amount || 0).toString());
+                  }
+                }
+                const realPendingAmount = totalDebt - totalPaid;
+                
+                if (realPendingAmount <= 0) {
+                  console.log(`     💰 EXCLUIDO: Ya se pagó completamente (pendiente: $${realPendingAmount.toFixed(2)})`);
+                }
+                
+                console.log('');
+              });
+              
+              console.log('==================================================\n');
+            }
+
+            return {
+              locality: localityName,
+              totalActiveClients: activeClients.length,
+              clients: activeClients,
+              generatedAt: new Date().toISOString(),
+              referenceDate: referenceDate.toISOString() // Para debugging
+            };
+
+          } catch (error) {
+            console.error('Error in getActiveClientsForLocality:', error);
+            throw new Error(`Error getting active clients for locality: ${error instanceof Error ? error.message : 'Unknown error'}`);
           }
         },
       }),
