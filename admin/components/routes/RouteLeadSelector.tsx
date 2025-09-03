@@ -264,7 +264,7 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
   hideDateField = false,
 }) => {
   // OPTIMIZADO: Usar cache-first y consulta simple
-  const { data: routesData, loading: routesLoading, error: routesError } = useQuery<{ routes: RouteSimple[] }>(GET_ROUTES_SIMPLE, {
+  const { data: routesData, loading: routesLoading, error: routesError, refetch: refetchRoutes } = useQuery<{ routes: RouteSimple[] }>(GET_ROUTES_SIMPLE, {
     variables: { where: {} },
     fetchPolicy: 'cache-first', // Cambiado de 'network-only'
   });
@@ -273,6 +273,7 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
 
   const [routesErrorState, setRoutesErrorState] = useState<Error | null>(null);
   const [leadsErrorState, setLeadsErrorState] = useState<Error | null>(null);
+  const [isUpdatingBalance, setIsUpdatingBalance] = useState(false);
 
   const dateOptions: Option[] = [
     { label: 'Hoy', value: new Date().toISOString() },
@@ -294,6 +295,21 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
       getLeads({ variables: { routeId: selectedRoute.id } });
     }
   }, [selectedRoute, getLeads]);
+
+  // Escuchar eventos de refetch para actualizar balances
+  React.useEffect(() => {
+    const handleRefetchRoute = async () => {
+      setIsUpdatingBalance(true);
+      try {
+        await refetchRoutes();
+      } finally {
+        setTimeout(() => setIsUpdatingBalance(false), 500); // Mostrar loader por al menos 500ms
+      }
+    };
+
+    window.addEventListener('refetchRoute', handleRefetchRoute);
+    return () => window.removeEventListener('refetchRoute', handleRefetchRoute);
+  }, [refetchRoutes]);
 
   const routes = routesData?.routes || [];
   const leads = leadsData?.employees || [];
@@ -458,7 +474,16 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
               <div key={account.id} css={styles.summaryCard}>
                 <div css={styles.cardTopBorder} />
                 <div css={styles.cardLabel}>{account.name}</div>
-                <div css={styles.cardValue}>{formatCurrency(account.amount)}</div>
+                <div css={styles.cardValue}>
+                  {isUpdatingBalance ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <LoadingDots label="" size="small" />
+                      <span style={{ fontSize: '14px', color: '#6B7280' }}>Actualizando...</span>
+                    </div>
+                  ) : (
+                    formatCurrency(account.amount)
+                  )}
+                </div>
                 <div css={styles.cardSubValue}>
                   {account.totalAccounts} cuentas
                 </div>

@@ -1314,7 +1314,9 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         // 3. Actualizar los datos en segundo plano
         Promise.all([
           refetchRoute(),
-          refetchLoans()
+          refetchLoans(),
+          // Disparar evento para actualizar balances en otros componentes
+          new Promise(() => window.dispatchEvent(new CustomEvent('refetchRoute')))
         ]).then(() => {
           // 4. Actualizar el balance local
           if (onBalanceUpdate) {
@@ -1487,7 +1489,9 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         // Recargar los datos
         await Promise.all([
           refetchRoute(),
-          refetchLoans()
+          refetchLoans(),
+          // Disparar evento para actualizar balances en otros componentes
+          new Promise(() => window.dispatchEvent(new CustomEvent('refetchRoute')))
         ]);
 
         // Actualizar el balance local
@@ -1572,7 +1576,9 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         // Refrescar datos
         Promise.all([
           refetchLoans(),
-          refetchRoute()
+          refetchRoute(),
+          // Disparar evento para actualizar balances en otros componentes
+          new Promise(() => window.dispatchEvent(new CustomEvent('refetchRoute')))
         ]).then(() => {
           console.log('✅ Préstamo actualizado y datos refrescados');
         });
@@ -1604,7 +1610,9 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
 
         Promise.all([
           refetchLoans(),
-          refetchRoute()
+          refetchRoute(),
+          // Disparar evento para actualizar balances en otros componentes
+          new Promise(() => window.dispatchEvent(new CustomEvent('refetchRoute')))
         ]).then(() => {
           if (onBalanceUpdate) {
             const updatedBalance = routeBalance + parseFloat(data.deleteLoan.amountGived) + parseFloat(data.deleteLoan.comissionAmount || '0');
