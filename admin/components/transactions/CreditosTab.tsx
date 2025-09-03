@@ -1611,15 +1611,16 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         console.log('✅ Préstamo eliminado exitosamente:', data.deleteLoan);
         setLoans(prevLoans => prevLoans.filter(loan => loan.id !== id));
 
-        // Primero disparar el evento para mostrar el loader inmediatamente
+        // Esperar un poco para asegurar que el backend haya completado todas las operaciones
+        console.log('⏳ Esperando que el backend complete las operaciones...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Disparar el evento para mostrar el loader y actualizar los balances
         console.log('📢 Disparando evento refetchRoute');
         window.dispatchEvent(new CustomEvent('refetchRoute'));
         
-        // Esperar un poco para asegurar que el backend haya completado la transacción
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Luego hacer las actualizaciones
-        console.log('🔄 Refrescando datos...');
+        // Hacer las actualizaciones locales también
+        console.log('🔄 Refrescando datos locales...');
         await Promise.all([
           refetchLoans(),
           refetchRoute()

@@ -1225,16 +1225,47 @@ export const Loan = list({
         }
       } else if (operation === 'delete' && originalItem) {
         try {
-          // Obtener el lead y la cuenta asociada
-          const lead = await context.db.Employee.findOne({
-            where: { id: originalItem.leadId as string },
+          console.log('🗑️ Iniciando eliminación de préstamo:', {
+            loanId: originalItem.id,
+            leadId: originalItem.leadId,
+            amountGived: originalItem.amountGived,
+            comissionAmount: originalItem.comissionAmount
           });
 
+          // Obtener el lead con su ruta asociada
+          const lead = await context.prisma.employee.findFirst({
+            where: { id: originalItem.leadId as string },
+            include: {
+              routes: true,
+              personalData: true
+            }
+          });
+
+          console.log('👤 Lead encontrado:', {
+            leadId: lead?.id,
+            routeId: lead?.routesId,
+            routeName: lead?.routes?.name,
+            leadName: lead?.personalData?.fullName
+          });
+
+          if (!lead?.routesId) {
+            console.log('⚠️ El lead no tiene ruta asociada');
+            return;
+          }
+
+          // Buscar la cuenta usando el ID de la ruta del lead
           const account = await context.prisma.account.findFirst({
             where: { 
-              routeId: lead?.routesId,
+              routeId: lead.routesId,
               type: 'EMPLOYEE_CASH_FUND'
             },
+          });
+
+          console.log('💰 Cuenta encontrada:', {
+            accountId: account?.id,
+            accountName: account?.name,
+            currentAmount: account?.amount,
+            type: account?.type
           });
 
           // Eliminar todas las transacciones asociadas al préstamo
@@ -1266,11 +1297,24 @@ export const Loan = list({
               
               const updatedAmount = currentAmount + totalAmount;
 
-                          // Actualizar el balance usando prisma directamente
+              console.log('💵 Actualizando balance de cuenta:', {
+                accountId: account.id,
+                currentAmount,
+                loanAmount,
+                commissionAmount,
+                totalToReturn: totalAmount,
+                newAmount: updatedAmount
+              });
+
+              // Actualizar el balance usando prisma directamente
               await context.prisma.account.update({
                 where: { id: account.id },
                 data: { amount: updatedAmount.toString() }
               });
+
+              console.log('✅ Balance actualizado exitosamente');
+            } else {
+              console.log('⚠️ No se encontró cuenta para actualizar el balance');
             }
         } catch (error) {
           console.error('Error al eliminar transacciones asociadas al préstamo:', error);
