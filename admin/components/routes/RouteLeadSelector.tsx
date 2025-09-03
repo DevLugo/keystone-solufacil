@@ -3,7 +3,7 @@
 /** @jsxFrag jsx.Fragment */
 
 import React, { useState, useEffect } from 'react';
-import { useQuery, useLazyQuery } from '@apollo/client';
+import { useQuery, useLazyQuery, NetworkStatus } from '@apollo/client';
 import { Box, jsx } from '@keystone-ui/core';
 import { LoadingDots } from '@keystone-ui/loading';
 import { Select } from '@keystone-ui/fields';
@@ -264,15 +264,18 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
   hideDateField = false,
 }) => {
   // OPTIMIZADO: Usar cache-first y consulta simple
-  const { data: routesData, loading: routesLoading, error: routesError } = useQuery<{ routes: RouteSimple[] }>(GET_ROUTES_SIMPLE, {
+  const { data: routesData, loading: routesLoading, error: routesError, refetch: refetchRoutes, networkStatus } = useQuery<{ routes: RouteSimple[] }>(GET_ROUTES_SIMPLE, {
     variables: { where: {} },
-    fetchPolicy: 'cache-first', // Cambiado de 'network-only'
+    fetchPolicy: 'cache-and-network', // Cambiar a cache-and-network para obtener datos del cache mientras se actualiza
+    notifyOnNetworkStatusChange: true, // Notificar cuando se actualicen los datos
   });
 
   const [getLeads, { data: leadsData, loading: leadsLoading, error: leadsError }] = useLazyQuery<{ employees: Lead[] }>(GET_LEADS_SIMPLE);
 
   const [routesErrorState, setRoutesErrorState] = useState<Error | null>(null);
   const [leadsErrorState, setLeadsErrorState] = useState<Error | null>(null);
+  const [isUpdatingBalance, setIsUpdatingBalance] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0); // Forzar re-render
 
   const dateOptions: Option[] = [
     { label: 'Hoy', value: new Date().toISOString() },
@@ -294,6 +297,43 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
       getLeads({ variables: { routeId: selectedRoute.id } });
     }
   }, [selectedRoute, getLeads]);
+
+  // Escuchar eventos de refetch para actualizar balances
+  React.useEffect(() => {
+    const handleRefetchRoute = async () => {
+      console.log('🔄 Evento refetchRoute recibido, actualizando balances...');
+      
+      // Establecer estado de carga inmediatamente
+      setIsUpdatingBalance(true);
+      
+      // Pequeño delay para asegurar que el estado se actualice antes del refetch
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      try {
+        // Forzar refetch con network-only para obtener datos frescos
+        const result = await refetchRoutes({ 
+          fetchPolicy: 'network-only',
+          // Asegurarse de que Apollo no use cache
+          nextFetchPolicy: 'network-only' 
+        });
+        console.log('✅ Balances actualizados exitosamente:', result);
+        
+        // Esperar un poco más para asegurar que los datos se propaguen
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } catch (error) {
+        console.error('❌ Error al actualizar balances:', error);
+      } finally {
+        // Mantener el loader visible por un tiempo mínimo
+        setTimeout(() => {
+          setIsUpdatingBalance(false);
+          console.log('🔄 Loader ocultado');
+        }, 2000); // Mostrar loader por al menos 2 segundos
+      }
+    };
+
+    window.addEventListener('refetchRoute', handleRefetchRoute);
+    return () => window.removeEventListener('refetchRoute', handleRefetchRoute);
+  }, [refetchRoutes]);
 
   const routes = routesData?.routes || [];
   const leads = leadsData?.employees || [];
@@ -453,12 +493,33 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
         </Box>
 
         {selectedRoute && routeSummary && (
-          <Box css={styles.accountsContainer}>
+          <Box css={styles.accountsContainer} key={refreshKey}>
             {routeSummary.accounts.map((account) => (
               <div key={account.id} css={styles.summaryCard}>
                 <div css={styles.cardTopBorder} />
                 <div css={styles.cardLabel}>{account.name}</div>
-                <div css={styles.cardValue}>{formatCurrency(account.amount)}</div>
+                <div css={styles.cardValue}>
+                  {isUpdatingBalance || networkStatus === NetworkStatus.refetch ? (
+                    <div style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '8px',
+                      backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                      padding: '4px 8px',
+                      borderRadius: '4px'
+                    }}>
+                      <LoadingDots label="" size="small" />
+                      <span style={{ fontSize: '14px', color: '#3B82F6', fontWeight: 'bold' }}>Actualizando...</span>
+                    </div>
+                  ) : (
+                    <span style={{ 
+                      transition: 'all 0.3s ease',
+                      display: 'inline-block'
+                    }}>
+                      {formatCurrency(account.amount)}
+                    </span>
+                  )}
+                </div>
                 <div css={styles.cardSubValue}>
                   {account.totalAccounts} cuentas
                 </div>

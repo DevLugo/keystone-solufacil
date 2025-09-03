@@ -822,8 +822,8 @@ export const CreatePaymentForm = ({
         refetchPayments(),
         refetchMigratedPayments(),
         refetchFalcos(),
-        // Aquí deberías llamar a refetchRoute si tienes acceso a esa query
-        // Por ahora solo refrescamos los pagos
+        // Refrescar la ruta para actualizar los balances de las cuentas
+        window.dispatchEvent(new CustomEvent('refetchRoute'))
       ]);
       
       // Limpiar el estado

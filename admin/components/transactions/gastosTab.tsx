@@ -275,6 +275,9 @@ export const CreateExpensesForm = ({
       await Promise.all([
         refetchExpenses()
       ]);
+      
+      // Disparar evento para actualizar balances
+      window.dispatchEvent(new CustomEvent('refetchRoute'));
 
       // Asegurarnos de que los datos se actualicen en el componente padre
       if (onSaveComplete) {
@@ -344,6 +347,9 @@ export const CreateExpensesForm = ({
 
       // Refrescar los datos
       await refetchExpenses();
+      
+      // Disparar evento para actualizar balances
+      window.dispatchEvent(new CustomEvent('refetchRoute'));
 
       // Actualizar el componente padre
       if (onSaveComplete) {
@@ -380,6 +386,9 @@ export const CreateExpensesForm = ({
 
       // Refrescar los datos
       await refetchExpenses();
+      
+      // Disparar evento para actualizar balances
+      window.dispatchEvent(new CustomEvent('refetchRoute'));
 
       // Actualizar el componente padre
       if (onSaveComplete) {
