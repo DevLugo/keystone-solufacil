@@ -1599,6 +1599,8 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   const handleDeleteLoan = async (id: string) => {
     try {
       setIsDeleting(id);
+      console.log('🗑️ Iniciando eliminación de préstamo:', id);
+      
       const { data } = await deleteLoan({
         variables: {
           where: { id }
@@ -1606,23 +1608,33 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       });
 
       if (data?.deleteLoan) {
+        console.log('✅ Préstamo eliminado exitosamente:', data.deleteLoan);
         setLoans(prevLoans => prevLoans.filter(loan => loan.id !== id));
 
-        Promise.all([
+        // Primero disparar el evento para mostrar el loader inmediatamente
+        console.log('📢 Disparando evento refetchRoute');
+        window.dispatchEvent(new CustomEvent('refetchRoute'));
+        
+        // Esperar un poco para asegurar que el backend haya completado la transacción
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Luego hacer las actualizaciones
+        console.log('🔄 Refrescando datos...');
+        await Promise.all([
           refetchLoans(),
-          refetchRoute(),
-          // Disparar evento para actualizar balances en otros componentes
-          new Promise(() => window.dispatchEvent(new CustomEvent('refetchRoute')))
-        ]).then(() => {
-          if (onBalanceUpdate) {
-            const updatedBalance = routeBalance + parseFloat(data.deleteLoan.amountGived) + parseFloat(data.deleteLoan.comissionAmount || '0');
-            onBalanceUpdate(updatedBalance);
-            setRouteBalance(updatedBalance);
-          }
-        });
+          refetchRoute()
+        ]);
+        
+        console.log('✅ Datos refrescados exitosamente');
+        
+        if (onBalanceUpdate) {
+          const updatedBalance = routeBalance + parseFloat(data.deleteLoan.amountGived) + parseFloat(data.deleteLoan.comissionAmount || '0');
+          onBalanceUpdate(updatedBalance);
+          setRouteBalance(updatedBalance);
+        }
       }
     } catch (error) {
-      console.error('Error al eliminar el préstamo:', error);
+      console.error('❌ Error al eliminar el préstamo:', error);
       await refetchLoans();
     } finally {
       setIsDeleting(null);

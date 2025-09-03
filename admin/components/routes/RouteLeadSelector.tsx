@@ -3,7 +3,7 @@
 /** @jsxFrag jsx.Fragment */
 
 import React, { useState, useEffect } from 'react';
-import { useQuery, useLazyQuery } from '@apollo/client';
+import { useQuery, useLazyQuery, NetworkStatus } from '@apollo/client';
 import { Box, jsx } from '@keystone-ui/core';
 import { LoadingDots } from '@keystone-ui/loading';
 import { Select } from '@keystone-ui/fields';
@@ -264,9 +264,10 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
   hideDateField = false,
 }) => {
   // OPTIMIZADO: Usar cache-first y consulta simple
-  const { data: routesData, loading: routesLoading, error: routesError, refetch: refetchRoutes } = useQuery<{ routes: RouteSimple[] }>(GET_ROUTES_SIMPLE, {
+  const { data: routesData, loading: routesLoading, error: routesError, refetch: refetchRoutes, networkStatus } = useQuery<{ routes: RouteSimple[] }>(GET_ROUTES_SIMPLE, {
     variables: { where: {} },
     fetchPolicy: 'cache-first', // Cambiado de 'network-only'
+    notifyOnNetworkStatusChange: true, // Notificar cuando se actualicen los datos
   });
 
   const [getLeads, { data: leadsData, loading: leadsLoading, error: leadsError }] = useLazyQuery<{ employees: Lead[] }>(GET_LEADS_SIMPLE);
@@ -274,6 +275,7 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
   const [routesErrorState, setRoutesErrorState] = useState<Error | null>(null);
   const [leadsErrorState, setLeadsErrorState] = useState<Error | null>(null);
   const [isUpdatingBalance, setIsUpdatingBalance] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0); // Forzar re-render
 
   const dateOptions: Option[] = [
     { label: 'Hoy', value: new Date().toISOString() },
@@ -299,11 +301,25 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
   // Escuchar eventos de refetch para actualizar balances
   React.useEffect(() => {
     const handleRefetchRoute = async () => {
+      console.log('🔄 Evento refetchRoute recibido, actualizando balances...');
       setIsUpdatingBalance(true);
+      setRefreshKey(prev => prev + 1); // Forzar re-render inmediato
+      
       try {
-        await refetchRoutes();
+        // Forzar refetch con network-only para obtener datos frescos
+        const result = await refetchRoutes({ 
+          fetchPolicy: 'network-only',
+          // Asegurarse de que Apollo no use cache
+          nextFetchPolicy: 'network-only' 
+        });
+        console.log('✅ Balances actualizados exitosamente:', result);
+      } catch (error) {
+        console.error('❌ Error al actualizar balances:', error);
       } finally {
-        setTimeout(() => setIsUpdatingBalance(false), 500); // Mostrar loader por al menos 500ms
+        setTimeout(() => {
+          setIsUpdatingBalance(false);
+          setRefreshKey(prev => prev + 1); // Forzar otro re-render al finalizar
+        }, 1500); // Mostrar loader por al menos 1.5 segundos
       }
     };
 
@@ -469,13 +485,13 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
         </Box>
 
         {selectedRoute && routeSummary && (
-          <Box css={styles.accountsContainer}>
+          <Box css={styles.accountsContainer} key={refreshKey}>
             {routeSummary.accounts.map((account) => (
               <div key={account.id} css={styles.summaryCard}>
                 <div css={styles.cardTopBorder} />
                 <div css={styles.cardLabel}>{account.name}</div>
                 <div css={styles.cardValue}>
-                  {isUpdatingBalance ? (
+                  {isUpdatingBalance || routesLoading || networkStatus === NetworkStatus.refetch ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <LoadingDots label="" size="small" />
                       <span style={{ fontSize: '14px', color: '#6B7280' }}>Actualizando...</span>
