@@ -273,6 +273,7 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
 
   const [routesErrorState, setRoutesErrorState] = useState<Error | null>(null);
   const [leadsErrorState, setLeadsErrorState] = useState<Error | null>(null);
+  const [isAccountsRefreshing, setIsAccountsRefreshing] = useState<boolean>(false);
 
   const dateOptions: Option[] = [
     { label: 'Hoy', value: new Date().toISOString() },
@@ -288,6 +289,24 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
   const routeSummary = currentRoute ? {
     accounts: processRouteStats(currentRoute)
   } : null;
+
+  // Exponer un método imperativo para indicar refresh externo
+  // y mostrar un pequeño loader sobre los montos mientras se actualiza
+  useEffect(() => {
+    // Este efecto queda listo para ser activado desde el padre mediante cambios de selectedDate/lead/route
+    // Cuando haya una acción de guardado en otras pestañas, el padre suele cambiar refreshKey/fecha
+    // Aquí sólo reaccionamos a cambios rápidos mostrando un loader breve
+    if (selectedRoute && (routesLoading || leadsLoading)) {
+      setIsAccountsRefreshing(true);
+    }
+  }, [selectedRoute, routesLoading, leadsLoading]);
+
+  useEffect(() => {
+    if (!routesLoading && !leadsLoading) {
+      const t = setTimeout(() => setIsAccountsRefreshing(false), 300);
+      return () => clearTimeout(t);
+    }
+  }, [routesLoading, leadsLoading]);
 
   React.useEffect(() => {
     if (selectedRoute?.id) {
@@ -458,7 +477,15 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
               <div key={account.id} css={styles.summaryCard}>
                 <div css={styles.cardTopBorder} />
                 <div css={styles.cardLabel}>{account.name}</div>
-                <div css={styles.cardValue}>{formatCurrency(account.amount)}</div>
+                <div css={styles.cardValue}>
+                  {isAccountsRefreshing ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                      <LoadingDots label="Actualizando" />
+                    </span>
+                  ) : (
+                    formatCurrency(account.amount)
+                  )}
+                </div>
                 <div css={styles.cardSubValue}>
                   {account.totalAccounts} cuentas
                 </div>

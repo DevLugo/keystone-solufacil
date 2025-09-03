@@ -1712,7 +1712,8 @@ export const Transaction = list({
                transactionItem.incomeSource === 'CASH_LOAN_PAYMENT')) ||
               (transactionItem.type === 'EXPENSE' && 
               (transactionItem.expenseSource === 'LOAN_GRANTED' || 
-               transactionItem.expenseSource === 'LOAN_GRANTED_COMISSION'))) {
+               transactionItem.expenseSource === 'LOAN_GRANTED_COMISSION' ||
+               transactionItem.expenseSource === 'LOAN_PAYMENT_COMISSION'))) {
             return;
           }
 
@@ -1774,7 +1775,8 @@ export const Transaction = list({
                transactionItem.incomeSource === 'CASH_LOAN_PAYMENT')) ||
               (transactionItem.type === 'EXPENSE' && 
               (transactionItem.expenseSource === 'LOAN_GRANTED' || 
-               transactionItem.expenseSource === 'LOAN_GRANTED_COMISSION'))) {
+               transactionItem.expenseSource === 'LOAN_GRANTED_COMISSION' ||
+               transactionItem.expenseSource === 'LOAN_PAYMENT_COMISSION'))) {
             return;
           }
 
@@ -1879,7 +1881,8 @@ export const Transaction = list({
                originalTransaction.incomeSource === 'CASH_LOAN_PAYMENT')) ||
               (originalTransaction.type === 'EXPENSE' && 
               (originalTransaction.expenseSource === 'LOAN_GRANTED' || 
-               originalTransaction.expenseSource === 'LOAN_GRANTED_COMISSION'))) {
+               originalTransaction.expenseSource === 'LOAN_GRANTED_COMISSION' ||
+               originalTransaction.expenseSource === 'LOAN_PAYMENT_COMISSION'))) {
             return;
           }
 
