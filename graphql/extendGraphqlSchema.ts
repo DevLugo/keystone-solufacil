@@ -34,13 +34,28 @@ const PaymentType = graphql.object<PaymentInput>()({
   fields: {
     id: graphql.field({ 
       type: graphql.nonNull(graphql.ID),
-      resolve: (item) => item.id || ''
+      resolve: (item) => item?.id || 'temp-id'
     }),
-    amount: graphql.field({ type: graphql.nonNull(graphql.Float) }),
-    comission: graphql.field({ type: graphql.nonNull(graphql.Float) }),
-    loanId: graphql.field({ type: graphql.nonNull(graphql.String) }),
-    type: graphql.field({ type: graphql.nonNull(graphql.String) }),
-    paymentMethod: graphql.field({ type: graphql.nonNull(graphql.String) }),
+    amount: graphql.field({ 
+      type: graphql.nonNull(graphql.Float),
+      resolve: (item) => item?.amount || 0
+    }),
+    comission: graphql.field({ 
+      type: graphql.nonNull(graphql.Float),
+      resolve: (item) => item?.comission || 0
+    }),
+    loanId: graphql.field({ 
+      type: graphql.nonNull(graphql.String),
+      resolve: (item) => item?.loanId || ''
+    }),
+    type: graphql.field({ 
+      type: graphql.nonNull(graphql.String),
+      resolve: (item) => item?.type || 'PAYMENT'
+    }),
+    paymentMethod: graphql.field({ 
+      type: graphql.nonNull(graphql.String),
+      resolve: (item) => item?.paymentMethod || 'CASH'
+    }),
   },
 });
 
@@ -59,37 +74,49 @@ const PaymentInputType = graphql.inputObject({
 const CustomLeadPaymentReceivedType = graphql.object<LeadPaymentReceivedResponse>()({
   name: 'CustomLeadPaymentReceived',
   fields: {
-    id: graphql.field({ type: graphql.nonNull(graphql.ID) }),
+    id: graphql.field({ 
+      type: graphql.nonNull(graphql.ID),
+      resolve: (item) => item?.id || 'temp-id'
+    }),
     expectedAmount: graphql.field({ 
       type: graphql.nonNull(graphql.Float),
-      resolve: (item) => parseFloat(item.expectedAmount?.toString() || '0')
+      resolve: (item) => parseFloat(item?.expectedAmount?.toString() || '0')
     }),
     paidAmount: graphql.field({ 
       type: graphql.nonNull(graphql.Float),
-      resolve: (item) => parseFloat(item.paidAmount?.toString() || '0')
+      resolve: (item) => parseFloat(item?.paidAmount?.toString() || '0')
     }),
     cashPaidAmount: graphql.field({ 
       type: graphql.nonNull(graphql.Float),
-      resolve: (item) => parseFloat(item.cashPaidAmount?.toString() || '0')
+      resolve: (item) => parseFloat(item?.cashPaidAmount?.toString() || '0')
     }),
     bankPaidAmount: graphql.field({ 
       type: graphql.nonNull(graphql.Float),
-      resolve: (item) => parseFloat(item.bankPaidAmount?.toString() || '0')
+      resolve: (item) => parseFloat(item?.bankPaidAmount?.toString() || '0')
     }),
     falcoAmount: graphql.field({ 
       type: graphql.nonNull(graphql.Float),
-      resolve: (item) => parseFloat(item.falcoAmount?.toString() || '0')
+      resolve: (item) => parseFloat(item?.falcoAmount?.toString() || '0')
     }),
     paymentStatus: graphql.field({ 
       type: graphql.nonNull(graphql.String),
-      resolve: (item) => item.paymentStatus || 'FALCO'
+      resolve: (item) => item?.paymentStatus || 'FALCO'
     }),
-    agentId: graphql.field({ type: graphql.nonNull(graphql.ID) }),
-    leadId: graphql.field({ type: graphql.nonNull(graphql.ID) }),
-    paymentDate: graphql.field({ type: graphql.nonNull(graphql.String) }),
+    agentId: graphql.field({ 
+      type: graphql.nonNull(graphql.ID),
+      resolve: (item) => item?.agentId || 'temp-agent-id'
+    }),
+    leadId: graphql.field({ 
+      type: graphql.nonNull(graphql.ID),
+      resolve: (item) => item?.leadId || 'temp-lead-id'
+    }),
+    paymentDate: graphql.field({ 
+      type: graphql.nonNull(graphql.String),
+      resolve: (item) => item?.paymentDate || new Date().toISOString()
+    }),
     payments: graphql.field({ 
       type: graphql.nonNull(graphql.list(graphql.nonNull(PaymentType))),
-      resolve: (item) => item.payments || []
+      resolve: (item) => item?.payments || []
     }),
   },
 });
@@ -975,7 +1002,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
               bankPaidAmount: parseFloat(leadPaymentReceived.bankPaidAmount?.toString() || '0'),
               falcoAmount: parseFloat(leadPaymentReceived.falcoAmount?.toString() || '0'),
               paymentStatus: leadPaymentReceived.paymentStatus || 'FALCO',
-              payments: payments.map(p => ({
+              payments: payments.map((p, index) => ({
+                id: `temp-${index}`, // ID temporal para evitar el error
                 amount: p.amount,
                 comission: p.comission,
                 loanId: p.loanId,
@@ -1299,7 +1327,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
               bankPaidAmount: parseFloat(leadPaymentReceived.bankPaidAmount?.toString() || '0'),
               falcoAmount: parseFloat(leadPaymentReceived.falcoAmount?.toString() || '0'),
               paymentStatus: leadPaymentReceived.paymentStatus || 'FALCO',
-              payments: payments.map(p => ({
+              payments: payments.map((p, index) => ({
+                id: `temp-${index}`, // ID temporal para evitar el error
                 amount: p.amount,
                 comission: p.comission,
                 loanId: p.loanId,
