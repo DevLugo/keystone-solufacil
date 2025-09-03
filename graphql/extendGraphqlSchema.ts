@@ -728,6 +728,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
         resolve: async (root, { expectedAmount, cashPaidAmount = 0, bankPaidAmount = 0, agentId, leadId, payments, paymentDate }, context: Context): Promise<LeadPaymentReceivedResponse> => {
           try {
             // Usar transacción para garantizar atomicidad
+            // Aumentar timeout a 30 segundos para manejar la latencia del servidor de desarrollo
             return await context.prisma.$transaction(async (tx) => {
             // Log de entrada para debug
             console.log('🚀 createCustomLeadPaymentReceived - Inicio:', {
@@ -945,53 +946,50 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
               }
               
-
-              // Recalcular métricas para cada préstamo afectado
-              const affectedLoanIds2 = Array.from(new Set(createdPaymentRecords.map((p: any) => p.loanId)));
-              for (const loanId of affectedLoanIds2) {
-                const loan = await tx.loan.findUnique({ where: { id: loanId }, include: { loantype: true, payments: true } });
-                if (!loan) continue;
-                const rate = parseFloat(loan.loantype?.rate?.toString() || '0');
-                const requested = parseFloat(loan.requestedAmount.toString());
-                const weekDuration = Number(loan.loantype?.weekDuration || 0);
-                const totalDebt = requested * (1 + rate);
-                const expectedWeekly = weekDuration > 0 ? (totalDebt / weekDuration) : 0;
-                const totalPaid = (loan.payments || []).reduce((s: number, p: any) => s + safeToNumber(p.amount), 0);
-                const pending = Math.max(0, totalDebt - totalPaid);
-                await tx.loan.update({
-                  where: { id: loanId },
-                  data: {
-                    totalDebtAcquired: totalDebt.toFixed(2),
-                    expectedWeeklyPayment: expectedWeekly.toFixed(2),
-                    totalPaid: totalPaid.toFixed(2),
-                    pendingAmountStored: pending.toFixed(2),
-                  }
-                });
-              }
+              // Código de recálculo ya está arriba, no duplicar
 
               // Actualizar métricas del préstamo para cada loan afectado
-              const affectedLoanIds = Array.from(new Set(createdPaymentRecords.map(p => p.loanId)));
-              for (const loanId of affectedLoanIds) {
-                const loan = await tx.loan.findUnique({ where: { id: loanId }, include: { loantype: true, payments: true } });
-                if (!loan) continue;
-                const loanWithRelations = loan as any;
-                const rate = parseFloat(loanWithRelations.loantype?.rate?.toString() || '0');
-                const requested = parseFloat(loanWithRelations.requestedAmount.toString());
-                const weekDuration = Number(loanWithRelations.loantype?.weekDuration || 0);
-                const totalDebt = requested * (1 + rate);
-                const expectedWeekly = weekDuration > 0 ? (totalDebt / weekDuration) : 0;
-                const totalPaid = (loanWithRelations.payments || []).reduce((s: number, p: any) => s + parseFloat((p.amount || 0).toString()), 0);
-                const pending = Math.max(0, totalDebt - totalPaid);
-                await tx.loan.update({
-                  where: { id: loanId },
-                  data: {
-                    totalDebtAcquired: totalDebt.toFixed(2),
-                    expectedWeeklyPayment: expectedWeekly.toFixed(2),
-                    totalPaid: totalPaid.toFixed(2),
-                    pendingAmountStored: pending.toFixed(2),
-                  }
-                });
-              }
+              const affectedLoanIds = Array.from(new Set(createdPaymentRecords.map(p => p.loanId).filter(id => id != null)));
+              
+              // Procesar préstamos en paralelo para mejorar performance
+              console.log('🔍 DEBUG - Actualizando métricas de préstamos:', affectedLoanIds.length);
+              
+              await Promise.all(affectedLoanIds.map(async (loanId) => {
+                try {
+                  const loan = await tx.loan.findUnique({ 
+                    where: { id: loanId }, 
+                    include: { loantype: true, payments: true } 
+                  });
+                  
+                  if (!loan) return;
+                  
+                  const loanWithRelations = loan as any;
+                  const rate = safeToNumber(loanWithRelations.loantype?.rate);
+                  const requested = safeToNumber(loanWithRelations.requestedAmount);
+                  const weekDuration = Number(loanWithRelations.loantype?.weekDuration || 0);
+                  const totalDebt = requested * (1 + rate);
+                  const expectedWeekly = weekDuration > 0 ? (totalDebt / weekDuration) : 0;
+                  const totalPaid = (loanWithRelations.payments || []).reduce((s: number, p: any) => s + safeToNumber(p.amount), 0);
+                  const pending = Math.max(0, totalDebt - totalPaid);
+                  
+                  // Verificar si el préstamo está completado
+                  const isCompleted = totalPaid >= totalDebt;
+                  
+                  await tx.loan.update({
+                    where: { id: loanId },
+                    data: {
+                      totalDebtAcquired: totalDebt.toFixed(2),
+                      expectedWeeklyPayment: expectedWeekly.toFixed(2),
+                      totalPaid: totalPaid.toFixed(2),
+                      pendingAmountStored: pending.toFixed(2),
+                      ...(isCompleted && { finishedDate: new Date() })
+                    }
+                  });
+                } catch (loanError) {
+                  console.error(`Error actualizando préstamo ${loanId}:`, loanError);
+                  // Continuar con otros préstamos aunque uno falle
+                }
+              }));
 
               // Actualizar balances de cuentas si hay cambios
               if (cashAmountChange > 0) {
@@ -1011,37 +1009,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
 
               // Validar si los préstamos están completados y marcarlos como terminados
-              for (const payment of createdPaymentRecords) {
-                const loan = await tx.loan.findUnique({
-                  where: { id: payment.loanId },
-                  include: {
-                    loantype: true,
-                    payments: true
-                  }
-                });
-
-                if (loan && (loan as any).loantype) {
-                  // Calcular el monto total que debe pagar (principal + intereses)
-                  // Si rate es 0.4, significa 40% de interés
-                  const rate = (loan as any).loantype.rate ? parseFloat((loan as any).loantype.rate.toString()) : 0;
-                  const totalAmountToPay = parseFloat(loan.requestedAmount.toString()) * (1 + rate);
-                  
-                  // Calcular el total pagado hasta ahora
-                  const totalPaid = (loan as any).payments.reduce((sum: number, p: any) => {
-                    return sum + parseFloat((p.amount || 0).toString());
-                  }, 0);
-
-                  // Si el total pagado es mayor o igual al monto total a pagar, marcar como terminado
-                  if (totalPaid >= totalAmountToPay) {
-                    await tx.loan.update({
-                      where: { id: loan.id },
-                      data: { 
-                        finishedDate: new Date()
-                      }
-                    });
-                  }
-                }
-              }
+              // Integrado en el procesamiento paralelo anterior para evitar duplicar consultas
             }
 
             // ✅ NUEVO: Crear transacción de pérdida (EXPENSE) si hay falco
@@ -1087,6 +1055,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
               agentId,
               leadId,
             };
+            }, {
+              maxWait: 30000, // 30 segundos de timeout máximo
+              timeout: 30000, // 30 segundos de timeout de transacción
             });
           } catch (error) {
             console.error('❌ ERROR en createCustomLeadPaymentReceived:', {
@@ -1097,6 +1068,23 @@ export const extendGraphqlSchema = graphql.extend(base => {
               paymentDate,
               paymentsCount: payments?.length || 0
             });
+            
+            // Manejo específico para error de timeout de transacción
+            if (error instanceof Error && error.message.includes('Transaction already closed')) {
+              throw new Error(
+                'La operación tardó demasiado tiempo debido a la latencia del servidor. ' +
+                'Por favor, intente procesar menos pagos a la vez o contacte al administrador.'
+              );
+            }
+            
+            // Manejo específico para error de Prisma P2028
+            if (error instanceof Error && 'code' in error && error.code === 'P2028') {
+              throw new Error(
+                'Timeout de transacción: La operación excedió el tiempo límite de 30 segundos. ' +
+                'Esto puede deberse a la latencia de red con el servidor de base de datos.'
+              );
+            }
+            
             throw error;
           }
         },
