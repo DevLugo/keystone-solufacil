@@ -1,96 +1,153 @@
 -- Migración para mejorar el rendimiento de las tablas transactions, loan y loanPayment
 -- Fecha: 2024-01-10
 -- Propósito: Agregar índices para optimizar queries frecuentes
+-- Nota: Este script está diseñado para ejecutarse múltiples veces sin errores
+
+-- =====================================================
+-- CONFIGURACIÓN INICIAL
+-- =====================================================
+
+-- Configurar para que no falle si los índices ya existen
+SET client_min_messages = WARNING;
+
+-- =====================================================
+-- FUNCIÓN AUXILIAR PARA CREAR ÍNDICES DE FORMA SEGURA
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION create_index_if_not_exists(
+    index_name text,
+    table_name text,
+    column_spec text,
+    where_clause text DEFAULT NULL
+) RETURNS void AS $$
+DECLARE
+    full_query text;
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes 
+        WHERE indexname = index_name
+    ) THEN
+        full_query := 'CREATE INDEX CONCURRENTLY ' || quote_ident(index_name) || 
+                      ' ON ' || quote_ident(table_name) || '(' || column_spec || ')';
+        
+        IF where_clause IS NOT NULL THEN
+            full_query := full_query || ' WHERE ' || where_clause;
+        END IF;
+        
+        EXECUTE full_query;
+        RAISE NOTICE 'Índice % creado exitosamente', index_name;
+    ELSE
+        RAISE NOTICE 'Índice % ya existe, omitiendo...', index_name;
+    END IF;
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE NOTICE 'Error al crear índice %: %', index_name, SQLERRM;
+END;
+$$ LANGUAGE plpgsql;
 
 -- =====================================================
 -- ÍNDICES PARA LA TABLA Transaction
 -- =====================================================
 
 -- Índice para búsquedas por fecha (muy importante para filtros de fecha)
-CREATE INDEX IF NOT EXISTS "Transaction_date_idx" ON "Transaction"("date");
+SELECT create_index_if_not_exists('Transaction_date_idx', 'Transaction', '"date"');
 
 -- Índice para búsquedas por tipo
-CREATE INDEX IF NOT EXISTS "Transaction_type_idx" ON "Transaction"("type");
+SELECT create_index_if_not_exists('Transaction_type_idx', 'Transaction', '"type"');
 
 -- Índice compuesto para queries frecuentes por fecha y tipo
-CREATE INDEX IF NOT EXISTS "Transaction_date_type_idx" ON "Transaction"("date", "type");
+SELECT create_index_if_not_exists('Transaction_date_type_idx', 'Transaction', '"date", "type"');
 
 -- Índice compuesto para queries por fecha y lead
-CREATE INDEX IF NOT EXISTS "Transaction_date_leadId_idx" ON "Transaction"("date", "leadId");
+SELECT create_index_if_not_exists('Transaction_date_leadId_idx', 'Transaction', '"date", "leadId"');
 
 -- Índice para incomeSource y expenseSource
-CREATE INDEX IF NOT EXISTS "Transaction_incomeSource_idx" ON "Transaction"("incomeSource");
-CREATE INDEX IF NOT EXISTS "Transaction_expenseSource_idx" ON "Transaction"("expenseSource");
+SELECT create_index_if_not_exists('Transaction_incomeSource_idx', 'Transaction', '"incomeSource"');
+SELECT create_index_if_not_exists('Transaction_expenseSource_idx', 'Transaction', '"expenseSource"');
+
+-- Índice para relación con Lead
+SELECT create_index_if_not_exists('Transaction_leadId_idx', 'Transaction', '"leadId"');
 
 -- =====================================================
 -- ÍNDICES PARA LA TABLA Loan
 -- =====================================================
 
 -- Índice para búsquedas por estado
-CREATE INDEX IF NOT EXISTS "Loan_status_idx" ON "Loan"("status");
+SELECT create_index_if_not_exists('Loan_status_idx', 'Loan', '"status"');
 
 -- Índice para búsquedas por fecha de firma
-CREATE INDEX IF NOT EXISTS "Loan_signDate_idx" ON "Loan"("signDate");
+SELECT create_index_if_not_exists('Loan_signDate_idx', 'Loan', '"signDate"');
 
 -- Índice para búsquedas por fecha de finalización
-CREATE INDEX IF NOT EXISTS "Loan_finishedDate_idx" ON "Loan"("finishedDate");
+SELECT create_index_if_not_exists('Loan_finishedDate_idx', 'Loan', '"finishedDate"');
+
+-- Índice para relación con Lead
+SELECT create_index_if_not_exists('Loan_leadId_idx', 'Loan', '"leadId"');
 
 -- Índice compuesto para queries frecuentes
-CREATE INDEX IF NOT EXISTS "Loan_leadId_status_idx" ON "Loan"("leadId", "status");
-CREATE INDEX IF NOT EXISTS "Loan_leadId_finishedDate_idx" ON "Loan"("leadId", "finishedDate");
+SELECT create_index_if_not_exists('Loan_leadId_status_idx', 'Loan', '"leadId", "status"');
+SELECT create_index_if_not_exists('Loan_leadId_finishedDate_idx', 'Loan', '"leadId", "finishedDate"');
+SELECT create_index_if_not_exists('Loan_signDate_leadId_idx', 'Loan', '"signDate", "leadId"');
+SELECT create_index_if_not_exists('Loan_signDate_status_idx', 'Loan', '"signDate", "status"');
 
 -- Índice para pendingAmountStored (usado en filtros)
-CREATE INDEX IF NOT EXISTS "Loan_pendingAmountStored_idx" ON "Loan"("pendingAmountStored");
+SELECT create_index_if_not_exists('Loan_pendingAmountStored_idx', 'Loan', '"pendingAmountStored"');
 
--- Índice compuesto para queries de préstamos activos por lead
-CREATE INDEX IF NOT EXISTS "Loan_active_by_lead_idx" ON "Loan"("leadId", "finishedDate", "pendingAmountStored") 
-WHERE "finishedDate" IS NULL AND "pendingAmountStored" > '0';
+-- Índice parcial para queries de préstamos activos por lead
+SELECT create_index_if_not_exists(
+    'Loan_active_by_lead_idx', 
+    'Loan', 
+    '"leadId", "finishedDate", "pendingAmountStored"',
+    '"finishedDate" IS NULL AND "pendingAmountStored" > ''0'''
+);
 
 -- =====================================================
 -- ÍNDICES PARA LA TABLA LoanPayment
 -- =====================================================
 
 -- Índice para búsquedas por fecha de recepción
-CREATE INDEX IF NOT EXISTS "LoanPayment_receivedAt_idx" ON "LoanPayment"("receivedAt");
+SELECT create_index_if_not_exists('LoanPayment_receivedAt_idx', 'LoanPayment', '"receivedAt"');
 
 -- Índice para búsquedas por tipo
-CREATE INDEX IF NOT EXISTS "LoanPayment_type_idx" ON "LoanPayment"("type");
+SELECT create_index_if_not_exists('LoanPayment_type_idx', 'LoanPayment', '"type"');
 
 -- Índice para búsquedas por método de pago
-CREATE INDEX IF NOT EXISTS "LoanPayment_paymentMethod_idx" ON "LoanPayment"("paymentMethod");
+SELECT create_index_if_not_exists('LoanPayment_paymentMethod_idx', 'LoanPayment', '"paymentMethod"');
+
+-- Índice para relación con Loan
+SELECT create_index_if_not_exists('LoanPayment_loanId_idx', 'LoanPayment', '"loanId"');
+
+-- Índice para relación con LeadPaymentReceived
+SELECT create_index_if_not_exists('LoanPayment_leadPaymentReceivedId_idx', 'LoanPayment', '"leadPaymentReceivedId"');
 
 -- Índice compuesto para queries frecuentes
-CREATE INDEX IF NOT EXISTS "LoanPayment_receivedAt_leadPaymentReceivedId_idx" ON "LoanPayment"("receivedAt", "leadPaymentReceivedId");
-
--- Índice para queries de pagos por loan
-CREATE INDEX IF NOT EXISTS "LoanPayment_loanId_receivedAt_idx" ON "LoanPayment"("loanId", "receivedAt");
+SELECT create_index_if_not_exists('LoanPayment_receivedAt_leadPaymentReceivedId_idx', 'LoanPayment', '"receivedAt", "leadPaymentReceivedId"');
+SELECT create_index_if_not_exists('LoanPayment_loanId_receivedAt_idx', 'LoanPayment', '"loanId", "receivedAt"');
+SELECT create_index_if_not_exists('LoanPayment_receivedAt_loanId_idx', 'LoanPayment', '"receivedAt", "loanId"');
 
 -- =====================================================
 -- ÍNDICES PARA LA TABLA LeadPaymentReceived
 -- =====================================================
 
 -- Índice para búsquedas por estado de pago
-CREATE INDEX IF NOT EXISTS "LeadPaymentReceived_paymentStatus_idx" ON "LeadPaymentReceived"("paymentStatus");
+SELECT create_index_if_not_exists('LeadPaymentReceived_paymentStatus_idx', 'LeadPaymentReceived', '"paymentStatus"');
 
 -- Índice compuesto para queries por lead y fecha
-CREATE INDEX IF NOT EXISTS "LeadPaymentReceived_leadId_createdAt_idx" ON "LeadPaymentReceived"("leadId", "createdAt");
+SELECT create_index_if_not_exists('LeadPaymentReceived_leadId_createdAt_idx', 'LeadPaymentReceived', '"leadId", "createdAt"');
 
 -- =====================================================
 -- ÍNDICES PARA LA TABLA Employee
 -- =====================================================
 
 -- Índice para búsquedas por tipo
-CREATE INDEX IF NOT EXISTS "Employee_type_idx" ON "Employee"("type");
+SELECT create_index_if_not_exists('Employee_type_idx', 'Employee', '"type"');
 
 -- =====================================================
 -- ÍNDICES PARA LA TABLA PersonalData
 -- =====================================================
 
 -- Índice para búsquedas por nombre completo (búsquedas de texto)
-CREATE INDEX IF NOT EXISTS "PersonalData_fullName_idx" ON "PersonalData"("fullName");
-
--- Índice para clientCode (ya existe como unique, pero verificamos)
--- Ya existe: clientCode text unique
+SELECT create_index_if_not_exists('PersonalData_fullName_idx', 'PersonalData', '"fullName"');
 
 -- =====================================================
 -- ANÁLISIS DE TABLAS PARA ACTUALIZAR ESTADÍSTICAS
@@ -105,9 +162,69 @@ ANALYZE "Employee";
 ANALYZE "PersonalData";
 
 -- =====================================================
--- COMENTARIOS Y DOCUMENTACIÓN
+-- LIMPIEZA
 -- =====================================================
 
-COMMENT ON INDEX "Transaction_date_idx" IS 'Índice para optimizar búsquedas por fecha en transacciones';
-COMMENT ON INDEX "Loan_active_by_lead_idx" IS 'Índice parcial para préstamos activos por líder - optimiza queries frecuentes';
-COMMENT ON INDEX "LoanPayment_receivedAt_idx" IS 'Índice para optimizar búsquedas de pagos por fecha';
+-- Eliminar la función auxiliar
+DROP FUNCTION IF EXISTS create_index_if_not_exists(text, text, text, text);
+
+-- =====================================================
+-- VERIFICACIÓN FINAL
+-- =====================================================
+
+-- Mostrar índices creados
+DO $$
+DECLARE
+    r RECORD;
+    idx_count INTEGER;
+BEGIN
+    RAISE NOTICE '====================================';
+    RAISE NOTICE 'VERIFICACIÓN DE ÍNDICES CREADOS';
+    RAISE NOTICE '====================================';
+    
+    -- Contar índices por tabla
+    FOR r IN 
+        SELECT 
+            tablename,
+            COUNT(*) as index_count
+        FROM pg_indexes
+        WHERE tablename IN ('Transaction', 'Loan', 'LoanPayment', 'LeadPaymentReceived', 'Employee', 'PersonalData')
+          AND schemaname = 'public'
+        GROUP BY tablename
+        ORDER BY tablename
+    LOOP
+        RAISE NOTICE 'Tabla %: % índices', r.tablename, r.index_count;
+    END LOOP;
+    
+    -- Mostrar tamaño de las tablas
+    RAISE NOTICE '';
+    RAISE NOTICE '====================================';
+    RAISE NOTICE 'TAMAÑO DE TABLAS E ÍNDICES';
+    RAISE NOTICE '====================================';
+    
+    FOR r IN
+        SELECT 
+            relname AS tabla,
+            pg_size_pretty(pg_total_relation_size(relid)) AS tamaño_total,
+            pg_size_pretty(pg_relation_size(relid)) AS tamaño_tabla,
+            pg_size_pretty(pg_indexes_size(relid)) AS tamaño_indices
+        FROM pg_catalog.pg_statio_user_tables 
+        WHERE relname IN ('Transaction', 'Loan', 'LoanPayment', 'LeadPaymentReceived')
+        ORDER BY pg_total_relation_size(relid) DESC
+    LOOP
+        RAISE NOTICE 'Tabla %: Total=%, Tabla=%, Índices=%', 
+            r.tabla, r.tamaño_total, r.tamaño_tabla, r.tamaño_indices;
+    END LOOP;
+    
+    RAISE NOTICE '';
+    RAISE NOTICE 'Migración completada exitosamente!';
+    RAISE NOTICE 'Los índices mejorarán significativamente el rendimiento de las queries.';
+    RAISE NOTICE '';
+    RAISE NOTICE 'IMPORTANTE: Si la base de datos está en producción, considera:';
+    RAISE NOTICE '1. Ejecutar VACUUM ANALYZE periódicamente';
+    RAISE NOTICE '2. Monitorear pg_stat_user_indexes para verificar el uso de índices';
+    RAISE NOTICE '3. Revisar slow query logs para identificar nuevas optimizaciones';
+END $$;
+
+-- Restaurar mensajes normales
+SET client_min_messages = NOTICE;
