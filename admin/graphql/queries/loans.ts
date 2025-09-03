@@ -1,28 +1,39 @@
 import { gql } from '@apollo/client';
 
+// Query optimizada con paginación y campos reducidos
 export const GET_LOANS = gql`
-  query GetLoans($leadId: ID! $finishedDate: DateTimeNullableFilter) {
-    loans(where: { lead: { id: { equals: $leadId } }, finishedDate: $finishedDate }) {
+  query GetLoans($leadId: ID!, $finishedDate: DateTimeNullableFilter, $skip: Int = 0, $take: Int = 50) {
+    loans(
+      where: { lead: { id: { equals: $leadId } }, finishedDate: $finishedDate }
+      orderBy: { signDate: desc }
+      skip: $skip
+      take: $take
+    ) {
       id
-      weeklyPaymentAmount
       requestedAmount
       amountGived
-      amountToPay
-      pendingAmount
       signDate
       finishedDate
       createdAt
       updatedAt
+      pendingAmountStored
+      comissionAmount
+      loantype {
+        id
+        name
+        rate
+        weekDuration
+      }
       borrower {
         id
         personalData {
           id
           fullName
-          phones {
+          phones(take: 1) {
             id
             number
           }
-          addresses {
+          addresses(take: 1) {
             id
             location {
               id
@@ -33,14 +44,14 @@ export const GET_LOANS = gql`
       }
       avalName
       avalPhone
-      collaterals {
+      collaterals(take: 2) {
         id
         fullName
-        phones {
+        phones(take: 1) {
           id
           number
         }
-        addresses {
+        addresses(take: 1) {
           id
           location {
             id
@@ -50,13 +61,13 @@ export const GET_LOANS = gql`
       }
       previousLoan {
         id
-        pendingAmount
+        pendingAmountStored
         avalName
         avalPhone
-        collaterals {
+        collaterals(take: 1) {
           id
           fullName
-          phones {
+          phones(take: 1) {
             id
             number
           }
@@ -69,6 +80,9 @@ export const GET_LOANS = gql`
         }
       }
     }
+    loansCount(
+      where: { lead: { id: { equals: $leadId } }, finishedDate: $finishedDate }
+    )
   }
 `;
 

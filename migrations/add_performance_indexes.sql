@@ -226,5 +226,28 @@ BEGIN
     RAISE NOTICE '3. Revisar slow query logs para identificar nuevas optimizaciones';
 END $$;
 
+-- =====================================================
+-- ÍNDICES ADICIONALES PARA QUERIES ESPECÍFICAS
+-- =====================================================
+
+-- Índices para búsqueda de clientes (PersonalData)
+SELECT create_index_if_not_exists('PersonalData_fullName_text_idx', 'PersonalData', 'lower("fullName")');
+SELECT create_index_if_not_exists('PersonalData_clientCode_idx', 'PersonalData', '"clientCode"');
+
+-- Índices para búsquedas de préstamos por borrower
+SELECT create_index_if_not_exists('Loan_borrowerId_idx', 'Loan', '"borrowerId"');
+SELECT create_index_if_not_exists('Loan_borrowerId_signDate_idx', 'Loan', '"borrowerId", "signDate"');
+
+-- Índices para transacciones con filtros específicos
+SELECT create_index_if_not_exists('Transaction_date_type_expenseSource_idx', 'Transaction', '"date", "type", "expenseSource"');
+SELECT create_index_if_not_exists('Transaction_routeId_date_idx', 'Transaction', '"routeId", "date"');
+
+-- Índices para LoanPayment con leadPaymentReceived
+SELECT create_index_if_not_exists('LoanPayment_leadPaymentReceivedId_receivedAt_idx', 'LoanPayment', '"leadPaymentReceivedId", "receivedAt"');
+
+-- Índices para búsquedas por localidad
+SELECT create_index_if_not_exists('Address_locationId_idx', 'Address', '"locationId"');
+SELECT create_index_if_not_exists('Location_name_idx', 'Location', '"name"');
+
 -- Restaurar mensajes normales
 SET client_min_messages = NOTICE;

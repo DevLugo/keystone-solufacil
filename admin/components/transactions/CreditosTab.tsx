@@ -287,14 +287,18 @@ const GET_LOAN_TYPES = gql`
   }
 `;
 
+// Query optimizada: solo préstamos activos, sin cargar payments para cálculos
 const GET_PREVIOUS_LOANS = gql`
   query GetPreviousLoansOptimized($leadId: ID!) {
     loans(
       where: {
-        lead: { id: { equals: $leadId } }
+        AND: [
+          { lead: { id: { equals: $leadId } } }
+          { finishedDate: { equals: null } }
+        ]
       }
       orderBy: { signDate: desc }
-      take: 100
+      take: 50
     ) {
       id
       requestedAmount
@@ -303,6 +307,7 @@ const GET_PREVIOUS_LOANS = gql`
       finishedDate
       renewedDate
       status
+      pendingAmountStored
       loantype {
         id
         name
@@ -315,18 +320,14 @@ const GET_PREVIOUS_LOANS = gql`
           fullName
         }
       }
-      collaterals {
+      collaterals(take: 2) {
         id
         fullName
-        phones {
+        phones(take: 1) {
           id
           number
         }
       }
-      payments {
-        amount
-      }
-      __typename
     }
   }
 `;

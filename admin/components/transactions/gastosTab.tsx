@@ -22,17 +22,22 @@ import { GET_ROUTES_SIMPLE } from '../../graphql/queries/routes-optimized';
 import { CREATE_TRANSACTION, UPDATE_TRANSACTION } from '../../graphql/mutations/transactions';
 import type { Transaction, Account, Option, TransactionCreateInput, Route, Employee } from '../../types/transaction';
 
+// Query optimizada con límite y filtro específico de expenseSource para mejor rendimiento
 const GET_EXPENSES_BY_DATE_SIMPLE = gql`
-  query GetExpensesByDateSimple($date: DateTime!, $nextDate: DateTime!) {
+  query GetExpensesByDateSimple($date: DateTime!, $nextDate: DateTime!, $take: Int = 200) {
     transactions(
       where: {
         AND: [
           { date: { gte: $date } }
           { date: { lt: $nextDate } }
           { type: { equals: "EXPENSE" } }
+          { expenseSource: { 
+            in: ["VIATIC", "GASOLINE", "ACCOMMODATION", "NOMINA_SALARY", "EXTERNAL_SALARY", "VEHICULE_MAINTENANCE", "MISC"] 
+          }}
         ]
       }
       orderBy: { date: desc }
+      take: $take
     ) {
       id
       amount
@@ -51,6 +56,15 @@ const GET_EXPENSES_BY_DATE_SIMPLE = gql`
         }
       }
     }
+    transactionsCount(
+      where: {
+        AND: [
+          { date: { gte: $date } }
+          { date: { lt: $nextDate } }
+          { type: { equals: "EXPENSE" } }
+        ]
+      }
+    )
   }
 `;
 
