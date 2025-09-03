@@ -266,7 +266,7 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
   // OPTIMIZADO: Usar cache-first y consulta simple
   const { data: routesData, loading: routesLoading, error: routesError, refetch: refetchRoutes, networkStatus } = useQuery<{ routes: RouteSimple[] }>(GET_ROUTES_SIMPLE, {
     variables: { where: {} },
-    fetchPolicy: 'cache-first', // Cambiado de 'network-only'
+    fetchPolicy: 'cache-and-network', // Cambiar a cache-and-network para obtener datos del cache mientras se actualiza
     notifyOnNetworkStatusChange: true, // Notificar cuando se actualicen los datos
   });
 
@@ -302,8 +302,12 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
   React.useEffect(() => {
     const handleRefetchRoute = async () => {
       console.log('🔄 Evento refetchRoute recibido, actualizando balances...');
+      
+      // Establecer estado de carga inmediatamente
       setIsUpdatingBalance(true);
-      setRefreshKey(prev => prev + 1); // Forzar re-render inmediato
+      
+      // Pequeño delay para asegurar que el estado se actualice antes del refetch
+      await new Promise(resolve => setTimeout(resolve, 50));
       
       try {
         // Forzar refetch con network-only para obtener datos frescos
@@ -313,13 +317,17 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
           nextFetchPolicy: 'network-only' 
         });
         console.log('✅ Balances actualizados exitosamente:', result);
+        
+        // Esperar un poco más para asegurar que los datos se propaguen
+        await new Promise(resolve => setTimeout(resolve, 500));
       } catch (error) {
         console.error('❌ Error al actualizar balances:', error);
       } finally {
+        // Mantener el loader visible por un tiempo mínimo
         setTimeout(() => {
           setIsUpdatingBalance(false);
-          setRefreshKey(prev => prev + 1); // Forzar otro re-render al finalizar
-        }, 1500); // Mostrar loader por al menos 1.5 segundos
+          console.log('🔄 Loader ocultado');
+        }, 2000); // Mostrar loader por al menos 2 segundos
       }
     };
 
@@ -491,13 +499,25 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
                 <div css={styles.cardTopBorder} />
                 <div css={styles.cardLabel}>{account.name}</div>
                 <div css={styles.cardValue}>
-                  {isUpdatingBalance || routesLoading || networkStatus === NetworkStatus.refetch ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {isUpdatingBalance || networkStatus === NetworkStatus.refetch ? (
+                    <div style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '8px',
+                      backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                      padding: '4px 8px',
+                      borderRadius: '4px'
+                    }}>
                       <LoadingDots label="" size="small" />
-                      <span style={{ fontSize: '14px', color: '#6B7280' }}>Actualizando...</span>
+                      <span style={{ fontSize: '14px', color: '#3B82F6', fontWeight: 'bold' }}>Actualizando...</span>
                     </div>
                   ) : (
-                    formatCurrency(account.amount)
+                    <span style={{ 
+                      transition: 'all 0.3s ease',
+                      display: 'inline-block'
+                    }}>
+                      {formatCurrency(account.amount)}
+                    </span>
                   )}
                 </div>
                 <div css={styles.cardSubValue}>
