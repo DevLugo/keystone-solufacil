@@ -2590,6 +2590,78 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         }
       }),
+
+      // ✅ MUTACIÓN PARA MARCAR PRÉSTAMOS COMO CARTERA MUERTA
+      markLoansAsBadDebt: graphql.field({
+        type: graphql.nonNull(graphql.JSON),
+        args: {
+          loanIds: graphql.arg({ type: graphql.nonNull(graphql.list(graphql.nonNull(graphql.String))) }),
+        },
+        resolve: async (root, { loanIds }, context: Context) => {
+          try {
+            console.log(`🚨 markLoansAsBadDebt - Marcando ${loanIds.length} préstamos como cartera muerta`);
+
+            const badDebtDate = new Date();
+            
+            // Actualizar todos los préstamos especificados
+            const updateResult = await context.prisma.loan.updateMany({
+              where: {
+                id: { in: loanIds },
+                badDebtDate: null // Solo actualizar los que no están ya marcados
+              },
+              data: {
+                badDebtDate: badDebtDate
+              }
+            });
+
+            console.log(`✅ markLoansAsBadDebt - Actualizados ${updateResult.count} préstamos`);
+
+            // Obtener los préstamos actualizados para el resumen
+            const updatedLoans = await context.prisma.loan.findMany({
+              where: {
+                id: { in: loanIds }
+              },
+              include: {
+                borrower: {
+                  include: {
+                    personalData: true
+                  }
+                }
+              }
+            });
+
+            // Calcular estadísticas
+            const totalAmount = updatedLoans.reduce((sum, loan) => {
+              const pendingAmount = loan.pendingAmountStored ? Number(loan.pendingAmountStored) : 
+                (Number(loan.totalDebtAcquired || 0) - Number(loan.totalPaid || 0));
+              return sum + Math.max(0, pendingAmount);
+            }, 0);
+
+            return {
+              success: true,
+              message: `${updateResult.count} préstamos marcados como cartera muerta exitosamente`,
+              updatedCount: updateResult.count,
+              totalAmount,
+              badDebtDate: badDebtDate.toISOString(),
+              updatedLoans: updatedLoans.map(loan => ({
+                id: loan.id,
+                clientName: loan.borrower?.personalData?.name || 'N/A',
+                amountOwed: loan.pendingAmountStored ? Number(loan.pendingAmountStored) : 
+                  (Number(loan.totalDebtAcquired || 0) - Number(loan.totalPaid || 0))
+              }))
+            };
+
+          } catch (error) {
+            console.error(`❌ Error en markLoansAsBadDebt:`, error);
+            return {
+              success: false,
+              message: `Error al marcar préstamos como cartera muerta: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              updatedCount: 0,
+              totalAmount: 0
+            };
+          }
+        }
+      }),
     },
     query: {
       // ✅ NUEVA FUNCIONALIDAD: Obtener cumpleaños de líderes por mes
@@ -7500,6 +7572,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         }
       }),
+
+      // ✅ QUERY PARA OBTENER CANDIDATOS A DEUDA MALA
+      getBadDebtCandidates,
     },
   };
 });
@@ -8856,3 +8931,167 @@ async function sendTelegramFile(chatId: string, fileBuffer: Buffer, filename: st
     return false;
   }
 }
+
+// ✅ QUERY PARA OBTENER CANDIDATOS A DEUDA MALA
+const getBadDebtCandidates = graphql.field({
+  type: graphql.nonNull(graphql.JSON),
+  args: {
+    routeId: graphql.arg({ type: graphql.String }),
+  },
+  resolve: async (root, { routeId }, context: Context) => {
+    try {
+      console.log(`🔍 getBadDebtCandidates - Procesando ruta ${routeId || 'TODAS'}`);
+
+      // Construir filtros para la consulta
+      const whereClause: any = {
+        badDebtDate: null, // Solo préstamos que NO están marcados como bad debt
+        status: { not: 'FINISHED' }, // Excluir préstamos terminados
+      };
+
+      // Si se especifica una ruta, filtrar por ella
+      if (routeId && routeId !== '') {
+        whereClause.snapshotRouteId = routeId;
+      }
+
+      console.log('📋 whereClause:', whereClause);
+
+      // Obtener préstamos candidatos
+      const loans = await context.prisma.loan.findMany({
+        where: whereClause,
+        include: {
+          borrower: {
+            include: {
+              personalData: {
+                include: {
+                  addresses: {
+                    include: {
+                      location: {
+                        include: {
+                          route: true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          loantype: true,
+          payments: {
+            where: {
+              type: 'PAYMENT', // Solo pagos reales, no FALCO o EXTRA_COLLECTION
+              amount: { gt: 0 }
+            },
+            orderBy: {
+              receivedAt: 'desc'
+            }
+          }
+        },
+        orderBy: {
+          signDate: 'asc'
+        }
+      });
+
+      console.log(`📊 getBadDebtCandidates - Encontrados ${loans.length} préstamos candidatos`);
+
+      const today = new Date();
+      const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0); // Último día del mes actual
+      const candidatesEnteringBadDebt = [];
+
+      for (const loan of loans) {
+        // Calcular semanas transcurridas desde la fecha del préstamo hasta fin de mes
+        const loanDate = new Date(loan.signDate);
+        const diffTime = Math.abs(endOfMonth.getTime() - loanDate.getTime());
+        const weeksElapsedByEndOfMonth = Math.ceil(diffTime / (1000 * 60 * 60 * 24 * 7));
+
+        // Calcular semanas transcurridas hasta hoy
+        const diffTimeToday = Math.abs(today.getTime() - loanDate.getTime());
+        const weeksElapsedToday = Math.ceil(diffTimeToday / (1000 * 60 * 60 * 24 * 7));
+
+        // Verificar si han pasado 4 semanas consecutivas sin pago
+        let hasConsecutiveWeeksWithoutPayment = false;
+        let weeksWithoutPayment = 0;
+
+        if (!loan.payments || loan.payments.length === 0) {
+          // Si no hay pagos, todas las semanas son sin pago
+          weeksWithoutPayment = weeksElapsedToday;
+          hasConsecutiveWeeksWithoutPayment = weeksWithoutPayment >= 4;
+        } else {
+          // Verificar las últimas 4 semanas para pagos consecutivos
+          const lastPayment = loan.payments[0];
+          const lastPaymentDate = new Date(lastPayment.receivedAt);
+          const diffPaymentTime = Math.abs(today.getTime() - lastPaymentDate.getTime());
+          weeksWithoutPayment = Math.ceil(diffPaymentTime / (1000 * 60 * 60 * 24 * 7));
+          
+          // Si han pasado 4 o más semanas desde el último pago, considerarlo como consecutivo
+          hasConsecutiveWeeksWithoutPayment = weeksWithoutPayment >= 4;
+        }
+
+        const loanDuration = loan.loantype?.weekDuration || 14;
+        
+        // Criterio: A fin de mes tendrá más de 17 semanas (para préstamos de 14) Y 4+ semanas consecutivas sin pago
+        const willHaveTooManyWeeks = weeksElapsedByEndOfMonth > (loanDuration + 3);
+        const shouldEnterBadDebt = willHaveTooManyWeeks && hasConsecutiveWeeksWithoutPayment;
+
+        console.log(`📊 Loan ${loan.id}: weeksElapsedByEndOfMonth=${weeksElapsedByEndOfMonth}, weeksWithoutPayment=${weeksWithoutPayment}, loanDuration=${loanDuration}, shouldEnter=${shouldEnterBadDebt}`);
+
+        if (shouldEnterBadDebt) {
+          // Calcular monto adeudado
+          const amountGived = Number(loan.amountGived || 0);
+          const totalDebtAcquired = Number(loan.totalDebtAcquired || 0);
+          const totalPaid = Number(loan.totalPaid || 0);
+          const pendingAmount = loan.pendingAmountStored ? Number(loan.pendingAmountStored) : (totalDebtAcquired - totalPaid);
+
+          candidatesEnteringBadDebt.push({
+            id: loan.id,
+            clientName: loan.borrower?.personalData?.name || 'N/A',
+            location: loan.borrower?.personalData?.addresses?.[0]?.location?.name || 'Sin localidad',
+            routeName: loan.borrower?.personalData?.addresses?.[0]?.location?.route?.name || loan.snapshotRouteName || 'Sin ruta',
+            amountOwed: Math.max(0, pendingAmount),
+            signDate: loan.signDate,
+            createdAt: loan.createdAt,
+            weeksElapsed: weeksElapsedToday,
+            weeksElapsedByEndOfMonth,
+            weeksWithoutPayment,
+            loanType: loan.loantype?.name || 'N/A',
+            weekDuration: loan.loantype?.weekDuration || 0,
+            amountGived,
+            totalDebtAcquired,
+            totalPaid,
+            lastPaymentDate: loan.payments?.[0]?.receivedAt || null
+          });
+        }
+      }
+
+      console.log(`🚨 getBadDebtCandidates - Encontrados ${candidatesEnteringBadDebt.length} préstamos entrando en bad debt`);
+
+      // Agrupar por localidad
+      const groupedByLocation = candidatesEnteringBadDebt.reduce((acc, loan) => {
+        const location = loan.location;
+        if (!acc[location]) {
+          acc[location] = [];
+        }
+        acc[location].push(loan);
+        return acc;
+      }, {} as Record<string, any[]>);
+
+      // Estadísticas
+      const totalAmount = candidatesEnteringBadDebt.reduce((sum, loan) => sum + loan.amountOwed, 0);
+      const uniqueLocations = Object.keys(groupedByLocation).length;
+
+      return {
+        routeName: routeId ? candidatesEnteringBadDebt.find(l => l.routeName)?.routeName || 'Ruta Desconocida' : 'Todas las Rutas',
+        totalLoans: candidatesEnteringBadDebt.length,
+        totalAmount,
+        uniqueLocations,
+        loans: candidatesEnteringBadDebt,
+        groupedByLocation,
+        endOfMonthDate: endOfMonth.toISOString()
+      };
+
+    } catch (error) {
+      console.error(`❌ Error en getBadDebtCandidates:`, error);
+      throw new Error(`Error al obtener candidatos a deuda mala: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+});

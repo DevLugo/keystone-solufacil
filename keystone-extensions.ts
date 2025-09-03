@@ -2638,6 +2638,269 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
     }
   });
 
+  // Endpoint para exportar reporte de deuda mala a PDF
+  app.post('/export-baddebt-pdf', express.json(), async (req, res) => {
+    try {
+      console.log('📊 Iniciando generación de PDF del reporte de deuda mala');
+      
+      const {
+        routeName,
+        generatedDate,
+        loans
+      } = req.body;
+
+      // Validar parámetros requeridos
+      if (!routeName || !loans) {
+        console.error('❌ Error: Faltan parámetros requeridos');
+        return res.status(400).json({ error: 'Faltan parámetros requeridos' });
+      }
+
+      console.log('✅ Parámetros válidos, procediendo con la generación');
+
+      // Crear PDF con diseño profesional
+      const doc = new PDFDocument({
+        margin: 40,
+        size: 'A4',
+        layout: 'landscape', // Paisaje para mejor visualización de tablas
+        bufferPages: true,
+        info: {
+          Title: `Reporte de Deuda Mala - ${routeName}`,
+          Author: 'SoluFácil',
+          Subject: 'Reporte de Préstamos Entrando en Deuda Mala',
+          Creator: 'SoluFácil Sistema de Gestión'
+        }
+      });
+
+      const filename = `reporte_deuda_mala_${routeName.replace(/\s+/g, '_')}_${new Date().getTime()}.pdf`;
+
+      res.setHeader('Content-disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+      res.setHeader('Content-type', 'application/pdf');
+      doc.pipe(res);
+
+      // Funciones de formato
+      const formatCurrency = (amount: number): string => {
+        return new Intl.NumberFormat('es-US', {
+          style: 'currency',
+          currency: 'USD',
+          minimumFractionDigits: 2,
+        }).format(amount || 0);
+      };
+
+      const formatDate = (dateString: string): string => {
+        return new Date(dateString).toLocaleDateString('es-ES', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        });
+      };
+
+      // Colores corporativos
+      const colors = {
+        primary: '#2c3e50',
+        secondary: '#3498db',
+        danger: '#e74c3c',
+        warning: '#f39c12',
+        success: '#27ae60',
+        light: '#ecf0f1',
+        dark: '#34495e',
+        background: '#ffffff',
+        border: '#bdc3c7',
+        alternateRow: '#f8f9fa'
+      };
+
+      // ================== HEADER PROFESIONAL ==================
+      let y = 30;
+      
+      // Fondo del header
+      doc.rect(0, 0, doc.page.width, 80).fill(colors.primary);
+      
+      // Logo
+      try {
+        doc.image('./solufacil.png', doc.page.width - 100, 15, { width: 60 });
+      } catch (error) {
+        console.log('Logo no encontrado, continuando sin él');
+      }
+
+      // Título principal
+      doc.fontSize(24).fillColor('#ffffff').text('🚨 REPORTE DE DEUDA MALA', 40, y, { align: 'left' });
+      y += 30;
+      
+      // Subtítulo con información de ruta y fecha
+      doc.fontSize(12).fillColor('#ecf0f1')
+        .text(`${routeName} | Préstamos Entrando en Bad Debt`, 40, y, { align: 'left' });
+      
+      // Fecha de generación
+      doc.fontSize(9).fillColor('#bdc3c7')
+        .text(`Generado: ${new Date().toLocaleDateString('es-ES')} ${new Date().toLocaleTimeString('es-ES')}`, 
+          doc.page.width - 200, y, { align: 'right', width: 160 });
+
+      y = 100;
+
+      // ================== RESUMEN EJECUTIVO ==================
+      doc.fontSize(14).fillColor(colors.dark).text('RESUMEN EJECUTIVO', 40, y);
+      y += 25;
+
+      // Estadísticas generales
+      const totalLoans = loans.length;
+      const totalAmount = loans.reduce((sum: number, loan: any) => sum + (loan.amountOwed || 0), 0);
+      const uniqueLocations = [...new Set(loans.map((loan: any) => loan.location))].length;
+
+      // Grid de estadísticas
+      const statWidth = (doc.page.width - 100) / 3;
+      const statHeight = 60;
+      
+      const stats = [
+        {
+          label: 'Total Préstamos',
+          value: totalLoans.toString(),
+          color: colors.danger,
+          icon: '📊'
+        },
+        {
+          label: 'Monto Total',
+          value: formatCurrency(totalAmount),
+          color: colors.warning,
+          icon: '💰'
+        },
+        {
+          label: 'Localidades Afectadas',
+          value: uniqueLocations.toString(),
+          color: colors.primary,
+          icon: '📍'
+        }
+      ];
+
+      stats.forEach((stat, index) => {
+        const x = 40 + (index * statWidth);
+        
+        // Fondo del KPI
+        doc.rect(x, y, statWidth - 10, statHeight).fill(colors.light).stroke(colors.border);
+        
+        // Icono y valor
+        doc.fontSize(16).fillColor(stat.color).text(stat.icon, x + 10, y + 10);
+        doc.fontSize(18).fillColor(stat.color).text(stat.value, x + 40, y + 8, { width: statWidth - 60 });
+        
+        // Label
+        doc.fontSize(10).fillColor(colors.dark).text(stat.label, x + 10, y + 35, { width: statWidth - 20 });
+      });
+
+      y += statHeight + 30;
+
+      // ================== TABLA DE PRÉSTAMOS POR LOCALIDAD ==================
+      doc.fontSize(14).fillColor(colors.dark).text('DETALLE POR LOCALIDAD', 40, y);
+      y += 25;
+
+      // Agrupar préstamos por localidad
+      const groupedLoans = loans.reduce((acc: any, loan: any) => {
+        const location = loan.location || 'Sin localidad';
+        if (!acc[location]) {
+          acc[location] = [];
+        }
+        acc[location].push(loan);
+        return acc;
+      }, {});
+
+      // Ordenar localidades alfabéticamente
+      const sortedLocations = Object.keys(groupedLoans).sort();
+
+      sortedLocations.forEach((location) => {
+        const locationLoans = groupedLoans[location];
+        
+        // Verificar si necesitamos una nueva página
+        if (y > doc.page.height - 200) {
+          doc.addPage();
+          y = 40;
+        }
+
+        // Header de localidad
+        doc.rect(40, y, doc.page.width - 80, 25).fill(colors.primary);
+        doc.fontSize(12).fillColor('#ffffff').text(`📍 ${location} (${locationLoans.length} préstamos)`, 50, y + 7);
+        y += 35;
+
+        // Headers de tabla
+        const tableHeaders = ['Cliente', 'Monto Adeudado', 'Fecha Creación', 'Sem. Transcurridas', 'Sem. Sin Pago', 'Tipo Préstamo'];
+        const colWidths = [150, 100, 90, 80, 80, 120];
+        let x = 40;
+
+        // Fondo de headers
+        doc.rect(40, y, doc.page.width - 80, 20).fill(colors.light);
+        
+        tableHeaders.forEach((header, index) => {
+          doc.fontSize(9).fillColor(colors.dark).text(header, x + 5, y + 6, { width: colWidths[index] - 10 });
+          x += colWidths[index];
+        });
+        y += 25;
+
+        // Filas de datos
+        locationLoans
+          .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+          .forEach((loan: any, index: number) => {
+            // Verificar espacio para nueva fila
+            if (y > doc.page.height - 50) {
+              doc.addPage();
+              y = 40;
+            }
+
+            x = 40;
+            const rowColor = index % 2 === 0 ? colors.background : colors.alternateRow;
+            
+            // Fondo de fila
+            doc.rect(40, y, doc.page.width - 80, 18).fill(rowColor);
+            
+            // Datos de la fila
+            const rowData = [
+              loan.clientName || 'N/A',
+              formatCurrency(loan.amountOwed || 0),
+              formatDate(loan.createdAt),
+              loan.weeksElapsed?.toString() || '0',
+              loan.weeksWithoutPayment?.toString() || '0',
+              `${loan.loanType || 'N/A'} (${loan.weekDuration || 0}s)`
+            ];
+
+            rowData.forEach((data, colIndex) => {
+              const textColor = colIndex === 1 ? colors.danger : colors.dark; // Monto en rojo
+              doc.fontSize(8).fillColor(textColor).text(data, x + 3, y + 5, { 
+                width: colWidths[colIndex] - 6,
+                align: colIndex === 1 ? 'right' : 'left' // Alinear monto a la derecha
+              });
+              x += colWidths[colIndex];
+            });
+            
+            y += 20;
+          });
+
+        y += 15; // Espacio entre localidades
+      });
+
+      // ================== PIE DE PÁGINA ==================
+      if (y > doc.page.height - 100) {
+        doc.addPage();
+        y = 40;
+      }
+
+      y = doc.page.height - 60;
+      doc.rect(0, y, doc.page.width, 60).fill(colors.light);
+      
+      doc.fontSize(10).fillColor(colors.dark)
+        .text('SoluFácil - Sistema de Gestión Crediticia', 40, y + 15);
+      
+      doc.fontSize(8).fillColor(colors.dark)
+        .text(`Reporte generado automáticamente el ${new Date().toLocaleDateString('es-ES')} a las ${new Date().toLocaleTimeString('es-ES')}`, 
+          40, y + 30);
+      
+      doc.fontSize(8).fillColor(colors.dark)
+        .text('⚠️ Este reporte contiene información confidencial', 
+          doc.page.width - 250, y + 30, { align: 'right', width: 200 });
+
+      doc.end();
+      console.log('✅ PDF de reporte de deuda mala generado exitosamente');
+
+    } catch (error) {
+      console.error('❌ Error generando PDF del reporte de deuda mala:', error);
+      res.status(500).json({ error: 'Error interno del servidor' });
+    }
+  });
+
 };
 
 
@@ -2671,3 +2934,4 @@ async function sendTelegramMessage(chatId: string, text: string) {
     console.error('❌ Error al enviar mensaje a Telegram:', error);
   }
 }
+
