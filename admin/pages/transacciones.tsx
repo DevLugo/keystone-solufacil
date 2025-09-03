@@ -97,6 +97,7 @@ export default function TransaccionesPage() {
   const [selectedLead, setSelectedLead] = useState<EmployeeWithTypename | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [routeSelectorKey, setRouteSelectorKey] = useState(0);
 
   const { data: routesData, loading: routesLoading } = useQuery(GET_ROUTES_SIMPLE, {
     variables: {
@@ -195,6 +196,10 @@ export default function TransaccionesPage() {
             selectedDate={selectedDate}
             selectedRoute={selectedRoute?.id || null}
             selectedLead={toCreditLead(selectedLead)}
+            onBalanceUpdate={() => {
+              // Forzar actualización del RouteLeadSelector
+              setRouteSelectorKey(prev => prev + 1);
+            }}
           />
         );
       case 'payments':
@@ -226,6 +231,7 @@ export default function TransaccionesPage() {
       <Box css={{ padding: '24px' }}>
         <Box css={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
           <RouteLeadSelector
+            key={routeSelectorKey}
             selectedRoute={selectedRoute}
             selectedLead={selectedLead}
             selectedDate={selectedDate}

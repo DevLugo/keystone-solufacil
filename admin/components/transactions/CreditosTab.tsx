@@ -1312,16 +1312,15 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         // ✅ ELIMINADO: Cerrar formulario - ya no aplica con tabla Excel
 
         // 3. Actualizar los datos en segundo plano
-        Promise.all([
+        await Promise.all([
           refetchRoute(),
           refetchLoans()
-        ]).then(() => {
-          // 4. Actualizar el balance local
-          if (onBalanceUpdate) {
-            const totalAmount = parseFloat(data.createLoan.amountGived);
-            onBalanceUpdate(-totalAmount);
-          }
-        });
+        ]);
+        
+        // 4. Llamar al callback para actualizar el RouteLeadSelector
+        if (onBalanceUpdate) {
+          onBalanceUpdate(0); // El valor no importa, solo dispara la actualización
+        }
       }
     } catch (error) {
       console.error('Error al crear el préstamo:', error);
@@ -1490,11 +1489,9 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
           refetchLoans()
         ]);
 
-        // Actualizar el balance local
+        // Llamar al callback para actualizar el RouteLeadSelector
         if (onBalanceUpdate) {
-          const totalAmount = data.createMultipleLoans.reduce((sum: number, loan: any) =>
-            sum + parseFloat(loan.amountGived || '0'), 0);
-          onBalanceUpdate(-totalAmount);
+          onBalanceUpdate(0); // El valor no importa, solo dispara la actualización
         }
       }
     } catch (error) {
@@ -1602,16 +1599,16 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       if (data?.deleteLoan) {
         setLoans(prevLoans => prevLoans.filter(loan => loan.id !== id));
 
-        Promise.all([
+        // Refrescar los datos y esperar a que terminen
+        await Promise.all([
           refetchLoans(),
           refetchRoute()
-        ]).then(() => {
-          if (onBalanceUpdate) {
-            const updatedBalance = routeBalance + parseFloat(data.deleteLoan.amountGived) + parseFloat(data.deleteLoan.comissionAmount || '0');
-            onBalanceUpdate(updatedBalance);
-            setRouteBalance(updatedBalance);
-          }
-        });
+        ]);
+
+        // Llamar al callback para actualizar el RouteLeadSelector
+        if (onBalanceUpdate) {
+          onBalanceUpdate(0); // El valor no importa, solo dispara la actualización
+        }
       }
     } catch (error) {
       console.error('Error al eliminar el préstamo:', error);
