@@ -965,15 +965,22 @@ export const Loan = list({
         }
       }
       
-      if (operation === 'delete') {
+      if (operation === 'delete' && item && item.id) {
+        console.log('🔍 BeforeOperation DELETE - Buscando transacciones del préstamo:', item.id);
         // Guardar las transacciones asociadas antes de eliminar el préstamo
-        const transactions = await context.prisma.transaction.findMany({
-          where: {
-            loanId: item.id.toString()
-          }
-        });
-        // Almacenar las transacciones en el contexto para usarlas después
-        (context as ExtendedContext).transactionsToDelete = transactions;
+        try {
+          const transactions = await context.prisma.transaction.findMany({
+            where: {
+              loanId: item.id.toString()
+            }
+          });
+          console.log(`📋 Encontradas ${transactions.length} transacciones para eliminar`);
+          // Almacenar las transacciones en el contexto para usarlas después
+          (context as ExtendedContext).transactionsToDelete = transactions;
+        } catch (error) {
+          console.error('❌ Error al buscar transacciones en beforeOperation:', error);
+          (context as ExtendedContext).transactionsToDelete = [];
+        }
       }
     },
     afterOperation: async ({ operation, item, context, originalItem }) => {
@@ -1226,15 +1233,32 @@ export const Loan = list({
       } else if (operation === 'delete' && originalItem) {
         try {
           console.log('🗑️ Iniciando eliminación de préstamo:', originalItem.id);
+          console.log('📝 Datos del préstamo a eliminar:', {
+            id: originalItem.id,
+            leadId: originalItem.leadId,
+            amountGived: originalItem.amountGived,
+            comissionAmount: originalItem.comissionAmount
+          });
+          
+          // Verificar que tengamos un leadId válido
+          if (!originalItem.leadId) {
+            console.log('⚠️ No se encontró leadId en el préstamo');
+            return;
+          }
           
           // Obtener el lead y la cuenta asociada
           const lead = await context.db.Employee.findOne({
             where: { id: originalItem.leadId as string },
           });
 
+          if (!lead || !lead.routesId) {
+            console.log('⚠️ No se encontró el lead o no tiene ruta asociada');
+            return;
+          }
+
           const account = await context.prisma.account.findFirst({
             where: { 
-              routeId: lead?.routesId,
+              routeId: lead.routesId,
               type: 'EMPLOYEE_CASH_FUND'
             },
           });
@@ -1266,7 +1290,7 @@ export const Loan = list({
           }
 
           // Actualizar balance de la cuenta
-          if (account) {
+          if (account && account.amount !== null && account.amount !== undefined) {
             const currentAmount = parseFloat(account.amount.toString());
             const loanAmount = parseFloat(originalItem.amountGived?.toString() || '0');
             const commissionAmount = parseFloat(originalItem.comissionAmount?.toString() || '0');
@@ -1286,7 +1310,7 @@ export const Loan = list({
             
             console.log('✅ Balance actualizado exitosamente');
           } else {
-            console.log('⚠️ No se encontró cuenta para actualizar balance');
+            console.log('⚠️ No se encontró cuenta para actualizar balance o el balance es null/undefined');
           }
         } catch (error) {
           console.error('❌ Error al eliminar transacciones asociadas al préstamo:', error);
