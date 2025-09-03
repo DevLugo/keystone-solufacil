@@ -1175,12 +1175,12 @@ export const extendGraphqlSchema = graphql.extend(base => {
             for (const payment of existingPayment.payments) {
               const paymentAmount = parseFloat((payment.amount || 0).toString());
               const commissionAmount = parseFloat((payment.comission || 0).toString());
-              const totalAmount = paymentAmount + commissionAmount; // ✅ INCLUIR comisión
+              const netAmount = paymentAmount - commissionAmount; // ingreso neto (abono menos comisión)
               
               if (payment.paymentMethod === 'CASH') {
-                oldCashAmountChange += totalAmount;
+                oldCashAmountChange += netAmount;
               } else {
-                oldBankAmountChange += totalAmount;
+                oldBankAmountChange += netAmount;
               }
             }
 
@@ -1257,24 +1257,27 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   leadId: leadId,
                 });
 
-                // ✅ AGREGAR: Crear transacción separada para la comisión si existe
+                // ✅ Crear transacción separada para la comisión si existe (como GASTO)
                 if (commissionAmount > 0) {
                   transactionData.push({
                     amount: (payment.comission || 0).toString(),
                     date: new Date(paymentDate),
-                    type: 'INCOME',
-                    incomeSource: 'LOAN_PAYMENT_COMISSION',
+                    type: 'EXPENSE',
+                    expenseSource: 'LOAN_PAYMENT_COMISSION',
+                    // usar la cuenta según el método de pago; fallback a efectivo
+                    sourceAccountId: payment.paymentMethod === 'CASH' ? cashAccount.id : (bankAccount?.id || cashAccount.id),
                     loanPaymentId: payment.id,
                     loanId: payment.loanId,
                     leadId: leadId,
+                    description: `Comisión por pago de préstamo - ${payment.id}`,
                   });
                 }
 
-                // Acumular cambios en balances (pago + comisión)
+                // Acumular cambios en balances (ingreso neto = pago - comisión)
                 if (payment.paymentMethod === 'CASH') {
-                  newCashAmountChange += totalAmount;
+                  newCashAmountChange += (paymentAmount - commissionAmount);
                 } else {
-                  newBankAmountChange += totalAmount;
+                  newBankAmountChange += (paymentAmount - commissionAmount);
                 }
               }
 
