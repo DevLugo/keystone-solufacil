@@ -267,6 +267,17 @@ const DELETE_LOAN = gql`
       id
       amountGived
       comissionAmount
+      lead {
+        id
+        routes {
+          id
+          accounts {
+            id
+            amount
+            type
+          }
+        }
+      }
     }
   }
 `;
@@ -425,6 +436,8 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       where: { id: selectedRoute }
     },
     skip: !selectedRoute,
+    fetchPolicy: 'cache-first',
+    nextFetchPolicy: 'cache-first',
   });
 
   const { data: loansData, loading: loansLoading, error: loansError, refetch: refetchLoans } = useQuery<{ loans: Loan[] }>(GET_LOANS, {
@@ -434,6 +447,8 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       leadId: selectedLead?.id || null
     },
     skip: !selectedDate || !selectedLead?.id,
+    fetchPolicy: 'cache-first',
+    nextFetchPolicy: 'cache-first', // Evitar refetch automático después del primer fetch
   });
 
   const { data: previousLoansData, loading: previousLoansLoading, refetch: refetchPreviousLoans } = useQuery(GET_PREVIOUS_LOANS, {
@@ -441,9 +456,13 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       leadId: selectedLead?.id || ''
     },
     skip: !selectedLead,
+    fetchPolicy: 'cache-first',
+    nextFetchPolicy: 'cache-first',
   });
 
-  const { data: loanTypesData, loading: loanTypesLoading } = useQuery(GET_LOAN_TYPES);
+  const { data: loanTypesData, loading: loanTypesLoading } = useQuery(GET_LOAN_TYPES, {
+    fetchPolicy: 'cache-first',
+  });
 
 
   const handleDateMoveSuccess = React.useCallback(() => {
@@ -1189,37 +1208,8 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     }
   }, [loansData]);
 
-  // Efecto para actualizar el estado cuando cambie la fecha o el líder
-  React.useEffect(() => {
-    if (selectedDate && selectedLead) {
-      // Recargar todos los datos
-      Promise.all([
-        refetchLoans(),
-        refetchRoute(),
-        refetchPreviousLoans()
-      ]).then(() => {
-        console.log('Datos recargados exitosamente');
-      }).catch(error => {
-        console.error('Error al recargar los datos:', error);
-      });
-    }
-  }, [selectedDate, selectedLead, refetchLoans, refetchRoute, refetchPreviousLoans]);
-
-  // Efecto para recargar datos cuando se active la pestaña
-  React.useEffect(() => {
-    if (selectedDate && selectedLead) {
-      // Recargar todos los datos
-      Promise.all([
-        refetchLoans(),
-        refetchRoute(),
-        refetchPreviousLoans()
-      ]).then(() => {
-        console.log('Datos recargados al activar la pestaña');
-      }).catch(error => {
-        console.error('Error al recargar los datos:', error);
-      });
-    }
-  }, [selectedDate, selectedLead, refetchLoans, refetchRoute, refetchPreviousLoans]);
+  // Efecto removido - Las queries de Apollo ya se ejecutan automáticamente cuando cambian las variables
+  // No es necesario forzar refetch manualmente
 
   // Efecto para actualizar el newLoan cuando cambie el líder
   React.useEffect(() => {
@@ -1590,16 +1580,38 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   const handleDeleteLoan = async (id: string) => {
     try {
       setIsDeleting(id);
+      
+      // Primero ejecutar la mutación
       const { data } = await deleteLoan({
         variables: {
           where: { id }
-        }
+        },
+        // Forzar la actualización del cache de Apollo
+        refetchQueries: [
+          {
+            query: GET_ROUTE,
+            variables: { where: { id: selectedRoute } }
+          }
+        ],
+        awaitRefetchQueries: true, // Esperar a que se completen los refetch
       });
 
       if (data?.deleteLoan) {
+        // Actualizar el estado local inmediatamente
         setLoans(prevLoans => prevLoans.filter(loan => loan.id !== id));
 
-        // Refrescar los datos y esperar a que terminen
+        // Si la mutación devuelve el balance actualizado, usarlo
+        if (data.deleteLoan.lead?.routes?.accounts) {
+          const updatedAccount = data.deleteLoan.lead.routes.accounts.find(
+            (acc: any) => acc.type === 'EMPLOYEE_CASH_FUND'
+          );
+          if (updatedAccount) {
+            console.log('✅ Balance actualizado desde la mutación:', updatedAccount.amount);
+            setRouteBalance(parseFloat(updatedAccount.amount));
+          }
+        }
+
+        // Refrescar los datos por si acaso
         await Promise.all([
           refetchLoans(),
           refetchRoute()
