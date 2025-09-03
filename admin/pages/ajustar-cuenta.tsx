@@ -15,7 +15,7 @@ const GET_ACCOUNTS_MINIMAL = gql`
       name
       type
       amount
-      route { id name }
+      routes { id name }
     }
   }
 `;
@@ -31,7 +31,10 @@ export default function AjustarCuentaPage() {
   const [mutate] = useMutation(ADJUST_ACCOUNT_BALANCE);
 
   const accounts = data?.accounts || [];
-  const accountOptions = useMemo(() => accounts.map((a: any) => ({ label: `${a.name} · ${a.type}`, value: a.id })), [accounts]);
+  const accountOptions = useMemo(() => accounts.map((a: any) => {
+    const routeName = a.routes && a.routes.length > 0 ? a.routes[0].name : 'Sin ruta';
+    return { label: `${a.name} · ${a.type} · ${routeName}`, value: a.id };
+  }), [accounts]);
 
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
   const [counterAccountId, setCounterAccountId] = useState<string>('');
@@ -66,7 +69,10 @@ export default function AjustarCuentaPage() {
 
   const counterOptions = useMemo(() => accounts
     .filter((a: any) => a.id !== selectedAccountId)
-    .map((a: any) => ({ label: `${a.name} · ${a.type}`, value: a.id })), [accounts, selectedAccountId]);
+    .map((a: any) => {
+      const routeName = a.routes && a.routes.length > 0 ? a.routes[0].name : 'Sin ruta';
+      return { label: `${a.name} · ${a.type} · ${routeName}`, value: a.id };
+    }), [accounts, selectedAccountId]);
 
   return (
     <PageContainer header="⚙️ Ajustar Cuenta">
