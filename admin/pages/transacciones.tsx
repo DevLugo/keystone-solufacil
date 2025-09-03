@@ -228,13 +228,13 @@ export default function TransaccionesPage() {
       <Box css={{ padding: '24px' }}>
         <Box css={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
           <RouteLeadSelector
-            key={routeSelectorKey}
             selectedRoute={selectedRoute}
             selectedLead={selectedLead}
             selectedDate={selectedDate}
             onRouteSelect={handleRouteSelect}
             onLeadSelect={handleLeadSelect}
             onDateSelect={date => handleDateChange(date.toISOString())}
+            forceRefresh={routeSelectorKey}
           />
         </Box>
 

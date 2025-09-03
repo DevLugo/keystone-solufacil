@@ -1048,30 +1048,39 @@ export const Loan = list({
           const loanAmount = parseAmount(item.requestedAmount);
           const basicProfitAmount = loanAmount * 0.20; // Valor base, se refinará después
 
+          // Preparar las transacciones a crear
+          const transactionsToCreate = [
+            {
+              amount: loanAmountNum.toString(),
+              date: new Date(item.signDate as string),
+              type: 'EXPENSE',
+              expenseSource: 'LOAN_GRANTED',
+              sourceAccountId: account.id,
+              loanId: item.id.toString(),
+              leadId: leadId
+            }
+          ];
+          
+          // Solo crear transacción de comisión si hay comisión
+          if (commissionAmountNum > 0) {
+            transactionsToCreate.push({
+              amount: commissionAmountNum.toString(),
+              date: new Date(item.signDate as string),
+              type: 'EXPENSE',
+              expenseSource: 'LOAN_GRANTED_COMISSION',
+              sourceAccountId: account.id,
+              loanId: item.id.toString(),
+              leadId: leadId
+            });
+          }
+          
+          console.log(`💳 Creando ${transactionsToCreate.length} transacciones (préstamo${commissionAmountNum > 0 ? ' + comisión' : ''})`);
+          
           // ULTRA OPTIMIZADO: Una sola transacción DB con todas las operaciones
           await prisma.$transaction([
             // Crear transacciones
             prisma.transaction.createMany({
-              data: [
-                {
-                  amount: loanAmountNum.toString(),
-                  date: new Date(item.signDate as string),
-                  type: 'EXPENSE',
-                  expenseSource: 'LOAN_GRANTED',
-                  sourceAccountId: account.id,
-                  loanId: item.id.toString(),
-                  leadId: leadId
-                },
-                {
-                  amount: commissionAmountNum.toString(),
-                  date: new Date(item.signDate as string),
-                  type: 'EXPENSE',
-                  expenseSource: 'LOAN_GRANTED_COMISSION',
-                  sourceAccountId: account.id,
-                  loanId: item.id.toString(),
-                  leadId: leadId
-                }
-              ]
+              data: transactionsToCreate
             }),
             // Actualizar balance de cuenta
             prisma.account.update({
@@ -1269,13 +1278,20 @@ export const Loan = list({
           const transactionsToDelete = (context as ExtendedContext).transactionsToDelete || [];
           
           console.log('📋 Transacciones a eliminar:', transactionsToDelete.length);
+          
+          // Mostrar detalles de las transacciones encontradas
+          transactionsToDelete.forEach(t => {
+            console.log(`   - Transacción: ${t.id}, Tipo: ${t.type}, Fuente: ${t.expenseSource}, Monto: ${t.amount}`);
+          });
 
           for (const transaction of transactionsToDelete) {
-            console.log(`🗑️ Eliminando transacción: ${transaction.id} - Monto: ${transaction.amount}`);
+            console.log(`🗑️ Eliminando transacción: ${transaction.id} - Tipo: ${transaction.expenseSource} - Monto: ${transaction.amount}`);
             await context.prisma.transaction.delete({
               where: { id: transaction.id }
             });
           }
+          
+          console.log('✅ Todas las transacciones eliminadas');
 
           // SI HAY UN PRÉSTAMO PREVIO, REACTIVARLO
           if (originalItem.previousLoanId) {
