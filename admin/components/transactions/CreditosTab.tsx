@@ -354,6 +354,7 @@ interface CreditosTabProps {
     };
     __typename: string;
   } | null;
+  isActive?: boolean;
   onBalanceUpdate?: (balance: number) => void;
 }
 
@@ -381,7 +382,7 @@ const DropdownPortal = ({ children, isOpen }: DropdownPortalProps) => {
   );
 };
 
-export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalanceUpdate }: CreditosTabProps) => {
+export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, isActive = true, onBalanceUpdate }: CreditosTabProps) => {
   const [loans, setLoans] = useState<Loan[]>([]);
   const [newLoan, setNewLoan] = useState<ExtendedLoan>({
     requestedAmount: '0',
@@ -435,7 +436,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     variables: {
       where: { id: selectedRoute }
     },
-    skip: !selectedRoute,
+    skip: !selectedRoute || !isActive,
     fetchPolicy: 'cache-first',
     nextFetchPolicy: 'cache-first',
   });
@@ -446,7 +447,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       nextDate: selectedDate ? new Date(new Date(selectedDate).setHours(24, 0, 0, 0)).toISOString() : '',
       leadId: selectedLead?.id || null
     },
-    skip: !selectedDate || !selectedLead?.id,
+    skip: !selectedDate || !selectedLead?.id || !isActive,
     fetchPolicy: 'cache-first',
     nextFetchPolicy: 'cache-first', // Evitar refetch automático después del primer fetch
   });
@@ -455,12 +456,13 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     variables: {
       leadId: selectedLead?.id || ''
     },
-    skip: !selectedLead,
+    skip: !selectedLead || !isActive,
     fetchPolicy: 'cache-first',
     nextFetchPolicy: 'cache-first',
   });
 
   const { data: loanTypesData, loading: loanTypesLoading } = useQuery(GET_LOAN_TYPES, {
+    skip: !isActive,
     fetchPolicy: 'cache-first',
   });
 
@@ -1655,11 +1657,10 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     if (routeData?.route) {
       const balance = routeData.route.accounts.reduce((total: any, account: any) => total + account.amount, 0);
       setRouteBalance(balance);
-      if (onBalanceUpdate) {
-        onBalanceUpdate(balance);
-      }
+      // NO llamar a onBalanceUpdate aquí - esto causa un bucle infinito
+      // Solo debe llamarse cuando explícitamente se crea/elimina/actualiza un préstamo
     }
-  }, [routeData, onBalanceUpdate]);
+  }, [routeData]);
 
   if (loansLoading || loanTypesLoading || previousLoansLoading) {
     return (

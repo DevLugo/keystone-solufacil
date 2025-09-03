@@ -173,46 +173,44 @@ export default function TransaccionesPage() {
       );
     }
 
-    switch (activeTab) {
-      case 'summary':
-        return (
+    // Renderizar todos los componentes pero ocultarlos según la tab activa
+    return (
+      <>
+        <Box css={{ display: activeTab === 'summary' ? 'block' : 'none' }}>
           <SummaryTab
             selectedDate={selectedDate}
             refreshKey={refreshKey}
           />
-        );
-      case 'expenses':
-        return (
+        </Box>
+        <Box css={{ display: activeTab === 'expenses' ? 'block' : 'none' }}>
           <CreateExpensesForm
             selectedDate={selectedDate}
             selectedRoute={toRoute(selectedRoute)}
             selectedLead={toEmployee(selectedLead)}
             refreshKey={refreshKey}
           />
-        );
-      case 'credits':
-        return (
+        </Box>
+        <Box css={{ display: activeTab === 'credits' ? 'block' : 'none' }}>
           <CreditosTab
             selectedDate={selectedDate}
             selectedRoute={selectedRoute?.id || null}
             selectedLead={toCreditLead(selectedLead)}
+            isActive={activeTab === 'credits'}
             onBalanceUpdate={() => {
               // Forzar actualización del RouteLeadSelector
               setRouteSelectorKey(prev => prev + 1);
             }}
           />
-        );
-      case 'payments':
-        return (
+        </Box>
+        <Box css={{ display: activeTab === 'payments' ? 'block' : 'none' }}>
           <CreatePaymentForm
             selectedDate={selectedDate}
             selectedRoute={toRoute(selectedRoute)}
             selectedLead={toEmployee(selectedLead)}
             refreshKey={refreshKey}
           />
-        );
-      case 'transfers':
-        return (
+        </Box>
+        <Box css={{ display: activeTab === 'transfers' ? 'block' : 'none' }}>
           <TransferForm
             selectedDate={selectedDate}
             selectedRoute={toRoute(selectedRoute)}
@@ -220,10 +218,9 @@ export default function TransaccionesPage() {
             refreshKey={refreshKey}
             onTransferComplete={handleRefresh}
           />
-        );
-      default:
-        return null;
-    }
+        </Box>
+      </>
+    );
   };
 
   return (
