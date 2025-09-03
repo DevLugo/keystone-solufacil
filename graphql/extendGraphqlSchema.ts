@@ -6,6 +6,35 @@ import { telegramGraphQLExtensions, telegramResolvers } from './telegramExtensio
 // Import fetch for Telegram API calls
 const fetch = require('node-fetch');
 
+// Helper function to safely convert Decimal or any value to number
+function safeToNumber(value: any): number {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+  
+  // Si es un objeto Decimal de Prisma
+  if (typeof value === 'object' && 'toNumber' in value) {
+    return value.toNumber();
+  }
+  
+  // Si es un string, convertir a número
+  if (typeof value === 'string') {
+    return parseFloat(value) || 0;
+  }
+  
+  // Si es un número, devolverlo directamente
+  if (typeof value === 'number') {
+    return value;
+  }
+  
+  // Fallback: intentar convertir a string y luego a número
+  try {
+    return parseFloat(String(value)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
 interface PaymentInput {
   id?: string;
   amount: number;
@@ -80,23 +109,23 @@ const CustomLeadPaymentReceivedType = graphql.object<LeadPaymentReceivedResponse
     }),
     expectedAmount: graphql.field({ 
       type: graphql.nonNull(graphql.Float),
-      resolve: (item) => parseFloat(item?.expectedAmount?.toString() || '0')
+      resolve: (item) => safeToNumber(item?.expectedAmount)
     }),
     paidAmount: graphql.field({ 
       type: graphql.nonNull(graphql.Float),
-      resolve: (item) => parseFloat(item?.paidAmount?.toString() || '0')
+      resolve: (item) => safeToNumber(item?.paidAmount)
     }),
     cashPaidAmount: graphql.field({ 
       type: graphql.nonNull(graphql.Float),
-      resolve: (item) => parseFloat(item?.cashPaidAmount?.toString() || '0')
+      resolve: (item) => safeToNumber(item?.cashPaidAmount)
     }),
     bankPaidAmount: graphql.field({ 
       type: graphql.nonNull(graphql.Float),
-      resolve: (item) => parseFloat(item?.bankPaidAmount?.toString() || '0')
+      resolve: (item) => safeToNumber(item?.bankPaidAmount)
     }),
     falcoAmount: graphql.field({ 
       type: graphql.nonNull(graphql.Float),
-      resolve: (item) => parseFloat(item?.falcoAmount?.toString() || '0')
+      resolve: (item) => safeToNumber(item?.falcoAmount)
     }),
     paymentStatus: graphql.field({ 
       type: graphql.nonNull(graphql.String),
@@ -697,8 +726,20 @@ export const extendGraphqlSchema = graphql.extend(base => {
           payments: graphql.arg({ type: graphql.nonNull(graphql.list(graphql.nonNull(PaymentInputType))) }),
         },
         resolve: async (root, { expectedAmount, cashPaidAmount = 0, bankPaidAmount = 0, agentId, leadId, payments, paymentDate }, context: Context): Promise<LeadPaymentReceivedResponse> => {
-          // Usar transacción para garantizar atomicidad
-          return await context.prisma.$transaction(async (tx) => {
+          try {
+            // Usar transacción para garantizar atomicidad
+            return await context.prisma.$transaction(async (tx) => {
+            // Log de entrada para debug
+            console.log('🚀 createCustomLeadPaymentReceived - Inicio:', {
+              expectedAmount,
+              cashPaidAmount,
+              bankPaidAmount,
+              agentId,
+              leadId,
+              paymentDate,
+              paymentsCount: payments?.length || 0
+            });
+            
             cashPaidAmount = cashPaidAmount ?? 0;
             bankPaidAmount = bankPaidAmount ?? 0;
             const totalPaidAmount = cashPaidAmount + bankPaidAmount;
@@ -727,8 +768,12 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
             });
 
-            if (!agent || !agent.routes) {
-              throw new Error(`Agente no encontrado o sin ruta asignada: ${agentId}`);
+            if (!agent) {
+              throw new Error(`Agente no encontrado: ${agentId}`);
+            }
+            
+            if (!agent.routes) {
+              throw new Error(`Agente sin ruta asignada: ${agentId}`);
             }
 
             // Obtener las cuentas de la ruta del agente
@@ -751,6 +796,18 @@ export const extendGraphqlSchema = graphql.extend(base => {
             }
 
             // Crear el LeadPaymentReceived
+            console.log('🔍 DEBUG - Creando LeadPaymentReceived con datos:', {
+              expectedAmount: expectedAmount.toFixed(2),
+              paidAmount: totalPaidAmount.toFixed(2),
+              cashPaidAmount: cashPaidAmount.toFixed(2),
+              bankPaidAmount: bankPaidAmount.toFixed(2),
+              falcoAmount: falcoAmount > 0 ? falcoAmount.toFixed(2) : '0.00',
+              paymentStatus,
+              agentId,
+              leadId,
+              paymentDate
+            });
+            
             const leadPaymentReceived = await tx.leadPaymentReceived.create({
               data: {
                 expectedAmount: expectedAmount.toFixed(2),
@@ -764,6 +821,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 leadId,
               },
             });
+            
+            console.log('✅ LeadPaymentReceived creado:', leadPaymentReceived.id);
 
             // Crear todos los pagos usando createMany para performance
             const createdPayments: any[] = [];
@@ -781,8 +840,21 @@ export const extendGraphqlSchema = graphql.extend(base => {
               await tx.loanPayment.createMany({ data: paymentData });
 
               // Obtener los pagos creados para crear las transacciones
+              console.log('🔍 DEBUG - Buscando pagos creados para leadPaymentReceivedId:', leadPaymentReceived.id);
+              
               const createdPaymentRecords = await tx.loanPayment.findMany({
                 where: { leadPaymentReceivedId: leadPaymentReceived.id }
+              });
+              
+              console.log('🔍 DEBUG - Pagos recuperados:', {
+                count: createdPaymentRecords.length,
+                firstPayment: createdPaymentRecords[0] ? {
+                  id: createdPaymentRecords[0].id,
+                  amount: createdPaymentRecords[0].amount,
+                  amountType: typeof createdPaymentRecords[0].amount,
+                  comission: createdPaymentRecords[0].comission,
+                  comissionType: typeof createdPaymentRecords[0].comission
+                } : null
               });
 
               // Crear las transacciones manualmente (lógica del hook)
@@ -793,8 +865,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
               console.log('🔍 DEBUG - Procesando pagos:', createdPaymentRecords.length);
 
               for (const payment of createdPaymentRecords) {
-                const paymentAmount = parseFloat((payment.amount || 0).toString());
-                const comissionAmount = parseFloat((payment.comission || 0).toString());
+                // Manejo seguro de valores Decimal de Prisma usando la función helper
+                const paymentAmount = safeToNumber(payment.amount);
+                const comissionAmount = safeToNumber(payment.comission);
                 
                 console.log('🔍 DEBUG - Payment:', {
                   id: payment.id,
@@ -805,7 +878,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 
                 // Preparar datos de transacción para el PAGO (INCOME)
                 transactionData.push({
-                  amount: (payment.amount || 0).toString(),
+                  amount: paymentAmount.toFixed(2),
                   date: new Date(paymentDate),
                   type: 'INCOME',
                   incomeSource: payment.paymentMethod === 'CASH' ? 'CASH_LOAN_PAYMENT' : 'BANK_LOAN_PAYMENT',
@@ -817,7 +890,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 // Preparar datos de transacción para la COMISIÓN (EXPENSE)
                 if (comissionAmount > 0) {
                   console.log('🔍 DEBUG - Creando transacción de comisión:', {
-                    amount: comissionAmount.toString(),
+                    amount: comissionAmount.toFixed(2),
                     date: new Date(paymentDate),
                     type: 'EXPENSE',
                     expenseSource: 'LOAN_PAYMENT_COMISSION',
@@ -829,7 +902,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   });
                   
                   transactionData.push({
-                    amount: comissionAmount.toString(),
+                    amount: comissionAmount.toFixed(2),
                     date: new Date(paymentDate),
                     type: 'EXPENSE',
                     expenseSource: 'LOAN_PAYMENT_COMISSION',
@@ -883,7 +956,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 const weekDuration = Number(loan.loantype?.weekDuration || 0);
                 const totalDebt = requested * (1 + rate);
                 const expectedWeekly = weekDuration > 0 ? (totalDebt / weekDuration) : 0;
-                const totalPaid = (loan.payments || []).reduce((s: number, p: any) => s + parseFloat((p.amount || 0).toString()), 0);
+                const totalPaid = (loan.payments || []).reduce((s: number, p: any) => s + safeToNumber(p.amount), 0);
                 const pending = Math.max(0, totalDebt - totalPaid);
                 await tx.loan.update({
                   where: { id: loanId },
@@ -922,7 +995,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
               // Actualizar balances de cuentas si hay cambios
               if (cashAmountChange > 0) {
-                const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
+                const currentCashAmount = safeToNumber(cashAccount.amount);
                 await tx.account.update({
                   where: { id: cashAccount.id },
                   data: { amount: (currentCashAmount + cashAmountChange).toString() }
@@ -930,7 +1003,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
 
               if (bankAmountChange > 0) {
-                const currentBankAmount = parseFloat((bankAccount.amount || 0).toString());
+                const currentBankAmount = safeToNumber(bankAccount.amount);
                 await tx.account.update({
                   where: { id: bankAccount.id },
                   data: { amount: (currentBankAmount + bankAmountChange).toString() }
@@ -987,7 +1060,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               });
               
               // Descontar el falco del balance de efectivo
-              const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
+              const currentCashAmount = safeToNumber(cashAccount.amount);
               await tx.account.update({
                 where: { id: cashAccount.id },
                 data: { amount: (currentCashAmount - falcoAmount).toString() }
@@ -996,11 +1069,11 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
             return {
               id: leadPaymentReceived.id,
-              expectedAmount: parseFloat(leadPaymentReceived.expectedAmount?.toString() || '0'),
-              paidAmount: parseFloat(leadPaymentReceived.paidAmount?.toString() || '0'),
-              cashPaidAmount: parseFloat(leadPaymentReceived.cashPaidAmount?.toString() || '0'),
-              bankPaidAmount: parseFloat(leadPaymentReceived.bankPaidAmount?.toString() || '0'),
-              falcoAmount: parseFloat(leadPaymentReceived.falcoAmount?.toString() || '0'),
+              expectedAmount: safeToNumber(leadPaymentReceived.expectedAmount),
+              paidAmount: safeToNumber(leadPaymentReceived.paidAmount),
+              cashPaidAmount: safeToNumber(leadPaymentReceived.cashPaidAmount),
+              bankPaidAmount: safeToNumber(leadPaymentReceived.bankPaidAmount),
+              falcoAmount: safeToNumber(leadPaymentReceived.falcoAmount),
               paymentStatus: leadPaymentReceived.paymentStatus || 'FALCO',
               payments: payments.map((p, index) => ({
                 id: `temp-${index}`, // ID temporal para evitar el error
@@ -1014,7 +1087,18 @@ export const extendGraphqlSchema = graphql.extend(base => {
               agentId,
               leadId,
             };
-          });
+            });
+          } catch (error) {
+            console.error('❌ ERROR en createCustomLeadPaymentReceived:', {
+              error: error instanceof Error ? error.message : error,
+              stack: error instanceof Error ? error.stack : undefined,
+              agentId,
+              leadId,
+              paymentDate,
+              paymentsCount: payments?.length || 0
+            });
+            throw error;
+          }
         },
       }),
       updateCustomLeadPaymentReceived: graphql.field({
@@ -1310,7 +1394,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
               // Ajustar balance de efectivo por el cambio en falco
               if (falcoChange !== 0) {
-                const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
+                const currentCashAmount = safeToNumber(cashAccount.amount);
                 const adjustedCashAmount = currentCashAmount - falcoChange; // Restar aumento de falco, sumar disminución
                 await tx.account.update({
                   where: { id: cashAccount.id },
