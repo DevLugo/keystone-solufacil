@@ -261,6 +261,7 @@ export const User = list({
 
 export const AuditLog = list({
   access: allowAll,
+  ui: { isHidden: true },
   fields: {
     // Información de la operación
     operation: select({
@@ -314,6 +315,7 @@ export const AuditLog = list({
 // Modelo para logs de ejecución de reportes automáticos
 export const ReportExecutionLog = list({
   access: allowAll,
+  ui: { isHidden: true },
   fields: {
     // Configuración del reporte que se ejecutó
     reportConfig: relationship({ ref: 'ReportConfig.executionLogs', many: false }),
@@ -370,6 +372,7 @@ export const ReportExecutionLog = list({
 
 export const Route = list({
   access: allowAll,
+  ui: { isHidden: true },
   fields: {
     name: text(),
     employees: relationship({ ref: 'Employee.routes', many: true }),
@@ -386,6 +389,7 @@ export const Route = list({
 
 export const Location = list({
   access: allowAll,
+  ui: { isHidden: true },
   fields: {
     name: text({ isIndexed: 'unique' }),
     municipality: relationship({ ref: 'Municipality.location' }),
@@ -397,6 +401,7 @@ export const Location = list({
 
 export const State = list({
   access: allowAll,
+  ui: { isHidden: true },
   fields: {
     name: text(),
     municipalities: relationship({ ref: 'Municipality.state', many: true }),
@@ -405,6 +410,7 @@ export const State = list({
 
 export const Municipality = list({
   access: allowAll,
+  ui: { isHidden: true },
   fields: {
     name: text(),
     state: relationship({ ref: 'State.municipalities' }),
@@ -535,6 +541,7 @@ export const Loantype = list({
 
 export const Phone = list({
   access: allowAll,
+  ui: { isHidden: true },
   fields: {
     number: text(),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
@@ -545,6 +552,7 @@ export const Phone = list({
 
 export const Address = list({
   access: allowAll,
+  ui: { isHidden: true },
   fields: {
     street: text(),
     exteriorNumber: text(),
@@ -594,6 +602,7 @@ export const Borrower = list({
     }),
   },
   ui: {
+    isHidden: true,
     listView: {
       initialColumns: ['fullName', 'id'],
     },
@@ -641,6 +650,7 @@ export const PersonalData = list({
       }
     }),
   },
+  ui: { isHidden: true },
   hooks: {
     afterOperation: async (args) => {
       const { operation, item, context } = args as any;
@@ -669,6 +679,7 @@ export const PersonalData = list({
 
 export const Loan = list({
   access: allowAll,
+  ui: { isHidden: true },
   db: {
     idField: { kind: 'cuid' },
   },
@@ -1283,11 +1294,7 @@ export const Loan = list({
       }
     },
   },
-  ui: {
-    listView: {
-      initialColumns: ['totalPayments', 'signDate', 'payments', 'oldId'],
-    },
-  },
+  
 });
 
 /* export const Profit = list({
@@ -1317,6 +1324,7 @@ export const LoanPayment = list({
       delete: () => true,
     },
   },
+  ui: { isHidden: true },
   fields: {
     amount: decimal({
       precision: 10,
@@ -1597,6 +1605,7 @@ export const LoanPayment = list({
 
 export const Transaction = list({
   access: allowAll,
+  ui: { isHidden: true },
   fields: {
     amount: decimal(),
     date: timestamp({ defaultValue: { kind: 'now' } }),
@@ -1967,6 +1976,7 @@ export const Transaction = list({
 
 export const CommissionPayment = list({
   access: allowAll,
+  ui: { isHidden: true },
   fields: {
     amount: decimal(),
     loan: relationship({ ref: 'Loan.commissionPayment' }),
@@ -1977,6 +1987,7 @@ export const CommissionPayment = list({
 
 export const LeadPaymentType = list({
   access: allowAll,
+  ui: { isHidden: true },
   fields: {
     type: select({
       options: [
@@ -1989,6 +2000,7 @@ export const LeadPaymentType = list({
 
 export const FalcoCompensatoryPayment = list({
   access: allowAll,
+  ui: { isHidden: true },
   fields: {
     amount: decimal(),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
@@ -2113,6 +2125,7 @@ export const FalcoCompensatoryPayment = list({
 
 export const LeadPaymentReceived = list({
   access: allowAll,
+  ui: { isHidden: true },
   fields: {
     expectedAmount: decimal(),
     paidAmount: decimal(),
@@ -2134,19 +2147,12 @@ export const LeadPaymentReceived = list({
     payments: relationship({ ref: 'LoanPayment.leadPaymentReceived', many: true }),
     transactions: relationship({ ref: 'Transaction.leadPaymentReceived', many: true }),
   },
-  ui: {
-    listView: {
-      initialColumns: ['expectedAmount', 'paidAmount', 'createdAt'],
-      initialSort: {
-        field: 'createdAt',
-        direction: 'DESC',
-      },
-    },
-  },
+  
 });
 
 export const PortfolioCleanup = list({
   access: allowAll,
+  ui: { isHidden: true },
   fields: {
     name: text({ validation: { isRequired: true } }),
     description: text(),
@@ -2168,15 +2174,7 @@ export const PortfolioCleanup = list({
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),
   },
-  ui: {
-    listView: {
-      initialColumns: ['name', 'cleanupDate', 'fromDate', 'toDate', 'route', 'executedBy'],
-      initialSort: {
-        field: 'cleanupDate',
-        direction: 'DESC',
-      },
-    },
-  },
+  
   hooks: {
     afterOperation: async ({ operation, item, context, originalItem }) => {
       const auditHook = createAuditHook('PortfolioCleanup', 
@@ -2194,6 +2192,7 @@ export const PortfolioCleanup = list({
 
 export const Account = list({
   access: allowAll,
+  ui: { isHidden: true },
   fields: {
     name: text(),
     type: select({
@@ -2273,19 +2272,13 @@ export const Account = list({
     updatedAt: timestamp(),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
   },
-  ui: {
-    itemView: {
-      defaultFieldMode: 'edit',
-    },
-    listView: {
-      initialColumns: ['name', 'type', 'amount', 'accountBalance', 'routes'],
-    },
-  },
+  
 });
 
 // Modelo para fotos de documentos personales
 export const DocumentPhoto = list({
   access: allowAll,
+  ui: { isHidden: true },
   graphql: {
     plural: 'DocumentPhotos',
   },
@@ -2316,16 +2309,13 @@ export const DocumentPhoto = list({
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),
   },
-  ui: {
-    listView: {
-      initialColumns: ['title', 'documentType', 'personalData', 'loan', 'isError', 'createdAt'],
-    },
-  },
+  
 });
 
 // Modelo para configuraciones de reportes automáticos
 export const ReportConfig = list({
   access: allowAll,
+  ui: { isHidden: true },
   graphql: {
     plural: 'ReportConfigs',
   },
@@ -2379,16 +2369,13 @@ export const ReportConfig = list({
       many: true
     }),
   },
-  ui: {
-    listView: {
-      initialColumns: ['name', 'reportType', 'channel', 'isActive', 'createdAt'],
-    },
-  },
+  
 });
 
 // Modelo para usuarios de Telegram
 export const TelegramUser = list({
   access: allowAll,
+  ui: { isHidden: true },
   graphql: {
     plural: 'TelegramUsers',
   },
@@ -2411,11 +2398,7 @@ export const TelegramUser = list({
     }),
 
   },
-  ui: {
-    listView: {
-      initialColumns: ['name', 'username', 'chatId', 'platformUser', 'isActive', 'isInRecipientsList', 'reportsReceived', 'lastActivity'],
-    },
-  },
+  
 });
 
 export const lists = {

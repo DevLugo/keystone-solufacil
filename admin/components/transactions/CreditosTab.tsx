@@ -490,9 +490,9 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     if (!previousLoansData?.loans || !selectedDate) {
       return [];
     }
-
+  
     const renewedTodayBorrowerIds = new Set<string>();
-
+  
     if (loansData?.loans) {
       loansData.loans.forEach((loan: any) => {
         if (loan.previousLoan && loan.borrower?.id) {
@@ -500,36 +500,36 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         }
       });
     }
-
+  
     pendingLoans.forEach((loan: any) => {
       if (loan.previousLoan && loan.borrower?.id) {
         renewedTodayBorrowerIds.add(loan.borrower.id);
       }
     });
-
-    const borrowerLoans = previousLoansData.loans.reduce((acc: { [key: string]: any }, loan: any) => {
+  
+    // ✅ CORREGIDO: Buscar el préstamo más reciente de cada cliente, sin importar si está finalizado
+    const latestBorrowerLoans = previousLoansData.loans.reduce((acc: { [key: string]: any }, loan: any) => {
       const borrowerId = loan.borrower?.id;
       if (!borrowerId || renewedTodayBorrowerIds.has(borrowerId)) {
         return acc;
       }
-
-      if (loan.finishedDate) {
-        if (!acc[borrowerId] || new Date(loan.signDate) > new Date(acc[borrowerId].signDate)) {
-          acc[borrowerId] = loan;
-        }
+  
+      if (!acc[borrowerId] || new Date(loan.signDate) > new Date(acc[borrowerId].signDate)) {
+        acc[borrowerId] = loan;
       }
+      
       return acc;
     }, {});
-
-    const sortedLoans = Object.values(borrowerLoans).sort((a: any, b: any) =>
+  
+    const sortedLoans = Object.values(latestBorrowerLoans).sort((a: any, b: any) =>
       (a.borrower?.personalData?.fullName || '').localeCompare(b.borrower?.personalData?.fullName || '')
     );
-
+  
     return sortedLoans.map((loan: any) => {
       const borrowerName = loan.borrower?.personalData?.fullName || 'Sin nombre';
-      const finishDate = new Date(loan.finishedDate).toLocaleDateString('es-MX');
+      const finishDate = loan.finishedDate ? new Date(loan.finishedDate).toLocaleDateString('es-MX') : 'Activo';
       const pendingAmount = calculateLocalPendingAmount(loan);
-
+  
       return {
         value: loan.id,
         label: `${borrowerName} - ${finishDate}`,
