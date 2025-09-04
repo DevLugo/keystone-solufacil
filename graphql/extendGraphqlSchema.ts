@@ -5439,468 +5439,276 @@ export const extendGraphqlSchema = graphql.extend(base => {
       year: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
     },
     resolve: async (root, { routeIds, year }, context: Context) => {
-          try {
-            // Obtener información de las rutas
-            const routes = await context.prisma.route.findMany({
-              where: { id: { in: routeIds } }
-            });
-
-            if (routes.length === 0) {
-              throw new Error('No se encontraron rutas');
-            }
-
-            if (routes.length !== routeIds.length) {
-              throw new Error('Algunas rutas no fueron encontradas');
-            }
-
-            // Obtener todas las transacciones del año para las rutas seleccionadas
-            const transactions = await context.prisma.transaction.findMany({
-              where: {
-                routeId: { in: routeIds },
-                date: {
-                  gte: new Date(`${year}-01-01`),
-                  lte: new Date(`${year}-12-31`),
-                },
-              },
-              select: {
-                amount: true,
-                type: true,
-                date: true,
-                expenseSource: true,
-                incomeSource: true,
-                loanPayment: true,
-                returnToCapital: true,
-                profitAmount: true,
-                lead: {
-                  select: {
-                    id: true,
-                    personalData: {
-                      select: {
-                        addresses: {
-                          select: {
-                            location: {
-                              select: {
-                                name: true
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            });
-
-            // Obtener cuentas de gasolina
-            const tokaAccount = await context.prisma.account.findFirst({
-              where: {
-                type: 'PREPAID_GAS'
-              }
-            });
-
-            const cashAccount = await context.prisma.account.findFirst({
-              where: {
-                type: 'OFFICE_CASH_FUND'
-              }
-            });
-
-            console.log(`⛽ getFinancialReport - Cuenta TOKA: ${tokaAccount?.id || 'No encontrada'}`);
-            console.log(`💵 getFinancialReport - Cuenta Efectivo: ${cashAccount?.id || 'No encontrada'}`);
-            
-            // Debug: Buscar todas las cuentas para ver qué hay
-            const allAccounts = await context.prisma.account.findMany({
-              select: { id: true, name: true }
-            });
-            console.log(`🏦 getFinancialReport - Todas las cuentas:`, allAccounts);
-            
-            // Debug: Buscar todas las transacciones de gasolina sin filtros
-            const allGasolinaTransactions = await context.prisma.transaction.findMany({
-              where: {
-                type: 'EXPENSE',
-                expenseSource: 'GASOLINE'
-              },
-              select: {
-                id: true,
-                amount: true,
-                sourceAccountId: true,
-                expenseSource: true,
-                date: true,
-                routeId: true
-              }
-            });
-            console.log(`⛽ getFinancialReport - Todas las transacciones de gasolina:`, allGasolinaTransactions);
-
-            // Obtener TODOS los préstamos de las rutas seleccionadas (sin filtrar por signDate)
-            const loans = await context.prisma.loan.findMany({
-              where: {
-                lead: {
-                  routesId: { in: routeIds }
+      try {
+        // Obtener información de las rutas
+        const routes = await context.prisma.route.findMany({
+          where: { id: { in: routeIds } },
+          select: { id: true, name: true }
+        });
+  
+        if (routes.length === 0) {
+          throw new Error('No se encontraron rutas');
+        }
+  
+        // Definir rango de fechas del año
+        const yearStart = new Date(`${year}-01-01`);
+        const yearEnd = new Date(`${year}-12-31T23:59:59.999Z`);
+  
+        // 1. Obtener TODAS las transacciones del año en una sola consulta
+        const transactions = await context.prisma.transaction.findMany({
+          where: {
+            route: { id: { in: routeIds } },
+            date: {
+              gte: yearStart,
+              lte: yearEnd,
+            },
+          },
+          select: {
+            amount: true,
+            type: true,
+            date: true,
+            expenseSource: true,
+            incomeSource: true,
+            sourceAccountId: true,
+            profitAmount: true,
+          }
+        });
+  
+        // 2. Obtener préstamos relevantes en una sola consulta optimizada
+        const loans = await context.prisma.loan.findMany({
+          where: {
+            lead: {
+              routes: { id: { in: routeIds } }
+            },
+            OR: [
+              // Préstamos firmados en el año
+              {
+                signDate: {
+                  gte: yearStart,
+                  lte: yearEnd
                 }
               },
-              include: {
-                payments: true,
-                borrower: {
-                  include: {
-                    personalData: {
-                      include: {
-                        addresses: {
-                          include: {
-                            location: true
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            });
-            //filter loans by badDebtDate = to january 2025
-            console.log('loans', loans.length);
-            const loansWithBadDebtDate = loans.filter(loan => loan.badDebtDate);
-            console.log('loansWithBadDebtDate', loansWithBadDebtDate.length);
-
-            // Agrupar transacciones por mes
-            const monthlyData = transactions.reduce((acc, transaction) => {
-              const transactionDate = transaction.date ? new Date(transaction.date) : new Date();
-              const month = transactionDate.getMonth() + 1; // 1-12
-              const monthKey = month.toString().padStart(2, '0');
-
-              if (!acc[monthKey]) {
-                acc[monthKey] = {
-                  totalExpenses: 0,      // Gastos operativos totales
-                  generalExpenses: 0,    // Gastos generales (sin nómina/comisiones)
-                  nomina: 0,             // Gastos de nómina
-                  comissions: 0,         // Comisiones pagadas
-                  incomes: 0,            // Ingresos por cobros (solo ganancia)
-                  totalCash: 0,          // Flujo de efectivo total
-                  loanDisbursements: 0,  // Préstamos otorgados (reinversión)
-                  carteraActiva: 0,      // Créditos activos
-                  carteraVencida: 0,     // Cartera vencida
-                  renovados: 0,
-                  badDebtAmount: 0,      // Suma de préstamos marcados como badDebtDate en el mes          // Créditos renovados
-                  // Nuevos campos para flujo de efectivo
-                  totalIncomingCash: 0,  // Total que entra por pagos (capital + ganancia)
-                  capitalReturn: 0,      // Capital devuelto
-                  profitReturn: 0,       // Ganancia de los pagos
-                  operationalCashUsed: 0, // Dinero usado en operación
-                  // Campos para ROI real
-                  totalInvestment: 0,    // Inversión total (préstamos + gastos operativos)
-                  // Campos para gasolina
-                  tokaGasolina: 0,       // Gasolina de cuenta TOKA
-                  cashGasolina: 0,       // Gasolina de cuenta efectivo (incluye OFFICE_CASH_FUND y EMPLOYEE_CASH_FUND)
-                  totalGasolina: 0,      // Total de gasolina
-                  operationalExpenses: 0, // Solo gastos operativos (sin préstamos)
-                    availableCash: 0,      // Dinero disponible en cajas
-                  // Travel expenses (cuenta TRAVEL_EXPENSES)
-                  travelExpenses: 0,
-                    // Métricas de pagos
-                    paymentsCount: 0,
-                    gainPerPayment: 0
-                };
-              }
-
-              const amount = Number(transaction.amount || 0);
-              const monthData = acc[monthKey];
-
-              // Clasificar transacciones
-              if (transaction.type === 'EXPENSE') {
-                switch (transaction.expenseSource) {
-                  case 'NOMINA_SALARY':
-                  case 'EXTERNAL_SALARY':
-                    monthData.nomina += amount;
-                    monthData.operationalCashUsed += amount;
-                    monthData.operationalExpenses += amount;
-                    monthData.totalInvestment += amount;
-                    break;
-                  case 'TRAVEL_EXPENSES':
-                    // Gastos de viaje asociados a la ruta (cuenta TRAVEL_EXPENSES)
-                    monthData.travelExpenses += amount;
-                    monthData.operationalCashUsed += amount;
-                    monthData.operationalExpenses += amount;
-                    monthData.totalInvestment += amount;
-                    break;
-                  case 'LOAN_PAYMENT_COMISSION':
-                  case 'LOAN_GRANTED_COMISSION':
-                  case 'LEAD_COMISSION':
-                    monthData.comissions += amount;
-                    monthData.operationalCashUsed += amount;
-                    monthData.operationalExpenses += amount;
-                    monthData.totalInvestment += amount;
-                    break;
-                  case 'LOAN_GRANTED':
-                    monthData.loanDisbursements += amount;
-                    monthData.operationalCashUsed += amount;
-                    monthData.totalInvestment += amount; // Préstamos también son inversión
-                    break;
-                  default:
-                    // Gastos operativos (viáticos, gasolina, mantenimiento, etc.)
-                    monthData.generalExpenses += amount;
-                    monthData.operationalCashUsed += amount;
-                    monthData.operationalExpenses += amount;
-                    monthData.totalInvestment += amount;
-                    break;
-                }
-                
-                // Todos los gastos suman al total
-                monthData.totalExpenses += amount;
-                monthData.totalCash -= amount;
-              } else if (transaction.type === 'INCOME') {
-                if (transaction.incomeSource === 'CASH_LOAN_PAYMENT' || 
-                    transaction.incomeSource === 'BANK_LOAN_PAYMENT') {
-                  // Total que entra por pagos
-                  monthData.totalIncomingCash += amount;
-                  
-                  // Ganancia del pago
-                  const profit = Number(transaction.profitAmount || 0);
-                  monthData.profitReturn += profit;
-                  monthData.incomes += profit;
-                  
-                  // Capital devuelto = total del pago - ganancia
-                  const capitalReturned = amount - profit;
-                  monthData.capitalReturn += capitalReturned;
-                  
-                  monthData.totalCash += amount; // El total incluye capital + ganancia
-                  // Contador de pagos
-                  monthData.paymentsCount += 1;
-                } else {
-                  // Otros ingresos
-                  monthData.incomes += amount;
-                  monthData.totalIncomingCash += amount;
-                  monthData.profitReturn += amount; // Otros ingresos son 100% ganancia
-                  monthData.totalCash += amount;
-                }
-              }
-
-              return acc;
-            }, {} as { [month: string]: any });
-
-            // Calcular gasolina por mes
-            if (tokaAccount || cashAccount) {
-              for (let month = 1; month <= 12; month++) {
-                const monthKey = month.toString().padStart(2, '0');
-                const monthStart = new Date(year, month - 1, 1);
-                const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
-
-                                // Obtener transacciones de gasolina para este mes
-                const gasolinaTransactions = await context.prisma.transaction.findMany({
-                  where: {
-                    routeId: { in: routeIds },
-                    date: {
-                      gte: monthStart,
-                      lte: monthEnd,
-                    },
+              // Préstamos activos durante el año (sin fecha de finalización o finalizado después del inicio del año)
+              {
+                AND: [
+                  { signDate: { lt: yearEnd } },
+                  {
                     OR: [
-                      // Gasolina de cuenta TOKA
-                      ...(tokaAccount ? [{
-                        sourceAccountId: tokaAccount.id,
-                        type: 'EXPENSE',
-                        expenseSource: 'GASOLINE'
-                      }] : []),
-                      // Gasolina de cuentas de efectivo (OFFICE_CASH_FUND y EMPLOYEE_CASH_FUND)
-                      {
-                        type: 'EXPENSE',
-                        expenseSource: 'GASOLINE',
-                        sourceAccount: {
-                          type: {
-                            in: ['OFFICE_CASH_FUND', 'EMPLOYEE_CASH_FUND']
-                          }
-                        }
-                      }
+                      { finishedDate: null },
+                      { finishedDate: { gte: yearStart } }
                     ]
                   }
-                });
-
-                console.log(`⛽ getFinancialReport - Mes ${monthKey}: Encontradas ${gasolinaTransactions.length} transacciones de gasolina`);
-                if (gasolinaTransactions.length > 0) {
-                  console.log(`⛽ getFinancialReport - Detalles de transacciones:`, gasolinaTransactions.map(t => ({
-                    id: t.id,
-                    amount: t.amount,
-                    sourceAccountId: t.sourceAccountId,
-                    expenseSource: t.expenseSource,
-                    date: t.date
-                  })));
-                }
-
-                let tokaGasolina = 0;
-                let cashGasolina = 0;
-
-                for (const transaction of gasolinaTransactions) {
-                  const amount = Number(transaction.amount || 0);
-                  
-                  if (transaction.sourceAccountId === tokaAccount?.id) {
-                    tokaGasolina += amount;
-                  } else {
-                    // Todo lo demás es efectivo (OFFICE_CASH_FUND y EMPLOYEE_CASH_FUND)
-                    cashGasolina += amount;
-                  }
-                }
-
-                if (monthlyData[monthKey]) {
-                  monthlyData[monthKey].tokaGasolina = tokaGasolina;
-                  monthlyData[monthKey].cashGasolina = cashGasolina;
-                  monthlyData[monthKey].totalGasolina = tokaGasolina + cashGasolina;
-                }
-
-                console.log(`⛽ getFinancialReport - Mes ${monthKey}: TOKA=${tokaGasolina}, Efectivo=${cashGasolina}, Total=${tokaGasolina + cashGasolina}`);
+                ]
+              }
+            ]
+          },
+          select: {
+            id: true,
+            signDate: true,
+            finishedDate: true,
+            badDebtDate: true,
+            amountGived: true,
+            profitAmount: true,
+            previousLoanId: true,
+            payments: {
+              select: {
+                amount: true,
+                receivedAt: true,
+                createdAt: true
               }
             }
-
-            // Calcular métricas adicionales para cada mes
-            Object.keys(monthlyData).forEach(monthKey => {
-              const data = monthlyData[monthKey];
-              
-              // Gastos operativos = gastos generales + nómina + comisiones (no incluye préstamos)
-              const operationalExpenses = data.generalExpenses + data.nomina + data.comissions;
-              data.totalExpenses = operationalExpenses;
-              
-              // Ganancia operativa = (solo la ganancia de los cobros) - gastos operativos
-              // Usamos profitReturn (ganancia de pagos + otros ingresos considerados 100% ganancia)
-              data.balance = data.incomes - operationalExpenses; // referencia histórica
-              data.operationalProfit = Number(data.profitReturn || 0) - operationalExpenses;
-              
-              // Porcentaje de ganancia operativa vs. ganancia generada
-              data.profitPercentage = Number(data.profitReturn || 0) > 0
-                ? ((data.operationalProfit / Number(data.profitReturn)) * 100)
-                : 0;
-              
-              // Balance considerando reinversión
-              data.balanceWithReinvest = data.balance - data.loanDisbursements;
-              
-              // Ganancia por pago recibido basada en ganancia operativa (evitar división por 0)
-              const payments = Number(data.paymentsCount || 0);
-              const operationalProfit = Number(data.operationalProfit || 0);
-              data.gainPerPayment = payments > 0 ? operationalProfit / payments : 0;
-            });
-
-            // Calcular cartera activa y vencida por mes
-            // También calcular dinero en caja acumulativo
-            let cumulativeCashBalance = 0;
-            
-            for (let month = 1; month <= 12; month++) {
-              const monthKey = month.toString().padStart(2, '0');
-              const monthStart = new Date(year, month - 1, 1);
-              const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
-              console.log('monthStart', monthStart);
-              console.log('monthEnd', monthEnd);
-              
-              if (!monthlyData[monthKey]) {
-                monthlyData[monthKey] = {
-                  totalExpenses: 0, generalExpenses: 0, nomina: 0, comissions: 0,
-                  incomes: 0, totalCash: 0, loanDisbursements: 0, balance: 0,
-                  profitPercentage: 0, balanceWithReinvest: 0, carteraActiva: 0,
-                  carteraVencida: 0, carteraMuerta: 0, renovados: 0,
-                  badDebtAmount: 0,      // Suma de préstamos marcados como badDebtDate en el mes
-                  totalIncomingCash: 0, capitalReturn: 0, profitReturn: 0, 
-                  operationalCashUsed: 0, totalInvestment: 0, operationalExpenses: 0, 
-                  availableCash: 0,
-                  // Campos para gasolina
-                  tokaGasolina: 0, cashGasolina: 0, totalGasolina: 0
-                };
+          }
+        });
+  
+        // 3. Obtener cuentas de gasolina una sola vez
+        const gasolineAccounts = await context.prisma.account.findMany({
+          where: {
+            OR: [
+              { type: 'PREPAID_GAS' },
+              { type: 'OFFICE_CASH_FUND' },
+              { type: 'EMPLOYEE_CASH_FUND' }
+            ]
+          },
+          select: { id: true, type: true }
+        });
+  
+        const tokaAccountId = gasolineAccounts.find(acc => acc.type === 'PREPAID_GAS')?.id;
+        const cashAccountIds = gasolineAccounts
+          .filter(acc => acc.type === 'OFFICE_CASH_FUND' || acc.type === 'EMPLOYEE_CASH_FUND')
+          .map(acc => acc.id);
+  
+        // Inicializar estructura de datos mensual
+        const monthlyData: { [key: string]: any } = {};
+        
+        // Inicializar todos los meses
+        for (let month = 1; month <= 12; month++) {
+          const monthKey = month.toString().padStart(2, '0');
+          monthlyData[monthKey] = {
+            totalExpenses: 0,
+            generalExpenses: 0,
+            nomina: 0,
+            comissions: 0,
+            incomes: 0,
+            totalCash: 0,
+            loanDisbursements: 0,
+            carteraActiva: 0,
+            carteraVencida: 0,
+            renovados: 0,
+            badDebtAmount: 0,
+            totalIncomingCash: 0,
+            capitalReturn: 0,
+            profitReturn: 0,
+            operationalCashUsed: 0,
+            totalInvestment: 0,
+            tokaGasolina: 0,
+            cashGasolina: 0,
+            totalGasolina: 0,
+            operationalExpenses: 0,
+            availableCash: 0,
+            travelExpenses: 0,
+            paymentsCount: 0,
+            gainPerPayment: 0,
+            balance: 0,
+            operationalProfit: 0,
+            profitPercentage: 0,
+            balanceWithReinvest: 0,
+            carteraMuerta: 0,
+            uiExpensesTotal: 0,
+            uiGainsTotal: 0
+          };
+        }
+  
+        // 4. Procesar transacciones agrupadas por mes
+        for (const transaction of transactions) {
+          const transactionDate = transaction.date ? new Date(transaction.date) : new Date();
+          const month = transactionDate.getMonth() + 1;
+          const monthKey = month.toString().padStart(2, '0');
+  
+          const amount = Number(transaction.amount || 0);
+          const monthData = monthlyData[monthKey];
+  
+          // Clasificar transacciones
+          if (transaction.type === 'EXPENSE') {
+            // Clasificar gastos de gasolina
+            if (transaction.expenseSource === 'GASOLINE') {
+              if (transaction.sourceAccountId === tokaAccountId) {
+                monthData.tokaGasolina += amount;
+              } else if (cashAccountIds.includes(transaction.sourceAccountId || '')) {
+                monthData.cashGasolina += amount;
               }
-
-              // Calcular flujo de caja del mes
-              const monthCashFlow = monthlyData[monthKey].totalCash || 0;
-              cumulativeCashBalance += monthCashFlow;
-              monthlyData[monthKey].availableCash = Math.max(0, cumulativeCashBalance);
-
-              // Contar préstamos activos al final del mes
-              let activeLoans = 0;
-              let overdueLoans = 0;
-              let deadLoans = 0;
-              let renewedLoans = 0;
-
-              loans.forEach(loan => {
-                const signDate = new Date(loan.signDate);
-                /*   if(loan.badDebtDate) {
-                    console.log('badDebtDate', loan.badDebtDate);
-                  } */
-                
-                // Solo procesar préstamos firmados hasta este mes
-                if (signDate <= monthEnd) {
-                  // Verificar si está activo al final del mes
-                  const isActive = isLoanActiveOnDate(loan, monthEnd);
-                  
-                  if (isActive) {
-                    activeLoans++;
-                    
-                    // Verificar si está vencido (sin pagos en el mes)
-                    let hasPaymentInMonth = false;
-                    for (const payment of loan.payments || []) {
-                      const paymentDate = new Date(payment.receivedAt || payment.createdAt);
-                      if (paymentDate >= monthStart && paymentDate <= monthEnd) {
-                        hasPaymentInMonth = true;
-                        break;
-                      }
-                    }
-                    
-                    if (!hasPaymentInMonth && loan.badDebtDate && new Date(loan.badDebtDate) <= monthEnd) {
-                      overdueLoans++;
-                    }
-                  }
-                  
-                  // Contar cartera muerta (préstamos con badDebtDate establecido al final del mes)
-                  if (loan.badDebtDate && new Date(loan.badDebtDate) <= monthEnd) {
-                    deadLoans++;
-                  }
-                  
-                  // Contar renovados en el mes
-                  if (loan.previousLoanId && signDate >= monthStart && signDate <= monthEnd) {
-                    renewedLoans++;
-                  }
+              monthData.totalGasolina += amount;
+              monthData.generalExpenses += amount;
+            } else {
+              // Otros gastos
+              switch (transaction.expenseSource) {
+                case 'NOMINA_SALARY':
+                case 'EXTERNAL_SALARY':
+                  monthData.nomina += amount;
+                  monthData.operationalExpenses += amount;
+                  break;
+                case 'TRAVEL_EXPENSES':
+                  monthData.travelExpenses += amount;
+                  monthData.operationalExpenses += amount;
+                  break;
+                case 'LOAN_PAYMENT_COMISSION':
+                case 'LOAN_GRANTED_COMISSION':
+                case 'LEAD_COMISSION':
+                  monthData.comissions += amount;
+                  monthData.operationalExpenses += amount;
+                  break;
+                case 'LOAN_GRANTED':
+                  monthData.loanDisbursements += amount;
+                  break;
+                default:
+                  monthData.generalExpenses += amount;
+                  monthData.operationalExpenses += amount;
+                  break;
+              }
+            }
+            
+            monthData.totalExpenses += amount;
+            monthData.totalCash -= amount;
+            monthData.operationalCashUsed += amount;
+            
+            if (transaction.expenseSource !== 'LOAN_GRANTED') {
+              monthData.totalInvestment += amount;
+            }
+          } else if (transaction.type === 'INCOME') {
+            if (transaction.incomeSource === 'CASH_LOAN_PAYMENT' || 
+                transaction.incomeSource === 'BANK_LOAN_PAYMENT') {
+              monthData.totalIncomingCash += amount;
+              const profit = Number(transaction.profitAmount || 0);
+              monthData.profitReturn += profit;
+              monthData.incomes += profit;
+              monthData.capitalReturn += (amount - profit);
+              monthData.paymentsCount += 1;
+            } else {
+              monthData.incomes += amount;
+              monthData.totalIncomingCash += amount;
+              monthData.profitReturn += amount;
+            }
+            monthData.totalCash += amount;
+          }
+        }
+  
+        // 5. Calcular cartera y métricas de préstamos por mes (optimizado)
+        let cumulativeCashBalance = 0;
+        
+        for (let month = 1; month <= 12; month++) {
+          const monthKey = month.toString().padStart(2, '0');
+          const monthStart = new Date(year, month - 1, 1);
+          const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
+          
+          // Flujo de caja acumulado
+          const monthCashFlow = monthlyData[monthKey].totalCash || 0;
+          cumulativeCashBalance += monthCashFlow;
+          monthlyData[monthKey].availableCash = Math.max(0, cumulativeCashBalance);
+  
+          // Contar préstamos por estado (optimizado)
+          let activeLoans = 0;
+          let overdueLoans = 0;
+          let deadLoans = 0;
+          let renewedLoans = 0;
+          let badDebtAmount = 0;
+          let carteraMuertaTotal = 0;
+  
+          for (const loan of loans) {
+            const signDate = new Date(loan.signDate);
+            
+            // Solo procesar préstamos relevantes para este mes
+            if (signDate > monthEnd) continue;
+            
+            // Verificar si está activo al final del mes
+            const isActive = !loan.finishedDate || new Date(loan.finishedDate) > monthEnd;
+            
+            if (isActive) {
+              activeLoans++;
+              
+              // Verificar si está vencido (sin pagos en el mes)
+              let hasPaymentInMonth = false;
+              for (const payment of loan.payments || []) {
+                const paymentDate = new Date(payment.receivedAt || payment.createdAt);
+                if (paymentDate >= monthStart && paymentDate <= monthEnd) {
+                  hasPaymentInMonth = true;
+                  break;
                 }
-              });
-
-              monthlyData[monthKey].carteraActiva = activeLoans;
-              monthlyData[monthKey].carteraVencida = overdueLoans;
-              monthlyData[monthKey].carteraMuerta = deadLoans;
-              monthlyData[monthKey].renovados = renewedLoans;
-              // Calcular suma de préstamos marcados como badDebtDate en este mes
-              // (sin importar cuándo fueron creados originalmente)
-              let badDebtAmount = 0;
-              console.log(`🔍 getFinancialReport - Procesando mes ${monthKey}: monthStart=${monthStart.toISOString()}, monthEnd=${monthEnd.toISOString()}`);
+              }
               
-              // Buscar SOLO los préstamos que fueron marcados como badDebtDate EN ESTE MES específico
-              console.log(`🔍 getFinancialReport - Total de préstamos en la ruta: ${loans.length}`);
-              console.log(`🔍 getFinancialReport - Buscando préstamos marcados como badDebtDate EN ${monthKey}:`);
+              if (!hasPaymentInMonth && loan.badDebtDate && new Date(loan.badDebtDate) <= monthEnd) {
+                overdueLoans++;
+              }
+            }
+            
+            // Contar cartera muerta
+            if (loan.badDebtDate) {
+              const badDebtDate = new Date(loan.badDebtDate);
               
-              const badDebtLoans = loans.filter(loan => {
-                if (!loan.badDebtDate) return false;
-                
-                const badDebtDate = new Date(loan.badDebtDate);
-                console.log(`📅 getFinancialReport - Loan ${loan.id}: badDebtDate=${badDebtDate.toISOString()}, original=${loan.badDebtDate}`);
-                
-                // Comparar solo por fecha (sin hora) para evitar problemas de zona horaria
-                const badDebtDateOnly = new Date(badDebtDate.getFullYear(), badDebtDate.getMonth(), badDebtDate.getDate());
-                const monthStartOnly = new Date(monthStart.getFullYear(), monthStart.getMonth(), monthStart.getDate());
-                const monthEndOnly = new Date(monthEnd.getFullYear(), monthEnd.getMonth(), monthEnd.getDate());
-                
-                console.log(`🔍 getFinancialReport - Comparando fechas: badDebtDateOnly=${badDebtDateOnly.toISOString()}, monthStartOnly=${monthStartOnly.toISOString()}, monthEndOnly=${monthEndOnly.toISOString()}`);
-                
-                // SOLO incluir si fue marcado EN ESTE MES específico
-                const isMarkedInThisMonth = badDebtDateOnly >= monthStartOnly && badDebtDateOnly <= monthEndOnly;
-                
-                if (isMarkedInThisMonth) {
-                  console.log(`✅ getFinancialReport - Loan ${loan.id} marcado como bad debt EN ${monthKey}`);
-                } else {
-                  console.log(`❌ getFinancialReport - Loan ${loan.id} NO fue marcado en ${monthKey} (fue marcado en ${badDebtDateOnly.getMonth() + 1}/${badDebtDateOnly.getFullYear()})`);
-                }
-                
-                return isMarkedInThisMonth;
-              });
-              
-              console.log(`📊 getFinancialReport - Encontrados ${badDebtLoans.length} préstamos marcados como bad debt en mes ${monthKey}`);
-              
-              // Calcular la deuda pendiente para cada préstamo marcado como bad debt
-              badDebtLoans.forEach(loan => {
-                const badDebtDate = new Date(loan.badDebtDate!);
-                
-                // Calcular deuda pendiente: monto prestado + ganancia - total pagado
+              // Préstamos marcados como bad debt en este mes específico
+              if (badDebtDate >= monthStart && badDebtDate <= monthEnd) {
                 const amountGived = Number(loan.amountGived || 0);
                 const profitAmount = Number(loan.profitAmount || 0);
                 const totalToPay = amountGived + profitAmount;
                 
-                // Calcular total pagado hasta la fecha de marcado como bad debt
                 let totalPaid = 0;
                 for (const payment of loan.payments || []) {
                   const paymentDate = new Date(payment.receivedAt || payment.createdAt || new Date());
@@ -5909,98 +5717,80 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   }
                 }
                 
-                // La deuda pendiente es lo que falta por pagar
-                const pendingDebt = totalToPay - totalPaid;
-                console.log(`💰 getFinancialReport - Loan ${loan.id}: amountGived=${amountGived}, profitAmount=${profitAmount}, totalToPay=${totalToPay}, totalPaid=${totalPaid}, pendingDebt=${pendingDebt}`);
-                
-                badDebtAmount += Math.max(0, pendingDebt);
-              });
+                const pendingDebt = Math.max(0, totalToPay - totalPaid);
+                badDebtAmount += pendingDebt;
+              }
               
-              console.log(`�� getFinancialReport - Mes ${monthKey}: badDebtAmount total = ${badDebtAmount}`);
-              monthlyData[monthKey].badDebtAmount = badDebtAmount;
-              
-              // Calcular cartera muerta para este mes
-              let carteraMuertaTotal = 0;
-              console.log(`💀 getFinancialReport - Calculando cartera muerta para mes ${monthKey}:`);
-              
-              // Buscar préstamos marcados como badDebtDate hasta el final de este mes
-              const deadLoansArray = loans.filter(loan => {
-                if (!loan.badDebtDate) return false;
-                const badDebtDate = new Date(loan.badDebtDate);
-                return badDebtDate <= monthEnd;
-              });
-              
-              console.log(`💀 getFinancialReport - Encontrados ${deadLoansArray.length} préstamos marcados como bad debt hasta ${monthKey}`);
-              
-              deadLoansArray.forEach(loan => {
-                // Calcular deuda pendiente
+              // Acumulado de cartera muerta
+              if (badDebtDate <= monthEnd) {
+                deadLoans++;
                 const amountGived = Number(loan.amountGived || 0);
                 const profitAmount = Number(loan.profitAmount || 0);
                 const totalToPay = amountGived + profitAmount;
                 
-                // Calcular total pagado hasta la fecha de marcado como bad debt
                 let totalPaid = 0;
                 let gananciaCobrada = 0;
                 for (const payment of loan.payments || []) {
                   const paymentDate = new Date(payment.receivedAt || payment.createdAt || new Date());
-                  if (paymentDate <= new Date(loan.badDebtDate!)) {
+                  if (paymentDate <= badDebtDate) {
                     totalPaid += Number(payment.amount || 0);
-                    // La ganancia cobrada se calcula del profitAmount del pago
-                    gananciaCobrada += Number(payment.profitAmount || 0);
+                    // Aproximación de ganancia cobrada
+                    gananciaCobrada += Number(payment.amount || 0) * (profitAmount / totalToPay);
                   }
                 }
                 
-                // Deuda pendiente
                 const deudaPendiente = totalToPay - totalPaid;
-                
-                // Ganancia pendiente por cobrar
                 const gananciaPendiente = profitAmount - gananciaCobrada;
-                
-                // Cartera muerta = Deuda pendiente - Ganancia pendiente por cobrar
                 const carteraMuerta = deudaPendiente - gananciaPendiente;
-                
-                console.log(`💀 getFinancialReport - Loan ${loan.id}: amountGived=${amountGived}, profitAmount=${profitAmount}, totalToPay=${totalToPay}, totalPaid=${totalPaid}, gananciaCobrada=${gananciaCobrada}, deudaPendiente=${deudaPendiente}, gananciaPendiente=${gananciaPendiente}, carteraMuerta=${carteraMuerta}`);
-                
                 carteraMuertaTotal += Math.max(0, carteraMuerta);
-              });
-              
-              console.log(`💀 getFinancialReport - Mes ${monthKey}: carteraMuertaTotal = ${carteraMuertaTotal}`);
-              monthlyData[monthKey].carteraMuerta = carteraMuertaTotal;
-
-              // Recalcular métricas dependientes incluyendo deuda mala como gasto operativo
-              const opExpensesBase = (Number(monthlyData[monthKey].generalExpenses || 0) + Number(monthlyData[monthKey].nomina || 0) + Number(monthlyData[monthKey].comissions || 0));
-              const uiExpensesTotal = opExpensesBase + Number(monthlyData[monthKey].badDebtAmount || 0) + Number(monthlyData[monthKey].travelExpenses || 0);
-              const uiGainsTotal = Number(monthlyData[monthKey].incomes || 0);
-              monthlyData[monthKey].uiExpensesTotal = uiExpensesTotal;
-              monthlyData[monthKey].uiGainsTotal = uiGainsTotal;
-              // Ganancia operativa final: total ganancias (UI) - total gastos (UI)
-              monthlyData[monthKey].operationalProfit = uiGainsTotal - uiExpensesTotal;
-              // % de ganancia operativa respecto a las ganancias totales de UI
-              monthlyData[monthKey].profitPercentage = uiGainsTotal > 0 ? ((monthlyData[monthKey].operationalProfit / uiGainsTotal) * 100) : 0;
-              // Ganancia por pago con nueva operativa
-              const paymentsCnt = Number(monthlyData[monthKey].paymentsCount || 0);
-              monthlyData[monthKey].gainPerPayment = paymentsCnt > 0 ? (monthlyData[monthKey].operationalProfit / paymentsCnt) : 0;
+              }
             }
-
-            // Usar función helper externa para verificar si un préstamo está activo
-
-            return {
-              routes: routes.map(route => ({
-                id: route.id,
-                name: route.name
-              })),
-              year,
-              months: [
-                'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
-                'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'
-              ],
-              data: monthlyData
-            };
-
-          } catch (error) {
-            console.error('Error in getFinancialReport:', error);
-            throw new Error(`Error generating financial report: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            
+            // Contar renovados en el mes
+            if (loan.previousLoanId && signDate >= monthStart && signDate <= monthEnd) {
+              renewedLoans++;
+            }
           }
+  
+          monthlyData[monthKey].carteraActiva = activeLoans;
+          monthlyData[monthKey].carteraVencida = overdueLoans;
+          monthlyData[monthKey].carteraMuerta = carteraMuertaTotal;
+          monthlyData[monthKey].renovados = renewedLoans;
+          monthlyData[monthKey].badDebtAmount = badDebtAmount;
+  
+          // Recalcular métricas finales
+          const data = monthlyData[monthKey];
+          const operationalExpenses = data.generalExpenses + data.nomina + data.comissions;
+          data.totalExpenses = operationalExpenses;
+          data.balance = data.incomes - operationalExpenses;
+          data.balanceWithReinvest = data.balance - data.loanDisbursements;
+          
+          const uiExpensesTotal = operationalExpenses + data.badDebtAmount + data.travelExpenses;
+          const uiGainsTotal = data.incomes;
+          data.uiExpensesTotal = uiExpensesTotal;
+          data.uiGainsTotal = uiGainsTotal;
+          data.operationalProfit = uiGainsTotal - uiExpensesTotal;
+          data.profitPercentage = uiGainsTotal > 0 ? ((data.operationalProfit / uiGainsTotal) * 100) : 0;
+          data.gainPerPayment = data.paymentsCount > 0 ? (data.operationalProfit / data.paymentsCount) : 0;
+        }
+  
+        return {
+          routes: routes.map(route => ({
+            id: route.id,
+            name: route.name
+          })),
+          year,
+          months: [
+            'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
+            'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'
+          ],
+          data: monthlyData
+        };
+  
+      } catch (error) {
+        console.error('Error in getFinancialReport:', error);
+        throw new Error(`Error generating financial report: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
         },
       }),
       // Query para obtener cartera por ruta
