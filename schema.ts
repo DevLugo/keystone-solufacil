@@ -1232,7 +1232,11 @@ export const Loan = list({
 
           const account = await context.prisma.account.findFirst({
             where: { 
-              routeId: lead?.routesId,
+              routes: {
+                some: {
+                  id: lead?.routesId
+                }
+              },
               type: 'EMPLOYEE_CASH_FUND'
             },
           });
@@ -1241,7 +1245,7 @@ export const Loan = list({
           const transactionsToDelete = (context as ExtendedContext).transactionsToDelete || [];
 
           for (const transaction of transactionsToDelete) {
-            await context.prisma.transaction.delete({
+            await context.db.Transaction.deleteOne({
               where: { id: transaction.id }
             });
           }
@@ -1259,7 +1263,7 @@ export const Loan = list({
 
           // Actualizar balance de la cuenta
             if (account) {
-              const currentAmount = parseFloat(account.amount.toString());
+              const currentAmount = parseFloat(account.amount?.toString() || '0');
               const loanAmount = parseFloat(originalItem.amountGived?.toString() || '0');
               const commissionAmount = parseFloat(originalItem.comissionAmount?.toString() || '0');
               const totalAmount = loanAmount + commissionAmount;
