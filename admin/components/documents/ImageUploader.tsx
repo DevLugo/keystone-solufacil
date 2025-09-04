@@ -5,7 +5,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@keystone-ui/button';
 import { LoadingDots } from '@keystone-ui/loading';
-import { FaUpload, FaCamera, FaTrash, FaEye, FaExclamationTriangle } from 'react-icons/fa';
+import { FaUpload, FaCamera, FaTrash, FaEye, FaExclamationTriangle, FaSyncAlt, FaCheck, FaArrowsAltH } from 'react-icons/fa';
 import { Box, Text } from '@keystone-ui/core';
 
 interface ImageUploaderProps {
@@ -43,9 +43,54 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' | 'warning' } | null>(null);
   const [isCameraReady, setIsCameraReady] = useState(false);
+  const [currentCamera, setCurrentCamera] = useState<'front' | 'back'>('back'); // Por defecto cámara trasera
+  const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Función para obtener las cámaras disponibles
+  const getAvailableCameras = async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(device => device.kind === 'videoinput');
+      setAvailableCameras(videoDevices);
+      return videoDevices;
+    } catch (error) {
+      console.error('Error al obtener dispositivos:', error);
+      return [];
+    }
+  };
+
+  // Función para obtener el deviceId de la cámara actual
+  const getCameraDeviceId = (cameras: MediaDeviceInfo[], cameraType: 'front' | 'back') => {
+    if (cameras.length === 0) return undefined;
+    
+    // Buscar cámara trasera (back) por defecto
+    if (cameraType === 'back') {
+      // Intentar encontrar cámara trasera por label
+      const backCamera = cameras.find(camera => 
+        camera.label.toLowerCase().includes('back') || 
+        camera.label.toLowerCase().includes('rear') ||
+        camera.label.toLowerCase().includes('environment')
+      );
+      if (backCamera) return backCamera.deviceId;
+      
+      // Si no se encuentra, usar la primera cámara (generalmente la trasera en móviles)
+      return cameras[0].deviceId;
+    } else {
+      // Buscar cámara frontal (front)
+      const frontCamera = cameras.find(camera => 
+        camera.label.toLowerCase().includes('front') || 
+        camera.label.toLowerCase().includes('user') ||
+        camera.label.toLowerCase().includes('facing')
+      );
+      if (frontCamera) return frontCamera.deviceId;
+      
+      // Si no se encuentra, usar la segunda cámara (generalmente la frontal en móviles)
+      return cameras.length > 1 ? cameras[1].deviceId : cameras[0].deviceId;
+    }
+  };
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -119,9 +164,14 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   const handleCapturePhoto = async () => {
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       try {
+        // Obtener cámaras disponibles
+        const cameras = await getAvailableCameras();
+        const deviceId = getCameraDeviceId(cameras, currentCamera);
+        
         // Configuración más compatible con macOS
         const constraints = {
           video: {
+            deviceId: deviceId ? { exact: deviceId } : undefined,
             width: { ideal: 1280, min: 640 },
             height: { ideal: 720, min: 480 },
             frameRate: { ideal: 30, min: 15 }
@@ -230,6 +280,50 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
     setCameraError(null);
   };
 
+  // Función para cambiar entre cámaras
+  const switchCamera = async () => {
+    if (!showCamera) return;
+    
+    const newCamera = currentCamera === 'front' ? 'back' : 'front';
+    setCurrentCamera(newCamera);
+    
+    // Cerrar stream actual
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+    }
+    
+    try {
+      // Obtener cámaras disponibles
+      const cameras = await getAvailableCameras();
+      const deviceId = getCameraDeviceId(cameras, newCamera);
+      
+      const constraints = {
+        video: {
+          deviceId: deviceId ? { exact: deviceId } : undefined,
+          width: { ideal: 1280, min: 640 },
+          height: { ideal: 720, min: 480 },
+          frameRate: { ideal: 30, min: 15 }
+        }
+      };
+
+      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      setStream(mediaStream);
+      
+      // Actualizar el video element
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+        videoRef.current.play().catch(e => {
+          console.log('Error al reproducir video:', e);
+          setCameraError('Error al reproducir el video de la cámara');
+        });
+      }
+    } catch (error) {
+      console.error('Error al cambiar cámara:', error);
+      setMessage({ text: 'Error al cambiar de cámara', tone: 'error' });
+      setTimeout(() => setMessage(null), 3000);
+    }
+  };
+
   // Limpiar stream cuando se desmonte el componente
   useEffect(() => {
     return () => {
@@ -244,13 +338,13 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       {/* Message */}
       {message && (
         <Box
-          css={{
+          style={{
             marginBottom: '12px',
             padding: '8px 12px',
-            backgroundColor: message.tone === 'success' ? '#dcfce7' : 
+            backgroundColor: message.tone === 'success' ? '#f0f9ff' : 
                             message.tone === 'error' ? '#fef2f2' : '#fef3c7',
             borderLeft: `4px solid ${
-              message.tone === 'success' ? '#16a34a' : 
+              message.tone === 'success' ? '#0ea5e9' : 
               message.tone === 'error' ? '#dc2626' : '#d97706'
             }`,
             borderRadius: '4px',
@@ -259,12 +353,12 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
             gap: '8px'
           }}
         >
-          {message.tone === 'success' && <FaCheck color="#16a34a" size={14} />}
+          {message.tone === 'success' && <FaCheck color="#0ea5e9" size={14} />}
           {message.tone === 'error' && <FaExclamationTriangle color="#dc2626" size={14} />}
           {message.tone === 'warning' && <FaExclamationTriangle color="#d97706" size={14} />}
           <Text 
             size="small" 
-            color={message.tone === 'success' ? 'green600' : 
+            color={message.tone === 'success' ? 'blue600' : 
                    message.tone === 'error' ? 'red600' : 'orange600'}
           >
             {message.text}
@@ -403,10 +497,11 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
               color: 'white',
               fontSize: '18px',
               fontWeight: 'bold',
-              marginBottom: '16px'
+              marginBottom: '8px'
             }}>
               Capturar Foto
             </div>
+            
             
             {/* Video de la cámara */}
             <video
@@ -447,6 +542,44 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
                 setIsCameraReady(false);
               }}
             />
+            
+            {/* Botón para cambiar de cámara */}
+            {availableCameras.length > 1 && (
+              <div style={{
+                position: 'absolute',
+                top: '10px',
+                right: '10px',
+                zIndex: 10
+              }}>
+                <button
+                  onClick={switchCamera}
+                  style={{
+                    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                    color: 'white',
+                    border: '1px solid rgba(255, 255, 255, 0.3)',
+                    borderRadius: '50%',
+                    width: '40px',
+                    height: '40px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+                    e.currentTarget.style.transform = 'scale(1.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
+                    e.currentTarget.style.transform = 'scale(1)';
+                  }}
+                  title={`Cambiar a cámara ${currentCamera === 'front' ? 'trasera' : 'frontal'}`}
+                >
+                  <FaArrowsAltH size={16} />
+                </button>
+              </div>
+            )}
             
             {/* Indicador de estado de la cámara */}
             {!isCameraReady && !cameraError && (
@@ -526,7 +659,9 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
                 style={{
                   padding: '12px 24px',
                   fontSize: '14px',
-                  backgroundColor: isCameraReady && !cameraError ? '#10b981' : '#9ca3af'
+                  backgroundColor: isCameraReady && !cameraError ? '#0ea5e9' : '#9ca3af',
+                  color: 'white',
+                  border: 'none'
                 }}
               >
                 {isUploading ? 'Capturando...' : '📸 Capturar'}

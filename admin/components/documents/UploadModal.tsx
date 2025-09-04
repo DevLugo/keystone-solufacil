@@ -203,10 +203,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({
           <Box
             css={{
               padding: '12px 20px',
-              backgroundColor: message.tone === 'success' ? '#dcfce7' : 
+              backgroundColor: message.tone === 'success' ? '#f0f9ff' : 
                               message.tone === 'error' ? '#fef2f2' : '#fef3c7',
               borderLeft: `4px solid ${
-                message.tone === 'success' ? '#16a34a' : 
+                message.tone === 'success' ? '#0ea5e9' : 
                 message.tone === 'error' ? '#dc2626' : '#d97706'
               }`,
               display: 'flex',
@@ -214,12 +214,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               gap: '8px'
             }}
           >
-            {message.tone === 'success' && <FaCheck color="#16a34a" />}
+            {message.tone === 'success' && <FaCheck color="#0ea5e9" />}
             {message.tone === 'error' && <FaExclamationTriangle color="#dc2626" />}
             {message.tone === 'warning' && <FaExclamationTriangle color="#d97706" />}
             <Text 
               size="small" 
-              color={message.tone === 'success' ? 'green600' : 
+              color={message.tone === 'success' ? 'blue600' : 
                      message.tone === 'error' ? 'red600' : 'orange600'}
             >
               {message.text}
@@ -231,7 +231,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         <Box css={{ padding: '20px' }}>
 
           <Box marginBottom="large">
-            <Text weight="medium" size="small" color="neutral" marginBottom="small">
+            <Text weight="medium" size="small"  marginBottom="small">
               Imagen del documento *
             </Text>
             <ImageUploader
@@ -244,7 +244,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
           </Box>
 
           <Box marginBottom="large">
-            <Text weight="medium" size="small" color="neutral" marginBottom="small">
+            <Text weight="medium" size="small"  marginBottom="small">
               Descripción (opcional)
             </Text>
             <TextInput
@@ -317,13 +317,13 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               marginBottom: '20px'
             }}
           >
-            <Text size="small" color="neutral" marginBottom="xsmall">
+            <Text size="small"  marginBottom="xsmall">
               <strong>Tipo:</strong> {getTypeLabel(documentType)}
             </Text>
-            <Text size="small" color="neutral" marginBottom="xsmall">
+            <Text size="small"  marginBottom="xsmall">
               <strong>Persona:</strong> {getPersonLabel(personType)}
             </Text>
-            <Text size="small" color="neutral">
+            <Text size="small" >
               <strong>Nombre:</strong> {personName}
             </Text>
           </Box>
@@ -387,15 +387,15 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               }}
             >
               {isUploading ? (
-                <>
+                <React.Fragment>
                   <FaUpload size={14} />
                   Subiendo...
-                </>
+                </React.Fragment>
               ) : (
-                <>
+                <React.Fragment>
                   <FaCheck size={14} />
                   Subir Documento
-                </>
+                </React.Fragment>
               )}
             </Button>
           </Box>
