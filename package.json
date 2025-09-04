@@ -6,7 +6,7 @@
     "dev": "keystone dev",
     "dev:test": "cross-env NODE_ENV=test dotenv -e .env.test -- keystone dev",
     "start": "keystone start",
-    "build": "keystone build && keystone prisma migrate deploy",
+    "build": "NEXT_PRIVATE_MIN_WORKER_TIMEOUT=120000 keystone build && keystone prisma migrate deploy",
     "build:production": "npm ci --omit=dev && keystone build && keystone prisma migrate deploy",
     "generate": "keystone prisma migrate dev",
     "postinstall": "keystone postinstall",
