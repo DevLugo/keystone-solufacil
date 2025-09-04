@@ -1,0 +1,36 @@
+# Archivos de configuración y de entorno local
+.env
+.env.*
+!.env.example
+.vscode/
+
+# Dependencias y logs
+node_modules
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+
+# Archivos del sistema operativo
+.DS_Store
+Thumbs.db
+
+# Directorios y archivos de prueba y desarrollo
+cypress/
+cypress.config.ts
+jest.config.js
+jest.setup.ts
+utils/__tests__/
+
+# Documentos y archivos multimedia innecesarios para producción
+*.pdf
+*.xlsm
+*.xml
+*.png
+*.svg
+*.md
+!solufacil.png
+
+# Copias de seguridad y archivos temporales
+*.copy
+untitled*
+debug-*.js
