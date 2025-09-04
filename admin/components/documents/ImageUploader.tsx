@@ -49,6 +49,9 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  // Detectar si estamos en un dispositivo móvil
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
   // Función para obtener las cámaras disponibles
   const getAvailableCameras = async () => {
     try {
@@ -162,45 +165,61 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   };
 
   const handleCapturePhoto = async () => {
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      try {
-        // Obtener cámaras disponibles
-        const cameras = await getAvailableCameras();
-        const deviceId = getCameraDeviceId(cameras, currentCamera);
-        
-        // Configuración más compatible con macOS
-        const constraints = {
-          video: {
-            deviceId: deviceId ? { exact: deviceId } : undefined,
-            width: { ideal: 1280, min: 640 },
-            height: { ideal: 720, min: 480 },
-            frameRate: { ideal: 30, min: 15 }
-          }
-        };
-
-        const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-        
-        setStream(mediaStream);
-        setShowCamera(true);
-        
-        // Esperar a que el DOM se actualice antes de inicializar el video
-        setTimeout(() => {
-          if (videoRef.current) {
-            videoRef.current.srcObject = mediaStream;
-            // Forzar la reproducción del video
-            videoRef.current.play().catch(e => {
-              console.log('Error al reproducir video:', e);
-              setCameraError('Error al reproducir el video de la cámara');
-            });
-          }
-        }, 100);
-        
-      } catch (error) {
-        console.error('Error al acceder a la cámara:', error);
-        alert('No se pudo acceder a la cámara. Asegúrate de dar permisos y que no esté siendo usada por otra aplicación.');
+    if (isMobile) {
+      // En móviles, usar input file con capture para abrir la app nativa de cámara
+      if (fileInputRef.current) {
+        fileInputRef.current.click();
       }
     } else {
-      alert('Tu navegador no soporta la captura de fotos');
+      // En desktop, usar la cámara web como antes
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        try {
+          // Obtener cámaras disponibles
+          const cameras = await getAvailableCameras();
+          const deviceId = getCameraDeviceId(cameras, currentCamera);
+          
+          // Configuración para usar la cámara nativa del dispositivo móvil
+          const constraints = {
+            video: {
+              deviceId: deviceId ? { exact: deviceId } : undefined,
+              width: { ideal: 1920, min: 1280 },
+              height: { ideal: 1080, min: 720 },
+              frameRate: { ideal: 30, min: 15 },
+              // Habilitar funciones avanzadas de la cámara nativa
+              facingMode: currentCamera === 'back' ? 'environment' : 'user',
+              // Configuraciones para mejor calidad en móviles
+              aspectRatio: { ideal: 16/9 },
+              // Habilitar enfoque automático y otras funciones
+              focusMode: 'continuous',
+              whiteBalanceMode: 'continuous',
+              exposureMode: 'continuous'
+            }
+          };
+
+          const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+          
+          setStream(mediaStream);
+          setShowCamera(true);
+          
+          // Esperar a que el DOM se actualice antes de inicializar el video
+          setTimeout(() => {
+            if (videoRef.current) {
+              videoRef.current.srcObject = mediaStream;
+              // Forzar la reproducción del video
+              videoRef.current.play().catch(e => {
+                console.log('Error al reproducir video:', e);
+                setCameraError('Error al reproducir el video de la cámara');
+              });
+            }
+          }, 100);
+          
+        } catch (error) {
+          console.error('Error al acceder a la cámara:', error);
+          alert('No se pudo acceder a la cámara. Asegúrate de dar permisos y que no esté siendo usada por otra aplicación.');
+        }
+      } else {
+        alert('Tu navegador no soporta la captura de fotos');
+      }
     }
   };
 
@@ -300,9 +319,17 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       const constraints = {
         video: {
           deviceId: deviceId ? { exact: deviceId } : undefined,
-          width: { ideal: 1280, min: 640 },
-          height: { ideal: 720, min: 480 },
-          frameRate: { ideal: 30, min: 15 }
+          width: { ideal: 1920, min: 1280 },
+          height: { ideal: 1080, min: 720 },
+          frameRate: { ideal: 30, min: 15 },
+          // Habilitar funciones avanzadas de la cámara nativa
+          facingMode: newCamera === 'back' ? 'environment' : 'user',
+          // Configuraciones para mejor calidad en móviles
+          aspectRatio: { ideal: 16/9 },
+          // Habilitar enfoque automático y otras funciones
+          focusMode: 'continuous',
+          whiteBalanceMode: 'continuous',
+          exposureMode: 'continuous'
         }
       };
 
@@ -371,6 +398,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
         ref={fileInputRef}
         type="file"
         accept="image/*"
+        capture={isMobile ? (currentCamera === 'back' ? 'environment' : 'user') : undefined}
         onChange={handleFileSelect}
         style={{ display: 'none' }}
         disabled={disabled || isUploading}
@@ -543,8 +571,8 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
               }}
             />
             
-            {/* Botón para cambiar de cámara */}
-            {availableCameras.length > 1 && (
+            {/* Botón para cambiar de cámara - Solo en desktop */}
+            {!isMobile && availableCameras.length > 1 && (
               <div style={{
                 position: 'absolute',
                 top: '10px',
@@ -673,9 +701,22 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
               color: '#9ca3af',
               fontSize: '14px',
               marginTop: '16px',
-              padding: '0 20px'
+              padding: '0 20px',
+              textAlign: 'center'
             }}>
-              Posiciona el documento en el centro de la pantalla y presiona "Capturar"
+              {isMobile ? (
+                <>
+                  📱 Se abrirá la app nativa de cámara
+                  <br />
+                  Toma la foto y regresará automáticamente
+                  <br />
+                  <small style={{ opacity: 0.7 }}>
+                    (Todas las funciones nativas disponibles)
+                  </small>
+                </>
+              ) : (
+                'Posiciona el documento en el centro de la pantalla y presiona "Capturar"'
+              )}
             </div>
           </div>
         </div>
@@ -717,7 +758,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
           }}
         >
           <FaCamera size={12} style={{ marginRight: '6px' }} />
-          Cámara
+          {isMobile ? '📱 Cámara' : 'Cámara'}
         </Button>
 
         {previewUrl && (
