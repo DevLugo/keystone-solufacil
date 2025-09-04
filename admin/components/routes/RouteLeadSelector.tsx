@@ -58,6 +58,7 @@ interface RouteLeadSelectorProps {
   onLeadSelect: (lead: Employee | null) => void;
   onDateSelect: (date: Date) => void;
   hideDateField?: boolean; // Nueva prop para ocultar el campo de fecha
+  forceRefresh?: number; // Prop para forzar refresh con loading
 }
 
 const styles = {
@@ -262,6 +263,7 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
   onLeadSelect,
   onDateSelect,
   hideDateField = false,
+  forceRefresh = 0,
 }) => {
   // OPTIMIZADO: Usar cache-first y consulta simple
   const { data: routesData, loading: routesLoading, error: routesError } = useQuery<{ routes: RouteSimple[] }>(GET_ROUTES_SIMPLE, {
@@ -273,6 +275,7 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
 
   const [routesErrorState, setRoutesErrorState] = useState<Error | null>(null);
   const [leadsErrorState, setLeadsErrorState] = useState<Error | null>(null);
+  const [isBalanceLoading, setIsBalanceLoading] = useState(false);
 
   const dateOptions: Option[] = [
     { label: 'Hoy', value: new Date().toISOString() },
@@ -294,6 +297,19 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
       getLeads({ variables: { routeId: selectedRoute.id } });
     }
   }, [selectedRoute, getLeads]);
+
+  // Activar loading cuando forceRefresh cambia
+  React.useEffect(() => {
+    if (forceRefresh > 0) {
+      setIsBalanceLoading(true);
+      // Desactivar loading después de un tiempo o cuando los datos estén listos
+      const timer = setTimeout(() => {
+        setIsBalanceLoading(false);
+      }, 1500);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [forceRefresh]);
 
   const routes = routesData?.routes || [];
   const leads = leadsData?.employees || [];
@@ -458,7 +474,13 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
               <div key={account.id} css={styles.summaryCard}>
                 <div css={styles.cardTopBorder} />
                 <div css={styles.cardLabel}>{account.name}</div>
-                <div css={styles.cardValue}>{formatCurrency(account.amount)}</div>
+                <div css={styles.cardValue}>
+                  {isBalanceLoading ? (
+                    <LoadingDots label="" size="small" />
+                  ) : (
+                    formatCurrency(account.amount)
+                  )}
+                </div>
                 <div css={styles.cardSubValue}>
                   {account.totalAccounts} cuentas
                 </div>

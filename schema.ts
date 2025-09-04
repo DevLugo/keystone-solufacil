@@ -965,15 +965,22 @@ export const Loan = list({
         }
       }
       
-      if (operation === 'delete') {
+      if (operation === 'delete' && item && item.id) {
+        console.log('🔍 BeforeOperation DELETE - Buscando transacciones del préstamo:', item.id);
         // Guardar las transacciones asociadas antes de eliminar el préstamo
-        const transactions = await context.prisma.transaction.findMany({
-          where: {
-            loanId: item.id.toString()
-          }
-        });
-        // Almacenar las transacciones en el contexto para usarlas después
-        (context as ExtendedContext).transactionsToDelete = transactions;
+        try {
+          const transactions = await context.prisma.transaction.findMany({
+            where: {
+              loanId: item.id.toString()
+            }
+          });
+          console.log(`📋 Encontradas ${transactions.length} transacciones para eliminar`);
+          // Almacenar las transacciones en el contexto para usarlas después
+          (context as ExtendedContext).transactionsToDelete = transactions;
+        } catch (error) {
+          console.error('❌ Error al buscar transacciones en beforeOperation:', error);
+          (context as ExtendedContext).transactionsToDelete = [];
+        }
       }
     },
     afterOperation: async ({ operation, item, context, originalItem }) => {
@@ -1041,30 +1048,39 @@ export const Loan = list({
           const loanAmount = parseAmount(item.requestedAmount);
           const basicProfitAmount = loanAmount * 0.20; // Valor base, se refinará después
 
+          // Preparar las transacciones a crear
+          const transactionsToCreate = [
+            {
+              amount: loanAmountNum.toString(),
+              date: new Date(item.signDate as string),
+              type: 'EXPENSE',
+              expenseSource: 'LOAN_GRANTED',
+              sourceAccountId: account.id,
+              loanId: item.id.toString(),
+              leadId: leadId
+            }
+          ];
+          
+          // Solo crear transacción de comisión si hay comisión
+          if (commissionAmountNum > 0) {
+            transactionsToCreate.push({
+              amount: commissionAmountNum.toString(),
+              date: new Date(item.signDate as string),
+              type: 'EXPENSE',
+              expenseSource: 'LOAN_GRANTED_COMISSION',
+              sourceAccountId: account.id,
+              loanId: item.id.toString(),
+              leadId: leadId
+            });
+          }
+          
+          console.log(`💳 Creando ${transactionsToCreate.length} transacciones (préstamo${commissionAmountNum > 0 ? ' + comisión' : ''})`);
+          
           // ULTRA OPTIMIZADO: Una sola transacción DB con todas las operaciones
           await prisma.$transaction([
             // Crear transacciones
             prisma.transaction.createMany({
-              data: [
-                {
-                  amount: loanAmountNum.toString(),
-                  date: new Date(item.signDate as string),
-                  type: 'EXPENSE',
-                  expenseSource: 'LOAN_GRANTED',
-                  sourceAccountId: account.id,
-                  loanId: item.id.toString(),
-                  leadId: leadId
-                },
-                {
-                  amount: commissionAmountNum.toString(),
-                  date: new Date(item.signDate as string),
-                  type: 'EXPENSE',
-                  expenseSource: 'LOAN_GRANTED_COMISSION',
-                  sourceAccountId: account.id,
-                  loanId: item.id.toString(),
-                  leadId: leadId
-                }
-              ]
+              data: transactionsToCreate
             }),
             // Actualizar balance de cuenta
             prisma.account.update({
@@ -1225,29 +1241,61 @@ export const Loan = list({
         }
       } else if (operation === 'delete' && originalItem) {
         try {
+          console.log('🗑️ Iniciando eliminación de préstamo:', originalItem.id);
+          console.log('📝 Datos del préstamo a eliminar:', {
+            id: originalItem.id,
+            leadId: originalItem.leadId,
+            amountGived: originalItem.amountGived,
+            comissionAmount: originalItem.comissionAmount
+          });
+          
+          // Verificar que tengamos un leadId válido
+          if (!originalItem.leadId) {
+            console.log('⚠️ No se encontró leadId en el préstamo');
+            return;
+          }
+          
           // Obtener el lead y la cuenta asociada
           const lead = await context.db.Employee.findOne({
             where: { id: originalItem.leadId as string },
           });
 
+          if (!lead || !lead.routesId) {
+            console.log('⚠️ No se encontró el lead o no tiene ruta asociada');
+            return;
+          }
+
           const account = await context.prisma.account.findFirst({
             where: { 
-              routeId: lead?.routesId,
+              routeId: lead.routesId,
               type: 'EMPLOYEE_CASH_FUND'
             },
           });
 
+          console.log('💰 Cuenta encontrada:', account ? `${account.id} - Balance actual: ${account.amount}` : 'No encontrada');
+
           // Eliminar todas las transacciones asociadas al préstamo
           const transactionsToDelete = (context as ExtendedContext).transactionsToDelete || [];
+          
+          console.log('📋 Transacciones a eliminar:', transactionsToDelete.length);
+          
+          // Mostrar detalles de las transacciones encontradas
+          transactionsToDelete.forEach(t => {
+            console.log(`   - Transacción: ${t.id}, Tipo: ${t.type}, Fuente: ${t.expenseSource}, Monto: ${t.amount}`);
+          });
 
           for (const transaction of transactionsToDelete) {
+            console.log(`🗑️ Eliminando transacción: ${transaction.id} - Tipo: ${transaction.expenseSource} - Monto: ${transaction.amount}`);
             await context.prisma.transaction.delete({
               where: { id: transaction.id }
             });
           }
+          
+          console.log('✅ Todas las transacciones eliminadas');
 
           // SI HAY UN PRÉSTAMO PREVIO, REACTIVARLO
           if (originalItem.previousLoanId) {
+            console.log('♻️ Reactivando préstamo previo:', originalItem.previousLoanId);
             await context.prisma.loan.update({
               where: { id: originalItem.previousLoanId as string },
               data: {
@@ -1258,22 +1306,30 @@ export const Loan = list({
           }
 
           // Actualizar balance de la cuenta
-            if (account) {
-              const currentAmount = parseFloat(account.amount.toString());
-              const loanAmount = parseFloat(originalItem.amountGived?.toString() || '0');
-              const commissionAmount = parseFloat(originalItem.comissionAmount?.toString() || '0');
-              const totalAmount = loanAmount + commissionAmount;
-              
-              const updatedAmount = currentAmount + totalAmount;
+          if (account && account.amount !== null && account.amount !== undefined) {
+            const currentAmount = parseFloat(account.amount.toString());
+            const loanAmount = parseFloat(originalItem.amountGived?.toString() || '0');
+            const commissionAmount = parseFloat(originalItem.comissionAmount?.toString() || '0');
+            const totalAmount = loanAmount + commissionAmount;
+            
+            const updatedAmount = currentAmount + totalAmount;
 
-                          // Actualizar el balance usando prisma directamente
-              await context.prisma.account.update({
-                where: { id: account.id },
-                data: { amount: updatedAmount.toString() }
-              });
-            }
+            console.log(`💸 Actualizando balance: ${currentAmount} + ${totalAmount} = ${updatedAmount}`);
+            console.log(`   - Monto préstamo: ${loanAmount}`);
+            console.log(`   - Comisión: ${commissionAmount}`);
+
+            // Actualizar el balance usando prisma directamente
+            await context.prisma.account.update({
+              where: { id: account.id },
+              data: { amount: updatedAmount.toString() }
+            });
+            
+            console.log('✅ Balance actualizado exitosamente');
+          } else {
+            console.log('⚠️ No se encontró cuenta para actualizar balance o el balance es null/undefined');
+          }
         } catch (error) {
-          console.error('Error al eliminar transacciones asociadas al préstamo:', error);
+          console.error('❌ Error al eliminar transacciones asociadas al préstamo:', error);
           throw error;
         }
       }

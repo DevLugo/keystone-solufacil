@@ -267,6 +267,17 @@ const DELETE_LOAN = gql`
       id
       amountGived
       comissionAmount
+      lead {
+        id
+        routes {
+          id
+          accounts {
+            id
+            amount
+            type
+          }
+        }
+      }
     }
   }
 `;
@@ -343,6 +354,7 @@ interface CreditosTabProps {
     };
     __typename: string;
   } | null;
+  isActive?: boolean;
   onBalanceUpdate?: (balance: number) => void;
 }
 
@@ -370,7 +382,7 @@ const DropdownPortal = ({ children, isOpen }: DropdownPortalProps) => {
   );
 };
 
-export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalanceUpdate }: CreditosTabProps) => {
+export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, isActive = true, onBalanceUpdate }: CreditosTabProps) => {
   const [loans, setLoans] = useState<Loan[]>([]);
   const [newLoan, setNewLoan] = useState<ExtendedLoan>({
     requestedAmount: '0',
@@ -424,7 +436,9 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     variables: {
       where: { id: selectedRoute }
     },
-    skip: !selectedRoute,
+    skip: !selectedRoute || !isActive,
+    fetchPolicy: 'cache-first',
+    nextFetchPolicy: 'cache-first',
   });
 
   const { data: loansData, loading: loansLoading, error: loansError, refetch: refetchLoans } = useQuery<{ loans: Loan[] }>(GET_LOANS, {
@@ -433,17 +447,24 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       nextDate: selectedDate ? new Date(new Date(selectedDate).setHours(24, 0, 0, 0)).toISOString() : '',
       leadId: selectedLead?.id || null
     },
-    skip: !selectedDate || !selectedLead?.id,
+    skip: !selectedDate || !selectedLead?.id || !isActive,
+    fetchPolicy: 'cache-first',
+    nextFetchPolicy: 'cache-first', // Evitar refetch automático después del primer fetch
   });
 
   const { data: previousLoansData, loading: previousLoansLoading, refetch: refetchPreviousLoans } = useQuery(GET_PREVIOUS_LOANS, {
     variables: {
       leadId: selectedLead?.id || ''
     },
-    skip: !selectedLead,
+    skip: !selectedLead || !isActive,
+    fetchPolicy: 'cache-first',
+    nextFetchPolicy: 'cache-first',
   });
 
-  const { data: loanTypesData, loading: loanTypesLoading } = useQuery(GET_LOAN_TYPES);
+  const { data: loanTypesData, loading: loanTypesLoading } = useQuery(GET_LOAN_TYPES, {
+    skip: !isActive,
+    fetchPolicy: 'cache-first',
+  });
 
 
   const handleDateMoveSuccess = React.useCallback(() => {
@@ -1189,37 +1210,8 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     }
   }, [loansData]);
 
-  // Efecto para actualizar el estado cuando cambie la fecha o el líder
-  React.useEffect(() => {
-    if (selectedDate && selectedLead) {
-      // Recargar todos los datos
-      Promise.all([
-        refetchLoans(),
-        refetchRoute(),
-        refetchPreviousLoans()
-      ]).then(() => {
-        console.log('Datos recargados exitosamente');
-      }).catch(error => {
-        console.error('Error al recargar los datos:', error);
-      });
-    }
-  }, [selectedDate, selectedLead, refetchLoans, refetchRoute, refetchPreviousLoans]);
-
-  // Efecto para recargar datos cuando se active la pestaña
-  React.useEffect(() => {
-    if (selectedDate && selectedLead) {
-      // Recargar todos los datos
-      Promise.all([
-        refetchLoans(),
-        refetchRoute(),
-        refetchPreviousLoans()
-      ]).then(() => {
-        console.log('Datos recargados al activar la pestaña');
-      }).catch(error => {
-        console.error('Error al recargar los datos:', error);
-      });
-    }
-  }, [selectedDate, selectedLead, refetchLoans, refetchRoute, refetchPreviousLoans]);
+  // Efecto removido - Las queries de Apollo ya se ejecutan automáticamente cuando cambian las variables
+  // No es necesario forzar refetch manualmente
 
   // Efecto para actualizar el newLoan cuando cambie el líder
   React.useEffect(() => {
@@ -1312,16 +1304,15 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         // ✅ ELIMINADO: Cerrar formulario - ya no aplica con tabla Excel
 
         // 3. Actualizar los datos en segundo plano
-        Promise.all([
+        await Promise.all([
           refetchRoute(),
           refetchLoans()
-        ]).then(() => {
-          // 4. Actualizar el balance local
-          if (onBalanceUpdate) {
-            const totalAmount = parseFloat(data.createLoan.amountGived);
-            onBalanceUpdate(-totalAmount);
-          }
-        });
+        ]);
+        
+        // 4. Llamar al callback para actualizar el RouteLeadSelector
+        if (onBalanceUpdate) {
+          onBalanceUpdate(0); // El valor no importa, solo dispara la actualización
+        }
       }
     } catch (error) {
       console.error('Error al crear el préstamo:', error);
@@ -1490,11 +1481,9 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
           refetchLoans()
         ]);
 
-        // Actualizar el balance local
+        // Llamar al callback para actualizar el RouteLeadSelector
         if (onBalanceUpdate) {
-          const totalAmount = data.createMultipleLoans.reduce((sum: number, loan: any) =>
-            sum + parseFloat(loan.amountGived || '0'), 0);
-          onBalanceUpdate(-totalAmount);
+          onBalanceUpdate(0); // El valor no importa, solo dispara la actualización
         }
       }
     } catch (error) {
@@ -1593,25 +1582,47 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   const handleDeleteLoan = async (id: string) => {
     try {
       setIsDeleting(id);
+      
+      // Primero ejecutar la mutación
       const { data } = await deleteLoan({
         variables: {
           where: { id }
-        }
+        },
+        // Forzar la actualización del cache de Apollo
+        refetchQueries: [
+          {
+            query: GET_ROUTE,
+            variables: { where: { id: selectedRoute } }
+          }
+        ],
+        awaitRefetchQueries: true, // Esperar a que se completen los refetch
       });
 
       if (data?.deleteLoan) {
+        // Actualizar el estado local inmediatamente
         setLoans(prevLoans => prevLoans.filter(loan => loan.id !== id));
 
-        Promise.all([
+        // Si la mutación devuelve el balance actualizado, usarlo
+        if (data.deleteLoan.lead?.routes?.accounts) {
+          const updatedAccount = data.deleteLoan.lead.routes.accounts.find(
+            (acc: any) => acc.type === 'EMPLOYEE_CASH_FUND'
+          );
+          if (updatedAccount) {
+            console.log('✅ Balance actualizado desde la mutación:', updatedAccount.amount);
+            setRouteBalance(parseFloat(updatedAccount.amount));
+          }
+        }
+
+        // Refrescar los datos por si acaso
+        await Promise.all([
           refetchLoans(),
           refetchRoute()
-        ]).then(() => {
-          if (onBalanceUpdate) {
-            const updatedBalance = routeBalance + parseFloat(data.deleteLoan.amountGived) + parseFloat(data.deleteLoan.comissionAmount || '0');
-            onBalanceUpdate(updatedBalance);
-            setRouteBalance(updatedBalance);
-          }
-        });
+        ]);
+
+        // Llamar al callback para actualizar el RouteLeadSelector
+        if (onBalanceUpdate) {
+          onBalanceUpdate(0); // El valor no importa, solo dispara la actualización
+        }
       }
     } catch (error) {
       console.error('Error al eliminar el préstamo:', error);
@@ -1646,11 +1657,10 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     if (routeData?.route) {
       const balance = routeData.route.accounts.reduce((total: any, account: any) => total + account.amount, 0);
       setRouteBalance(balance);
-      if (onBalanceUpdate) {
-        onBalanceUpdate(balance);
-      }
+      // NO llamar a onBalanceUpdate aquí - esto causa un bucle infinito
+      // Solo debe llamarse cuando explícitamente se crea/elimina/actualiza un préstamo
     }
-  }, [routeData, onBalanceUpdate]);
+  }, [routeData]);
 
   if (loansLoading || loanTypesLoading || previousLoansLoading) {
     return (
