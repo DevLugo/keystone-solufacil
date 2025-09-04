@@ -8,6 +8,7 @@ import { Button } from '@keystone-ui/button';
 import { TextInput } from '@keystone-ui/fields';
 import { LoadingDots } from '@keystone-ui/loading';
 import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
+import { AlertDialog } from '@keystone-ui/modals';
 import { FaSearch, FaEye, FaEdit, FaTrash, FaUser, FaUserTie, FaMoneyBillWave, FaCalendarAlt } from 'react-icons/fa';
 import { useQuery, useMutation } from '@apollo/client';
 import { gql } from '@apollo/client';
@@ -198,6 +199,18 @@ export default function DocumentosPersonalesPage() {
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
+  
+  // Estado para modal de confirmación de eliminación
+  const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{
+    isOpen: boolean;
+    documentId: string | null;
+    documentTitle: string;
+  }>({
+    isOpen: false,
+    documentId: null,
+    documentTitle: ''
+  });
+  
 
   // Estados para el DatePicker de semanas
     const [selectedDate, setSelectedDate] = useState<Date>(() => {
@@ -389,8 +402,6 @@ export default function DocumentosPersonalesPage() {
 
   // Función para eliminar documento
   const handleDeleteDocument = async (documentId: string) => {
-    if (!confirm('¿Estás seguro de que quieres eliminar este documento?')) return;
-
     try {
       await deleteDocumentPhoto({
         variables: { id: documentId }
@@ -423,21 +434,44 @@ export default function DocumentosPersonalesPage() {
     }
   };
 
-  // Función para eliminar documentos
-  const handleDocumentDelete = async (documentId: string) => {
-    if (confirm('¿Estás seguro de que quieres eliminar este documento? Esta acción no se puede deshacer.')) {
-      try {
-        // Aquí deberías implementar la mutación para eliminar el documento
-        // Por ahora solo mostraremos un mensaje
-        alert('Función de eliminación implementada. El documento será eliminado.');
-        // TODO: Implementar DELETE_DOCUMENT_PHOTO mutation
-        // await deleteDocumentPhoto({ variables: { id: documentId } });
-        // refetch();
-      } catch (error) {
-        console.error('Error al eliminar el documento:', error);
-        alert('Error al eliminar el documento');
-      }
+  // Función para abrir modal de confirmación de eliminación
+  const handleDocumentDelete = (documentId: string, documentTitle: string) => {
+    setDeleteConfirmDialog({
+      isOpen: true,
+      documentId,
+      documentTitle
+    });
+  };
+
+  // Función para confirmar eliminación
+  const confirmDeleteDocument = async () => {
+    if (!deleteConfirmDialog.documentId) return;
+
+    try {
+      await deleteDocumentPhoto({
+        variables: { id: deleteConfirmDialog.documentId }
+      });
+
+      // Cerrar modal y refrescar datos
+      setDeleteConfirmDialog({
+        isOpen: false,
+        documentId: null,
+        documentTitle: ''
+      });
+      refetch();
+    } catch (error) {
+      console.error('Error al eliminar el documento:', error);
+      alert('Error al eliminar el documento');
     }
+  };
+
+  // Función para cancelar eliminación
+  const cancelDeleteDocument = () => {
+    setDeleteConfirmDialog({
+      isOpen: false,
+      documentId: null,
+      documentTitle: ''
+    });
   };
 
   // Función para abrir modal de subida
@@ -830,34 +864,34 @@ export default function DocumentosPersonalesPage() {
                   >
                     <Box css={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <FaCalendarAlt color="#6b7280" />
-                      <Text size="small" color="neutral">
+                      <Text size="small" color="black">
                         {new Date(loan.signDate).toLocaleDateString('es-ES')}
                       </Text>
                     </Box>
 
                     <Box css={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <FaUser color="#6b7280" />
-                      <Text size="small" color="neutral">
+                      <Text size="small" color="black">
                         {loan.borrower.personalData.fullName}
                       </Text>
                     </Box>
 
                     <Box css={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <FaUserTie color="#6b7280" />
-                      <Text size="small" color="neutral">
+                      <Text size="small" color="black">
                         {loan.lead.personalData.fullName}
                       </Text>
                     </Box>
 
                     <Box css={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <FaMoneyBillWave color="#6b7280" />
-                      <Text size="small" color="neutral">
+                      <Text size="small" color="black">
                         ${parseFloat(loan.requestedAmount).toLocaleString()}
                       </Text>
                     </Box>
 
                     <Box css={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Text size="small" color="neutral">
+                      <Text size="small" color="black">
                         {loan.documentPhotos.length} docs
                       </Text>
                     </Box>
@@ -871,7 +905,7 @@ export default function DocumentosPersonalesPage() {
                     }}>
                       {/* Tags del Titular */}
                       <Box css={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <Text size="xsmall" color="neutral" css={{ fontWeight: '500' }}>
+                        <Text size="xsmall" color="black" css={{ fontWeight: '500' }}>
                           Titular:
                         </Text>
                         <Box css={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
@@ -908,7 +942,7 @@ export default function DocumentosPersonalesPage() {
 
                       {/* Tags del Aval */}
                       <Box css={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <Text size="xsmall" color="neutral" css={{ fontWeight: '500' }}>
+                        <Text size="xsmall" color="black" css={{ fontWeight: '500' }}>
                           Aval:
                         </Text>
                         <Box css={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
@@ -1019,7 +1053,7 @@ export default function DocumentosPersonalesPage() {
                         </Text>
                         
                         <Box marginBottom="small">
-                          <Text size="small" color="neutral" marginBottom="xsmall">
+                          <Text size="small" color="black" marginBottom="xsmall">
                             Nombre
                           </Text>
                           <InlineEditField
@@ -1030,7 +1064,7 @@ export default function DocumentosPersonalesPage() {
                         </Box>
 
                         <Box marginBottom="small">
-                          <Text size="small" color="neutral" marginBottom="xsmall">
+                          <Text size="small" color="black" marginBottom="xsmall">
                             Teléfono
                           </Text>
                           <InlineEditField
@@ -1046,7 +1080,7 @@ export default function DocumentosPersonalesPage() {
 
                         {/* Tags de documentos del Titular */}
                         <Box marginTop="medium">
-                          <Text size="small" color="neutral" marginBottom="xsmall">
+                          <Text size="small" color="black" marginBottom="xsmall">
                             Documentos
                           </Text>
                           <Box css={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -1096,7 +1130,7 @@ export default function DocumentosPersonalesPage() {
                         </Text>
                         
                         <Box marginBottom="small">
-                          <Text size="small" color="neutral" marginBottom="xsmall">
+                          <Text size="small" color="black" marginBottom="xsmall">
                             Nombre
                           </Text>
                           <InlineEditField
@@ -1107,7 +1141,7 @@ export default function DocumentosPersonalesPage() {
                         </Box>
 
                         <Box marginBottom="small">
-                          <Text size="small" color="neutral" marginBottom="xsmall">
+                          <Text size="small" color="black" marginBottom="xsmall">
                             Teléfono
                           </Text>
                           <InlineEditField
@@ -1123,7 +1157,7 @@ export default function DocumentosPersonalesPage() {
 
                         {/* Tags de documentos del Aval */}
                         <Box marginTop="medium">
-                          <Text size="small" color="neutral" marginBottom="xsmall">
+                          <Text size="small" color="black" marginBottom="xsmall">
                             Documentos
                           </Text>
                           <Box css={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -1177,7 +1211,7 @@ export default function DocumentosPersonalesPage() {
                         <Text weight="semibold" size="medium" marginBottom="medium" textAlign="center">
                           Documentos del Titular
                         </Text>
-                        <Text size="small" color="gray500" textAlign="center" marginBottom="small">
+                        <Text size="small" textAlign="center" marginBottom="small">
                           ← Desliza para ver todos los documentos →
                         </Text>
                         <Box
@@ -1241,7 +1275,7 @@ export default function DocumentosPersonalesPage() {
                                 onMarkAsError={(isError, errorDescription) => 
                                   document && handleDocumentError(document.id, isError, errorDescription)
                                 }
-                                onDelete={() => document && handleDocumentDelete(document.id)}
+                                onDelete={() => document && handleDocumentDelete(document.id, document.title)}
                                 size="medium"
                               />
                             );
@@ -1254,7 +1288,7 @@ export default function DocumentosPersonalesPage() {
                         <Text weight="semibold" size="medium" marginBottom="medium" textAlign="center">
                           Documentos del Aval
                         </Text>
-                        <Text size="small" color="gray500" textAlign="center" marginBottom="small">
+                        <Text size="small" textAlign="center" marginBottom="small">
                           ← Desliza para ver todos los documentos →
                         </Text>
                         <Box
@@ -1318,7 +1352,7 @@ export default function DocumentosPersonalesPage() {
                                   onMarkAsError={(isError, errorDescription) => 
                                     document && handleDocumentError(document.id, isError, errorDescription)
                                   }
-                                  onDelete={() => document && handleDocumentDelete(document.id)}
+                                  onDelete={() => document && handleDocumentDelete(document.id, document.title)}
                                   size="medium"
                                 />
                               );
@@ -1344,10 +1378,10 @@ export default function DocumentosPersonalesPage() {
               border: '1px solid #e5e7eb'
             }}
           >
-            <Text size="large" color="neutral">
+            <Text size="large" color="black">
               No se encontraron créditos para la semana seleccionada
             </Text>
-            <Text size="small" color="muted" marginTop="small">
+            <Text size="small" marginTop="small">
               Intenta seleccionar otra semana o ajustar los filtros
             </Text>
           </Box>
@@ -1376,6 +1410,28 @@ export default function DocumentosPersonalesPage() {
         loanId={uploadModal.loanId}
         personName={uploadModal.personName}
       />
+
+      {/* Modal de confirmación de eliminación */}
+      <AlertDialog
+        isOpen={deleteConfirmDialog.isOpen}
+        title="Confirmar eliminación"
+        tone="negative"
+        actions={{
+          confirm: {
+            label: 'Eliminar',
+            action: confirmDeleteDocument,
+          },
+          cancel: {
+            label: 'Cancelar',
+            action: cancelDeleteDocument,
+          },
+        }}
+      >
+        ¿Estás seguro de que quieres eliminar el documento "{deleteConfirmDialog.documentTitle}"?
+        <br />
+        <br />
+        Esta acción no se puede deshacer.
+      </AlertDialog>
     </PageContainer>
   );
 }

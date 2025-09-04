@@ -5,7 +5,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@keystone-ui/button';
 import { LoadingDots } from '@keystone-ui/loading';
-import { FaUpload, FaCamera, FaTrash, FaEye } from 'react-icons/fa';
+import { FaUpload, FaCamera, FaTrash, FaEye, FaExclamationTriangle } from 'react-icons/fa';
+import { Box, Text } from '@keystone-ui/core';
 
 interface ImageUploaderProps {
   onImageUpload: (imageUrl: string, publicId: string) => void;
@@ -40,6 +41,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   const [showCamera, setShowCamera] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' | 'warning' } | null>(null);
   const [isCameraReady, setIsCameraReady] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -51,13 +53,15 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
 
     // Validar tipo de archivo
     if (!file.type.startsWith('image/')) {
-      alert('Por favor selecciona un archivo de imagen válido');
+      setMessage({ text: 'Por favor selecciona un archivo de imagen válido', tone: 'warning' });
+      setTimeout(() => setMessage(null), 3000);
       return;
     }
 
     // Validar tamaño (10MB máximo)
     if (file.size > 10 * 1024 * 1024) {
-      alert('El archivo es demasiado grande. Máximo 10MB');
+      setMessage({ text: 'El archivo es demasiado grande. Máximo 10MB', tone: 'warning' });
+      setTimeout(() => setMessage(null), 3000);
       return;
     }
 
@@ -93,7 +97,8 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       
     } catch (error) {
       console.error('Error al subir imagen:', error);
-      alert('Error al subir la imagen. Por favor, inténtalo de nuevo.');
+      setMessage({ text: 'Error al subir la imagen. Por favor, inténtalo de nuevo.', tone: 'error' });
+      setTimeout(() => setMessage(null), 5000);
       setPreviewUrl(null);
     } finally {
       setIsUploading(false);
@@ -200,7 +205,8 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
               
             } catch (error) {
               console.error('Error al subir imagen capturada:', error);
-              alert('Error al subir la imagen capturada. Por favor, inténtalo de nuevo.');
+              setMessage({ text: 'Error al subir la imagen capturada. Por favor, inténtalo de nuevo.', tone: 'error' });
+              setTimeout(() => setMessage(null), 5000);
               setPreviewUrl(null);
             } finally {
               setIsUploading(false);
@@ -235,6 +241,37 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
 
   return (
     <div style={{ width: '100%' }}>
+      {/* Message */}
+      {message && (
+        <Box
+          css={{
+            marginBottom: '12px',
+            padding: '8px 12px',
+            backgroundColor: message.tone === 'success' ? '#dcfce7' : 
+                            message.tone === 'error' ? '#fef2f2' : '#fef3c7',
+            borderLeft: `4px solid ${
+              message.tone === 'success' ? '#16a34a' : 
+              message.tone === 'error' ? '#dc2626' : '#d97706'
+            }`,
+            borderRadius: '4px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}
+        >
+          {message.tone === 'success' && <FaCheck color="#16a34a" size={14} />}
+          {message.tone === 'error' && <FaExclamationTriangle color="#dc2626" size={14} />}
+          {message.tone === 'warning' && <FaExclamationTriangle color="#d97706" size={14} />}
+          <Text 
+            size="small" 
+            color={message.tone === 'success' ? 'green600' : 
+                   message.tone === 'error' ? 'red600' : 'orange600'}
+          >
+            {message.text}
+          </Text>
+        </Box>
+      )}
+
       {/* Input de archivo oculto */}
       <input
         ref={fileInputRef}

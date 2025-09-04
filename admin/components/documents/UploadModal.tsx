@@ -5,7 +5,7 @@ import React, { useState } from 'react';
 import { jsx, Box, Text } from '@keystone-ui/core';
 import { Button } from '@keystone-ui/button';
 import { TextInput, Select } from '@keystone-ui/fields';
-import { FaTimes, FaUpload, FaCheck } from 'react-icons/fa';
+import { FaTimes, FaUpload, FaCheck, FaExclamationTriangle } from 'react-icons/fa';
 import { ImageUploader } from './ImageUploader';
 
 interface UploadModalProps {
@@ -45,6 +45,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const [isUploading, setIsUploading] = useState(false);
   const [isError, setIsError] = useState(false);
   const [errorDescription, setErrorDescription] = useState('');
+  const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' | 'warning' } | null>(null);
 
   if (!isOpen) return null;
 
@@ -68,7 +69,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
   const handleSubmit = async () => {
     if (!photoUrl || !publicId) {
-      alert('Por favor sube una imagen del documento');
+      setMessage({ text: 'Por favor sube una imagen del documento', tone: 'warning' });
+      setTimeout(() => setMessage(null), 3000);
       return;
     }
 
@@ -96,10 +98,15 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       setPublicId('');
       setIsError(false);
       setErrorDescription('');
-      onClose();
+      setMessage({ text: 'Documento subido exitosamente', tone: 'success' });
+      setTimeout(() => {
+        setMessage(null);
+        onClose();
+      }, 1500);
     } catch (error) {
       console.error('Error al subir documento:', error);
-      alert('Error al subir el documento. Por favor, inténtalo de nuevo.');
+      setMessage({ text: 'Error al subir el documento. Por favor, inténtalo de nuevo.', tone: 'error' });
+      setTimeout(() => setMessage(null), 5000);
     } finally {
       setIsUploading(false);
     }
@@ -190,6 +197,35 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             <FaTimes size={16} />
           </Button>
         </Box>
+
+        {/* Message */}
+        {message && (
+          <Box
+            css={{
+              padding: '12px 20px',
+              backgroundColor: message.tone === 'success' ? '#dcfce7' : 
+                              message.tone === 'error' ? '#fef2f2' : '#fef3c7',
+              borderLeft: `4px solid ${
+                message.tone === 'success' ? '#16a34a' : 
+                message.tone === 'error' ? '#dc2626' : '#d97706'
+              }`,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}
+          >
+            {message.tone === 'success' && <FaCheck color="#16a34a" />}
+            {message.tone === 'error' && <FaExclamationTriangle color="#dc2626" />}
+            {message.tone === 'warning' && <FaExclamationTriangle color="#d97706" />}
+            <Text 
+              size="small" 
+              color={message.tone === 'success' ? 'green600' : 
+                     message.tone === 'error' ? 'red600' : 'orange600'}
+            >
+              {message.text}
+            </Text>
+          </Box>
+        )}
 
         {/* Contenido */}
         <Box css={{ padding: '20px' }}>
