@@ -2099,7 +2099,27 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         // Métricas principales en grid
         const totalLoans = (loansAsClient?.length || 0) + (loansAsCollateral?.length || 0);
         const activeLoans = (summary?.activeLoansAsClient || 0) + (summary?.activeLoansAsCollateral || 0);
-        const pendingDebt = summary?.currentPendingDebtAsClient || 0;
+        
+        // Calcular deuda pendiente real del préstamo actual
+        let pendingDebt = 0;
+        if (loansAsClient && loansAsClient.length > 0) {
+          const currentLoan = loansAsClient[0]; // Préstamo más reciente
+          console.log('📊 Calculando deuda pendiente del préstamo actual:');
+          console.log(`- Monto solicitado: ${currentLoan.amountRequested}`);
+          console.log(`- PendingDebt del objeto: ${currentLoan.pendingDebt}`);
+          console.log(`- Pagos registrados: ${currentLoan.payments?.length || 0}`);
+          
+          if (currentLoan.pendingDebt !== undefined && currentLoan.pendingDebt !== null) {
+            pendingDebt = currentLoan.pendingDebt;
+            console.log(`- Usando pendingDebt del objeto: ${pendingDebt}`);
+          } else {
+            // Si no hay pendingDebt en los datos, calcularlo
+            const totalPaid = currentLoan.payments?.reduce((sum: number, payment: any) => sum + (payment.amount || 0), 0) || 0;
+            pendingDebt = Math.max(0, (currentLoan.amountRequested || 0) - totalPaid);
+            console.log(`- Total pagado: ${totalPaid}`);
+            console.log(`- Deuda pendiente calculada: ${pendingDebt}`);
+          }
+        }
         
         // Primera fila de métricas
         doc.fontSize(11).fillColor('#1e40af');
@@ -2114,24 +2134,83 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         doc.fontSize(12).fillColor(pendingDebt > 0 ? '#dc2626' : '#16a34a').text(formatCurrency(pendingDebt), 250, y);
         y += 20;
         
-        // Indicador de cumplimiento basado en pagos semanales
+        // Indicador de cumplimiento basado en pagos semanales (lógica mejorada con renovaciones)
         const calculateComplianceScore = (loans: any[]) => {
           if (!loans || loans.length === 0) return 0;
           
           let totalExpectedPayments = 0;
           let totalMissedPayments = 0;
+          const currentDate = new Date();
           
-          console.log('📊 Calculando índice de cumplimiento...');
+          console.log('📊 Calculando índice de cumplimiento mejorado con renovaciones...');
           
           loans.forEach((loan, index) => {
-            // Calcular semanas esperadas del préstamo
-            const expectedWeeks = loan.weekDuration || 16; // Default 16 semanas si no está especificado
-            const missedWeeks = loan.noPaymentPeriods?.length || 0;
+            const loanDuration = loan.weekDuration || 16;
+            const signDate = new Date(loan.signDate);
+            let expectedWeeks = 0;
+            let missedWeeks = 0;
+            
+            // Verificar si el préstamo fue renovado o terminado (misma lógica que las tablas)
+            const isRenewed = loan.status === 'RENOVADO' || loan.status === 'RENOVADO';
+            const isFinished = loan.status === 'TERMINADO' || loan.status === 'FINALIZADO' || 
+                              (loan.finishedDate && (isRenewed || loan.status === 'TERMINADO' || loan.status === 'FINALIZADO'));
+            const isActive = !isRenewed && !isFinished;
+            
+            // Determinar hasta qué semana evaluar
+            let weeksToEvaluate = loanDuration;
+            if (isRenewed && loan.finishedDate) {
+              const renewalDate = new Date(loan.finishedDate);
+              const weeksSinceRenewal = Math.floor((renewalDate.getTime() - signDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
+              weeksToEvaluate = Math.min(weeksSinceRenewal, loanDuration);
+              console.log(`Préstamo ${index + 1} renovado: evaluando solo hasta semana ${weeksToEvaluate}`);
+            } else if (isFinished && loan.finishedDate) {
+              const finishDate = new Date(loan.finishedDate);
+              const weeksSinceFinish = Math.floor((finishDate.getTime() - signDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
+              weeksToEvaluate = Math.min(weeksSinceFinish, loanDuration);
+              console.log(`Préstamo ${index + 1} terminado: evaluando solo hasta semana ${weeksToEvaluate}`);
+            } else if (isActive) {
+              // Para préstamos activos, evaluar al menos la duración original, pero puede ser más si ha pasado más tiempo
+              const currentDate = new Date();
+              const weeksSinceStart = Math.floor((currentDate.getTime() - signDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
+              weeksToEvaluate = Math.max(weeksSinceStart, loanDuration); // Al menos la duración original, pero puede ser más
+              console.log(`Préstamo ${index + 1} activo: evaluando ${weeksToEvaluate} semanas (duración original: ${loanDuration})`);
+            }
+            
+            // Calcular semanas esperadas vs reales usando la misma lógica que la tabla
+            for (let week = 1; week <= weeksToEvaluate; week++) {
+              // Calcular la fecha de pago de esta semana (signDate + week * 7 días)
+              const weekPaymentDate = new Date(signDate);
+              weekPaymentDate.setDate(weekPaymentDate.getDate() + (week * 7));
+              
+              // La semana termina 3 días después de la fecha de pago
+              const weekEndDate = new Date(weekPaymentDate);
+              weekEndDate.setDate(weekEndDate.getDate() + 3);
+              
+              if (currentDate > weekEndDate) {
+                // Solo contar semanas que ya terminaron (aplica para todos los tipos de préstamo)
+                expectedWeeks++;
+                
+                // Buscar si hay pago en esta semana (margen de ±3 días alrededor de la fecha de pago)
+                const paymentInWeek = loan.payments?.find((payment: any) => {
+                  const paymentDate = new Date(payment.receivedAt);
+                  const weekStart = new Date(weekPaymentDate);
+                  weekStart.setDate(weekStart.getDate() - 3);
+                  const weekEnd = new Date(weekPaymentDate);
+                  weekEnd.setDate(weekEnd.getDate() + 3);
+                  
+                  return paymentDate >= weekStart && paymentDate <= weekEnd;
+                });
+                
+                if (!paymentInWeek) {
+                  missedWeeks++;
+                }
+              }
+            }
             
             totalExpectedPayments += expectedWeeks;
             totalMissedPayments += missedWeeks;
             
-            console.log(`Préstamo ${index + 1}: ${expectedWeeks} semanas esperadas, ${missedWeeks} fallos`);
+            console.log(`Préstamo ${index + 1}: ${expectedWeeks} semanas evaluadas, ${missedWeeks} fallos${isRenewed ? ' (renovado)' : ''}`);
           });
           
           if (totalExpectedPayments === 0) return 0;
@@ -2139,7 +2218,7 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
           // Calcular porcentaje de cumplimiento
           const complianceScore = Math.max(0, Math.round(((totalExpectedPayments - totalMissedPayments) / totalExpectedPayments) * 100));
           
-          console.log(`📊 Total esperado: ${totalExpectedPayments}, Total fallos: ${totalMissedPayments}, Score: ${complianceScore}%`);
+          console.log(`📊 Total semanas evaluadas: ${totalExpectedPayments}, Total fallos: ${totalMissedPayments}, Score: ${complianceScore}%`);
           
           return complianceScore;
         };
@@ -2189,53 +2268,182 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
             doc.text(`Líder: ${loan.leadName}`, 250, y);
             y += 25;
 
-            // Tabla de pagos si los hay
+            // Historial cronológico de pagos y faltas (mismo que en resumen individual)
             if (loan.payments && loan.payments.length > 0) {
-              doc.fontSize(10).fillColor('#2d3748').text('Historial de Pagos:', 55, y);
+              doc.fontSize(10).fillColor('#2d3748').text('Historial Cronologico de Pagos:', 55, y);
               y += 15;
 
-              const paymentHeaders = ['Fecha', 'Monto', 'No. Pago'];
-              const availableWidth = doc.page.width - 120; // Ancho disponible dentro del card
-              const paymentColumnWidths = [
-                Math.floor(availableWidth * 0.35), // 35% para fecha
-                Math.floor(availableWidth * 0.35), // 35% para monto  
-                Math.floor(availableWidth * 0.3)   // 30% para número
-              ];
-              const totalPaymentWidth = paymentColumnWidths.reduce((a, b) => a + b, 0);
-              const paymentTableX = 55;
+              // Reconstruir la cronología completa del préstamo
+              const chronologicalEvents: any[] = [];
+              
+              // Obtener duración del préstamo en semanas
+              const loanDuration = loan.weekDuration || 16;
+              const signDate = new Date(loan.signDate);
+              
+              // Crear array de pagos ordenados por fecha
+              const sortedPayments = loan.payments
+                .map((payment: any) => ({
+                  ...payment,
+                  date: new Date(payment.receivedAt)
+                }))
+                .filter((payment: any) => !isNaN(payment.date.getTime()))
+                .sort((a: any, b: any) => a.date.getTime() - b.date.getTime());
+              
+              // Generar cronología semana por semana
+              const currentDate = new Date();
+              
+                          // Verificar si el préstamo fue renovado o terminado
+            const isRenewed = loan.status === 'RENOVADO' || loan.status === 'RENOVADO';
+            const isFinished = loan.status === 'TERMINADO' || loan.status === 'FINALIZADO' || 
+                              (loan.finishedDate && (isRenewed || loan.status === 'TERMINADO' || loan.status === 'FINALIZADO'));
+            const isActive = !isRenewed && !isFinished;
+            
+            // Determinar hasta qué semana evaluar
+            let weeksToEvaluate = loanDuration;
+            if (isRenewed && loan.finishedDate) {
+              const renewalDate = new Date(loan.finishedDate);
+              const weeksSinceRenewal = Math.floor((renewalDate.getTime() - signDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
+              weeksToEvaluate = Math.min(weeksSinceRenewal, loanDuration);
+              console.log(`Préstamo renovado: evaluando solo hasta semana ${weeksToEvaluate}`);
+            } else if (isFinished && loan.finishedDate) {
+              const finishDate = new Date(loan.finishedDate);
+              const weeksSinceFinish = Math.floor((finishDate.getTime() - signDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
+              weeksToEvaluate = Math.min(weeksSinceFinish, loanDuration);
+              console.log(`Préstamo terminado: evaluando solo hasta semana ${weeksToEvaluate}`);
+            } else if (isActive) {
+              // Para préstamos activos, evaluar al menos la duración original, pero puede ser más si ha pasado más tiempo
+              const currentDate = new Date();
+              const weeksSinceStart = Math.floor((currentDate.getTime() - signDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
+              weeksToEvaluate = Math.max(weeksSinceStart, loanDuration); // Al menos la duración original, pero puede ser más
+              console.log(`Préstamo activo: evaluando ${weeksToEvaluate} semanas (duración original: ${loanDuration})`);
+            }
+            
+            for (let week = 1; week <= weeksToEvaluate; week++) {
+              // Calcular la fecha de pago de esta semana (signDate + week * 7 días)
+              const weekPaymentDate = new Date(signDate);
+              weekPaymentDate.setDate(weekPaymentDate.getDate() + (week * 7));
+              
+              // La semana termina 3 días después de la fecha de pago
+              const weekEndDate = new Date(weekPaymentDate);
+              weekEndDate.setDate(weekEndDate.getDate() + 3);
+              
+              // Buscar si hay un pago en esta semana (margen de ±3 días alrededor de la fecha de pago)
+              const paymentInWeek = sortedPayments.find((payment: any) => {
+                const paymentDate = payment.date;
+                const weekStart = new Date(weekPaymentDate);
+                weekStart.setDate(weekStart.getDate() - 3);
+                const weekEnd = new Date(weekPaymentDate);
+                weekEnd.setDate(weekEnd.getDate() + 3);
+                
+                return paymentDate >= weekStart && paymentDate <= weekEnd;
+              });
+              
+              if (paymentInWeek) {
+                // Hay pago en esta semana
+                chronologicalEvents.push({
+                  date: paymentInWeek.date,
+                  type: 'payment',
+                  amount: paymentInWeek.amount,
+                  paymentNumber: paymentInWeek.paymentNumber,
+                  description: `Pago #${paymentInWeek.paymentNumber || week}`,
+                  week: week
+                });
+              } else {
+                // No hay pago en esta semana
+                if (currentDate > weekEndDate) {
+                  // Solo mostrar faltas de semanas que ya terminaron (aplica para todos los tipos de préstamo)
+                  chronologicalEvents.push({
+                    date: weekPaymentDate,
+                    type: 'no_payment',
+                    amount: 0,
+                    paymentNumber: null,
+                    description: `Semana ${week} - Sin pago`,
+                    week: week
+                  });
+                }
+              }
+            }
+              
+              // Si fue renovado, agregar nota informativa
+              if (isRenewed) {
+                chronologicalEvents.push({
+                  date: new Date(loan.finishedDate || loan.signDate),
+                  type: 'renewal',
+                  amount: 0,
+                  paymentNumber: null,
+                  description: `Préstamo renovado - Semanas posteriores no evaluadas`,
+                  week: weeksToEvaluate + 1
+                });
+              }
+              
+              // Ordenar por fecha real
+              chronologicalEvents.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+              if (chronologicalEvents.length > 0) {
+                const eventHeaders = ['Fecha', 'Tipo', 'Monto', 'Descripcion'];
+                const availableWidth = doc.page.width - 120;
+                const eventColumnWidths = [
+                  Math.floor(availableWidth * 0.25), // 25% para fecha
+                  Math.floor(availableWidth * 0.15), // 15% para tipo
+                  Math.floor(availableWidth * 0.2),  // 20% para monto  
+                  Math.floor(availableWidth * 0.4)   // 40% para descripción
+                ];
+                const totalEventWidth = eventColumnWidths.reduce((a, b) => a + b, 0);
+                const eventTableX = 55;
 
               // Encabezados
               doc.fontSize(8).fillColor('#ffffff');
-              doc.rect(paymentTableX, y, totalPaymentWidth, 18).fill('#1e40af');
+                doc.rect(eventTableX, y, totalEventWidth, 18).fill('#1e40af');
               doc.fillColor('#ffffff');
-              paymentHeaders.forEach((header, index) => {
-                const headerX = paymentTableX + paymentColumnWidths.slice(0, index).reduce((a, b) => a + b, 0);
-                doc.text(header, headerX + 5, y + 6, { width: paymentColumnWidths[index] - 10, align: 'center' });
+                eventHeaders.forEach((header, index) => {
+                  const headerX = eventTableX + eventColumnWidths.slice(0, index).reduce((a, b) => a + b, 0);
+                  doc.text(header, headerX + 5, y + 6, { width: eventColumnWidths[index] - 10, align: 'center' });
               });
               y += 20;
 
-              // Filas de pagos (máximo 10 para evitar páginas muy largas)
-              const paymentsToShow = loan.payments.slice(0, 10);
-              paymentsToShow.forEach((payment: any, paymentIndex: number) => {
-                const paymentRowColor = paymentIndex % 2 === 0 ? '#f0f9ff' : '#ffffff';
-                doc.rect(paymentTableX, y - 2, totalPaymentWidth, 16).fill(paymentRowColor);
+                // Filas de eventos (todos los eventos) con corte agresivo para evitar páginas en blanco
+                chronologicalEvents.forEach((event: any, eventIndex: number) => {
+                  // Corte MUY agresivo: si estamos en el 70% de la página, cambiar
+                  const pageHeight = doc.page.height;
+                  const currentPagePercentage = (y / pageHeight) * 100;
+                  const rowHeight = 16;
+                  
+                  if (currentPagePercentage > 70) {
+                    // Cambiar página MUY temprano para evitar páginas en blanco
+                    doc.addPage();
+                    y = 40;
+                    
+                    // Recrear encabezados de la tabla en la nueva página
+                    doc.fontSize(8).fillColor('#ffffff');
+                    doc.rect(eventTableX, y, totalEventWidth, 18).fill('#1e40af');
+                    doc.fillColor('#ffffff');
+                    eventHeaders.forEach((header, index) => {
+                      const headerX = eventTableX + eventColumnWidths.slice(0, index).reduce((a, b) => a + b, 0);
+                      doc.text(header, headerX + 5, y + 6, { width: eventColumnWidths[index] - 10, align: 'center' });
+                    });
+                    y += 20;
+                  }
 
-                const paymentData = [
-                  formatDate(payment.receivedAt),
-                  formatCurrency(payment.amount),
-                  payment.paymentNumber?.toString() || 'N/A'
-                ];
+                  // Dibujar fila de la tabla
+                  const eventRowColor = eventIndex % 2 === 0 ? '#f0f9ff' : '#ffffff';
+                  doc.rect(eventTableX, y - 2, totalEventWidth, rowHeight).fill(eventRowColor);
 
-                paymentData.forEach((cell, cellIndex) => {
-                  const cellX = paymentTableX + paymentColumnWidths.slice(0, cellIndex).reduce((a, b) => a + b, 0);
-                  doc.fontSize(7).fillColor('#2d3748').text(cell, cellX + 5, y + 4, { width: paymentColumnWidths[cellIndex] - 10, align: 'center' });
+                  const eventData = [
+                    formatDate(event.date.toISOString().split('T')[0]),
+                    event.type === 'payment' ? 'PAGO' : event.type === 'renewal' ? 'RENOVADO' : 'SIN PAGO',
+                    event.type === 'payment' ? formatCurrency(event.amount) : '-',
+                    event.description
+                  ];
+
+                  eventData.forEach((cell, cellIndex) => {
+                    const cellX = eventTableX + eventColumnWidths.slice(0, cellIndex).reduce((a, b) => a + b, 0);
+                    let cellColor = '#2d3748'; // Color por defecto
+                    if (event.type === 'no_payment') cellColor = '#dc2626';
+                    else if (event.type === 'renewal') cellColor = '#f59e0b';
+                    doc.fontSize(7).fillColor(cellColor).text(cell, cellX + 5, y + 4, { width: eventColumnWidths[cellIndex] - 10, align: 'center' });
+                  });
+                  y += rowHeight;
                 });
-                y += 16;
-              });
-
-              if (loan.payments.length > 10) {
-                doc.fontSize(8).fillColor('#718096').text(`... y ${loan.payments.length - 10} pagos mas`, 55, y);
-                y += 15;
               }
             }
 
@@ -2307,55 +2515,192 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
             doc.text(`Deuda Pendiente: ${formatCurrency(latestLoan.pendingDebt)}`, 55, y);
             y += 25;
 
-            // Pagos del préstamo actual
+            // Historial unificado de pagos y periodos sin pago
             if (latestLoan.payments && latestLoan.payments.length > 0) {
-              doc.fontSize(10).fillColor('#2d3748').text('Historial de Pagos:', 55, y);
-              y += 15;
+              // Salto de página para la tabla de historial
+              doc.addPage();
+              y = 40;
+              
+              // Header de la nueva página
+              doc.roundedRect(40, y, doc.page.width - 80, 40, 6).fill('#1e40af');
+              doc.fontSize(16).fillColor('#ffffff').text('HISTORIAL CRONOLOGICO DE PAGOS', 55, y + 12);
+              y += 60;
 
-              const paymentHeaders = ['Fecha', 'Monto', 'No. Pago'];
-              const availableWidth = doc.page.width - 120; // Ancho disponible dentro del card
-              const paymentColumnWidths = [
-                Math.floor(availableWidth * 0.35), // 35% para fecha
-                Math.floor(availableWidth * 0.35), // 35% para monto  
-                Math.floor(availableWidth * 0.3)   // 30% para número
-              ];
-              const totalPaymentWidth = paymentColumnWidths.reduce((a, b) => a + b, 0);
-              const paymentTableX = 55;
+              // Reconstruir la cronología completa del préstamo
+              const chronologicalEvents: any[] = [];
+              
+              // Obtener duración del préstamo en semanas
+              const loanDuration = latestLoan.weekDuration || 16; // Default 16 semanas
+              const signDate = new Date(latestLoan.signDate);
+              
+              // Crear array de pagos ordenados por fecha
+              const sortedPayments = latestLoan.payments
+                .map((payment: any) => ({
+                  ...payment,
+                  date: new Date(payment.receivedAt)
+                }))
+                .filter((payment: any) => !isNaN(payment.date.getTime()))
+                .sort((a: any, b: any) => a.date.getTime() - b.date.getTime());
+              
+              // Generar cronología semana por semana
+              const currentDate = new Date();
+              
+              // Verificar si el préstamo fue renovado o terminado
+              const isRenewed = latestLoan.status === 'RENOVADO' || latestLoan.status === 'RENOVADO';
+              const isFinished = latestLoan.status === 'TERMINADO' || latestLoan.status === 'FINALIZADO' || 
+                                (latestLoan.finishedDate && (isRenewed || latestLoan.status === 'TERMINADO' || latestLoan.status === 'FINALIZADO'));
+              const isActive = !isRenewed && !isFinished;
+              
+              // Determinar hasta qué semana evaluar
+              let weeksToEvaluate = loanDuration;
+              if (isRenewed && latestLoan.finishedDate) {
+                const renewalDate = new Date(latestLoan.finishedDate);
+                const weeksSinceRenewal = Math.floor((renewalDate.getTime() - signDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
+                weeksToEvaluate = Math.min(weeksSinceRenewal, loanDuration);
+                console.log(`Préstamo renovado: evaluando solo hasta semana ${weeksToEvaluate}`);
+              } else if (isFinished && latestLoan.finishedDate) {
+                const finishDate = new Date(latestLoan.finishedDate);
+                const weeksSinceFinish = Math.floor((finishDate.getTime() - signDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
+                weeksToEvaluate = Math.min(weeksSinceFinish, loanDuration);
+                console.log(`Préstamo terminado: evaluando solo hasta semana ${weeksToEvaluate}`);
+              } else if (isActive) {
+                // Para préstamos activos, evaluar al menos la duración original, pero puede ser más si ha pasado más tiempo
+                const currentDate = new Date();
+                const weeksSinceStart = Math.floor((currentDate.getTime() - signDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
+                weeksToEvaluate = Math.max(weeksSinceStart, loanDuration); // Al menos la duración original, pero puede ser más
+                console.log(`Préstamo activo: evaluando ${weeksToEvaluate} semanas (duración original: ${loanDuration})`);
+              }
+              
+              for (let week = 1; week <= weeksToEvaluate; week++) {
+                // Calcular la fecha de pago de esta semana (signDate + week * 7 días)
+                const weekPaymentDate = new Date(signDate);
+                weekPaymentDate.setDate(weekPaymentDate.getDate() + (week * 7));
+                
+                // La semana termina 3 días después de la fecha de pago
+                const weekEndDate = new Date(weekPaymentDate);
+                weekEndDate.setDate(weekEndDate.getDate() + 3);
+                
+                // Buscar si hay un pago en esta semana (margen de ±3 días alrededor de la fecha de pago)
+                const paymentInWeek = sortedPayments.find((payment: any) => {
+                  const paymentDate = payment.date;
+                  const weekStart = new Date(weekPaymentDate);
+                  weekStart.setDate(weekStart.getDate() - 3);
+                  const weekEnd = new Date(weekPaymentDate);
+                  weekEnd.setDate(weekEnd.getDate() + 3);
+                  
+                  return paymentDate >= weekStart && paymentDate <= weekEnd;
+                });
+                
+                if (paymentInWeek) {
+                  // Hay pago en esta semana
+                  chronologicalEvents.push({
+                    date: paymentInWeek.date,
+                    type: 'payment',
+                    amount: paymentInWeek.amount,
+                    paymentNumber: paymentInWeek.paymentNumber,
+                    description: `Pago #${paymentInWeek.paymentNumber || week}`,
+                    week: week
+                  });
+                } else {
+                  // No hay pago en esta semana
+                  if (currentDate > weekEndDate) {
+                    // Solo mostrar faltas de semanas que ya terminaron (aplica para todos los tipos de préstamo)
+                    chronologicalEvents.push({
+                      date: weekPaymentDate,
+                      type: 'no_payment',
+                      amount: 0,
+                      paymentNumber: null,
+                      description: `Semana ${week} - Sin pago`,
+                      week: week
+                    });
+                  }
+                }
+              }
+              
+              // Si fue renovado, agregar nota informativa
+              if (isRenewed) {
+                chronologicalEvents.push({
+                  date: new Date(latestLoan.finishedDate || latestLoan.signDate),
+                  type: 'renewal',
+                  amount: 0,
+                  paymentNumber: null,
+                  description: `Préstamo renovado - Semanas posteriores no evaluadas`,
+                  week: weeksToEvaluate + 1
+                });
+              }
+              
+              // Ordenar por fecha real (no por semana)
+              chronologicalEvents.sort((a, b) => a.date.getTime() - b.date.getTime());
 
-              // Encabezados
-              doc.fontSize(8).fillColor('#ffffff');
-              doc.rect(paymentTableX, y, totalPaymentWidth, 18).fill('#1e40af');
+              // Solo mostrar la tabla si hay eventos cronológicos
+              if (chronologicalEvents.length > 0) {
+                const eventHeaders = ['Fecha', 'Tipo', 'Monto', 'Descripcion'];
+                const availableWidth = doc.page.width - 120; // Ancho disponible
+                const eventColumnWidths = [
+                  Math.floor(availableWidth * 0.25), // 25% para fecha
+                  Math.floor(availableWidth * 0.15), // 15% para tipo
+                  Math.floor(availableWidth * 0.2),  // 20% para monto  
+                  Math.floor(availableWidth * 0.4)   // 40% para descripción
+                ];
+                const totalEventWidth = eventColumnWidths.reduce((a, b) => a + b, 0);
+                const eventTableX = 55;
+
+                // Encabezados de la tabla
+                doc.fontSize(10).fillColor('#ffffff');
+                doc.rect(eventTableX, y, totalEventWidth, 20).fill('#1e40af');
               
               // Asegurar que el texto sea blanco sobre fondo azul
               doc.fillColor('#ffffff');
-              paymentHeaders.forEach((header, index) => {
-                const headerX = paymentTableX + paymentColumnWidths.slice(0, index).reduce((a, b) => a + b, 0);
-                doc.text(header, headerX + 5, y + 6, { width: paymentColumnWidths[index] - 10, align: 'center' });
-              });
-              y += 20;
+                eventHeaders.forEach((header, index) => {
+                  const headerX = eventTableX + eventColumnWidths.slice(0, index).reduce((a, b) => a + b, 0);
+                  doc.text(header, headerX + 5, y + 6, { width: eventColumnWidths[index] - 10, align: 'center' });
+                });
+                y += 25;
 
-              // Todas las filas de pagos del préstamo actual
-              latestLoan.payments.forEach((payment: any, paymentIndex: number) => {
-                if (y > doc.page.height - 80) {
+                // Filas de eventos cronológicos con corte agresivo para evitar páginas en blanco
+                chronologicalEvents.forEach((event: any, eventIndex: number) => {
+                  // Corte MUY agresivo: si estamos en el 70% de la página, cambiar
+                  const pageHeight = doc.page.height;
+                  const currentPagePercentage = (y / pageHeight) * 100;
+                  const rowHeight = 18;
+                  
+                  if (currentPagePercentage > 70) {
+                    // Cambiar página MUY temprano para evitar páginas en blanco
                   doc.addPage();
                   y = 40;
-                }
+                    
+                    // Recrear encabezados de la tabla en la nueva página
+                    doc.fontSize(10).fillColor('#ffffff');
+                    doc.rect(eventTableX, y, totalEventWidth, 20).fill('#1e40af');
+                    doc.fillColor('#ffffff');
+                    eventHeaders.forEach((header, index) => {
+                      const headerX = eventTableX + eventColumnWidths.slice(0, index).reduce((a, b) => a + b, 0);
+                      doc.text(header, headerX + 5, y + 6, { width: eventColumnWidths[index] - 10, align: 'center' });
+                    });
+                    y += 25;
+                  }
 
-                const paymentRowColor = paymentIndex % 2 === 0 ? '#f0f9ff' : '#ffffff';
-                doc.rect(paymentTableX, y - 2, totalPaymentWidth, 16).fill(paymentRowColor);
+                  // Dibujar fila de la tabla
+                  const eventRowColor = eventIndex % 2 === 0 ? '#f0f9ff' : '#ffffff';
+                  doc.rect(eventTableX, y - 2, totalEventWidth, rowHeight).fill(eventRowColor);
 
-                const paymentData = [
-                  formatDate(payment.receivedAt),
-                  formatCurrency(payment.amount),
-                  payment.paymentNumber?.toString() || 'N/A'
-                ];
+                  const eventData = [
+                    formatDate(event.date.toISOString().split('T')[0]),
+                    event.type === 'payment' ? 'PAGO' : event.type === 'renewal' ? 'RENOVADO' : 'SIN PAGO',
+                    event.type === 'payment' ? formatCurrency(event.amount) : '-',
+                    event.description
+                  ];
 
-                paymentData.forEach((cell, cellIndex) => {
-                  const cellX = paymentTableX + paymentColumnWidths.slice(0, cellIndex).reduce((a, b) => a + b, 0);
-                  doc.fontSize(7).fillColor('#2d3748').text(cell, cellX + 5, y + 4, { width: paymentColumnWidths[cellIndex] - 10, align: 'center' });
+                  eventData.forEach((cell, cellIndex) => {
+                    const cellX = eventTableX + eventColumnWidths.slice(0, cellIndex).reduce((a, b) => a + b, 0);
+                    let cellColor = '#2d3748'; // Color por defecto
+                    if (event.type === 'no_payment') cellColor = '#dc2626';
+                    else if (event.type === 'renewal') cellColor = '#f59e0b';
+                    doc.fontSize(9).fillColor(cellColor).text(cell, cellX + 5, y + 5, { width: eventColumnWidths[cellIndex] - 10, align: 'center' });
+                  });
+                  y += rowHeight;
                 });
-                y += 16;
-              });
+              }
             }
 
             y += 30;
