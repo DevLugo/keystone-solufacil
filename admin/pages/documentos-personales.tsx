@@ -5,24 +5,30 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Box, jsx, Stack, Text } from '@keystone-ui/core';
 import { Button } from '@keystone-ui/button';
-import { TextInput } from '@keystone-ui/fields';
+import { TextInput, Select } from '@keystone-ui/fields';
 import { LoadingDots } from '@keystone-ui/loading';
 import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
 import { AlertDialog } from '@keystone-ui/modals';
-import { FaSearch, FaEye, FaEdit, FaTrash, FaUser, FaUserTie, FaMoneyBillWave, FaCalendarAlt } from 'react-icons/fa';
+import { FaSearch, FaEye, FaEdit, FaTrash, FaUser, FaUserTie, FaMoneyBillWave, FaCalendarAlt, FaMapMarkerAlt, FaFilter } from 'react-icons/fa';
 import { useQuery, useMutation } from '@apollo/client';
 import { gql } from '@apollo/client';
 import { PageContainer } from '@keystone-6/core/admin-ui/components';
-import RouteLeadSelector from '../components/routes/RouteLeadSelector';
-import { InlineEditField } from '../components/documents/InlineEditField';
-import { Select } from '@keystone-ui/fields';
-import { DocumentThumbnail } from '../components/documents/DocumentThumbnail';
+import { GET_LEADS_SIMPLE } from '../graphql/queries/routes-optimized';
 import { ImageModal } from '../components/documents/ImageModal';
 import { UploadModal } from '../components/documents/UploadModal';
 import { DocumentsModal } from '../components/documents/DocumentsModal';
 import { ErrorModal } from '../components/documents/ErrorModal';
 import { UPDATE_PERSONAL_DATA_NAME, UPDATE_PERSONAL_DATA_PHONE, CREATE_PERSONAL_DATA_PHONE } from '../graphql/mutations/personalData';
-import type { Route, Employee } from '../types/transaction';
+
+// Query para obtener rutas
+const GET_ROUTES = gql`
+  query GetRoutes {
+    routes(where: {}) {
+      id
+      name
+    }
+  }
+`;
 
 // Query para obtener préstamos con información de documentos
 const GET_LOANS_WITH_DOCUMENTS = gql`
@@ -60,6 +66,16 @@ const GET_LOANS_WITH_DOCUMENTS = gql`
           phones {
             id
             number
+          }
+          addresses {
+            location {
+              name
+              municipality {
+                state {
+                  name
+                }
+              }
+            }
           }
         }
         routes {
@@ -266,9 +282,20 @@ export default function DocumentosPersonalesPage() {
     return options;
   }, []);
 
-  // Estados para RouteLeadSelector
-  const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
-  const [selectedLead, setSelectedLead] = useState<Employee | null>(null);
+  // Estados para rutas
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  const [routes, setRoutes] = useState<Array<{id: string; name: string}>>([]);
+  
+  // Estado para filtro de completos/incompletos
+  const [completionFilter, setCompletionFilter] = useState<'all' | 'complete' | 'incomplete'>('incomplete');
+  const [showCompletionFilter, setShowCompletionFilter] = useState(false);
+  
+  // Estado para loader de cambio de ruta
+  const [isChangingRoute, setIsChangingRoute] = useState(false);
+  
+  // Estados para filtro de localidad
+  const [selectedLocality, setSelectedLocality] = useState<string>('');
+  const [showLocalityFilter, setShowLocalityFilter] = useState(false);
 
   // Estados para modales
   const [imageModal, setImageModal] = useState<{
@@ -340,6 +367,18 @@ export default function DocumentosPersonalesPage() {
     return endOfWeek;
   };
 
+  // Query para obtener rutas
+  const { data: routesData, loading: routesLoading } = useQuery(GET_ROUTES, {
+    fetchPolicy: 'cache-first'
+  });
+
+  // Query para obtener los líderes de la ruta seleccionada (igual que en RouteLeadSelector)
+  const { data: leadsData, loading: leadsLoading, error: leadsError } = useQuery(GET_LEADS_SIMPLE, {
+    variables: { routeId: selectedRouteId || '' },
+    skip: !selectedRouteId, // Solo ejecutar si hay una ruta seleccionada
+    fetchPolicy: 'cache-first'
+  });
+
   // Query para obtener préstamos
   const { data, loading: queryLoading, error: queryError, refetch } = useQuery(GET_LOANS_WITH_DOCUMENTS, {
     variables: {
@@ -357,6 +396,17 @@ export default function DocumentosPersonalesPage() {
   const [updatePersonalDataPhone] = useMutation(UPDATE_PERSONAL_DATA_PHONE);
   const [createPersonalDataPhone] = useMutation(CREATE_PERSONAL_DATA_PHONE);
 
+  // Efecto para actualizar rutas cuando se cargan los datos
+  useEffect(() => {
+    if (routesData?.routes) {
+      setRoutes(routesData.routes);
+      // Seleccionar la primera ruta por defecto si no hay ninguna seleccionada
+      if (routesData.routes.length > 0 && !selectedRouteId) {
+        setSelectedRouteId(routesData.routes[0].id);
+      }
+    }
+  }, [routesData, selectedRouteId]);
+
   // Efecto para actualizar préstamos cuando cambia la query
   useEffect(() => {
     if (data?.loans) {
@@ -364,6 +414,21 @@ export default function DocumentosPersonalesPage() {
       setLoading(false);
     }
   }, [data]);
+
+  // Efecto para triggear búsqueda cuando cambia la ruta seleccionada
+  useEffect(() => {
+    if (selectedRouteId) {
+      setIsChangingRoute(true);
+      refetch().finally(() => {
+        setIsChangingRoute(false);
+      });
+    }
+  }, [selectedRouteId, refetch]);
+
+  // Efecto para limpiar la localidad seleccionada cuando cambie la ruta
+  useEffect(() => {
+    setSelectedLocality('');
+  }, [selectedRouteId]);
 
   // Efecto para actualizar el modal de documentos cuando cambia el estado de los préstamos
   useEffect(() => {
@@ -679,55 +744,6 @@ export default function DocumentosPersonalesPage() {
     }
   };
 
-  // Filtrar préstamos por término de búsqueda, ruta y localidad
-  const filteredLoans = loans.filter(loan => {
-    // Filtro por término de búsqueda
-    const searchLower = searchTerm.toLowerCase();
-    const borrowerName = loan.borrower.personalData.fullName.toLowerCase();
-    const leadName = loan.lead.personalData.fullName.toLowerCase();
-    const borrowerPhone = loan.borrower.personalData.phones[0]?.number || '';
-    const leadPhone = loan.lead.personalData.phones[0]?.number || '';
-    
-    const matchesSearch = borrowerName.includes(searchLower) || 
-                         leadName.includes(searchLower) ||
-                         borrowerPhone.includes(searchTerm) ||
-                         leadPhone.includes(searchTerm);
-    
-    // Filtro por ruta seleccionada
-    let matchesRoute = true;
-    if (selectedRoute) {
-      // Verificar si el préstamo pertenece a la ruta seleccionada
-      const loanRoutes = loan.lead.routes;
-      
-      // Debug: ver qué está llegando
-      console.log('Debug - loan.lead.routes:', loanRoutes);
-      console.log('Debug - typeof loanRoutes:', typeof loanRoutes);
-      console.log('Debug - Array.isArray(loanRoutes):', Array.isArray(loanRoutes));
-      
-      // Verificar que routes sea un array antes de usar .some()
-      if (Array.isArray(loanRoutes)) {
-        matchesRoute = loanRoutes.some((route: any) => route.id === selectedRoute.id);
-      } else if (loanRoutes && typeof loanRoutes === 'object' && 'id' in loanRoutes) {
-        // Si routes es un objeto (relación directa), verificar por ID
-        matchesRoute = (loanRoutes as any).id === selectedRoute.id;
-      } else {
-        // Si no hay routes o es null/undefined, no coincide
-        matchesRoute = false;
-      }
-      
-      console.log('Debug - matchesRoute:', matchesRoute);
-    }
-    
-    // Filtro por localidad seleccionada
-    let matchesLead = true;
-    if (selectedLead) {
-      // Verificar si el préstamo tiene el líder seleccionado
-      matchesLead = loan.lead.id === selectedLead.id;
-    }
-    
-    return matchesSearch && matchesRoute && matchesLead;
-  });
-
   // Función para verificar si un préstamo tiene todos los documentos requeridos y sin errores
   const isLoanComplete = (loan: any) => {
     const documents = loan.documentPhotos;
@@ -757,17 +773,127 @@ export default function DocumentosPersonalesPage() {
     return hasTitularINE && hasTitularDOMICILIO && hasTitularPAGARE && hasAvalINE && hasAvalDOMICILIO;
   };
 
+  // Función para obtener la localidad del líder asociado al crédito (igual que en RouteLeadSelector)
+  const getLocality = (loan: any) => {
+    const lead = loan.lead;
+    
+    if (lead?.personalData?.addresses?.[0]?.location?.name) {
+      const locality = lead.personalData.addresses[0].location.name;
+      const state = lead.personalData.addresses[0].location.municipality?.state?.name;
+      return state ? `${locality} · ${state}` : locality;
+    }
+    
+    return 'Sin localidad';
+  };
+
+  // Obtener localidades únicas de los líderes de la ruta seleccionada (igual que en RouteLeadSelector)
+  const uniqueLocalities = useMemo(() => {
+    const localities = new Set<string>();
+    
+    if (leadsData?.employees) {
+      leadsData.employees.forEach((lead: any) => {
+        if (lead?.personalData?.addresses?.[0]?.location?.name) {
+          const locality = lead.personalData.addresses[0].location.name;
+          const state = lead.personalData.addresses[0].location.municipality?.state?.name;
+          const localityLabel = state ? `${locality} · ${state}` : locality;
+          localities.add(localityLabel);
+        }
+      });
+    }
+    
+    return Array.from(localities).sort();
+  }, [leadsData]);
+
+  // Crear opciones para el Select de localidad (igual que en RouteLeadSelector)
+  const localityOptions = useMemo(() => {
+    const options: Array<{label: string, value: string, data: string | null}> = [
+      { label: 'Todas las localidades', value: '', data: null }
+    ];
+    
+    uniqueLocalities.forEach(locality => {
+      options.push({
+        label: locality,
+        value: locality,
+        data: locality
+      });
+    });
+    
+    return options;
+  }, [uniqueLocalities]);
+
+  // Filtrar préstamos por término de búsqueda, ruta, completitud y localidad
+  const filteredLoans = loans.filter(loan => {
+    // Filtro por término de búsqueda
+    const searchLower = searchTerm.toLowerCase();
+    const borrowerName = loan.borrower.personalData.fullName.toLowerCase();
+    const leadName = loan.lead.personalData.fullName.toLowerCase();
+    const borrowerPhone = loan.borrower.personalData.phones[0]?.number || '';
+    const leadPhone = loan.lead.personalData.phones[0]?.number || '';
+    
+    const matchesSearch = borrowerName.includes(searchLower) || 
+                         leadName.includes(searchLower) ||
+                         borrowerPhone.includes(searchTerm) ||
+                         leadPhone.includes(searchTerm);
+    
+    // Filtro por ruta seleccionada
+    let matchesRoute = true;
+    if (selectedRouteId) {
+      // Verificar si el préstamo pertenece a la ruta seleccionada
+      const loanRoutes = loan.lead.routes;
+      
+      // Verificar que routes sea un array antes de usar .some()
+      if (Array.isArray(loanRoutes)) {
+        matchesRoute = loanRoutes.some((route: any) => route.id === selectedRouteId);
+      } else if (loanRoutes && typeof loanRoutes === 'object' && 'id' in loanRoutes) {
+        // Si routes es un objeto (relación directa), verificar por ID
+        matchesRoute = (loanRoutes as any).id === selectedRouteId;
+      } else {
+        // Si no hay routes o es null/undefined, no coincide
+        matchesRoute = false;
+      }
+    }
+    
+    // Filtro por completitud
+    let matchesCompletion = true;
+    if (completionFilter !== 'all') {
+      const isComplete = isLoanComplete(loan);
+      matchesCompletion = completionFilter === 'complete' ? isComplete : !isComplete;
+    }
+    
+    // Filtro por localidad
+    let matchesLocality = true;
+    if (selectedLocality) {
+      const loanLocality = getLocality(loan);
+      matchesLocality = loanLocality === selectedLocality;
+    }
+    
+    return matchesSearch && matchesRoute && matchesCompletion && matchesLocality;
+  });
+
   // Calcular estadísticas basadas en los préstamos filtrados
   const totalCredits = filteredLoans.length;
   const creditsWithDocuments = filteredLoans.filter(loan => isLoanComplete(loan)).length;
   const totalDocuments = filteredLoans.reduce((total, loan) => total + loan.documentPhotos.length, 0);
   const creditsWithoutDocuments = totalCredits - creditsWithDocuments;
 
-  if (loading) {
+  if (loading || queryLoading) {
     return (
       <PageContainer header="Documentos Personales">
-        <Box padding="large" css={{ display: 'flex', justifyContent: 'center' }}>
+        <Box 
+          padding="large" 
+          css={{ 
+            display: 'flex', 
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: '400px',
+            gap: '16px'
+          }}
+        >
           <LoadingDots label="Cargando documentos..." />
+          <Text size="medium" color="neutral600">
+            Obteniendo información de la semana seleccionada...
+          </Text>
         </Box>
       </PageContainer>
     );
@@ -816,25 +942,271 @@ export default function DocumentosPersonalesPage() {
             opacity: '1',
             transform: 'translateY(0)'
           }
+        },
+        '@keyframes fadeInDown': {
+          '0%': {
+            opacity: '0',
+            transform: 'translateY(-10px)'
+          },
+          '100%': {
+            opacity: '1',
+            transform: 'translateY(0)'
+          }
         }
       }}>
-        {/* Header con selector de semanas y filtros */}
+        {/* Tabs de rutas */}
         <Box
           css={{
-            display: 'grid',
-            gridTemplateColumns: '1fr auto',
-            gap: '20px',
-            alignItems: 'start',
             marginBottom: '24px',
             width: '100%',
             '@media (max-width: 768px)': {
-              gridTemplateColumns: '1fr',
-              gap: '16px'
+              marginBottom: '16px'
             }
           }}
         >
-                      {/* Selector simple de semanas */}
-            <Box css={{ width: '100%' }}>
+          <Box
+            css={{
+              display: 'flex',
+              gap: '8px',
+              overflowX: 'auto',
+              paddingBottom: '8px',
+              '&::-webkit-scrollbar': {
+                height: '4px'
+              },
+              '&::-webkit-scrollbar-track': {
+                background: '#f1f5f9'
+              },
+              '&::-webkit-scrollbar-thumb': {
+                background: '#cbd5e1',
+                borderRadius: '2px'
+              }
+            }}
+          >
+            {/* Tabs de rutas individuales */}
+            {routes.map((route) => (
+              <Button
+                key={route.id}
+                size="small"
+                onClick={() => setSelectedRouteId(route.id)}
+                css={{
+                  backgroundColor: selectedRouteId === route.id ? '#3b82f6' : '#f8fafc',
+                  color: selectedRouteId === route.id ? 'white' : '#64748b',
+                  border: '1px solid',
+                  borderColor: selectedRouteId === route.id ? '#3b82f6' : '#e2e8f0',
+                  borderRadius: '8px',
+                  padding: '8px 16px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  whiteSpace: 'nowrap',
+                  minWidth: '120px',
+                  transition: 'all 0.2s ease',
+                  '&:hover': {
+                    backgroundColor: selectedRouteId === route.id ? '#2563eb' : '#f1f5f9',
+                    transform: 'translateY(-1px)'
+                  }
+                }}
+              >
+                {route.name}
+              </Button>
+            ))}
+          </Box>
+        </Box>
+
+
+        {/* Filtro de localidad */}
+        <Box
+          css={{
+            marginBottom: '24px',
+            '@media (max-width: 768px)': {
+              marginBottom: '16px'
+            }
+          }}
+        >
+          <Box
+            css={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              '@media (max-width: 768px)': {
+                flexDirection: 'column',
+                alignItems: 'stretch',
+                gap: '8px'
+              }
+            }}
+          >
+            <Text weight="medium" size="small" color="black">
+              Filtros adicionales
+            </Text>
+            
+            {/* Botón para mostrar/ocultar filtro de localidad */}
+            <Button
+              size="small"
+              onClick={() => setShowLocalityFilter(!showLocalityFilter)}
+              css={{
+                backgroundColor: showLocalityFilter ? '#3b82f6' : '#f8fafc',
+                color: showLocalityFilter ? 'white' : '#6b7280',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                padding: '8px 12px',
+                fontSize: '14px',
+                fontWeight: '500',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                transition: 'all 0.2s ease',
+                '&:hover': {
+                  backgroundColor: showLocalityFilter ? '#2563eb' : '#f1f5f9',
+                  borderColor: showLocalityFilter ? '#2563eb' : '#cbd5e1'
+                },
+                '@media (max-width: 768px)': {
+                  width: '100%',
+                  justifyContent: 'center'
+                }
+              }}
+            >
+              <FaFilter size={14} />
+              {selectedLocality ? `Localidad: ${selectedLocality}` : 'Filtrar por localidad'}
+            </Button>
+          </Box>
+
+          {/* Panel de filtro de localidad (colapsable) */}
+          {showLocalityFilter && (
+            <Box
+              css={{
+                marginTop: '12px',
+                padding: '16px',
+                backgroundColor: '#f8fafc',
+                borderRadius: '12px',
+                border: '1px solid #e2e8f0',
+                animation: 'fadeInDown 0.3s ease-out',
+                '@media (max-width: 768px)': {
+                  padding: '12px'
+                }
+              }}
+            >
+              {/* Filtro de estado */}
+              <Box css={{ marginBottom: '16px' }}>
+                <Text weight="medium" size="small" color="black" css={{ marginBottom: '8px' }}>
+                  Estado de Documentos
+                </Text>
+                
+                <Box
+                  css={{
+                    display: 'flex',
+                    gap: '4px',
+                    backgroundColor: '#f1f5f9',
+                    padding: '4px',
+                    borderRadius: '8px',
+                    border: '1px solid #e2e8f0',
+                    '@media (max-width: 768px)': {
+                      width: '100%'
+                    }
+                  }}
+                >
+                  <Button
+                    size="small"
+                    onClick={() => setCompletionFilter('incomplete')}
+                    css={{
+                      backgroundColor: completionFilter === 'incomplete' ? '#3b82f6' : 'transparent',
+                      color: completionFilter === 'incomplete' ? 'white' : '#6b7280',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      fontWeight: '500',
+                      whiteSpace: 'nowrap',
+                      transition: 'all 0.15s ease',
+                      boxShadow: completionFilter === 'incomplete' ? '0 1px 2px 0 rgba(0, 0, 0, 0.1)' : 'none',
+                      flex: 1,
+                      '&:hover': {
+                        backgroundColor: completionFilter === 'incomplete' ? '#2563eb' : '#e2e8f0'
+                      }
+                    }}
+                  >
+                    Pendientes
+                  </Button>
+                  <Button
+                    size="small"
+                    onClick={() => setCompletionFilter('complete')}
+                    css={{
+                      backgroundColor: completionFilter === 'complete' ? '#3b82f6' : 'transparent',
+                      color: completionFilter === 'complete' ? 'white' : '#6b7280',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      fontWeight: '500',
+                      whiteSpace: 'nowrap',
+                      transition: 'all 0.15s ease',
+                      boxShadow: completionFilter === 'complete' ? '0 1px 2px 0 rgba(0, 0, 0, 0.1)' : 'none',
+                      flex: 1,
+                      '&:hover': {
+                        backgroundColor: completionFilter === 'complete' ? '#2563eb' : '#e2e8f0'
+                      }
+                    }}
+                  >
+                    Finalizados
+                  </Button>
+                  <Button
+                    size="small"
+                    onClick={() => setCompletionFilter('all')}
+                    css={{
+                      backgroundColor: completionFilter === 'all' ? '#3b82f6' : 'transparent',
+                      color: completionFilter === 'all' ? 'white' : '#6b7280',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      fontWeight: '500',
+                      whiteSpace: 'nowrap',
+                      transition: 'all 0.15s ease',
+                      boxShadow: completionFilter === 'all' ? '0 1px 2px 0 rgba(0, 0, 0, 0.1)' : 'none',
+                      flex: 1,
+                      '&:hover': {
+                        backgroundColor: completionFilter === 'all' ? '#2563eb' : '#e2e8f0'
+                      }
+                    }}
+                  >
+                    Todos
+                  </Button>
+                </Box>
+              </Box>
+
+              {/* Filtro de localidad */}
+              <Box>
+                <Text weight="medium" size="small" color="black" css={{ marginBottom: '8px' }}>
+                  Localidad del Líder
+                </Text>
+                
+                <Select
+                  value={localityOptions.find(option => option.value === selectedLocality) || null}
+                  options={localityOptions}
+                  onChange={(option) => setSelectedLocality(option?.value || '')}
+                  placeholder={leadsLoading ? "Cargando localidades..." : "Seleccionar localidad"}
+                  isLoading={leadsLoading}
+                  isDisabled={!selectedRouteId || leadsLoading}
+                  css={{
+                    width: '100%',
+                    '@media (max-width: 768px)': {
+                      width: '100%'
+                    }
+                  }}
+                />
+              </Box>
+            </Box>
+          )}
+        </Box>
+
+        {/* Selector de semanas */}
+        <Box
+          css={{
+            marginBottom: '24px',
+            width: '100%',
+            '@media (max-width: 768px)': {
+              marginBottom: '16px'
+            }
+          }}
+        >
               <Text weight="medium" size="small" color="black" marginBottom="small">
                 Seleccionar Semana
               </Text>
@@ -853,87 +1225,138 @@ export default function DocumentosPersonalesPage() {
               />
             </Box>
 
-          {/* RouteLeadSelector */}
-          <RouteLeadSelector
-            selectedRoute={selectedRoute}
-            selectedLead={selectedLead}
-            selectedDate={selectedDate}
-            onRouteSelect={setSelectedRoute}
-            onLeadSelect={setSelectedLead}
-            onDateSelect={setSelectedDate}
-            hideDateField={true}
-          />
-        </Box>
-
-        {/* Estadísticas */}
+        {/* Estadísticas fusionadas con contador claro */}
         <Box
           css={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: '16px',
-            marginBottom: '24px',
-            width: '100%'
+            backgroundColor: '#f8fafc',
+            borderRadius: '12px',
+            border: '1px solid #e2e8f0',
+            padding: '16px',
+            marginBottom: '16px',
+            '@media (max-width: 768px)': {
+              padding: '12px',
+              marginBottom: '12px'
+            }
           }}
         >
           <Box
             css={{
-              padding: '20px',
-              backgroundColor: '#f0fdf4',
-              borderRadius: '12px',
-              border: '1px solid #bbf7d0',
-              textAlign: 'center'
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: '12px',
+              '@media (max-width: 768px)': {
+                flexDirection: 'column',
+                alignItems: 'stretch',
+                gap: '8px'
+              }
             }}
           >
-            <Text weight="bold" size="large" color="green600">
+            <Text weight="semibold" size="medium" color="neutral900">
+              Resumen de Clientes
+            </Text>
+            <Text size="small" color="neutral600">
+              {completionFilter === 'incomplete' ? 'Mostrando solo pendientes' : 
+               completionFilter === 'complete' ? 'Mostrando solo finalizados' : 
+               'Mostrando todos los clientes'}
+            </Text>
+        </Box>
+
+        <Box
+          css={{
+            display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+            gap: '16px',
+              '@media (max-width: 768px)': {
+                gap: '12px'
+              }
+          }}
+        >
+            {/* Total de clientes */}
+          <Box
+            css={{
+                textAlign: 'center',
+                padding: '12px',
+                backgroundColor: 'white',
+                borderRadius: '8px',
+                border: '1px solid #e5e7eb',
+                '@media (max-width: 768px)': {
+                  padding: '8px'
+                }
+              }}
+            >
+              <Text weight="bold" size="large" color="neutral900">
               {totalCredits}
             </Text>
-            <Text size="small" color="neutral600">
-              CRÉDITOS COMPLETOS
-            </Text>
-            <Text size="small" color="green600" weight="medium">
-              Completos: {creditsWithDocuments}
+              <Text size="small" color="neutral600" weight="medium">
+                Total
             </Text>
           </Box>
 
+            {/* Finalizados */}
           <Box
             css={{
-              padding: '20px',
-              backgroundColor: '#eff6ff',
-              borderRadius: '12px',
-              border: '1px solid #bfdbfe',
-              textAlign: 'center'
-            }}
-          >
-            <Text weight="bold" size="large" color="blue600">
-              {totalDocuments}
+                textAlign: 'center',
+                padding: '12px',
+                backgroundColor: 'white',
+                borderRadius: '8px',
+                border: '1px solid #e5e7eb',
+                '@media (max-width: 768px)': {
+                  padding: '8px'
+                }
+              }}
+            >
+              <Text weight="bold" size="large" color="green600">
+                {creditsWithDocuments}
             </Text>
-            <Text size="small" color="neutral600">
-              TOTAL DE DOCUMENTOS
-            </Text>
-            <Text size="small" color="blue600" weight="medium">
-              Fotos subidas
+              <Text size="small" color="neutral600" weight="medium">
+                Finalizados
             </Text>
           </Box>
 
+            {/* Pendientes */}
           <Box
             css={{
-              padding: '20px',
-              backgroundColor: '#fef2f2',
-              borderRadius: '12px',
-              border: '1px solid #fecaca',
-              textAlign: 'center'
+                textAlign: 'center',
+                padding: '12px',
+                backgroundColor: 'white',
+                borderRadius: '8px',
+                border: '1px solid #e5e7eb',
+                '@media (max-width: 768px)': {
+                  padding: '8px'
+                }
             }}
           >
             <Text weight="bold" size="large" color="red600">
               {creditsWithoutDocuments}
             </Text>
-            <Text size="small" color="neutral600">
-              CRÉDITOS SIN DOCUMENTOS
-            </Text>
-            <Text size="small" color="red600" weight="medium">
+              <Text size="small" color="neutral600" weight="medium">
               Pendientes
             </Text>
           </Box>
+          </Box>
+
+          {/* Barra de progreso visual */}
+          {totalCredits > 0 && (
+            <Box
+              css={{
+                marginTop: '12px',
+                backgroundColor: '#e5e7eb',
+                borderRadius: '6px',
+                height: '6px',
+                overflow: 'hidden'
+              }}
+            >
+              <Box
+                css={{
+                  width: `${(creditsWithDocuments / totalCredits) * 100}%`,
+                  backgroundColor: '#10b981',
+                  height: '100%',
+                  transition: 'width 0.3s ease'
+                }}
+              />
+            </Box>
+          )}
         </Box>
 
         {/* Barra de búsqueda */}
@@ -945,7 +1368,8 @@ export default function DocumentosPersonalesPage() {
             alignItems: 'center',
             '@media (max-width: 768px)': {
               flexDirection: 'column',
-              alignItems: 'stretch'
+              alignItems: 'stretch',
+              marginBottom: '20px'
             }
           }}
         >
@@ -974,6 +1398,27 @@ export default function DocumentosPersonalesPage() {
 
         {/* Lista de créditos */}
         <Box css={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Loader sutil cuando se está cargando nueva información */}
+          {(queryLoading || isChangingRoute) && !loading && (
+            <Box
+              css={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '20px',
+                backgroundColor: '#f8fafc',
+                borderRadius: '12px',
+                border: '1px solid #e2e8f0',
+                marginBottom: '16px'
+              }}
+            >
+              <LoadingDots label={isChangingRoute ? "Cambiando ruta..." : "Actualizando información..."} />
+              <Text size="small" color="neutral600" css={{ marginLeft: '12px' }}>
+                {isChangingRoute ? "Cargando documentos de la nueva ruta..." : "Cargando nueva información..."}
+              </Text>
+            </Box>
+          )}
+
           {filteredLoans.map((loan) => {
             const isExpanded = selectedLoan?.id === loan.id;
             const borrowerDocuments = loan.documentPhotos.filter(doc => 
@@ -994,9 +1439,11 @@ export default function DocumentosPersonalesPage() {
                   boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
                   transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                   animation: 'fadeInUp 0.5s ease-out',
+                  position: 'relative',
                   '&:hover': {
                     transform: 'translateY(-2px)',
-                    boxShadow: '0 10px 25px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+                    boxShadow: '0 10px 25px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+                    borderColor: '#3b82f6'
                   },
                   '@media (max-width: 768px)': {
                     borderRadius: '12px',
@@ -1004,6 +1451,31 @@ export default function DocumentosPersonalesPage() {
                   }
                 }}
               >
+                {/* Indicador de estado */}
+                <Box
+                  css={{
+                    position: 'absolute',
+                    top: '12px',
+                    right: '12px',
+                    padding: '4px 8px',
+                    borderRadius: '12px',
+                    fontSize: '10px',
+                    fontWeight: '600',
+                    backgroundColor: isLoanComplete(loan) ? '#d1fae5' : '#fef3c7',
+                    color: isLoanComplete(loan) ? '#065f46' : '#92400e',
+                    border: `1px solid ${isLoanComplete(loan) ? '#10b981' : '#f59e0b'}`,
+                    zIndex: 1,
+                    '@media (max-width: 768px)': {
+                      top: '8px',
+                      right: '8px',
+                      padding: '3px 6px',
+                      fontSize: '9px'
+                    }
+                  }}
+                >
+                  {isLoanComplete(loan) ? 'Finalizado' : 'Pendiente'}
+                </Box>
+
                 {/* Header del crédito */}
                 <Box
                   css={{
@@ -1026,51 +1498,133 @@ export default function DocumentosPersonalesPage() {
                       gridTemplateColumns: '1fr 1fr',
                       gap: '8px',
                       alignItems: 'start',
+                      width: '100%',
                       '@media (max-width: 768px)': {
                         gridTemplateColumns: '1fr',
-                        gap: '12px'
+                        gap: '8px'
                       }
                     }}
                   >
                     {/* Columna izquierda */}
-                    <Box css={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <Box css={{ 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      gap: '8px',
+                      minWidth: 0,
+                      width: '100%'
+                    }}>
                       <Box css={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <FaCalendarAlt color="#6b7280" />
-                        <Text size="small" color="black" weight="medium">
+                        <Box
+                          css={{
+                            padding: '4px 8px',
+                            borderRadius: '12px',
+                            backgroundColor: '#f0f9ff',
+                            border: '1px solid #0ea5e9',
+                            fontSize: '10px',
+                            fontWeight: '600',
+                            color: '#0369a1',
+                            transition: 'all 0.2s ease',
+                            '&:hover': {
+                              backgroundColor: '#e0f2fe',
+                              transform: 'translateY(-1px)',
+                              boxShadow: '0 2px 4px rgba(14, 165, 233, 0.2)'
+                            }
+                          }}
+                        >
                           {new Date(loan.signDate).toLocaleDateString('es-ES')}
-                        </Text>
+                        </Box>
                       </Box>
 
                       <Box css={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <FaMapMarkerAlt color="#6b7280" />
+                        <Box
+                          css={{
+                            padding: '4px 8px',
+                            borderRadius: '12px',
+                            backgroundColor: '#f0fdf4',
+                            border: '1px solid #22c55e',
+                            fontSize: '10px',
+                            fontWeight: '600',
+                            color: '#15803d',
+                            transition: 'all 0.2s ease',
+                            '&:hover': {
+                              backgroundColor: '#dcfce7',
+                              transform: 'translateY(-1px)',
+                              boxShadow: '0 2px 4px rgba(34, 197, 94, 0.2)'
+                            }
+                          }}
+                        >
+                          {getLocality(loan)}
+                        </Box>
+                      </Box>
+
+                      <Box css={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '6px',
+                        minWidth: 0,
+                        flex: 1
+                      }}>
                         <FaUser color="#6b7280" />
-                        <Text size="small" color="black" weight="medium" css={{
+                        <div 
+                          css={{
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}>
+                            whiteSpace: 'nowrap',
+                            minWidth: 0,
+                            flex: 1,
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            color: '#000000',
+                            maxWidth: '100%',
+                            '@media (max-width: 768px)': {
+                              maxWidth: 'calc(100vw - 120px)'
+                            }
+                          }}
+                          title={loan.borrower.personalData.fullName}
+                        >
                           {loan.borrower.personalData.fullName}
-                        </Text>
+                        </div>
                       </Box>
 
-                      <Box css={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <FaMoneyBillWave color="#6b7280" />
-                        <Text size="small" color="black" weight="bold">
-                          ${parseFloat(loan.requestedAmount).toLocaleString()}
-                        </Text>
-                      </Box>
                     </Box>
 
                     {/* Columna derecha */}
-                    <Box css={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <Box css={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Box css={{ 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      gap: '8px',
+                      minWidth: 0,
+                      width: '100%'
+                    }}>
+                      <Box css={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '6px',
+                        minWidth: 0,
+                        flex: 1
+                      }}>
                         <FaUserTie color="#6b7280" />
-                        <Text size="small" color="black" weight="medium" css={{
+                        <div 
+                          css={{
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}>
+                            whiteSpace: 'nowrap',
+                            minWidth: 0,
+                            flex: 1,
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            color: '#000000',
+                            maxWidth: '100%',
+                            '@media (max-width: 768px)': {
+                              maxWidth: 'calc(100vw - 120px)'
+                            }
+                          }}
+                          title={loan.lead.personalData.fullName}
+                        >
                           {loan.lead.personalData.fullName}
-                        </Text>
+                        </div>
                       </Box>
 
                       <Box css={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1085,10 +1639,14 @@ export default function DocumentosPersonalesPage() {
                   {/* Tags de documentos */}
                   <Box css={{ 
                     marginTop: '12px',
-                    padding: '12px',
+                    padding: '16px',
                     backgroundColor: '#f8fafc',
-                    borderRadius: '8px',
-                    border: '1px solid #e2e8f0'
+                    borderRadius: '12px',
+                    border: '1px solid #e2e8f0',
+                    '@media (max-width: 768px)': {
+                      padding: '12px',
+                      marginTop: '10px'
+                    }
                   }}>
                     {/* Tags del Titular */}
                     <Box css={{ marginBottom: '8px' }}>
@@ -1098,7 +1656,14 @@ export default function DocumentosPersonalesPage() {
                       }}>
                         👤 Titular:
                       </Text>
-                      <Box css={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                      <Box css={{ 
+                        display: 'flex', 
+                        gap: '4px', 
+                        flexWrap: 'wrap',
+                        '@media (max-width: 768px)': {
+                          gap: '3px'
+                        }
+                      }}>
                         {DOCUMENT_TYPES_TITULAR.map((type) => {
                           const document = getDocumentByTypeAndPerson(
                             borrowerDocuments,
@@ -1112,14 +1677,14 @@ export default function DocumentosPersonalesPage() {
                             <Box
                               key={`collapsed-titular-${type}`}
                               css={{
-                                padding: '2px 6px',
-                                borderRadius: '6px',
-                                fontSize: '9px',
+                                padding: '4px 8px',
+                                borderRadius: '8px',
+                                fontSize: '10px',
                                 fontWeight: '600',
                                 backgroundColor: hasError 
-                                  ? 'rgba(239, 68, 68, 0.2)' 
+                                  ? 'rgba(239, 68, 68, 0.15)' 
                                   : hasDocument 
-                                    ? 'rgba(34, 197, 94, 0.2)' 
+                                    ? 'rgba(34, 197, 94, 0.15)' 
                                     : '#f3f4f6',
                                 color: hasError 
                                   ? '#dc2626' 
@@ -1127,10 +1692,24 @@ export default function DocumentosPersonalesPage() {
                                     ? '#166534' 
                                     : '#6b7280',
                                 border: hasError 
-                                  ? '1px solid rgba(239, 68, 68, 0.3)' 
+                                  ? '1px solid rgba(239, 68, 68, 0.4)' 
                                   : hasDocument 
-                                    ? '1px solid rgba(34, 197, 94, 0.3)' 
-                                    : '1px solid #e5e7eb'
+                                    ? '1px solid rgba(34, 197, 94, 0.4)' 
+                                    : '1px solid #e5e7eb',
+                                transition: 'all 0.2s ease',
+                                cursor: 'pointer',
+                                '&:hover': {
+                                  transform: 'translateY(-1px)',
+                                  boxShadow: hasError 
+                                    ? '0 2px 4px rgba(239, 68, 68, 0.2)' 
+                                    : hasDocument 
+                                      ? '0 2px 4px rgba(34, 197, 94, 0.2)' 
+                                      : '0 2px 4px rgba(0, 0, 0, 0.1)'
+                                },
+                                '@media (max-width: 768px)': {
+                                  padding: '5px 10px',
+                                  fontSize: '11px'
+                                }
                               }}
                               title={hasError ? `Error: ${document.errorDescription || 'Documento marcado como error'}` : undefined}
                             >
@@ -1150,7 +1729,14 @@ export default function DocumentosPersonalesPage() {
                       }}>
                         🤝 Aval:
                       </Text>
-                      <Box css={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                      <Box css={{ 
+                        display: 'flex', 
+                        gap: '4px', 
+                        flexWrap: 'wrap',
+                        '@media (max-width: 768px)': {
+                          gap: '3px'
+                        }
+                      }}>
                         {DOCUMENT_TYPES_AVAL.map((type) => {
                           const document = getDocumentByTypeAndPerson(
                             leadDocuments,
@@ -1164,14 +1750,14 @@ export default function DocumentosPersonalesPage() {
                             <Box
                               key={`collapsed-aval-${type}`}
                               css={{
-                                padding: '2px 6px',
-                                borderRadius: '6px',
-                                fontSize: '9px',
+                                padding: '4px 8px',
+                                borderRadius: '8px',
+                                fontSize: '10px',
                                 fontWeight: '600',
                                 backgroundColor: hasError 
-                                  ? 'rgba(239, 68, 68, 0.2)' 
+                                  ? 'rgba(239, 68, 68, 0.15)' 
                                   : hasDocument 
-                                    ? 'rgba(34, 197, 94, 0.2)' 
+                                    ? 'rgba(34, 197, 94, 0.15)' 
                                     : '#f3f4f6',
                                 color: hasError 
                                   ? '#dc2626' 
@@ -1179,10 +1765,24 @@ export default function DocumentosPersonalesPage() {
                                     ? '#166534' 
                                     : '#6b7280',
                                 border: hasError 
-                                  ? '1px solid rgba(239, 68, 68, 0.3)' 
+                                  ? '1px solid rgba(239, 68, 68, 0.4)' 
                                   : hasDocument 
-                                    ? '1px solid rgba(34, 197, 94, 0.3)' 
-                                    : '1px solid #e5e7eb'
+                                    ? '1px solid rgba(34, 197, 94, 0.4)' 
+                                    : '1px solid #e5e7eb',
+                                transition: 'all 0.2s ease',
+                                cursor: 'pointer',
+                                '&:hover': {
+                                  transform: 'translateY(-1px)',
+                                  boxShadow: hasError 
+                                    ? '0 2px 4px rgba(239, 68, 68, 0.2)' 
+                                    : hasDocument 
+                                      ? '0 2px 4px rgba(34, 197, 94, 0.2)' 
+                                      : '0 2px 4px rgba(0, 0, 0, 0.1)'
+                                },
+                                '@media (max-width: 768px)': {
+                                  padding: '5px 10px',
+                                  fontSize: '11px'
+                                }
                               }}
                               title={hasError ? `Error: ${document.errorDescription || 'Documento marcado como error'}` : undefined}
                             >
@@ -1202,12 +1802,31 @@ export default function DocumentosPersonalesPage() {
                         backgroundColor: '#3b82f6',
                         color: 'white',
                         width: '100%',
+                        borderRadius: '8px',
+                        padding: '10px 16px',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        border: 'none',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                         '&:hover': {
-                          backgroundColor: '#2563eb'
+                          backgroundColor: '#2563eb',
+                          transform: 'translateY(-1px)',
+                          boxShadow: '0 4px 12px rgba(59, 130, 246, 0.4)'
+                        },
+                        '&:active': {
+                          transform: 'translateY(0)'
+                        },
+                        '@media (max-width: 768px)': {
+                          padding: '12px 16px',
+                          fontSize: '15px'
                         }
                       }}
                     >
-                      Ver
+                      Ver Documentos
                     </Button>
                   </Box>
                 </Box>
@@ -1218,21 +1837,74 @@ export default function DocumentosPersonalesPage() {
         </Box>
 
         {/* Mensaje cuando no hay créditos */}
-        {filteredLoans.length === 0 && (
+        {filteredLoans.length === 0 && !queryLoading && (
           <Box
             css={{
               textAlign: 'center',
-              padding: '40px',
-              backgroundColor: '#f9fafb',
-              borderRadius: '12px',
-              border: '1px solid #e5e7eb'
+              padding: '60px 40px',
+              backgroundColor: '#f8fafc',
+              borderRadius: '16px',
+              border: '1px solid #e2e8f0',
+              margin: '20px 0',
+              '@media (max-width: 768px)': {
+                padding: '40px 20px',
+                margin: '16px 0'
+              }
             }}
           >
-            <Text size="large" color="black">
-              No se encontraron créditos para la semana seleccionada
+            <Box
+              css={{
+                fontSize: '48px',
+                marginBottom: '16px',
+                '@media (max-width: 768px)': {
+                  fontSize: '36px'
+                }
+              }}
+            >
+              📋
+            </Box>
+            <Text 
+              size="large" 
+              color="black" 
+              weight="medium"
+              css={{ 
+                marginBottom: '8px',
+                '@media (max-width: 768px)': {
+                  fontSize: '18px'
+                }
+              }}
+            >
+              {completionFilter === 'complete' 
+                ? 'No hay clientes finalizados' 
+                : completionFilter === 'incomplete' 
+                  ? 'No hay clientes pendientes' 
+                  : 'No hay clientes en esta ruta'
+              }
             </Text>
-            <Text size="small" marginTop="small">
-              Intenta seleccionar otra semana o ajustar los filtros
+            <Text 
+              size="medium" 
+              color="neutral600"
+              css={{ 
+                marginBottom: '16px',
+                '@media (max-width: 768px)': {
+                  fontSize: '14px'
+                }
+              }}
+            >
+              {completionFilter === 'complete' 
+                ? 'Todos los clientes de esta ruta están pendientes de documentos'
+                : completionFilter === 'incomplete' 
+                  ? 'Todos los clientes de esta ruta ya están finalizados'
+                  : 'Esta ruta no tiene clientes para la semana seleccionada'
+              }
+            </Text>
+            <Text size="small" color="neutral500">
+              {completionFilter === 'complete' 
+                ? 'Los clientes finalizados aparecerán aquí una vez que se suban todos los documentos'
+                : completionFilter === 'incomplete' 
+                  ? 'Los clientes pendientes aparecerán aquí una vez que falten documentos'
+                  : 'Intenta seleccionar otra ruta o semana'
+              }
             </Text>
           </Box>
         )}
