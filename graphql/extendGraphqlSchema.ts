@@ -2825,26 +2825,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
             });
           });
           
-          // DEBUG ESPECÍFICO: Buscar transacciones de Rafaela
-          console.log('\n🔍 BÚSQUEDA ESPECÍFICA: Rafaela Baeza Carrillo');
-          let rafaelaTransactions = 0;
-          rangeTransactions.forEach(transaction => {
-            // Buscar en diferentes campos que podrían contener información de Rafaela
-            const description = transaction.description?.toLowerCase() || '';
-            const hasRafaela = description.includes('rafaela') || description.includes('baeza') || description.includes('carrillo');
-            
-            if (hasRafaela) {
-              rafaelaTransactions++;
-              console.log(`  📝 Transacción posible de Rafaela: ${transaction.id}`);
-              console.log(`     - leadId: ${transaction.leadId || 'NULL'}`);
-              console.log(`     - type: ${transaction.type}`);
-              console.log(`     - amount: ${transaction.amount}`);
-              console.log(`     - description: ${transaction.description || 'sin descripción'}`);
-              console.log(`     - incomeSource: ${transaction.incomeSource || 'NULL'}`);
-              console.log(`     - expenseSource: ${transaction.expenseSource || 'NULL'}`);
-            }
-          });
-                     console.log(`   Total transacciones con menciones de Rafaela: ${rafaelaTransactions}`);
           
           // OPTIMIZADO: Recopilamos todos los IDs de líderes únicos para minimizar consultas
           const leadIds = new Set<string>();
@@ -2855,132 +2835,56 @@ export const extendGraphqlSchema = graphql.extend(base => {
           });
           
           // OPTIMIZADO: Una sola consulta para obtener todos los líderes con sus datos personales
-          const leads = await context.db.Employee.findMany({
+          const leads = await context.prisma.employee.findMany({
             where: { 
               id: { in: Array.from(leadIds) } 
+            },
+            include: {
+              personalData: {
+                include: {
+                  addresses: {
+                    include: {
+                      location: {
+                        include: {
+                          municipality: {
+                            include: {
+                              state: true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
             },
             orderBy: { id: 'asc' }
           });
           
-          // OPTIMIZADO: Obtenemos todos los PersonalData de una vez
-          const personalDataIds = leads.map(lead => lead.personalDataId).filter(Boolean) as string[];
-          
-          const personalDataList = await context.db.PersonalData.findMany({
-            where: { id: { in: personalDataIds } }
-          });
-          
-          // DEBUG ESPECÍFICO: Buscar Rafaela en PersonalData
-          personalDataList.forEach(pd => {
-            const fullName = pd.fullName?.toLowerCase() || '';
-            if (fullName.includes('rafaela') || fullName.includes('baeza') || fullName.includes('carrillo')) {
-              console.log(`🎯 ENCONTRADO PERSONALDATA DE RAFAELA: ${pd.id} - ${pd.fullName}`);
-            }
-          });
-          
-          // OPTIMIZADO: Cache de datos personales por ID
-          const personalDataMap = new Map();
-          personalDataList.forEach(pd => {
-            personalDataMap.set(pd.id, pd);
-          });
-          
-          // OPTIMIZADO: Obtenemos todas las direcciones de una vez
-          const addresses = await context.db.Address.findMany({
-            where: { personalData: { id: { in: personalDataIds } } }
-          });
-          
-          // OPTIMIZADO: Cache de direcciones por personalDataId
-          const addressMap = new Map();
-          addresses.forEach(addr => {
-            if (!addressMap.has(addr.personalDataId)) {
-              addressMap.set(addr.personalDataId, []);
-            }
-            addressMap.get(addr.personalDataId).push(addr);
-          });
-          
-          // OPTIMIZADO: Obtenemos todas las localidades, municipios y estados de una vez
-          const locationIds = addresses.map(addr => addr.locationId).filter(Boolean) as string[];
-          const locations = await context.db.Location.findMany({
-            where: { id: { in: locationIds } }
-          });
-          
-          // DEBUG ESPECÍFICO: Buscar Calkiní en localidades
-          locations.forEach(loc => {
-            const locationName = loc.name?.toLowerCase() || '';
-            if (locationName.includes('calkini') || locationName.includes('calkiní')) {
-              console.log(`🎯 ENCONTRADA LOCALIDAD CALKINÍ: ${loc.id} - ${loc.name}`);
-            }
-          });
-          
-          const municipalityIds = locations.map(loc => loc.municipalityId).filter(Boolean) as string[];
-          const municipalities = await context.db.Municipality.findMany({
-            where: { id: { in: municipalityIds } }
-          });
-          
-          // DEBUG ESPECÍFICO: Buscar Calkiní en municipios
-          municipalities.forEach(mun => {
-            const munName = mun.name?.toLowerCase() || '';
-            if (munName.includes('calkini') || munName.includes('calkiní')) {
-              console.log(`🎯 ENCONTRADO MUNICIPIO CALKINÍ: ${mun.id} - ${mun.name}`);
-            }
-          });
-          
-          const stateIds = municipalities.map(mun => mun.stateId).filter(Boolean) as string[];
-          const states = await context.db.State.findMany({
-            where: { id: { in: stateIds } }
-          });
-          
-          // OPTIMIZADO: Crear mapas de cache para lookups rápidos
-          const locationMap = new Map();
-          locations.forEach(loc => locationMap.set(loc.id, loc));
-          
-          const municipalityMap = new Map();
-          municipalities.forEach(mun => municipalityMap.set(mun.id, mun));
-          
-          const stateMap = new Map();
-          states.forEach(state => stateMap.set(state.id, state));
-          
-          // OPTIMIZADO: Crear mapa de localidades por líder
+          // OPTIMIZADO: Crear mapa de localidades por líder usando las relaciones ya cargadas
           const leadInfoMap = new Map();
           
           leads.forEach(lead => {
-            if (lead.personalDataId) {
-              const personalData = personalDataMap.get(lead.personalDataId);
+            if (lead.personalData) {
+              const personalData = lead.personalData;
+              const addresses = personalData.addresses || [];
               
-              if (personalData) {
-                const leaderAddresses = addressMap.get(personalData.id) || [];
+              if (addresses.length > 0) {
+                const address = addresses[0]; // Primera dirección
+                const location = address.location;
                 
-                if (leaderAddresses.length > 0) {
-                  const address = leaderAddresses[0]; // Primera dirección
-                  const location = locationMap.get(address.locationId);
+                if (location && location.municipality) {
+                  const municipality = location.municipality;
+                  const state = municipality.state;
                   
-                  if (location && location.municipalityId) {
-                    const municipality = municipalityMap.get(location.municipalityId);
+                  if (location.name && municipality.name && state && state.name) {
+                    leadInfoMap.set(lead.id, {
+                      locality: location.name,
+                      municipality: municipality.name,
+                      state: state.name,
+                      fullName: personalData.fullName || 'Sin nombre'
+                    });
                     
-                    if (municipality && municipality.stateId) {
-                      const state = stateMap.get(municipality.stateId);
-                      
-                      if (municipality.name && state && state.name) {
-                        leadInfoMap.set(lead.id, {
-                          municipality: municipality.name,
-                          state: state.name,
-                          fullName: personalData.fullName || 'Sin nombre'
-                        });
-                        
-                        // DEBUG ESPECÍFICO: Verificar si es Rafaela/Calkiní
-                        const fullName = personalData.fullName?.toLowerCase() || '';
-                        const munName = municipality.name?.toLowerCase() || '';
-                        const isRafaela = fullName.includes('rafaela') || fullName.includes('baeza') || fullName.includes('carrillo');
-                        const isCalkiní = munName.includes('calkini') || munName.includes('calkiní');
-                        
-                        if (isRafaela || isCalkiní) {
-                          console.log(`🎯 RAFAELA/CALKINÍ EN MAPA FINAL:`);
-                          console.log(`   - leadId: ${lead.id}`);
-                          console.log(`   - fullName: ${personalData.fullName}`);
-                          console.log(`   - municipality: ${municipality.name}`);
-                          console.log(`   - state: ${state.name}`);
-                        }
-                      }
-                    }
                   }
                 }
               }
@@ -3008,71 +2912,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
             });
           });
 
-          // DEBUG ESPECÍFICO: Búsqueda directa de Rafaela en la base de datos
-          console.log('\n🔍 BÚSQUEDA DIRECTA DE RAFAELA EN LA BASE DE DATOS');
-          
-          const rafaelaEmployees = await context.db.Employee.findMany({
-            where: {
-              personalData: {
-                fullName: {
-                  contains: 'Rafaela',
-                  mode: 'insensitive'
-                }
-              }
-            }
-          });
-          
-          console.log(`   Empleados con nombre Rafaela encontrados: ${rafaelaEmployees.length}`);
-          rafaelaEmployees.forEach(emp => {
-            console.log(`     - Employee ID: ${emp.id}, personalDataId: ${emp.personalDataId}`);
-          });
-          
-          // También buscar por apellidos
-          const baezaEmployees = await context.db.Employee.findMany({
-            where: {
-              personalData: {
-                fullName: {
-                  contains: 'Baeza',
-                  mode: 'insensitive'
-                }
-              }
-            }
-          });
-          
-          console.log(`   Empleados con apellido Baeza encontrados: ${baezaEmployees.length}`);
-          baezaEmployees.forEach(emp => {
-            console.log(`     - Employee ID: ${emp.id}, personalDataId: ${emp.personalDataId}`);
-          });
-          
-          // Buscar localidades con Calkiní
-          const calkiniLocations = await context.db.Location.findMany({
-            where: {
-              OR: [
-                { name: { contains: 'Calkiní', mode: 'insensitive' } },
-                { name: { contains: 'Calkini', mode: 'insensitive' } }
-              ]
-            }
-          });
-          
-          console.log(`   Localidades con Calkiní encontradas: ${calkiniLocations.length}`);
-          calkiniLocations.forEach(loc => {
-            console.log(`     - Location ID: ${loc.id}, name: ${loc.name}`);
-          });
-          
-          // DEBUG: Cruzar leadIds de transacciones con empleados de Rafaela encontrados
-          console.log('\n🔗 CRUZANDO leadIds CON EMPLEADOS DE RAFAELA');
-          const rafaelaEmployeeIds = [...rafaelaEmployees.map(emp => emp.id), ...baezaEmployees.map(emp => emp.id)];
-          console.log(`   IDs de empleados Rafaela/Baeza: [${rafaelaEmployeeIds.join(', ')}]`);
-          
-          let transactionsWithRafaelaId = 0;
-          rangeTransactions.forEach(transaction => {
-            if (transaction.leadId && rafaelaEmployeeIds.includes(transaction.leadId)) {
-              transactionsWithRafaelaId++;
-              console.log(`     ✅ Transacción con leadId de Rafaela: ${transaction.id} (leadId: ${transaction.leadId})`);
-              console.log(`        - type: ${transaction.type}, amount: ${transaction.amount}`);
-            }
-          });
-          console.log(`   Total transacciones con leadId de Rafaela: ${transactionsWithRafaelaId}`);
           
           console.log('\n=== PROCESANDO TRANSACCIONES ===');
 
@@ -3098,28 +2937,33 @@ export const extendGraphqlSchema = graphql.extend(base => {
             if (leadId) {
               if (leadInfoMap.has(leadId)) {
                 const leadInfo = leadInfoMap.get(leadId);
-                locality = leadInfo.municipality;
+                locality = leadInfo.locality;
                 state = leadInfo.state;
                 leadName = leadInfo.fullName;
                 localitySource = 'mapa de líderes';
+                
               } else {
                 // Verificar si es por problema de tipo
                 const leadIdString = leadId.toString();
                 if (leadInfoMap.has(leadIdString)) {
                   const leadInfo = leadInfoMap.get(leadIdString);
-                  locality = leadInfo.municipality;
+                  locality = leadInfo.locality;
                   state = leadInfo.state;
                   leadName = leadInfo.fullName;
                   localitySource = 'mapa de líderes (string)';
+                  
                 }
               }
             }
             
-            // Construir la clave de agrupación con líder + localidad + municipio
+            // Construir la clave de agrupación con líder + localidad + municipio + estado
             let leaderKey = '';
             if (leadName && leadName !== '') {
               if (locality && state && locality !== 'General' && state !== 'General') {
-                leaderKey = `${leadName} - ${locality}, ${state}`;
+                // Obtener el municipio del leadInfoMap
+                const leadInfo = leadInfoMap.get(leadId) || leadInfoMap.get(leadId?.toString());
+                const municipality = leadInfo?.municipality || locality; // Usar localidad como fallback
+                leaderKey = `${leadName} - ${locality}, ${municipality}, ${state}`;
               } else {
                 leaderKey = leadName;
               }
@@ -3129,22 +2973,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
               leaderKey = 'General';
             }
             
-            // DEBUG: Solo log si es Rafaela/Calkiní
-            const isRafaelaTransaction = leadName.toLowerCase().includes('rafaela') || 
-                                       leadName.toLowerCase().includes('baeza') || 
-                                       leadName.toLowerCase().includes('carrillo') ||
-                                       leaderKey.toLowerCase().includes('calkini') ||
-                                       leaderKey.toLowerCase().includes('calkiní');
-            
-            if (isRafaelaTransaction) {
-              console.log(`🎯 TRANSACCIÓN DE RAFAELA/CALKINÍ: ${transaction.id}`);
-              console.log(`   - leadId: ${leadId}`);
-              console.log(`   - leadName: ${leadName}`);
-              console.log(`   - leaderKey: ${leaderKey}`);
-              console.log(`   - type: ${transaction.type}`);
-              console.log(`   - amount: ${transaction.amount}`);
-              console.log(`   - date: ${transactionDate}`);
-            }
             
             // Obtener información de cuentas
             const sourceAccount = (transaction.sourceAccountId) ? accountMap.get(transaction.sourceAccountId) : null;
@@ -3171,9 +2999,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
 
             if (transaction.type === 'INCOME') {
-              if (isRafaelaTransaction) {
-                console.log(`🎯 PROCESANDO INGRESO DE RAFAELA: $${transaction.amount}`);
-              }
               
               // Determinar si es una transacción bancaria basado en la información de las cuentas
               const isBankTransaction = transaction.incomeSource === 'BANK_LOAN_PAYMENT' || 
@@ -3219,9 +3044,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 localidades[transactionDate][leaderKey].ABONO += amount;
               }
             } else if (transaction.type === 'EXPENSE') {
-              if (isRafaelaTransaction) {
-                console.log(`🎯 PROCESANDO GASTO DE RAFAELA: $${transaction.amount} (${transaction.expenseSource})`);
-              }
               
               // Procesar diferentes tipos de gastos
               const amount = Number(transaction.amount || 0);
@@ -3334,20 +3156,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
             });
           });
           
-          console.log(`\n📊 RESUMEN: ${localidadesUnicas.size} líderes únicos encontrados`);
-          
-          // DEBUG: Mostrar solo los líderes únicos para verificar si Rafaela aparece
-          const leadersFound = Array.from(localidadesUnicas) as string[];
-          leadersFound.forEach(leader => {
-            const isRafaela = leader.toLowerCase().includes('rafaela') || 
-                            leader.toLowerCase().includes('baeza') || 
-                            leader.toLowerCase().includes('carrillo') ||
-                            leader.toLowerCase().includes('calkini') ||
-                            leader.toLowerCase().includes('calkiní');
-            if (isRafaela) {
-              console.log(`🎯 RAFAELA ENCONTRADA EN RESULTADOS FINALES: ${leader}`);
-            }
-          });
 
           const result = Object.entries(localidades).flatMap(([date, localities]) => 
             Object.entries(localities).map(([locality, data]) => {

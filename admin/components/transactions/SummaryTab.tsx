@@ -42,6 +42,10 @@ interface SummaryTabProps {
 
 interface LocalitySummary {
   locality: string;
+  municipality: string;
+  state: string;
+  leaderName: string;
+  locationKey: string;
   totalIncome: number;
   totalExpenses: number;
   totalComissions: number;
@@ -75,12 +79,55 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
 
   const summaryData = data?.getTransactionsSummary || [];
 
-  // CAMBIO: Ahora agrupamos por líder usando las transacciones individuales
-  const groupedByLeader = summaryData.reduce((acc: Record<string, any>, item: any) => {
-    const leaderInfo = item.locality || 'General'; // El campo locality ahora contiene el nombre del líder
-    if (!acc[leaderInfo]) {
-      acc[leaderInfo] = {
-        locality: leaderInfo,
+  // CAMBIO: Ahora agrupamos por localidad usando las transacciones individuales
+  const groupedByLocality = summaryData.reduce((acc: Record<string, any>, item: any) => {
+    // Extraer información de ubicación del campo locality que contiene "Líder - Localidad, Estado"
+    let localityName = 'General';
+    let municipalityName = '';
+    let stateName = '';
+    let leaderName = '';
+    
+    if (item.locality && item.locality !== 'General') {
+      // Si contiene " - ", extraer la parte después del " - "
+      if (item.locality.includes(' - ')) {
+        const parts = item.locality.split(' - ');
+        if (parts.length > 1) {
+          leaderName = parts[0].trim(); // "ESMERALDA ACOSTA MOO"
+          const locationPart = parts[1]; // "CASTAMAY, CAMPECHE, CAMPECHE"
+          // Separar localidad, municipio y estado por las comas
+          if (locationPart.includes(',')) {
+            const locationParts = locationPart.split(',').map((s: string) => s.trim());
+            if (locationParts.length >= 3) {
+              localityName = locationParts[0];    // "CASTAMAY"
+              municipalityName = locationParts[1]; // "CAMPECHE"
+              stateName = locationParts[2];       // "CAMPECHE"
+            } else if (locationParts.length === 2) {
+              // Formato anterior: "LOCALIDAD, ESTADO"
+              localityName = locationParts[0];
+              stateName = locationParts[1];
+              municipalityName = locationParts[0]; // Usar localidad como municipio
+            }
+          } else {
+            localityName = locationPart;
+            municipalityName = locationPart;
+          }
+        }
+      } else {
+        localityName = item.locality;
+        municipalityName = item.locality;
+      }
+    }
+    
+    // Crear una clave única que incluya localidad, municipio y estado (como RouteLeadSelector)
+    const locationKey = stateName ? `${localityName} · ${municipalityName} · ${stateName} · (${leaderName})` : localityName;
+    
+    if (!acc[locationKey]) {
+      acc[locationKey] = {
+        locality: localityName,
+        municipality: municipalityName,
+        state: stateName,
+        leaderName: leaderName,
+        locationKey: locationKey,
         totalIncome: 0,
         totalExpenses: 0,
         totalComissions: 0,
@@ -137,24 +184,24 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
       calculatedBankBalance = (item.bankAbono + moneyInvestmentBank) - bankExpenses;
     }
 
-    acc[leaderInfo].totalIncome += income;
-    acc[leaderInfo].totalExpenses += expenses;
-    acc[leaderInfo].totalComissions += comissions;
-    acc[leaderInfo].balance += item.balance;
-    acc[leaderInfo].profit += item.profit;
-    acc[leaderInfo].cashBalance += calculatedCashBalance;
-    acc[leaderInfo].bankBalance += calculatedBankBalance;
-    acc[leaderInfo].details.push(item);
+    acc[locationKey].totalIncome += income;
+    acc[locationKey].totalExpenses += expenses;
+    acc[locationKey].totalComissions += comissions;
+    acc[locationKey].balance += item.balance;
+    acc[locationKey].profit += item.profit;
+    acc[locationKey].cashBalance += calculatedCashBalance;
+    acc[locationKey].bankBalance += calculatedBankBalance;
+    acc[locationKey].details.push(item);
 
     return acc;
   }, {});
 
-  const leaders = Object.values(groupedByLeader) as LocalitySummary[];
+  const localities = Object.values(groupedByLocality) as LocalitySummary[];
 
   return (
     <Box css={{ padding: '16px' }}>
-      {leaders.map((leader: any) => (
-        <Box key={leader.locality} css={{ marginBottom: '24px' }}>
+      {localities.map((locality: any) => (
+        <Box key={locality.locationKey} css={{ marginBottom: '24px' }}>
           <h2 css={{ 
             margin: '0 0 16px 0', 
             padding: '8px 16px',
@@ -162,7 +209,7 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
             borderRadius: '4px',
             borderLeft: '4px solid #4299e1'
           }}>
-            👤 {leader.locality}
+            📍 {locality.locationKey}
           </h2>
           {/* Tabla principal con diseño similar al PDF */}
           <table css={{ width: '100%', borderCollapse: 'collapse', marginBottom: '16px', border: '1px solid #e2e8f0' }}>
@@ -176,10 +223,10 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
             <tbody>
               {/* Créditos */}
               {(() => {
-                const creditoTotal = leader.details.reduce((sum: number, item: any) => sum + item.credito, 0);
+                const creditoTotal = locality.details.reduce((sum: number, item: any) => sum + item.credito, 0);
                 // CAMBIO: Ahora cada item en details es una transacción individual
                 // Por lo tanto, el conteo es directo: cuántas transacciones tienen credito > 0
-                const creditoCount = leader.details.filter((item: any) => item.credito > 0).length;
+                const creditoCount = locality.details.filter((item: any) => item.credito > 0).length;
                 if (creditoTotal > 0) {
                   return (
                     <tr>
@@ -196,17 +243,17 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
               
               {/* Préstamos */}
               {(() => {
-                const prestamoTotal = leader.details.reduce((sum: number, item: any) => sum + item.loanGranted, 0);
+                const prestamoTotal = locality.details.reduce((sum: number, item: any) => sum + item.loanGranted, 0);
                 // CAMBIO: Ahora cada item en details es una transacción individual
                 // Por lo tanto, el conteo es directo: cuántas transacciones tienen loanGranted > 0
-                const prestamoCount = leader.details.filter((item: any) => item.loanGranted > 0).length;
+                const prestamoCount = locality.details.filter((item: any) => item.loanGranted > 0).length;
                 
                 // DEBUG: Log para entender qué está pasando con los préstamos
-                if (leader.locality === 'LAURA PATRICIA MAY CIMA - CAMPECHE, CAMPECHE') {
+                if (locality.locality === 'LAURA PATRICIA MAY CIMA - CAMPECHE, CAMPECHE') {
                   console.log('🔍 DEBUG - Préstamos para Laura (TRANSACCIONES INDIVIDUALES):');
-                  console.log('   - Total de transacciones individuales:', leader.details.length);
-                  console.log('   - Transacciones con loanGranted > 0:', leader.details.filter((item: any) => item.loanGranted > 0));
-                  console.log('   - Valores de loanGranted:', leader.details.map((item: any) => ({ 
+                  console.log('   - Total de transacciones individuales:', locality.details.length);
+                  console.log('   - Transacciones con loanGranted > 0:', locality.details.filter((item: any) => item.loanGranted > 0));
+                  console.log('   - Valores de loanGranted:', locality.details.map((item: any) => ({ 
                     id: item.id,
                     date: item.date, 
                     loanGranted: item.loanGranted,
@@ -233,11 +280,11 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
               
               {/* Gastos operativos */}
               {(() => {
-                const gastosTotal = leader.details.reduce((sum: number, item: any) => 
+                const gastosTotal = locality.details.reduce((sum: number, item: any) => 
                   sum + item.viatic + item.gasoline + item.accommodation + 
                   item.nominaSalary + item.externalSalary + item.vehiculeMaintenance + 
                   item.otro, 0);
-                const gastosCount = leader.details.filter((item: any) => 
+                const gastosCount = locality.details.filter((item: any) => 
                   item.viatic > 0 || item.gasoline > 0 || item.accommodation > 0 || 
                   item.nominaSalary > 0 || item.externalSalary > 0 || item.vehiculeMaintenance > 0 || 
                   item.otro > 0).length;
@@ -257,9 +304,9 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
               
               {/* Comisiones por abonos */}
               {(() => {
-                const comisionAbonosTotal = leader.details.reduce((sum: number, item: any) => 
+                const comisionAbonosTotal = locality.details.reduce((sum: number, item: any) => 
                   sum + item.loanPaymentComission, 0);
-                const comisionAbonosCount = leader.details.filter((item: any) => 
+                const comisionAbonosCount = locality.details.filter((item: any) => 
                   item.loanPaymentComission > 0).length;
                 if (comisionAbonosTotal > 0) {
                   return (
@@ -277,9 +324,9 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
 
               {/* Gastos de líder */}
               {(() => {
-                const gastosLiderTotal = leader.details.reduce((sum: number, item: any) => 
+                const gastosLiderTotal = locality.details.reduce((sum: number, item: any) => 
                   sum + item.leadComission, 0);
-                const gastosLiderCount = leader.details.filter((item: any) => 
+                const gastosLiderCount = locality.details.filter((item: any) => 
                   item.leadComission > 0).length;
                 if (gastosLiderTotal > 0) {
                   return (
@@ -297,9 +344,9 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
 
               {/* Gastos de líder */}
               {(() => {
-                const gastosLiderTotal = leader.details.reduce((sum: number, item: any) => 
+                const gastosLiderTotal = locality.details.reduce((sum: number, item: any) => 
                   sum + item.leadExpense, 0);
-                const gastosLiderCount = leader.details.filter((item: any) => 
+                const gastosLiderCount = locality.details.filter((item: any) => 
                   item.leadExpense > 0).length;
                 if (gastosLiderTotal > 0) {
                   return (
@@ -317,8 +364,8 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
               
               {/* Comisiones por préstamos otorgados */}
               {(() => {
-                const comisionPrestamosTotal = leader.details.reduce((sum: number, item: any) => sum + item.loanGrantedComission, 0);
-                const comisionPrestamosCount = leader.details.filter((item: any) => item.loanGrantedComission > 0).length;
+                const comisionPrestamosTotal = locality.details.reduce((sum: number, item: any) => sum + item.loanGrantedComission, 0);
+                const comisionPrestamosCount = locality.details.filter((item: any) => item.loanGrantedComission > 0).length;
                 if (comisionPrestamosTotal > 0) {
                   return (
                     <tr>
@@ -335,8 +382,8 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
               
               {/* Abonos en efectivo */}
               {(() => {
-                const abonoEfectivoTotal = leader.details.reduce((sum: number, item: any) => sum + item.cashAbono, 0);
-                const abonoEfectivoCount = leader.details.filter((item: any) => item.cashAbono > 0).length;
+                const abonoEfectivoTotal = locality.details.reduce((sum: number, item: any) => sum + item.cashAbono, 0);
+                const abonoEfectivoCount = locality.details.filter((item: any) => item.cashAbono > 0).length;
                 if (abonoEfectivoTotal > 0) {
                   return (
                     <tr>
@@ -353,8 +400,8 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
               
               {/* Abonos en banco */}
               {(() => {
-                const abonoBancoTotal = leader.details.reduce((sum: number, item: any) => sum + item.bankAbono, 0);
-                const abonoBancoCount = leader.details.filter((item: any) => item.bankAbono > 0).length;
+                const abonoBancoTotal = locality.details.reduce((sum: number, item: any) => sum + item.bankAbono, 0);
+                const abonoBancoCount = locality.details.filter((item: any) => item.bankAbono > 0).length;
                 if (abonoBancoTotal > 0) {
                   return (
                     <tr>
@@ -371,8 +418,8 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
               
               {/* Inversión de dinero */}
               {(() => {
-                const inversionTotal = leader.details.reduce((sum: number, item: any) => sum + item.moneyInvestment, 0);
-                const inversionCount = leader.details.filter((item: any) => item.moneyInvestment > 0).length;
+                const inversionTotal = locality.details.reduce((sum: number, item: any) => sum + item.moneyInvestment, 0);
+                const inversionCount = locality.details.filter((item: any) => item.moneyInvestment > 0).length;
                 if (inversionTotal > 0) {
                   return (
                     <tr>
@@ -399,21 +446,21 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
                   <tr>
                     <td css={{ padding: '8px', border: '1px solid #e2e8f0', fontWeight: 'bold' }}>Créditos + Préstamos</td>
                     <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', fontWeight: 'bold' }}>
-                      ${(leader.details.reduce((sum: number, item: any) => sum + item.credito, 0) + 
-                         leader.details.reduce((sum: number, item: any) => sum + item.loanGranted, 0)).toFixed(2)}
+                      ${(locality.details.reduce((sum: number, item: any) => sum + item.credito, 0) + 
+                         locality.details.reduce((sum: number, item: any) => sum + item.loanGranted, 0)).toFixed(2)}
                     </td>
                   </tr>
                   <tr>
                     <td css={{ padding: '8px', border: '1px solid #e2e8f0', fontWeight: 'bold' }}>CUOTA</td>
                     <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', fontWeight: 'bold' }}>
-                      ${(leader.totalComissions + leader.details.reduce((sum: number, item: any) => sum + item.loanGrantedComission, 0)).toFixed(2)}
+                      ${(locality.totalComissions + locality.details.reduce((sum: number, item: any) => sum + item.loanGrantedComission, 0)).toFixed(2)}
                     </td>
                   </tr>
                   <tr>
                     <td css={{ padding: '8px', border: '1px solid #e2e8f0', fontWeight: 'bold' }}>COBRANZA</td>
                     <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', fontWeight: 'bold' }}>
-                      ${(leader.details.reduce((sum: number, item: any) => sum + item.cashAbono, 0) + 
-                         leader.details.reduce((sum: number, item: any) => sum + item.bankAbono, 0)).toFixed(2)}
+                      ${(locality.details.reduce((sum: number, item: any) => sum + item.cashAbono, 0) + 
+                         locality.details.reduce((sum: number, item: any) => sum + item.bankAbono, 0)).toFixed(2)}
                     </td>
                   </tr>
                 </tbody>
@@ -428,13 +475,13 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
                   <tr>
                     <td css={{ padding: '8px', border: '1px solid #e2e8f0', fontWeight: 'bold' }}>Balance en Efectivo</td>
                     <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', fontWeight: 'bold' }}>
-                      ${leader.cashBalance.toFixed(2)}
+                      ${locality.cashBalance.toFixed(2)}
                     </td>
                   </tr>
                   <tr>
                     <td css={{ padding: '8px', border: '1px solid #e2e8f0', fontWeight: 'bold' }}>Balance en Banco</td>
                     <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', fontWeight: 'bold' }}>
-                      ${leader.bankBalance.toFixed(2)}
+                      ${locality.bankBalance.toFixed(2)}
                     </td>
                   </tr>
                 </tbody>
@@ -463,19 +510,19 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
             <tr>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#e53e3e' }}>(-) Total Dinero otorgado en créditos</td>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#e53e3e' }}>
-                ${leaders.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => sum + item.credito, 0), 0).toFixed(2)}
+                ${localities.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => sum + item.credito, 0), 0).toFixed(2)}
               </td>
             </tr>
             <tr>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#e53e3e' }}>(-) Total Préstamos otorgados</td>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#e53e3e' }}>
-                ${leaders.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => sum + item.loanGranted, 0), 0).toFixed(2)}
+                ${localities.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => sum + item.loanGranted, 0), 0).toFixed(2)}
               </td>
             </tr>
             <tr>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#e53e3e' }}>(-) Total Gastos operativos</td>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#e53e3e' }}>
-                ${leaders.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => 
+                ${localities.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => 
                   sum + item.viatic + item.gasoline + item.accommodation + 
                   item.nominaSalary + item.externalSalary + item.vehiculeMaintenance + 
                   item.otro + item.leadExpense, 0), 0).toFixed(2)}
@@ -484,51 +531,51 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
             <tr>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#e53e3e' }}>(-) Total Comisiones</td>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#e53e3e' }}>
-                ${leaders.reduce((sum: number, loc: LocalitySummary) => sum + loc.totalComissions, 0).toFixed(2)}
+                ${localities.reduce((sum: number, loc: LocalitySummary) => sum + loc.totalComissions, 0).toFixed(2)}
               </td>
             </tr>
             <tr>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#e53e3e' }}>(-) Total Comisiones por Préstamos</td>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#e53e3e' }}>
-                ${leaders.reduce((sum: number, loc: LocalitySummary) => 
+                ${localities.reduce((sum: number, loc: LocalitySummary) => 
                   sum + loc.details.reduce((sum: number, item: any) => sum + item.loanGrantedComission, 0), 0).toFixed(2)}
               </td>
             </tr>
             <tr>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#e53e3e' }}>(-) Total Gastos de Líder</td>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#e53e3e' }}>
-                ${leaders.reduce((sum: number, loc: LocalitySummary) => 
+                ${localities.reduce((sum: number, loc: LocalitySummary) => 
                   sum + loc.details.reduce((sum: number, item: any) => sum + item.leadExpense, 0), 0).toFixed(2)}
               </td>
             </tr>
             <tr>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#38a169' }}>(+) Total Abonos en Efectivo</td>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#38a169' }}>
-                ${leaders.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => sum + item.cashAbono, 0), 0).toFixed(2)}
+                ${localities.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => sum + item.cashAbono, 0), 0).toFixed(2)}
               </td>
             </tr>
             <tr>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#38a169' }}>(+) Total Abonos en Banco</td>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#38a169' }}>
-                ${leaders.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => sum + item.bankAbono, 0), 0).toFixed(2)}
+                ${localities.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => sum + item.bankAbono, 0), 0).toFixed(2)}
               </td>
             </tr>
             <tr>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', color: '#3182ce' }}>(+) Total Inversión de dinero</td>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', color: '#3182ce' }}>
-                ${leaders.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => sum + item.moneyInvestment, 0), 0).toFixed(2)}
+                ${localities.reduce((sum: number, loc: LocalitySummary) => sum + loc.details.reduce((sum: number, item: any) => sum + item.moneyInvestment, 0), 0).toFixed(2)}
               </td>
             </tr>
             <tr css={{ backgroundColor: '#e2e8f0', fontWeight: 'bold' }}>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0' }}>Balance Total en Efectivo</td>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right' }}>
-                ${leaders.reduce((sum: number, loc: LocalitySummary) => sum + loc.cashBalance, 0).toFixed(2)}
+                ${localities.reduce((sum: number, loc: LocalitySummary) => sum + loc.cashBalance, 0).toFixed(2)}
               </td>
             </tr>
             <tr css={{ backgroundColor: '#e2e8f0', fontWeight: 'bold' }}>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0' }}>Balance Total en Banco</td>
               <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right' }}>
-                ${leaders.reduce((sum: number, loc: LocalitySummary) => sum + loc.bankBalance, 0).toFixed(2)}
+                ${localities.reduce((sum: number, loc: LocalitySummary) => sum + loc.bankBalance, 0).toFixed(2)}
               </td>
             </tr>
           </tbody>
