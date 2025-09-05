@@ -8,6 +8,7 @@ import { LoadingDots } from '@keystone-ui/loading';
 import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
 import { DocumentThumbnail } from '../components/documents/DocumentThumbnail';
 import { ImageModal } from '../components/documents/ImageModal';
+import { generatePaymentChronology, PaymentChronologyItem } from '../utils/paymentChronology';
 
 // GraphQL Queries
 const GET_ROUTES = gql`
@@ -221,6 +222,7 @@ const formatCurrency = (amount: number): string => {
     minimumFractionDigits: 2,
   }).format(amount);
 };
+
 
 const formatDate = (dateString: string): string => {
   return new Date(dateString).toLocaleDateString('es-SV', {
@@ -1215,94 +1217,73 @@ const HistorialClientePage: React.FC = () => {
                                   📋 Detalle de Pagos - Préstamo #{loan.id.slice(-8)}
                                 </h4>
                                 
-                                {loan.payments && loan.payments.length > 0 ? (
-                                  <div style={{ overflowX: 'auto' }}>
-                                    <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
-                                      <thead>
-                                        <tr style={{ backgroundColor: '#e2e8f0' }}>
-                                          <th style={{ padding: '8px', textAlign: 'left' }}>#</th>
-                                          <th style={{ padding: '8px', textAlign: 'left' }}>Fecha</th>
-                                          <th style={{ padding: '8px', textAlign: 'right' }}>Monto</th>
-                                          <th style={{ padding: '8px', textAlign: 'left' }}>Método</th>
-                                                                                     <th style={{ padding: '8px', textAlign: 'right' }}>Deuda Antes</th>
-                                           <th style={{ padding: '8px', textAlign: 'right' }}>Deuda Después</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {loan.payments.map((payment) => (
-                                          <tr key={payment.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                                            <td style={{ padding: '6px' }}>{payment.paymentNumber}</td>
-                                            <td style={{ padding: '6px' }}>{payment.receivedAtFormatted}</td>
-                                            <td style={{ padding: '6px', textAlign: 'right', fontWeight: '600', color: '#38a169' }}>
-                                              {formatCurrency(payment.amount)}
-                                            </td>
-                                            <td style={{ padding: '6px' }}>{payment.paymentMethod}</td>
-                                            <td style={{ padding: '6px', textAlign: 'right' }}>
-                                              {formatCurrency(payment.balanceBeforePayment)}
-                                            </td>
-                                            <td style={{ padding: '6px', textAlign: 'right', fontWeight: '600', color: payment.balanceAfterPayment === 0 ? '#38a169' : '#e53e3e' }}>
-                                              {formatCurrency(payment.balanceAfterPayment)}
-                                            </td>
+                                {(() => {
+                                  const chronology = generatePaymentChronology(loan);
+                                  return chronology.length > 0 ? (
+                                    <div style={{ overflowX: 'auto' }}>
+                                      <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
+                                        <thead>
+                                          <tr style={{ backgroundColor: '#e2e8f0' }}>
+                                            <th style={{ padding: '8px', textAlign: 'left' }}>#</th>
+                                            <th style={{ padding: '8px', textAlign: 'left' }}>Fecha</th>
+                                            <th style={{ padding: '8px', textAlign: 'left' }}>Descripción</th>
+                                            <th style={{ padding: '8px', textAlign: 'right' }}>Monto</th>
+                                            <th style={{ padding: '8px', textAlign: 'left' }}>Método</th>
+                                            <th style={{ padding: '8px', textAlign: 'right' }}>Deuda Antes</th>
+                                            <th style={{ padding: '8px', textAlign: 'right' }}>Deuda Después</th>
                                           </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                ) : (
-                                  <p style={{ color: '#718096', fontStyle: 'italic' }}>Sin pagos registrados</p>
-                                )}
-
-                                {/* ✅ NUEVA SECCIÓN: Períodos sin pago */}
-                                {loan.noPaymentPeriods && loan.noPaymentPeriods.length > 0 && (
-                                  <div style={{ marginTop: '16px' }}>
-                                    <h5 style={{ 
-                                      fontSize: '14px', 
-                                      fontWeight: '600', 
-                                      marginBottom: '8px', 
-                                      color: '#e53e3e',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '8px'
-                                    }}>
-                                      ⚠️ Períodos sin pago ({loan.noPaymentPeriods.length})
-                                    </h5>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                      {loan.noPaymentPeriods.map((period: NoPaymentPeriod) => (
-                                        <div 
-                                          key={period.id} 
-                                          style={{ 
-                                            backgroundColor: '#fed7e2', 
-                                            padding: '8px 12px', 
-                                            borderRadius: '6px',
-                                            fontSize: '12px',
-                                            border: '1px solid #fbb6ce',
-                                            display: 'flex',
-                                            justifyContent: 'space-between',
-                                            alignItems: 'center'
-                                          }}
-                                        >
-                                          <span style={{ fontWeight: '500', color: '#742a2a' }}>
-                                            {period.weekCount === 1 
-                                              ? `📅 ${period.startDateFormatted} (1 semana)`
-                                              : `📅 ${period.startDateFormatted} hasta ${period.endDateFormatted} (${period.weekCount} semanas)`
-                                            }
-                                          </span>
-                                          <span style={{ 
-                                            fontSize: '10px', 
-                                            color: '#e53e3e', 
-                                            fontWeight: '600',
-                                            backgroundColor: '#fed7e2',
-                                            padding: '2px 6px',
-                                            borderRadius: '4px',
-                                            border: '1px solid #f56565'
-                                          }}>
-                                            SIN PAGO
-                                          </span>
-                                        </div>
-                                      ))}
+                                        </thead>
+                                        <tbody>
+                                          {chronology.map((item, index) => (
+                                            <tr key={item.id} style={{ 
+                                              borderBottom: '1px solid #e2e8f0',
+                                              backgroundColor: item.type === 'NO_PAYMENT' ? '#fed7e2' : 'white'
+                                            }}>
+                                              <td style={{ padding: '6px' }}>
+                                                {item.type === 'PAYMENT' ? (item.paymentNumber || index + 1) : '-'}
+                                              </td>
+                                              <td style={{ padding: '6px' }}>{item.dateFormatted}</td>
+                                              <td style={{ 
+                                                padding: '6px',
+                                                color: item.type === 'NO_PAYMENT' ? '#e53e3e' : '#2d3748',
+                                                fontWeight: item.type === 'NO_PAYMENT' ? '600' : 'normal'
+                                              }}>
+                                                {item.type === 'NO_PAYMENT' ? '⚠️ Sin pago' : item.description}
+                                              </td>
+                                              <td style={{ 
+                                                padding: '6px', 
+                                                textAlign: 'right', 
+                                                fontWeight: '600', 
+                                                color: item.type === 'PAYMENT' ? '#38a169' : '#e53e3e'
+                                              }}>
+                                                {item.type === 'PAYMENT' ? formatCurrency(item.amount || 0) : '-'}
+                                              </td>
+                                              <td style={{ padding: '6px' }}>
+                                                {item.type === 'PAYMENT' ? item.paymentMethod : '-'}
+                                              </td>
+                                              <td style={{ padding: '6px', textAlign: 'right' }}>
+                                                {item.type === 'PAYMENT' ? formatCurrency(item.balanceBefore || 0) : '-'}
+                                              </td>
+                                              <td style={{ 
+                                                padding: '6px', 
+                                                textAlign: 'right', 
+                                                fontWeight: '600', 
+                                                color: item.type === 'PAYMENT' 
+                                                  ? (item.balanceAfter === 0 ? '#38a169' : '#e53e3e')
+                                                  : '#e53e3e'
+                                              }}>
+                                                {item.type === 'PAYMENT' ? formatCurrency(item.balanceAfter || 0) : '-'}
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
                                     </div>
-                                  </div>
-                                )}
+                                  ) : (
+                                    <p style={{ color: '#718096', fontStyle: 'italic' }}>Sin pagos registrados</p>
+                                  );
+                                })()}
+
 
                                 {/* Información adicional */}
                                 <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px', fontSize: '11px', color: '#4a5568' }}>
@@ -1442,94 +1423,73 @@ const HistorialClientePage: React.FC = () => {
                                   🤝 Detalle de Pagos (Como Aval) - Préstamo #{loan.id.slice(-8)}
                                 </h4>
                                 
-                                {loan.payments && loan.payments.length > 0 ? (
-                                  <div style={{ overflowX: 'auto' }}>
-                                    <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
-                                      <thead>
-                                        <tr style={{ backgroundColor: '#e2e8f0' }}>
-                                          <th style={{ padding: '8px', textAlign: 'left' }}>#</th>
-                                          <th style={{ padding: '8px', textAlign: 'left' }}>Fecha</th>
-                                          <th style={{ padding: '8px', textAlign: 'right' }}>Monto</th>
-                                          <th style={{ padding: '8px', textAlign: 'left' }}>Método</th>
-                                          <th style={{ padding: '8px', textAlign: 'right' }}>Deuda Antes</th>
-                                          <th style={{ padding: '8px', textAlign: 'right' }}>Deuda Después</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {loan.payments.map((payment) => (
-                                          <tr key={payment.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                                            <td style={{ padding: '6px' }}>{payment.paymentNumber}</td>
-                                            <td style={{ padding: '6px' }}>{payment.receivedAtFormatted}</td>
-                                            <td style={{ padding: '6px', textAlign: 'right', fontWeight: '600', color: '#38a169' }}>
-                                              {formatCurrency(payment.amount)}
-                                            </td>
-                                            <td style={{ padding: '6px' }}>{payment.paymentMethod}</td>
-                                            <td style={{ padding: '6px', textAlign: 'right' }}>
-                                              {formatCurrency(payment.balanceBeforePayment)}
-                                            </td>
-                                            <td style={{ padding: '6px', textAlign: 'right', fontWeight: '600', color: payment.balanceAfterPayment === 0 ? '#38a169' : '#e53e3e' }}>
-                                              {formatCurrency(payment.balanceAfterPayment)}
-                                            </td>
+                                {(() => {
+                                  const chronology = generatePaymentChronology(loan);
+                                  return chronology.length > 0 ? (
+                                    <div style={{ overflowX: 'auto' }}>
+                                      <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
+                                        <thead>
+                                          <tr style={{ backgroundColor: '#e2e8f0' }}>
+                                            <th style={{ padding: '8px', textAlign: 'left' }}>#</th>
+                                            <th style={{ padding: '8px', textAlign: 'left' }}>Fecha</th>
+                                            <th style={{ padding: '8px', textAlign: 'left' }}>Descripción</th>
+                                            <th style={{ padding: '8px', textAlign: 'right' }}>Monto</th>
+                                            <th style={{ padding: '8px', textAlign: 'left' }}>Método</th>
+                                            <th style={{ padding: '8px', textAlign: 'right' }}>Deuda Antes</th>
+                                            <th style={{ padding: '8px', textAlign: 'right' }}>Deuda Después</th>
                                           </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                ) : (
-                                  <p style={{ color: '#718096', fontStyle: 'italic' }}>Sin pagos registrados</p>
-                                )}
-
-                                {/* ✅ NUEVA SECCIÓN: Períodos sin pago (para préstamos como aval) */}
-                                {loan.noPaymentPeriods && loan.noPaymentPeriods.length > 0 && (
-                                  <div style={{ marginTop: '16px' }}>
-                                    <h5 style={{ 
-                                      fontSize: '14px', 
-                                      fontWeight: '600', 
-                                      marginBottom: '8px', 
-                                      color: '#e53e3e',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '8px'
-                                    }}>
-                                      ⚠️ Períodos sin pago ({loan.noPaymentPeriods.length})
-                                    </h5>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                      {loan.noPaymentPeriods.map((period: NoPaymentPeriod) => (
-                                        <div 
-                                          key={period.id} 
-                                          style={{ 
-                                            backgroundColor: '#fed7e2', 
-                                            padding: '8px 12px', 
-                                            borderRadius: '6px',
-                                            fontSize: '12px',
-                                            border: '1px solid #fbb6ce',
-                                            display: 'flex',
-                                            justifyContent: 'space-between',
-                                            alignItems: 'center'
-                                          }}
-                                        >
-                                          <span style={{ fontWeight: '500', color: '#742a2a' }}>
-                                            {period.weekCount === 1 
-                                              ? `📅 ${period.startDateFormatted} (1 semana)`
-                                              : `📅 ${period.startDateFormatted} hasta ${period.endDateFormatted} (${period.weekCount} semanas)`
-                                            }
-                                          </span>
-                                          <span style={{ 
-                                            fontSize: '10px', 
-                                            color: '#e53e3e', 
-                                            fontWeight: '600',
-                                            backgroundColor: '#fed7e2',
-                                            padding: '2px 6px',
-                                            borderRadius: '4px',
-                                            border: '1px solid #f56565'
-                                          }}>
-                                            SIN PAGO
-                                          </span>
-                                        </div>
-                                      ))}
+                                        </thead>
+                                        <tbody>
+                                          {chronology.map((item, index) => (
+                                            <tr key={item.id} style={{ 
+                                              borderBottom: '1px solid #e2e8f0',
+                                              backgroundColor: item.type === 'NO_PAYMENT' ? '#fed7e2' : 'white'
+                                            }}>
+                                              <td style={{ padding: '6px' }}>
+                                                {item.type === 'PAYMENT' ? (item.paymentNumber || index + 1) : '-'}
+                                              </td>
+                                              <td style={{ padding: '6px' }}>{item.dateFormatted}</td>
+                                              <td style={{ 
+                                                padding: '6px',
+                                                color: item.type === 'NO_PAYMENT' ? '#e53e3e' : '#2d3748',
+                                                fontWeight: item.type === 'NO_PAYMENT' ? '600' : 'normal'
+                                              }}>
+                                                {item.type === 'NO_PAYMENT' ? '⚠️ Sin pago' : item.description}
+                                              </td>
+                                              <td style={{ 
+                                                padding: '6px', 
+                                                textAlign: 'right', 
+                                                fontWeight: '600', 
+                                                color: item.type === 'PAYMENT' ? '#38a169' : '#e53e3e'
+                                              }}>
+                                                {item.type === 'PAYMENT' ? formatCurrency(item.amount || 0) : '-'}
+                                              </td>
+                                              <td style={{ padding: '6px' }}>
+                                                {item.type === 'PAYMENT' ? item.paymentMethod : '-'}
+                                              </td>
+                                              <td style={{ padding: '6px', textAlign: 'right' }}>
+                                                {item.type === 'PAYMENT' ? formatCurrency(item.balanceBefore || 0) : '-'}
+                                              </td>
+                                              <td style={{ 
+                                                padding: '6px', 
+                                                textAlign: 'right', 
+                                                fontWeight: '600', 
+                                                color: item.type === 'PAYMENT' 
+                                                  ? (item.balanceAfter === 0 ? '#38a169' : '#e53e3e')
+                                                  : '#e53e3e'
+                                              }}>
+                                                {item.type === 'PAYMENT' ? formatCurrency(item.balanceAfter || 0) : '-'}
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
                                     </div>
-                                  </div>
-                                )}
+                                  ) : (
+                                    <p style={{ color: '#718096', fontStyle: 'italic' }}>Sin pagos registrados</p>
+                                  );
+                                })()}
+
 
                                 {/* Información adicional para préstamos como aval */}
                                 <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px', fontSize: '11px', color: '#4a5568' }}>

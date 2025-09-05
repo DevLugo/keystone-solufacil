@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import PDFDocument from 'pdfkit';
+import { generatePaymentChronology, PaymentChronologyItem } from './admin/utils/paymentChronology';
 
 const prisma = new PrismaClient();
 
@@ -2277,113 +2278,37 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
               doc.fontSize(10).fillColor('#2d3748').text('Historial Cronologico de Pagos:', 55, y);
               y += 15;
 
-              // Reconstruir la cronología completa del préstamo
-              const chronologicalEvents: any[] = [];
+              // Usar función utilitaria común para generar cronología
+              const loanData = {
+                id: loan.id,
+                signDate: loan.signDate,
+                weekDuration: loan.weekDuration || 16,
+                payments: loan.payments?.map((payment: any) => ({
+                  id: payment.id,
+                  receivedAt: payment.receivedAt,
+                  receivedAtFormatted: payment.receivedAtFormatted,
+                  amount: payment.amount,
+                  paymentMethod: payment.paymentMethod,
+                  balanceBeforePayment: payment.balanceBeforePayment,
+                  balanceAfterPayment: payment.balanceAfterPayment,
+                  paymentNumber: payment.paymentNumber
+                })) || []
+              };
               
-              // Obtener duración del préstamo en semanas
-              const loanDuration = loan.weekDuration || 16;
-              const signDate = new Date(loan.signDate);
+              const chronology = generatePaymentChronology(loanData);
               
-              // Crear array de pagos ordenados por fecha
-              const sortedPayments = loan.payments
-                .map((payment: any) => ({
-                  ...payment,
-                  date: new Date(payment.receivedAt)
-                }))
-                .filter((payment: any) => !isNaN(payment.date.getTime()))
-                .sort((a: any, b: any) => a.date.getTime() - b.date.getTime());
-              
-              // Generar cronología semana por semana
-              const currentDate = new Date();
-              
-                          // Verificar si el préstamo fue renovado o terminado
-            const isRenewed = loan.status === 'RENOVADO' || loan.status === 'RENOVADO';
-            const isFinished = loan.status === 'TERMINADO' || loan.status === 'FINALIZADO' || 
-                              (loan.finishedDate && (isRenewed || loan.status === 'TERMINADO' || loan.status === 'FINALIZADO'));
-            const isActive = !isRenewed && !isFinished;
-            
-            // Determinar hasta qué semana evaluar
-            let weeksToEvaluate = loanDuration;
-            if (isRenewed && loan.finishedDate) {
-              const renewalDate = new Date(loan.finishedDate);
-              const weeksSinceRenewal = Math.floor((renewalDate.getTime() - signDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
-              weeksToEvaluate = Math.min(weeksSinceRenewal, loanDuration);
-              console.log(`Préstamo renovado: evaluando solo hasta semana ${weeksToEvaluate}`);
-            } else if (isFinished && loan.finishedDate) {
-              const finishDate = new Date(loan.finishedDate);
-              const weeksSinceFinish = Math.floor((finishDate.getTime() - signDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
-              weeksToEvaluate = Math.min(weeksSinceFinish, loanDuration);
-              console.log(`Préstamo terminado: evaluando solo hasta semana ${weeksToEvaluate}`);
-            } else if (isActive) {
-              // Para préstamos activos, evaluar al menos la duración original, pero puede ser más si ha pasado más tiempo
-              const currentDate = new Date();
-              const weeksSinceStart = Math.floor((currentDate.getTime() - signDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
-              weeksToEvaluate = Math.max(weeksSinceStart, loanDuration); // Al menos la duración original, pero puede ser más
-              console.log(`Préstamo activo: evaluando ${weeksToEvaluate} semanas (duración original: ${loanDuration})`);
-            }
-            
-            for (let week = 1; week <= weeksToEvaluate; week++) {
-              // Calcular la fecha de pago de esta semana (signDate + week * 7 días)
-              const weekPaymentDate = new Date(signDate);
-              weekPaymentDate.setDate(weekPaymentDate.getDate() + (week * 7));
-              
-              // La semana de pago termina el domingo de esa semana (no 3 días después)
-              const weekEndDate = new Date(weekPaymentDate);
-              // Encontrar el domingo de esa semana
-              const dayOfWeek = weekEndDate.getDay(); // 0 = domingo, 1 = lunes, etc.
-              const daysToSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek; // Días hasta el domingo
-              weekEndDate.setDate(weekEndDate.getDate() + daysToSunday);
-              weekEndDate.setHours(23, 59, 59, 999); // Final del domingo
-              
-              // Debug: Mostrar fechas para entender la lógica
-              console.log(`Semana ${week}:`);
-              console.log(`- Fecha de pago (lunes): ${weekPaymentDate.toISOString().split('T')[0]}`);
-              console.log(`- Fin de semana (domingo): ${weekEndDate.toISOString().split('T')[0]}`);
-              console.log(`- Fecha actual: ${currentDate.toISOString().split('T')[0]}`);
-              console.log(`- ¿Semana terminó? ${currentDate > weekEndDate}`);
-              
-              // Buscar TODOS los pagos en esta semana (margen de ±3 días alrededor de la fecha de pago)
-              const paymentsInWeek = sortedPayments.filter((payment: any) => {
-                const paymentDate = payment.date;
-                const weekStart = new Date(weekPaymentDate);
-                weekStart.setDate(weekStart.getDate() - 3);
-                const weekEnd = new Date(weekPaymentDate);
-                weekEnd.setDate(weekEnd.getDate() + 3);
-                
-                return paymentDate >= weekStart && paymentDate <= weekEnd;
-              });
-              
-              if (paymentsInWeek.length > 0) {
-                // Hay pagos en esta semana - mostrar TODOS
-                paymentsInWeek.forEach((payment: any, paymentIndex: number) => {
-                  chronologicalEvents.push({
-                    date: payment.date,
-                    type: 'payment',
-                    amount: payment.amount,
-                    paymentNumber: payment.paymentNumber,
-                    description: paymentsInWeek.length > 1 
-                      ? `Pago #${payment.paymentNumber || week} (${paymentIndex + 1}/${paymentsInWeek.length})`
-                      : `Pago #${payment.paymentNumber || week}`,
-                    week: week
-                  });
-                });
-              } else {
-                // No hay pagos en esta semana
-                // Solo mostrar faltas de semanas que ya terminaron completamente (no la semana en curso)
-                if (currentDate > weekEndDate) {
-                  chronologicalEvents.push({
-                    date: weekPaymentDate,
-                    type: 'no_payment',
-                    amount: 0,
-                    paymentNumber: null,
-                    description: `Semana ${week} - Sin pago`,
-                    week: week
-                  });
-                }
-              }
-            }
+              // Convertir a formato del PDF
+              const chronologicalEvents = chronology.map((item: PaymentChronologyItem) => ({
+                date: new Date(item.date),
+                type: item.type === 'PAYMENT' ? 'payment' : 'no_payment',
+                amount: item.amount || 0,
+                paymentNumber: item.paymentNumber || null,
+                description: item.description,
+                week: 1 // Se puede calcular si es necesario
+              }));
               
               // Si fue renovado, agregar nota informativa
+              const isRenewed = loan.status === 'RENOVADO' || loan.status === 'RENOVADO';
               if (isRenewed) {
                 chronologicalEvents.push({
                   date: new Date(loan.finishedDate || loan.signDate),
@@ -2391,7 +2316,7 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
                   amount: 0,
                   paymentNumber: null,
                   description: `Préstamo renovado - Semanas posteriores no evaluadas`,
-                  week: weeksToEvaluate + 1
+                  week: (loan.weekDuration || 16) + 1
                 });
               }
               
@@ -2545,106 +2470,37 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
               doc.fontSize(16).fillColor('#ffffff').text('HISTORIAL CRONOLOGICO DE PAGOS', 55, y + 12);
               y += 60;
 
-              // Reconstruir la cronología completa del préstamo
-              const chronologicalEvents: any[] = [];
+              // Usar función utilitaria común para generar cronología
+              const loanData = {
+                id: latestLoan.id,
+                signDate: latestLoan.signDate,
+                weekDuration: latestLoan.weekDuration || 16,
+                payments: latestLoan.payments?.map((payment: any) => ({
+                  id: payment.id,
+                  receivedAt: payment.receivedAt,
+                  receivedAtFormatted: payment.receivedAtFormatted,
+                  amount: payment.amount,
+                  paymentMethod: payment.paymentMethod,
+                  balanceBeforePayment: payment.balanceBeforePayment,
+                  balanceAfterPayment: payment.balanceAfterPayment,
+                  paymentNumber: payment.paymentNumber
+                })) || []
+              };
               
-              // Obtener duración del préstamo en semanas
-              const loanDuration = latestLoan.weekDuration || 16; // Default 16 semanas
-              const signDate = new Date(latestLoan.signDate);
+              const chronology = generatePaymentChronology(loanData);
               
-              // Crear array de pagos ordenados por fecha
-              const sortedPayments = latestLoan.payments
-                .map((payment: any) => ({
-                  ...payment,
-                  date: new Date(payment.receivedAt)
-                }))
-                .filter((payment: any) => !isNaN(payment.date.getTime()))
-                .sort((a: any, b: any) => a.date.getTime() - b.date.getTime());
-              
-              // Generar cronología semana por semana
-              const currentDate = new Date();
-              
-              // Verificar si el préstamo fue renovado o terminado
-              const isRenewed = latestLoan.status === 'RENOVADO' || latestLoan.status === 'RENOVADO';
-              const isFinished = latestLoan.status === 'TERMINADO' || latestLoan.status === 'FINALIZADO' || 
-                                (latestLoan.finishedDate && (isRenewed || latestLoan.status === 'TERMINADO' || latestLoan.status === 'FINALIZADO'));
-              const isActive = !isRenewed && !isFinished;
-              
-              // Determinar hasta qué semana evaluar
-              let weeksToEvaluate = loanDuration;
-              if (isRenewed && latestLoan.finishedDate) {
-                const renewalDate = new Date(latestLoan.finishedDate);
-                const weeksSinceRenewal = Math.floor((renewalDate.getTime() - signDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
-                weeksToEvaluate = Math.min(weeksSinceRenewal, loanDuration);
-                console.log(`Préstamo renovado: evaluando solo hasta semana ${weeksToEvaluate}`);
-              } else if (isFinished && latestLoan.finishedDate) {
-                const finishDate = new Date(latestLoan.finishedDate);
-                const weeksSinceFinish = Math.floor((finishDate.getTime() - signDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
-                weeksToEvaluate = Math.min(weeksSinceFinish, loanDuration);
-                console.log(`Préstamo terminado: evaluando solo hasta semana ${weeksToEvaluate}`);
-              } else if (isActive) {
-                // Para préstamos activos, evaluar al menos la duración original, pero puede ser más si ha pasado más tiempo
-                const currentDate = new Date();
-                const weeksSinceStart = Math.floor((currentDate.getTime() - signDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
-                weeksToEvaluate = Math.max(weeksSinceStart, loanDuration); // Al menos la duración original, pero puede ser más
-                console.log(`Préstamo activo: evaluando ${weeksToEvaluate} semanas (duración original: ${loanDuration})`);
-              }
-              
-              for (let week = 1; week <= weeksToEvaluate; week++) {
-                // Calcular la fecha de pago de esta semana (signDate + week * 7 días)
-                const weekPaymentDate = new Date(signDate);
-                weekPaymentDate.setDate(weekPaymentDate.getDate() + (week * 7));
-                
-                // La semana de pago termina el domingo de esa semana (no 3 días después)
-                const weekEndDate = new Date(weekPaymentDate);
-                // Encontrar el domingo de esa semana
-                const dayOfWeek = weekEndDate.getDay(); // 0 = domingo, 1 = lunes, etc.
-                const daysToSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek; // Días hasta el domingo
-                weekEndDate.setDate(weekEndDate.getDate() + daysToSunday);
-                weekEndDate.setHours(23, 59, 59, 999); // Final del domingo
-                
-                // Buscar TODOS los pagos en esta semana (margen de ±3 días alrededor de la fecha de pago)
-                const paymentsInWeek = sortedPayments.filter((payment: any) => {
-                  const paymentDate = payment.date;
-                  const weekStart = new Date(weekPaymentDate);
-                  weekStart.setDate(weekStart.getDate() - 3);
-                  const weekEnd = new Date(weekPaymentDate);
-                  weekEnd.setDate(weekEnd.getDate() + 3);
-                  
-                  return paymentDate >= weekStart && paymentDate <= weekEnd;
-                });
-                
-                if (paymentsInWeek.length > 0) {
-                  // Hay pagos en esta semana - mostrar TODOS
-                  paymentsInWeek.forEach((payment: any, paymentIndex: number) => {
-                    chronologicalEvents.push({
-                      date: payment.date,
-                      type: 'payment',
-                      amount: payment.amount,
-                      paymentNumber: payment.paymentNumber,
-                      description: paymentsInWeek.length > 1 
-                        ? `Pago #${payment.paymentNumber || week} (${paymentIndex + 1}/${paymentsInWeek.length})`
-                        : `Pago #${payment.paymentNumber || week}`,
-                      week: week
-                    });
-                  });
-                } else {
-                  // No hay pagos en esta semana
-                  // Solo mostrar faltas de semanas que ya terminaron completamente (no la semana en curso)
-                  if (currentDate > weekEndDate) {
-                    chronologicalEvents.push({
-                      date: weekPaymentDate,
-                      type: 'no_payment',
-                      amount: 0,
-                      paymentNumber: null,
-                      description: `Semana ${week} - Sin pago`,
-                      week: week
-                    });
-                  }
-                }
-              }
+              // Convertir a formato del PDF
+              const chronologicalEvents = chronology.map((item: PaymentChronologyItem) => ({
+                date: new Date(item.date),
+                type: item.type === 'PAYMENT' ? 'payment' : 'no_payment',
+                amount: item.amount || 0,
+                paymentNumber: item.paymentNumber || null,
+                description: item.description,
+                week: 1 // Se puede calcular si es necesario
+              }));
               
               // Si fue renovado, agregar nota informativa
+              const isRenewed = latestLoan.status === 'RENOVADO' || latestLoan.status === 'RENOVADO';
               if (isRenewed) {
                 chronologicalEvents.push({
                   date: new Date(latestLoan.finishedDate || latestLoan.signDate),
@@ -2652,7 +2508,7 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
                   amount: 0,
                   paymentNumber: null,
                   description: `Préstamo renovado - Semanas posteriores no evaluadas`,
-                  week: weeksToEvaluate + 1
+                  week: (latestLoan.weekDuration || 16) + 1
                 });
               }
               
