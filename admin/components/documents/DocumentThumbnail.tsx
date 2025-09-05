@@ -5,7 +5,7 @@ import React, { useState } from 'react';
 import { jsx, Box, Text } from '@keystone-ui/core';
 import { Button } from '@keystone-ui/button';
 import { LoadingDots } from '@keystone-ui/loading';
-import { FaCamera, FaEye, FaPlus, FaCheck, FaExclamationTriangle, FaTimes } from 'react-icons/fa';
+import { FaCamera, FaEye, FaPlus, FaTrash, FaExclamationTriangle } from 'react-icons/fa';
 
 interface DocumentThumbnailProps {
   type: 'INE' | 'DOMICILIO' | 'PAGARE';
@@ -37,8 +37,6 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
   size = 'medium'
 }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const [showErrorInput, setShowErrorInput] = useState(false);
-  const [errorInput, setErrorInput] = useState(errorDescription);
 
   const getTypeLabel = (type: string) => {
     switch (type) {
@@ -174,120 +172,50 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
               }}
               title="Eliminar imagen"
             >
-              <FaTimes size={10} color="white" />
+              <FaTrash size={9} color="white" />
             </Box>
           )}
 
-          {/* Indicador de estado (esquina superior derecha) */}
-          <Box
-            css={{
-              position: 'absolute',
-              top: '4px',
-              right: '4px',
-              backgroundColor: isError ? '#ef4444' : '#10b981',
-              borderRadius: '50%',
-              width: '18px',
-              height: '18px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              zIndex: 10,
-              transition: 'all 0.2s ease',
-              '&:hover': {
-                backgroundColor: isError ? '#dc2626' : '#059669',
-                transform: 'scale(1.1)'
-              }
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (onMarkAsError) {
-                if (isError) {
-                  // Si ya está marcado como error, quitar el error
-                  onMarkAsError(false);
-                } else {
-                  // Mostrar input para descripción del error
-                  setShowErrorInput(true);
-                }
-              }
-            }}
-            title={isError ? 'Quitar error' : 'Marcar como error'}
-          >
-            {isError ? <FaExclamationTriangle size={9} color="white" /> : <FaCheck size={9} color="white" />}
-          </Box>
-
-          {/* Input para descripción del error */}
-          {showErrorInput && (
+          {/* Botón de marcar como error (esquina superior derecha) */}
+          {hasImage && onMarkAsError && (
             <Box
               css={{
                 position: 'absolute',
-                top: '50%',
-                left: '50%',
-                transform: 'translate(-50%, -50%)',
-                backgroundColor: 'white',
-                border: '2px solid #ef4444',
-                borderRadius: '8px',
-                padding: '12px',
-                zIndex: 20,
-                width: '200px',
-                boxShadow: '0 10px 25px rgba(0, 0, 0, 0.3)'
+                top: '4px',
+                right: '4px',
+                backgroundColor: isError ? '#ef4444' : '#f59e0b',
+                borderRadius: '50%',
+                width: '18px',
+                height: '18px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                zIndex: 10,
+                transition: 'all 0.2s ease',
+                '&:hover': {
+                  backgroundColor: isError ? '#dc2626' : '#d97706',
+                  transform: 'scale(1.1)'
+                }
               }}
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onMarkAsError) {
+                  if (isError) {
+                    // Si ya está marcado como error, mostrar/editar el error
+                    onMarkAsError(true, errorDescription);
+                  } else {
+                    // Abrir modal para descripción del error
+                    onMarkAsError(true, '');
+                  }
+                }
+              }}
+              title={isError ? `Ver/editar error: ${errorDescription || 'Sin descripción'}` : 'Marcar como error'}
             >
-              <Text size="small" weight="semibold" marginBottom="small" color="red700">
-                Marcar como error
-              </Text>
-              <textarea
-                placeholder="Descripción del error..."
-                value={errorInput}
-                onChange={(e) => setErrorInput(e.target.value)}
-                css={{
-                  width: '100%',
-                  minHeight: '60px',
-                  padding: '8px',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '4px',
-                  fontSize: '12px',
-                  resize: 'vertical',
-                  marginBottom: '8px'
-                }}
-              />
-              <Box css={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                <Button
-                  size="small"
-                  onClick={() => {
-                    setShowErrorInput(false);
-                    setErrorInput(errorDescription);
-                  }}
-                  css={{
-                    padding: '4px 8px',
-                    fontSize: '10px',
-                    backgroundColor: '#6b7280',
-                    '&:hover': { backgroundColor: '#4b5563' }
-                  }}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  size="small"
-                  onClick={() => {
-                    if (onMarkAsError) {
-                      onMarkAsError(true, errorInput.trim());
-                      setShowErrorInput(false);
-                    }
-                  }}
-                  css={{
-                    padding: '4px 8px',
-                    fontSize: '10px',
-                    backgroundColor: '#ef4444',
-                    '&:hover': { backgroundColor: '#dc2626' }
-                  }}
-                >
-                  Confirmar
-                </Button>
-              </Box>
+              <FaExclamationTriangle size={9} color="white" />
             </Box>
           )}
+
         </>
       ) : (
         /* Estado vacío */

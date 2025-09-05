@@ -19,6 +19,8 @@ import { Select } from '@keystone-ui/fields';
 import { DocumentThumbnail } from '../components/documents/DocumentThumbnail';
 import { ImageModal } from '../components/documents/ImageModal';
 import { UploadModal } from '../components/documents/UploadModal';
+import { DocumentsModal } from '../components/documents/DocumentsModal';
+import { ErrorModal } from '../components/documents/ErrorModal';
 import { UPDATE_PERSONAL_DATA_NAME, UPDATE_PERSONAL_DATA_PHONE, CREATE_PERSONAL_DATA_PHONE } from '../graphql/mutations/personalData';
 import type { Route, Employee } from '../types/transaction';
 
@@ -301,6 +303,28 @@ export default function DocumentosPersonalesPage() {
     personName: ''
   });
 
+  const [documentsModal, setDocumentsModal] = useState<{
+    isOpen: boolean;
+    loan: Loan | null;
+  }>({
+    isOpen: false,
+    loan: null
+  });
+
+  const [errorModal, setErrorModal] = useState<{
+    isOpen: boolean;
+    documentId: string | null;
+    documentType: string;
+    personType: string;
+    existingError: string;
+  }>({
+    isOpen: false,
+    documentId: null,
+    documentType: '',
+    personType: '',
+    existingError: ''
+  });
+
   // Estados para edición inline
   const [editingField, setEditingField] = useState<{
     type: 'name' | 'phone';
@@ -340,6 +364,19 @@ export default function DocumentosPersonalesPage() {
       setLoading(false);
     }
   }, [data]);
+
+  // Efecto para actualizar el modal de documentos cuando cambia el estado de los préstamos
+  useEffect(() => {
+    if (documentsModal.isOpen && documentsModal.loan) {
+      const updatedLoan = loans.find(loan => loan.id === documentsModal.loan?.id);
+      if (updatedLoan) {
+        setDocumentsModal(prev => ({
+          ...prev,
+          loan: updatedLoan
+        }));
+      }
+    }
+  }, [loans, documentsModal.isOpen, documentsModal.loan?.id]);
 
   // Efecto para manejar errores
   useEffect(() => {
@@ -407,7 +444,15 @@ export default function DocumentosPersonalesPage() {
         variables: { id: documentId }
       });
 
-      // Refrescar datos
+      // Actualizar estado local inmediatamente
+      setLoans(prevLoans => 
+        prevLoans.map(loan => ({
+          ...loan,
+          documentPhotos: loan.documentPhotos.filter(doc => doc.id !== documentId)
+        }))
+      );
+
+      // Refrescar datos en segundo plano
       refetch();
     } catch (error) {
       console.error('Error al eliminar documento:', error);
@@ -434,6 +479,31 @@ export default function DocumentosPersonalesPage() {
     }
   };
 
+  // Función para manejar el click en marcar como error
+  const handleMarkAsError = (documentId: string, isError: boolean, errorDescription?: string) => {
+    // Buscar el documento para obtener su tipo y persona
+    const document = loans
+      .flatMap(loan => loan.documentPhotos)
+      .find(doc => doc.id === documentId);
+    
+    if (document) {
+      const personType = document.personalData.id === 
+        loans.find(loan => loan.documentPhotos.some(doc => doc.id === documentId))?.borrower.personalData.id 
+        ? 'TITULAR' : 'AVAL';
+      
+      // Usar la descripción del error del documento real, no la que viene del componente
+      const existingErrorDescription = document.errorDescription || '';
+      
+      if (isError) {
+        // Si ya está marcado como error, mostrar/editar el error
+        openErrorModal(documentId, document.documentType, personType, existingErrorDescription);
+      } else {
+        // Si no está marcado como error, abrir modal para nuevo error
+        openErrorModal(documentId, document.documentType, personType, '');
+      }
+    }
+  };
+
   // Función para abrir modal de confirmación de eliminación
   const handleDocumentDelete = (documentId: string, documentTitle: string) => {
     setDeleteConfirmDialog({
@@ -452,12 +522,22 @@ export default function DocumentosPersonalesPage() {
         variables: { id: deleteConfirmDialog.documentId }
       });
 
-      // Cerrar modal y refrescar datos
+      // Actualizar estado local inmediatamente
+      setLoans(prevLoans => 
+        prevLoans.map(loan => ({
+          ...loan,
+          documentPhotos: loan.documentPhotos.filter(doc => doc.id !== deleteConfirmDialog.documentId)
+        }))
+      );
+
+      // Cerrar modal
       setDeleteConfirmDialog({
         isOpen: false,
         documentId: null,
         documentTitle: ''
       });
+
+      // Refrescar datos en segundo plano
       refetch();
     } catch (error) {
       console.error('Error al eliminar el documento:', error);
@@ -490,6 +570,56 @@ export default function DocumentosPersonalesPage() {
       loanId,
       personName
     });
+  };
+
+  // Función para abrir modal de documentos
+  const openDocumentsModal = (loan: Loan) => {
+    setDocumentsModal({
+      isOpen: true,
+      loan
+    });
+  };
+
+  // Función para cerrar modal de documentos
+  const closeDocumentsModal = () => {
+    setDocumentsModal({
+      isOpen: false,
+      loan: null
+    });
+  };
+
+  // Función para abrir modal de error
+  const openErrorModal = (documentId: string, documentType: string, personType: string, existingError: string = '') => {
+    setErrorModal({
+      isOpen: true,
+      documentId,
+      documentType,
+      personType,
+      existingError
+    });
+  };
+
+  // Función para cerrar modal de error
+  const closeErrorModal = () => {
+    setErrorModal({
+      isOpen: false,
+      documentId: null,
+      documentType: '',
+      personType: '',
+      existingError: ''
+    });
+  };
+
+  // Función para confirmar error
+  const confirmError = async (errorDescription: string) => {
+    if (!errorModal.documentId) return;
+
+    try {
+      await handleDocumentError(errorModal.documentId, true, errorDescription);
+      closeErrorModal();
+    } catch (error) {
+      console.error('Error al marcar documento como error:', error);
+    }
   };
 
   // Función para abrir modal de imagen
@@ -664,6 +794,28 @@ export default function DocumentosPersonalesPage() {
         '@media (max-width: 768px)': {
           paddingLeft: '4px',
           paddingRight: '4px'
+        },
+        // Animaciones CSS
+        '@keyframes bounce': {
+          '0%, 20%, 50%, 80%, 100%': {
+            transform: 'translateY(0)'
+          },
+          '40%': {
+            transform: 'translateY(-4px)'
+          },
+          '60%': {
+            transform: 'translateY(-2px)'
+          }
+        },
+        '@keyframes fadeInUp': {
+          '0%': {
+            opacity: '0',
+            transform: 'translateY(20px)'
+          },
+          '100%': {
+            opacity: '1',
+            transform: 'translateY(0)'
+          }
         }
       }}>
         {/* Header con selector de semanas y filtros */}
@@ -836,532 +988,230 @@ export default function DocumentosPersonalesPage() {
                 key={loan.id}
                 css={{
                   backgroundColor: 'white',
-                  borderRadius: '12px',
+                  borderRadius: '16px',
                   border: '1px solid #e5e7eb',
                   overflow: 'hidden',
-                  boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)',
-                  transition: 'all 0.2s ease'
+                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                  animation: 'fadeInUp 0.5s ease-out',
+                  '&:hover': {
+                    transform: 'translateY(-2px)',
+                    boxShadow: '0 10px 25px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+                  },
+                  '@media (max-width: 768px)': {
+                    borderRadius: '12px',
+                    margin: '0 4px'
+                  }
                 }}
               >
                 {/* Header del crédito */}
                 <Box
                   css={{
                     padding: '16px',
-                    backgroundColor: '#f9fafb',
-                    borderBottom: isExpanded ? '1px solid #e5e7eb' : 'none',
+                    backgroundColor: 'white',
                     cursor: 'pointer',
-                    '&:hover': { backgroundColor: '#f3f4f6' }
+                    transition: 'all 0.3s ease',
+                    '&:hover': { 
+                      backgroundColor: '#f8fafc',
+                      transform: 'translateY(-1px)'
+                    },
+                    '@media (max-width: 768px)': {
+                      padding: '12px'
+                    }
                   }}
-                  onClick={() => setSelectedLoan(isExpanded ? null : loan)}
                 >
                   <Box
                     css={{
                       display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-                      gap: '12px',
-                      alignItems: 'center'
+                      gridTemplateColumns: '1fr 1fr',
+                      gap: '8px',
+                      alignItems: 'start',
+                      '@media (max-width: 768px)': {
+                        gridTemplateColumns: '1fr',
+                        gap: '12px'
+                      }
                     }}
                   >
-                    <Box css={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <FaCalendarAlt color="#6b7280" />
-                      <Text size="small" color="black">
-                        {new Date(loan.signDate).toLocaleDateString('es-ES')}
-                      </Text>
-                    </Box>
-
-                    <Box css={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <FaUser color="#6b7280" />
-                      <Text size="small" color="black">
-                        {loan.borrower.personalData.fullName}
-                      </Text>
-                    </Box>
-
-                    <Box css={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <FaUserTie color="#6b7280" />
-                      <Text size="small" color="black">
-                        {loan.lead.personalData.fullName}
-                      </Text>
-                    </Box>
-
-                    <Box css={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <FaMoneyBillWave color="#6b7280" />
-                      <Text size="small" color="black">
-                        ${parseFloat(loan.requestedAmount).toLocaleString()}
-                      </Text>
-                    </Box>
-
-                    <Box css={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Text size="small" color="black">
-                        {loan.documentPhotos.length} docs
-                      </Text>
-                    </Box>
-
-                    {/* Tags de documentos en vista colapsada */}
-                    <Box css={{ 
-                      display: 'flex', 
-                      flexDirection: 'column', 
-                      gap: '8px',
-                      minWidth: '200px'
-                    }}>
-                      {/* Tags del Titular */}
-                      <Box css={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <Text size="xsmall" color="black" css={{ fontWeight: '500' }}>
-                          Titular:
+                    {/* Columna izquierda */}
+                    <Box css={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <Box css={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <FaCalendarAlt color="#6b7280" />
+                        <Text size="small" color="black" weight="medium">
+                          {new Date(loan.signDate).toLocaleDateString('es-ES')}
                         </Text>
-                        <Box css={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                          {DOCUMENT_TYPES_TITULAR.map((type) => {
-                            const document = getDocumentByTypeAndPerson(
-                              borrowerDocuments,
-                              type,
-                              loan.borrower.personalData.id
-                            );
-                            const hasDocument = !!document;
-                            const hasError = hasDocument && document.isError;
-                            
-                            return (
-                              <Box
-                                key={`collapsed-titular-${type}`}
-                                css={{
-                                  padding: '2px 6px',
-                                  borderRadius: '8px',
-                                  fontSize: '10px',
-                                  fontWeight: '500',
-                                  backgroundColor: hasError ? '#fef2f2' : hasDocument ? '#dcfce7' : '#f3f4f6',
-                                  color: hasError ? '#dc2626' : hasDocument ? '#166534' : '#6b7280',
-                                  border: `1px solid ${hasError ? '#fecaca' : hasDocument ? '#bbf7d0' : '#e5e7eb'}`
-                                }}
-                                title={hasError ? `Error: ${document.errorDescription || 'Documento marcado como error'}` : undefined}
-                              >
-                                {getTypeLabel(type)}
-                                {hasError && ' ⚠️'}
-                              </Box>
-                            );
-                          })}
-                        </Box>
                       </Box>
 
-                      {/* Tags del Aval */}
-                      <Box css={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <Text size="xsmall" color="black" css={{ fontWeight: '500' }}>
-                          Aval:
+                      <Box css={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <FaUser color="#6b7280" />
+                        <Text size="small" color="black" weight="medium" css={{
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          {loan.borrower.personalData.fullName}
                         </Text>
-                        <Box css={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                          {DOCUMENT_TYPES_AVAL.map((type) => {
-                            const document = getDocumentByTypeAndPerson(
-                              leadDocuments,
-                              type,
-                              loan.lead.personalData.id
-                            );
-                            const hasDocument = !!document;
-                            const hasError = hasDocument && document.isError;
-                            
-                            return (
-                              <Box
-                                key={`collapsed-aval-${type}`}
-                                css={{
-                                  padding: '2px 6px',
-                                  borderRadius: '8px',
-                                  fontSize: '10px',
-                                  fontWeight: '500',
-                                  backgroundColor: hasError ? '#fef2f2' : hasDocument ? '#dcfce7' : '#f3f4f6',
-                                  color: hasError ? '#dc2626' : hasDocument ? '#166534' : '#6b7280',
-                                  border: `1px solid ${hasError ? '#fecaca' : hasDocument ? '#bbf7d0' : '#e5e7eb'}`
-                                }}
-                                title={hasError ? `Error: ${document.errorDescription || 'Documento marcado como error'}` : undefined}
-                              >
-                                {getTypeLabel(type)}
-                                {hasError && ' ⚠️'}
-                              </Box>
-                            );
-                          })}
-                        </Box>
+                      </Box>
+
+                      <Box css={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <FaMoneyBillWave color="#6b7280" />
+                        <Text size="small" color="black" weight="bold">
+                          ${parseFloat(loan.requestedAmount).toLocaleString()}
+                        </Text>
                       </Box>
                     </Box>
 
+                    {/* Columna derecha */}
+                    <Box css={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <Box css={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <FaUserTie color="#6b7280" />
+                        <Text size="small" color="black" weight="medium" css={{
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          {loan.lead.personalData.fullName}
+                        </Text>
+                      </Box>
+
+                      <Box css={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Text size="small" color="black" weight="medium">
+                          📄 {loan.documentPhotos.length} docs
+                        </Text>
+                      </Box>
+                    </Box>
+
+                  </Box>
+
+                  {/* Tags de documentos */}
+                  <Box css={{ 
+                    marginTop: '12px',
+                    padding: '12px',
+                    backgroundColor: '#f8fafc',
+                    borderRadius: '8px',
+                    border: '1px solid #e2e8f0'
+                  }}>
+                    {/* Tags del Titular */}
+                    <Box css={{ marginBottom: '8px' }}>
+                      <Text size="xsmall" color="neutral700" css={{ 
+                        fontWeight: '600',
+                        marginBottom: '4px'
+                      }}>
+                        👤 Titular:
+                      </Text>
+                      <Box css={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                        {DOCUMENT_TYPES_TITULAR.map((type) => {
+                          const document = getDocumentByTypeAndPerson(
+                            borrowerDocuments,
+                            type,
+                            loan.borrower.personalData.id
+                          );
+                          const hasDocument = !!document;
+                          const hasError = hasDocument && document.isError;
+                          
+                          return (
+                            <Box
+                              key={`collapsed-titular-${type}`}
+                              css={{
+                                padding: '2px 6px',
+                                borderRadius: '6px',
+                                fontSize: '9px',
+                                fontWeight: '600',
+                                backgroundColor: hasError 
+                                  ? 'rgba(239, 68, 68, 0.2)' 
+                                  : hasDocument 
+                                    ? 'rgba(34, 197, 94, 0.2)' 
+                                    : '#f3f4f6',
+                                color: hasError 
+                                  ? '#dc2626' 
+                                  : hasDocument 
+                                    ? '#166534' 
+                                    : '#6b7280',
+                                border: hasError 
+                                  ? '1px solid rgba(239, 68, 68, 0.3)' 
+                                  : hasDocument 
+                                    ? '1px solid rgba(34, 197, 94, 0.3)' 
+                                    : '1px solid #e5e7eb'
+                              }}
+                              title={hasError ? `Error: ${document.errorDescription || 'Documento marcado como error'}` : undefined}
+                            >
+                              {getTypeLabel(type)}
+                              {hasError && ' ⚠️'}
+                            </Box>
+                          );
+                        })}
+                      </Box>
+                    </Box>
+
+                    {/* Tags del Aval */}
+                    <Box css={{ marginBottom: '12px' }}>
+                      <Text size="xsmall" color="neutral700" css={{ 
+                        fontWeight: '600',
+                        marginBottom: '4px'
+                      }}>
+                        🤝 Aval:
+                      </Text>
+                      <Box css={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                        {DOCUMENT_TYPES_AVAL.map((type) => {
+                          const document = getDocumentByTypeAndPerson(
+                            leadDocuments,
+                            type,
+                            loan.lead.personalData.id
+                          );
+                          const hasDocument = !!document;
+                          const hasError = hasDocument && document.isError;
+                          
+                          return (
+                            <Box
+                              key={`collapsed-aval-${type}`}
+                              css={{
+                                padding: '2px 6px',
+                                borderRadius: '6px',
+                                fontSize: '9px',
+                                fontWeight: '600',
+                                backgroundColor: hasError 
+                                  ? 'rgba(239, 68, 68, 0.2)' 
+                                  : hasDocument 
+                                    ? 'rgba(34, 197, 94, 0.2)' 
+                                    : '#f3f4f6',
+                                color: hasError 
+                                  ? '#dc2626' 
+                                  : hasDocument 
+                                    ? '#166534' 
+                                    : '#6b7280',
+                                border: hasError 
+                                  ? '1px solid rgba(239, 68, 68, 0.3)' 
+                                  : hasDocument 
+                                    ? '1px solid rgba(34, 197, 94, 0.3)' 
+                                    : '1px solid #e5e7eb'
+                              }}
+                              title={hasError ? `Error: ${document.errorDescription || 'Documento marcado como error'}` : undefined}
+                            >
+                              {getTypeLabel(type)}
+                              {hasError && ' ⚠️'}
+                            </Box>
+                          );
+                        })}
+                      </Box>
+                    </Box>
+
+                    {/* Botón Ver */}
                     <Button
                       size="small"
+                      onClick={() => openDocumentsModal(loan)}
                       css={{
-                        backgroundColor: isExpanded ? '#ef4444' : '#3b82f6',
+                        backgroundColor: '#3b82f6',
                         color: 'white',
-                        fontWeight: '600',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '6px',
-                        '&:hover': { 
-                          backgroundColor: isExpanded ? '#dc2626' : '#2563eb',
-                          transform: 'translateY(-1px)',
-                          boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
-                        },
-                        transition: 'all 0.2s ease'
+                        width: '100%',
+                        '&:hover': {
+                          backgroundColor: '#2563eb'
+                        }
                       }}
                     >
-                      <span>{isExpanded ? 'Ocultar' : 'Ver Detalles'}</span>
-                      <span
-                        css={{
-                          transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                          transition: 'transform 0.3s ease',
-                          fontSize: '12px',
-                          lineHeight: '1'
-                        }}
-                      >
-                        ▼
-                      </span>
+                      Ver
                     </Button>
                   </Box>
                 </Box>
 
-                {/* Contenido expandido */}
-                <Box 
-                  css={{
-                    maxHeight: isExpanded ? '2000px' : '0px',
-                    overflow: 'hidden',
-                    transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                    opacity: isExpanded ? 1 : 0,
-                    transform: isExpanded ? 'translateY(0)' : 'translateY(-10px)',
-                    borderTop: isExpanded ? '1px solid #e5e7eb' : 'none',
-                    backgroundColor: isExpanded ? '#fafafa' : 'transparent',
-                    marginTop: isExpanded ? '16px' : '0px',
-                    borderRadius: isExpanded ? '0 0 8px 8px' : '0px'
-                  }}
-                >
-                  <Box css={{ padding: '20px' }}>
-                    {/* Información del cliente y aval */}
-                    <Box
-                      css={{
-                        display: 'grid',
-                        gridTemplateColumns: '1fr 1fr',
-                        gap: '24px',
-                        marginBottom: '24px',
-                        '@media (max-width: 768px)': {
-                          gridTemplateColumns: '1fr',
-                          gap: '16px'
-                        }
-                      }}
-                    >
-                      {/* Titular */}
-                      <Box
-                        css={{
-                          padding: '16px',
-                          backgroundColor: '#f8fafc',
-                          borderRadius: '8px',
-                          border: '1px solid #e2e8f0'
-                        }}
-                      >
-                        <Text weight="semibold" size="medium" marginBottom="medium">
-                          Titular (Cliente)
-                        </Text>
-                        
-                        <Box marginBottom="small">
-                          <Text size="small" color="black" marginBottom="xsmall">
-                            Nombre
-                          </Text>
-                          <InlineEditField
-                            value={loan.borrower.personalData.fullName}
-                            onSave={(newValue) => handleNameEdit(loan.borrower.personalData.id, newValue)}
-                            placeholder="Nombre del titular"
-                          />
-                        </Box>
-
-                        <Box marginBottom="small">
-                          <Text size="small" color="black" marginBottom="xsmall">
-                            Teléfono
-                          </Text>
-                          <InlineEditField
-                            value={loan.borrower.personalData.phones[0]?.number || ''}
-                            onSave={(newValue) => handlePhoneEdit(
-                              loan.borrower.personalData.id,
-                              loan.borrower.personalData.phones[0]?.id,
-                              newValue
-                            )}
-                            placeholder="Agregar teléfono"
-                          />
-                        </Box>
-
-                        {/* Tags de documentos del Titular */}
-                        <Box marginTop="medium">
-                          <Text size="small" color="black" marginBottom="xsmall">
-                            Documentos
-                          </Text>
-                          <Box css={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                            {DOCUMENT_TYPES_TITULAR.map((type) => {
-                              const document = getDocumentByTypeAndPerson(
-                                borrowerDocuments,
-                                type,
-                                loan.borrower.personalData.id
-                              );
-                              const hasDocument = !!document;
-                              const hasError = hasDocument && document.isError;
-                              
-                              return (
-                                <Box
-                                  key={`tag-titular-${type}`}
-                                  css={{
-                                    padding: '4px 8px',
-                                    borderRadius: '12px',
-                                    fontSize: '11px',
-                                    fontWeight: '500',
-                                    backgroundColor: hasError ? '#fef2f2' : hasDocument ? '#dcfce7' : '#f3f4f6',
-                                    color: hasError ? '#dc2626' : hasDocument ? '#166534' : '#6b7280',
-                                    border: `1px solid ${hasError ? '#fecaca' : hasDocument ? '#bbf7d0' : '#e5e7eb'}`
-                                  }}
-                                  title={hasError ? `Error: ${document.errorDescription || 'Documento marcado como error'}` : undefined}
-                                >
-                                  {getTypeLabel(type)}
-                                  {hasError && ' ⚠️'}
-                                </Box>
-                              );
-                            })}
-                          </Box>
-                        </Box>
-                      </Box>
-
-                      {/* Aval */}
-                      <Box
-                        css={{
-                          padding: '16px',
-                          backgroundColor: '#f8fafc',
-                          borderRadius: '8px',
-                          border: '1px solid #e2e8f0'
-                        }}
-                      >
-                        <Text weight="semibold" size="medium" marginBottom="medium">
-                          Aval
-                        </Text>
-                        
-                        <Box marginBottom="small">
-                          <Text size="small" color="black" marginBottom="xsmall">
-                            Nombre
-                          </Text>
-                          <InlineEditField
-                            value={loan.lead.personalData.fullName}
-                            onSave={(newValue) => handleNameEdit(loan.lead.personalData.id, newValue)}
-                            placeholder="Nombre del aval"
-                          />
-                        </Box>
-
-                        <Box marginBottom="small">
-                          <Text size="small" color="black" marginBottom="xsmall">
-                            Teléfono
-                          </Text>
-                          <InlineEditField
-                            value={loan.lead.personalData.phones[0]?.number || ''}
-                            onSave={(newValue) => handlePhoneEdit(
-                              loan.lead.personalData.id,
-                              loan.lead.personalData.phones[0]?.id,
-                              newValue
-                            )}
-                            placeholder="Agregar teléfono"
-                          />
-                        </Box>
-
-                        {/* Tags de documentos del Aval */}
-                        <Box marginTop="medium">
-                          <Text size="small" color="black" marginBottom="xsmall">
-                            Documentos
-                          </Text>
-                          <Box css={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                            {DOCUMENT_TYPES_AVAL.map((type) => {
-                              const document = getDocumentByTypeAndPerson(
-                                leadDocuments,
-                                type,
-                                loan.lead.personalData.id
-                              );
-                              const hasDocument = !!document;
-                              const hasError = hasDocument && document.isError;
-                              
-                              return (
-                                <Box
-                                  key={`tag-aval-${type}`}
-                                  css={{
-                                    padding: '4px 8px',
-                                    borderRadius: '12px',
-                                    fontSize: '11px',
-                                    fontWeight: '500',
-                                    backgroundColor: hasError ? '#fef2f2' : hasDocument ? '#dcfce7' : '#f3f4f6',
-                                    color: hasError ? '#dc2626' : hasDocument ? '#166534' : '#6b7280',
-                                    border: `1px solid ${hasError ? '#fecaca' : hasDocument ? '#bbf7d0' : '#e5e7eb'}`
-                                  }}
-                                  title={hasError ? `Error: ${document.errorDescription || 'Documento marcado como error'}` : undefined}
-                                >
-                                  {getTypeLabel(type)}
-                                  {hasError && ' ⚠️'}
-                                </Box>
-                              );
-                            })}
-                          </Box>
-                        </Box>
-                      </Box>
-                    </Box>
-
-                    {/* Miniaturas de documentos */}
-                    <Box
-                      css={{
-                        display: 'grid',
-                        gridTemplateColumns: '1fr 1fr',
-                        gap: '24px',
-                        '@media (max-width: 768px)': {
-                          gridTemplateColumns: '1fr',
-                          gap: '16px'
-                        }
-                      }}
-                    >
-                      {/* Documentos del Titular */}
-                      <Box css={{ overflow: 'hidden' }}>
-                        <Text weight="semibold" size="medium" marginBottom="medium" textAlign="center">
-                          Documentos del Titular
-                        </Text>
-                        <Text size="small" textAlign="center" marginBottom="small">
-                          ← Desliza para ver todos los documentos →
-                        </Text>
-                        <Box
-                          css={{
-                            display: 'flex',
-                            gap: '12px',
-                            overflowX: 'auto',
-                            padding: '12px 0',
-                            scrollbarWidth: 'thin',
-                            scrollbarColor: '#cbd5e1 #f1f5f9',
-                            minHeight: '140px',
-                            maxWidth: '100%',
-                            '&::-webkit-scrollbar': {
-                              height: '8px'
-                            },
-                            '&::-webkit-scrollbar-track': {
-                              backgroundColor: '#f1f5f9',
-                              borderRadius: '4px'
-                            },
-                            '&::-webkit-scrollbar-thumb': {
-                              backgroundColor: '#94a3b8',
-                              borderRadius: '4px',
-                              '&:hover': {
-                                backgroundColor: '#64748b'
-                              }
-                            }
-                          }}
-                          onWheel={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const container = e.currentTarget;
-                            container.scrollLeft += e.deltaY;
-                          }}
-                          onTouchStart={(e) => e.stopPropagation()}
-                          onTouchMove={(e) => e.stopPropagation()}
-                        >
-                          {DOCUMENT_TYPES_TITULAR.map((type) => {
-                            const document = getDocumentByTypeAndPerson(
-                              borrowerDocuments,
-                              type,
-                              loan.borrower.personalData.id
-                            );
-
-                            return (
-                              <DocumentThumbnail
-                                key={`titular-${type}`}
-                                type={type}
-                                personType="TITULAR"
-                                imageUrl={document?.photoUrl}
-                                publicId={document?.publicId}
-                                isError={document?.isError || false}
-                                errorDescription={document?.errorDescription || ''}
-                                onImageClick={() => document && window.open(document.photoUrl, '_blank')}
-                                onUploadClick={() => openUploadModal(
-                                  type,
-                                  'TITULAR',
-                                  loan.borrower.personalData.id,
-                                  loan.id,
-                                  loan.borrower.personalData.fullName
-                                )}
-                                onMarkAsError={(isError, errorDescription) => 
-                                  document && handleDocumentError(document.id, isError, errorDescription)
-                                }
-                                onDelete={() => document && handleDocumentDelete(document.id, document.title)}
-                                size="medium"
-                              />
-                            );
-                          })}
-                        </Box>
-                      </Box>
-
-                      {/* Documentos del Aval */}
-                      <Box css={{ overflow: 'hidden' }}>
-                        <Text weight="semibold" size="medium" marginBottom="medium" textAlign="center">
-                          Documentos del Aval
-                        </Text>
-                        <Text size="small" textAlign="center" marginBottom="small">
-                          ← Desliza para ver todos los documentos →
-                        </Text>
-                        <Box
-                          css={{
-                            display: 'flex',
-                            gap: '12px',
-                            overflowX: 'auto',
-                            padding: '12px 0',
-                            scrollbarWidth: 'thin',
-                            scrollbarColor: '#cbd5e1 #f1f5f9',
-                            minHeight: '140px',
-                            maxWidth: '100%',
-                            '&::-webkit-scrollbar': {
-                              height: '8px'
-                            },
-                            '&::-webkit-scrollbar-track': {
-                              backgroundColor: '#f1f5f9',
-                              borderRadius: '4px'
-                            },
-                            '&::-webkit-scrollbar-thumb': {
-                              backgroundColor: '#94a3b8',
-                              borderRadius: '4px',
-                              '&:hover': {
-                                backgroundColor: '#64748b'
-                              }
-                            }
-                          }}
-                          onWheel={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const container = e.currentTarget;
-                            container.scrollLeft += e.deltaY;
-                          }}
-                          onTouchStart={(e) => e.stopPropagation()}
-                          onTouchMove={(e) => e.stopPropagation()}
-                        >
-                          {DOCUMENT_TYPES_AVAL.map((type) => {
-                            const document = getDocumentByTypeAndPerson(
-                              leadDocuments,
-                              type,
-                              loan.lead.personalData.id
-                            );
-
-                                                          return (
-                                <DocumentThumbnail
-                                  key={`aval-${type}`}
-                                  type={type}
-                                  personType="AVAL"
-                                  imageUrl={document?.photoUrl}
-                                  publicId={document?.publicId}
-                                  isError={document?.isError || false}
-                                  errorDescription={document?.errorDescription || ''}
-                                  onImageClick={() => document && window.open(document.photoUrl, '_blank')}
-                                  onUploadClick={() => openUploadModal(
-                                    type,
-                                    'AVAL',
-                                    loan.lead.personalData.id,
-                                    loan.id,
-                                    loan.lead.personalData.fullName
-                                  )}
-                                  onMarkAsError={(isError, errorDescription) => 
-                                    document && handleDocumentError(document.id, isError, errorDescription)
-                                  }
-                                  onDelete={() => document && handleDocumentDelete(document.id, document.title)}
-                                  size="medium"
-                                />
-                              );
-                          })}
-                        </Box>
-                      </Box>
-                    </Box>
-                  </Box>
-                </Box>
               </Box>
             );
           })}
@@ -1432,6 +1282,39 @@ export default function DocumentosPersonalesPage() {
         <br />
         Esta acción no se puede deshacer.
       </AlertDialog>
+
+      {/* Modal de documentos */}
+      <DocumentsModal
+        isOpen={documentsModal.isOpen}
+        onClose={closeDocumentsModal}
+        loan={documentsModal.loan}
+        onDocumentUpload={(data) => {
+          // Cerrar modal de documentos y abrir modal de subida
+          closeDocumentsModal();
+          setUploadModal({
+            isOpen: true,
+            documentType: data.documentType,
+            personType: data.personType,
+            personalDataId: data.personalDataId,
+            loanId: data.loanId,
+            personName: data.personName
+          });
+        }}
+        onDocumentError={handleMarkAsError}
+        onDocumentDelete={handleDocumentDelete}
+        onNameEdit={handleNameEdit}
+        onPhoneEdit={handlePhoneEdit}
+      />
+
+      {/* Modal de error */}
+      <ErrorModal
+        isOpen={errorModal.isOpen}
+        onClose={closeErrorModal}
+        onConfirm={confirmError}
+        documentType={errorModal.documentType}
+        personType={errorModal.personType}
+        existingError={errorModal.existingError}
+      />
     </PageContainer>
   );
 }
