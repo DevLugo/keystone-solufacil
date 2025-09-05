@@ -49,7 +49,7 @@ const menuSections: MenuSection[] = [
       },
       {
         label: 'Listados de Rutas',
-        href: '/nerar-listados',
+        href: '/generar-listados',
         roles: ['NORMAL', 'ADMIN']
       }
     ]

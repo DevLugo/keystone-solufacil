@@ -6,7 +6,7 @@ export const GET_ROUTES_FOR_PDF = gql`
     routes {
       id
       name
-      employees(where: { type: { equals: "LEAD" } }) {
+      employees(where: { type: { equals: "ROUTE_LEAD" } }) {
         id
         personalData {
           id
@@ -30,7 +30,7 @@ export const GET_ROUTE_LOCALITIES = gql`
     route(where: { id: $routeId }) {
       id
       name
-      employees(where: { type: { equals: "LEAD" } }) {
+      employees(where: { type: { equals: "ROUTE_LEAD" } }) {
         id
         personalData {
           id
@@ -117,7 +117,7 @@ export const GET_ROUTE_LEAD_INFO = gql`
     route(where: { id: $routeId }) {
       id
       name
-      employees(where: { type: { equals: "LEAD" } }) {
+      employees(where: { type: { equals: "ROUTE_LEAD" } }) {
         id
         personalData {
           fullName
@@ -136,7 +136,7 @@ export const GET_PDF_DATA_BY_LOCALITY = gql`
       route {
         id
         name
-        employees(where: { type: { equals: "LEAD" } }) {
+        employees(where: { type: { equals: "ROUTE_LEAD" } }) {
           id
           personalData {
             fullName

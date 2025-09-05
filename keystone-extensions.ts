@@ -1374,16 +1374,35 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         const weeksElapsedSinceBoundary = Math.max(0, Math.floor((getMonday(weekEnd).getTime() - getMonday(boundaryForCalc).getTime()) / msPerWeek));
         // Semana 1 inicia en el lunes posterior a la semana de firma
         const nSemanaValue = weeksElapsedSinceBoundary + 1;
-        const expectedPaidToDateGlobal = expectedWeeklyPayment * nSemanaValue;
-        const totalPaidSinceBoundary = (loan.payments || []).reduce((sum: number, p: any) => {
+        // CORRECCIÓN: Calcular pago VDO solo para semanas anteriores (no incluir semana actual)
+        const weeksElapsedExcludingCurrent = Math.max(0, weeksElapsedSinceBoundary); // Sin +1
+        const expectedPaidUpToPreviousWeek = expectedWeeklyPayment * weeksElapsedExcludingCurrent;
+
+        // Calcular pagos recibidos hasta la semana anterior (no incluir semana actual)
+        const totalPaidUpToPreviousWeek = (loan.payments || []).reduce((sum: number, p: any) => {
           const d = new Date(p.receivedAt || p.createdAt);
-          if (d >= boundaryForCalc && d <= weekEnd) {
+          if (d >= boundaryForCalc && d < weekStart) { // Solo hasta la semana anterior
             return sum + parseFloat((p.amount || 0).toString());
           }
           return sum;
         }, 0);
-        const abonoParcialAmount = Math.max(0, totalPaidSinceBoundary - expectedPaidToDateGlobal);
-        const arrearsAmount = Math.max(0, expectedPaidToDateGlobal - totalPaidSinceBoundary);
+
+        // Pago VDO = lo que debería haber pagado hasta la semana anterior - lo que pagó hasta la semana anterior
+        const arrearsAmount = Math.max(0, Math.min(
+          expectedPaidUpToPreviousWeek - totalPaidUpToPreviousWeek, 
+          pendingAmountStored
+        ));
+
+        // Para abono parcial, calcular solo pagos de la semana actual
+        const totalPaidInCurrentWeek = (loan.payments || []).reduce((sum: number, p: any) => {
+          const d = new Date(p.receivedAt || p.createdAt);
+          if (d >= weekStart && d <= weekEnd) { // Solo semana actual
+            return sum + parseFloat((p.amount || 0).toString());
+          }
+          return sum;
+        }, 0);
+
+        const abonoParcialAmount = Math.max(0, totalPaidInCurrentWeek - expectedWeeklyPayment);
 
         // Pago VDO (monto total no pagado hasta la semana actual)
 
