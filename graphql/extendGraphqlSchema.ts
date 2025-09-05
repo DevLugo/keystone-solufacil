@@ -6192,6 +6192,27 @@ export const extendGraphqlSchema = graphql.extend(base => {
                       }
                     }
                   }
+                },
+                lead: {
+                  include: {
+                    personalData: {
+                      include: {
+                        addresses: {
+                          include: {
+                            location: {
+                              include: {
+                                municipality: {
+                                  include: {
+                                    state: true
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
                 }
               }
             });
@@ -6207,7 +6228,12 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   include: {
                     location: {
                       include: {
-                        route: true
+                        route: true,
+                        municipality: {
+                          include: {
+                            state: true
+                          }
+                        }
                       }
                     }
                   }
@@ -6220,7 +6246,28 @@ export const extendGraphqlSchema = graphql.extend(base => {
                         signDate: true,
                         finishedDate: true,
                         amountGived: true,
-                        status: true
+                        status: true,
+                        lead: {
+                          include: {
+                            personalData: {
+                              include: {
+                                addresses: {
+                                  include: {
+                                    location: {
+                                      include: {
+                                        municipality: {
+                                          include: {
+                                            state: true
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
                       }
                     }
                   }
@@ -6266,8 +6313,28 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   })
                 : null;
 
-              // Extraer localidad
-              const location = client.addresses[0]?.location?.name || 'Sin localidad';
+              // Extraer información de ubicación del líder (no del cliente)
+              let location = 'Sin localidad';
+              let municipality = 'Sin municipio';
+              let state = 'Sin estado';
+              let city = 'Sin dirección';
+              
+              // Buscar información del líder en el préstamo más reciente
+              if (loans.length > 0) {
+                const latestLoan = loans.reduce((latest, loan) => {
+                  const loanDate = new Date(loan.signDate);
+                  const latestDate = new Date(latest.signDate);
+                  return loanDate > latestDate ? loan : latest;
+                });
+                
+                if (latestLoan.lead?.personalData?.addresses?.[0]?.location) {
+                  const leadLocation = latestLoan.lead.personalData.addresses[0].location;
+                  location = leadLocation.name || 'Sin localidad';
+                  municipality = leadLocation.municipality?.name || 'Sin municipio';
+                  state = leadLocation.municipality?.state?.name || 'Sin estado';
+                  city = latestLoan.lead.personalData.addresses[0].street || 'Sin dirección';
+                }
+              }
 
               combinedResults.set(client.id, {
                 id: client.id,
@@ -6277,6 +6344,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 address: client.addresses[0] ? `${client.addresses[0].location?.name || 'Sin localidad'}` : 'N/A',
                 route: client.addresses[0]?.location?.route?.name || 'N/A',
                 location: location,
+                municipality: municipality,
+                state: state,
+                city: city,
                 latestLoanDate: latestLoanDate,
                 hasLoans: loans.length > 0,
                 hasBeenCollateral: false, // Se actualizará si aparece como aval
@@ -6317,6 +6387,15 @@ export const extendGraphqlSchema = graphql.extend(base => {
                         month: '2-digit',
                         day: '2-digit'
                       });
+                      
+                      // Actualizar información de ubicación del líder si este préstamo es más reciente
+                      if (loan.lead?.personalData?.addresses?.[0]?.location) {
+                        const leadLocation = loan.lead.personalData.addresses[0].location;
+                        existingClient.location = leadLocation.name || 'Sin localidad';
+                        existingClient.municipality = leadLocation.municipality?.name || 'Sin municipio';
+                        existingClient.state = leadLocation.municipality?.state?.name || 'Sin estado';
+                        existingClient.city = loan.lead.personalData.addresses[0].street || 'Sin dirección';
+                      }
                     }
                   }
                 }

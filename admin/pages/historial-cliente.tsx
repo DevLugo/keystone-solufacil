@@ -90,6 +90,9 @@ interface ClientSearchResult {
   address: string;
   route: string;
   location: string;
+  municipality: string;
+  state: string;
+  city: string; // En realidad es la dirección (street)
   latestLoanDate: string | null;
   hasLoans: boolean;
   hasBeenCollateral: boolean;
@@ -536,7 +539,7 @@ const HistorialClientePage: React.FC = () => {
                 Ruta (Opcional)
               </label>
               <Select
-                value={routeOptions.find(opt => opt.value === selectedRoute?.id) || null}
+                value={routeOptions.find((opt: any) => opt.value === selectedRoute?.id) || null}
                 onChange={(option) => {
                   const route = routesData?.routes?.find((r: any) => r.id === option?.value);
                   console.log('🔍 Ruta seleccionada:', route);
@@ -630,7 +633,10 @@ const HistorialClientePage: React.FC = () => {
                   >
                     <div style={{ fontWeight: '600', color: '#2d3748' }}>{client.name}</div>
                     <div style={{ fontSize: '12px', color: '#718096' }}>
-                      📍 {client.location} | 📞 {client.phone} | 🏠 {client.route}
+                      📍 {client.location} | 🏘️ {client.municipality} | 🏛️ {client.state}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#a0aec0' }}>
+                      📞 {client.phone} | 🏠 {client.route} | 🏙️ {client.city}
                     </div>
                     {client.latestLoanDate && (
                       <div style={{ fontSize: '11px', color: '#805ad5', marginTop: '2px' }}>
