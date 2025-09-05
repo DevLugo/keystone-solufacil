@@ -2182,9 +2182,13 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
               const weekPaymentDate = new Date(signDate);
               weekPaymentDate.setDate(weekPaymentDate.getDate() + (week * 7));
               
-              // La semana termina 3 días después de la fecha de pago
+              // La semana de pago termina el domingo de esa semana (no 3 días después)
               const weekEndDate = new Date(weekPaymentDate);
-              weekEndDate.setDate(weekEndDate.getDate() + 3);
+              // Encontrar el domingo de esa semana
+              const dayOfWeek = weekEndDate.getDay(); // 0 = domingo, 1 = lunes, etc.
+              const daysToSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek; // Días hasta el domingo
+              weekEndDate.setDate(weekEndDate.getDate() + daysToSunday);
+              weekEndDate.setHours(23, 59, 59, 999); // Final del domingo
               
               if (currentDate > weekEndDate) {
                 // Solo contar semanas que ya terminaron (aplica para todos los tipos de préstamo)
@@ -2323,12 +2327,23 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
               const weekPaymentDate = new Date(signDate);
               weekPaymentDate.setDate(weekPaymentDate.getDate() + (week * 7));
               
-              // La semana termina 3 días después de la fecha de pago
+              // La semana de pago termina el domingo de esa semana (no 3 días después)
               const weekEndDate = new Date(weekPaymentDate);
-              weekEndDate.setDate(weekEndDate.getDate() + 3);
+              // Encontrar el domingo de esa semana
+              const dayOfWeek = weekEndDate.getDay(); // 0 = domingo, 1 = lunes, etc.
+              const daysToSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek; // Días hasta el domingo
+              weekEndDate.setDate(weekEndDate.getDate() + daysToSunday);
+              weekEndDate.setHours(23, 59, 59, 999); // Final del domingo
               
-              // Buscar si hay un pago en esta semana (margen de ±3 días alrededor de la fecha de pago)
-              const paymentInWeek = sortedPayments.find((payment: any) => {
+              // Debug: Mostrar fechas para entender la lógica
+              console.log(`Semana ${week}:`);
+              console.log(`- Fecha de pago (lunes): ${weekPaymentDate.toISOString().split('T')[0]}`);
+              console.log(`- Fin de semana (domingo): ${weekEndDate.toISOString().split('T')[0]}`);
+              console.log(`- Fecha actual: ${currentDate.toISOString().split('T')[0]}`);
+              console.log(`- ¿Semana terminó? ${currentDate > weekEndDate}`);
+              
+              // Buscar TODOS los pagos en esta semana (margen de ±3 días alrededor de la fecha de pago)
+              const paymentsInWeek = sortedPayments.filter((payment: any) => {
                 const paymentDate = payment.date;
                 const weekStart = new Date(weekPaymentDate);
                 weekStart.setDate(weekStart.getDate() - 3);
@@ -2338,20 +2353,24 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
                 return paymentDate >= weekStart && paymentDate <= weekEnd;
               });
               
-              if (paymentInWeek) {
-                // Hay pago en esta semana
-                chronologicalEvents.push({
-                  date: paymentInWeek.date,
-                  type: 'payment',
-                  amount: paymentInWeek.amount,
-                  paymentNumber: paymentInWeek.paymentNumber,
-                  description: `Pago #${paymentInWeek.paymentNumber || week}`,
-                  week: week
+              if (paymentsInWeek.length > 0) {
+                // Hay pagos en esta semana - mostrar TODOS
+                paymentsInWeek.forEach((payment: any, paymentIndex: number) => {
+                  chronologicalEvents.push({
+                    date: payment.date,
+                    type: 'payment',
+                    amount: payment.amount,
+                    paymentNumber: payment.paymentNumber,
+                    description: paymentsInWeek.length > 1 
+                      ? `Pago #${payment.paymentNumber || week} (${paymentIndex + 1}/${paymentsInWeek.length})`
+                      : `Pago #${payment.paymentNumber || week}`,
+                    week: week
+                  });
                 });
               } else {
-                // No hay pago en esta semana
+                // No hay pagos en esta semana
+                // Solo mostrar faltas de semanas que ya terminaron completamente (no la semana en curso)
                 if (currentDate > weekEndDate) {
-                  // Solo mostrar faltas de semanas que ya terminaron (aplica para todos los tipos de préstamo)
                   chronologicalEvents.push({
                     date: weekPaymentDate,
                     type: 'no_payment',
@@ -2576,12 +2595,16 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
                 const weekPaymentDate = new Date(signDate);
                 weekPaymentDate.setDate(weekPaymentDate.getDate() + (week * 7));
                 
-                // La semana termina 3 días después de la fecha de pago
+                // La semana de pago termina el domingo de esa semana (no 3 días después)
                 const weekEndDate = new Date(weekPaymentDate);
-                weekEndDate.setDate(weekEndDate.getDate() + 3);
+                // Encontrar el domingo de esa semana
+                const dayOfWeek = weekEndDate.getDay(); // 0 = domingo, 1 = lunes, etc.
+                const daysToSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek; // Días hasta el domingo
+                weekEndDate.setDate(weekEndDate.getDate() + daysToSunday);
+                weekEndDate.setHours(23, 59, 59, 999); // Final del domingo
                 
-                // Buscar si hay un pago en esta semana (margen de ±3 días alrededor de la fecha de pago)
-                const paymentInWeek = sortedPayments.find((payment: any) => {
+                // Buscar TODOS los pagos en esta semana (margen de ±3 días alrededor de la fecha de pago)
+                const paymentsInWeek = sortedPayments.filter((payment: any) => {
                   const paymentDate = payment.date;
                   const weekStart = new Date(weekPaymentDate);
                   weekStart.setDate(weekStart.getDate() - 3);
@@ -2591,20 +2614,24 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
                   return paymentDate >= weekStart && paymentDate <= weekEnd;
                 });
                 
-                if (paymentInWeek) {
-                  // Hay pago en esta semana
-                  chronologicalEvents.push({
-                    date: paymentInWeek.date,
-                    type: 'payment',
-                    amount: paymentInWeek.amount,
-                    paymentNumber: paymentInWeek.paymentNumber,
-                    description: `Pago #${paymentInWeek.paymentNumber || week}`,
-                    week: week
+                if (paymentsInWeek.length > 0) {
+                  // Hay pagos en esta semana - mostrar TODOS
+                  paymentsInWeek.forEach((payment: any, paymentIndex: number) => {
+                    chronologicalEvents.push({
+                      date: payment.date,
+                      type: 'payment',
+                      amount: payment.amount,
+                      paymentNumber: payment.paymentNumber,
+                      description: paymentsInWeek.length > 1 
+                        ? `Pago #${payment.paymentNumber || week} (${paymentIndex + 1}/${paymentsInWeek.length})`
+                        : `Pago #${payment.paymentNumber || week}`,
+                      week: week
+                    });
                   });
                 } else {
-                  // No hay pago en esta semana
+                  // No hay pagos en esta semana
+                  // Solo mostrar faltas de semanas que ya terminaron completamente (no la semana en curso)
                   if (currentDate > weekEndDate) {
-                    // Solo mostrar faltas de semanas que ya terminaron (aplica para todos los tipos de préstamo)
                     chronologicalEvents.push({
                       date: weekPaymentDate,
                       type: 'no_payment',
