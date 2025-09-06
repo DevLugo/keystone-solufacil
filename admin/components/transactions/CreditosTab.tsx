@@ -305,6 +305,7 @@ const GET_PREVIOUS_LOANS = gql`
     loans(
       where: {
         lead: { id: { equals: $leadId } }
+        # Incluir préstamos terminados también - remover filtro de finishedDate
       }
       orderBy: { signDate: desc }
       take: 100
@@ -316,6 +317,7 @@ const GET_PREVIOUS_LOANS = gql`
       finishedDate
       renewedDate
       status
+      pendingAmountStored
       loantype {
         id
         name
@@ -348,6 +350,73 @@ const GET_PREVIOUS_LOANS = gql`
     }
   }
 `;
+
+// Query unificada para buscar en todos los líderes (con o sin filtro)
+const GET_ALL_PREVIOUS_LOANS = gql`
+  query GetAllPreviousLoans($searchText: String, $take: Int) {
+    loans(
+      where: {
+        # Filtrar por nombre del cliente si se proporciona texto de búsqueda
+        borrower: { 
+          personalData: { 
+            fullName: { 
+              contains: $searchText, 
+              mode: insensitive 
+            } 
+          } 
+        }
+      }
+      orderBy: { signDate: desc }
+      take: $take
+    ) {
+      id
+      requestedAmount
+      amountGived
+      signDate
+      finishedDate
+      renewedDate
+      status
+      pendingAmountStored
+      # Agregar lead para mostrar de qué líder es cada préstamo
+      lead {
+        id
+        personalData {
+          fullName
+        }
+      }
+      loantype {
+        id
+        name
+        rate
+        weekDuration
+      }
+      borrower {
+        id
+        personalData {
+          fullName
+          phones {
+            id
+            number
+            __typename
+          }
+        }
+      }
+      collaterals {
+        id
+        fullName
+        phones {
+          id
+          number
+        }
+      }
+      payments {
+        amount
+      }
+      __typename
+    }
+  }
+`;
+
 
 interface CreditosTabProps {
   selectedDate: Date | null;
@@ -399,11 +468,29 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
+  
+  // Función para calcular la posición del dropdown basándose en el botón
+  const getDropdownPosition = (loanId: string) => {
+    const buttonElement = buttonRefs.current[loanId];
+    if (!buttonElement) {
+      return { top: 0, left: 0 };
+    }
+    
+    const rect = buttonElement.getBoundingClientRect();
+    return {
+      top: rect.top - 10, // 10px arriba del botón
+      left: rect.left - 140, // 140px a la izquierda para que no se salga de la pantalla
+    };
+  };
+  
   const [isCreating, setIsCreating] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
+  const [searchAllLeaders, setSearchAllLeaders] = useState(false);
+  const [dropdownSearchText, setDropdownSearchText] = useState('');
+  const [debouncedDropdownSearchText, setDebouncedDropdownSearchText] = useState('');
   const [createLoan] = useMutation(CREATE_LOAN);
-  const [createMultipleLoans] = useMutation(CREATE_LOANS_BULK); // <-- AGREGA ESTA LÍNEA
+  const [createMultipleLoans] = useMutation(CREATE_LOANS_BULK);
   const [updateLoanWithAval] = useMutation(UPDATE_LOAN_WITH_AVAL);
   const [deleteLoan] = useMutation(DELETE_LOAN);
   const { data: routeData, refetch: refetchRoute } = useQuery<{ route: any }>(GET_ROUTE, {
@@ -425,6 +512,15 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     skip: !selectedLead,
   });
 
+  // Query unificada para búsqueda en todos los líderes
+  const { data: allPreviousLoansData, loading: allPreviousLoansLoading, refetch: refetchAllPreviousLoans } = useQuery(GET_ALL_PREVIOUS_LOANS, {
+    variables: { 
+      searchText: debouncedDropdownSearchText || '', 
+      take: 10 
+    },
+    skip: !searchAllLeaders,
+  });
+
   const { data: loanTypesData, loading: loanTypesLoading } = useQuery(GET_LOAN_TYPES);
 
   const handleDateMoveSuccess = React.useCallback(() => {
@@ -433,6 +529,26 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       setEditableEmptyRow(null);
     }).catch(error => console.error('❌ Error al refrescar datos:', error));
   }, [refetchLoans, refetchRoute, refetchPreviousLoans]);
+
+  // Debounce para el texto de búsqueda del dropdown
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedDropdownSearchText(dropdownSearchText);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [dropdownSearchText]);
+
+  // Refetch cuando cambie el checkbox de buscar en todos los líderes
+  useEffect(() => {
+    if (searchAllLeaders) {
+      refetchAllPreviousLoans();
+    } else {
+      setDropdownSearchText('');
+      setDebouncedDropdownSearchText('');
+      refetchPreviousLoans();
+    }
+  }, [searchAllLeaders, refetchAllPreviousLoans, refetchPreviousLoans]);
 
   const loanTypeOptions = React.useMemo(() => 
     loanTypesData?.loantypes?.map((type: any) => ({
@@ -451,12 +567,21 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   }, []);
 
   const previousLoanOptions = React.useMemo(() => {
-    if (!previousLoansData?.loans || !selectedDate) return [];
+    // Seleccionar la query apropiada según el estado de búsqueda
+    const loansData = searchAllLeaders ? allPreviousLoansData : previousLoansData;
+    
+    if (!loansData?.loans || !selectedDate) {
+      return [];
+    }
+    
+    // IDs de clientes que ya tienen renovaciones en la fecha actual
     const renewedTodayBorrowerIds = new Set<string>([
       ...(loansData?.loans.filter(l => l.previousLoan).map(l => l.borrower.id) || []),
       ...(pendingLoans.filter(l => l.previousLoan).map(l => l.borrower?.id || '')),
     ]);
-    const latestBorrowerLoans = previousLoansData.loans.reduce((acc: { [key: string]: any }, loan: any) => {
+    
+    // Obtener el ÚLTIMO crédito de cada cliente (activo o terminado)
+    const latestBorrowerLoans = loansData.loans.reduce((acc: { [key: string]: any }, loan: any) => {
       const borrowerId = loan.borrower?.id;
       if (borrowerId && !renewedTodayBorrowerIds.has(borrowerId)) {
         if (!acc[borrowerId] || new Date(loan.signDate) > new Date(acc[borrowerId].signDate)) {
@@ -465,14 +590,15 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       }
       return acc;
     }, {});
+    
     return Object.values(latestBorrowerLoans)
       .sort((a: any, b: any) => (a.borrower?.personalData?.fullName || '').localeCompare(b.borrower?.personalData?.fullName || ''))
       .map((loan: any) => ({
         value: loan.id,
-        label: `${loan.borrower?.personalData?.fullName || 'Sin nombre'}`,
+        label: `${loan.borrower?.personalData?.fullName || 'Sin nombre'} ${loan.finishedDate ? '(Terminado)' : '(Activo)'}${searchAllLeaders ? ` - ${loan.lead?.personalData?.fullName || 'Sin líder'}` : ''}`,
         loanData: loan,
       }));
-  }, [previousLoansData?.loans, selectedDate, loansData?.loans, pendingLoans]);
+  }, [previousLoansData?.loans, allPreviousLoansData?.loans, selectedDate, loansData?.loans, pendingLoans, searchAllLeaders, debouncedDropdownSearchText]);
   const usedAvalIds = React.useMemo(() => {
     const usedIds = new Set<string>();
     if (selectedDate) {
@@ -870,14 +996,38 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                 return (
                   <tr key={loan.id} style={{ backgroundColor: isNewRow ? 'white' : '#ECFDF5' }}>
                     <td style={tableCellStyle}>
-                        <Select
-                            placeholder="Renovación..."
-                            options={previousLoanOptions}
-                            onChange={(option) => handleRowChange(index, 'previousLoan', option, isNewRow)}
-                            value={loan.previousLoanOption} // ✅ FIX: Usar el estado guardado
-                            menuPosition="fixed" menuPortalTarget={document.body}
-                            styles={{ container: (base) => ({ ...base, flex: 1 }), control: (base) => ({ ...base, fontSize: '12px', minHeight: '32px' }), menuPortal: (base) => ({ ...base, zIndex: 9999 }) }}
-                        />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#6B7280' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={searchAllLeaders}
+                                    onChange={(e) => setSearchAllLeaders(e.target.checked)}
+                                    disabled={allPreviousLoansLoading}
+                                    style={{ margin: 0 }}
+                                />
+                                Buscar en todos los líderes
+                                {allPreviousLoansLoading && <span style={{ fontSize: '10px', color: '#059669' }}>⏳ Cargando...</span>}
+                            </label>
+                            <Select
+                                placeholder={searchAllLeaders ? "Escribe para buscar en todos los líderes..." : "Renovación..."}
+                                options={previousLoanOptions}
+                                onChange={(option) => handleRowChange(index, 'previousLoan', option, isNewRow)}
+                                value={loan.previousLoanOption}
+                                onInputChange={(inputValue) => {
+                                    if (searchAllLeaders) {
+                                        setDropdownSearchText(inputValue);
+                                    }
+                                }}
+                                filterOption={searchAllLeaders ? null : undefined}
+                                menuPosition="fixed" 
+                                menuPortalTarget={document.body}
+                                styles={{ 
+                                    container: (base) => ({ ...base, flex: 1 }), 
+                                    control: (base) => ({ ...base, fontSize: '12px', minHeight: '32px' }), 
+                                    menuPortal: (base) => ({ ...base, zIndex: 9999 }) 
+                                }}
+                            />
+                        </div>
                     </td>
                     <td>
                         <Select
