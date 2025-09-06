@@ -521,10 +521,11 @@ export const CreatePaymentForm = ({
       // ✅ AGREGAR: Cargar comisiones por defecto automáticamente
       const paymentsWithDefaultCommissions = allPayments.map((payment: any) => {
         const defaultCommission = payment.loan?.loantype?.loanPaymentComission;
+        
         if (defaultCommission && parseFloat(defaultCommission) > 0) {
           return {
             ...payment,
-            comission: parseFloat(defaultCommission)
+            comission: Math.round(parseFloat(defaultCommission))
           };
         }
         return payment;
@@ -904,7 +905,7 @@ export const CreatePaymentForm = ({
       const newPayments = loansData.loans.map(loan => ({
         amount: loan.weeklyPaymentAmount,
         // ✅ MODIFICAR: Usar comisión por defecto del loanType si existe
-        comission: loan.loantype?.loanPaymentComission ? parseFloat(loan.loantype.loanPaymentComission) : comission,
+        comission: loan.loantype?.loanPaymentComission ? Math.round(parseFloat(loan.loantype.loanPaymentComission)) : Math.round(comission),
         loanId: loan.id,
         type: 'PAYMENT',
         paymentMethod: 'CASH',
@@ -979,7 +980,7 @@ export const CreatePaymentForm = ({
       if (value && loansData?.loans) {
         const selectedLoan = loansData.loans.find(loan => loan.id === value);
         if (selectedLoan?.loantype?.loanPaymentComission) {
-          const defaultCommission = parseFloat(selectedLoan.loantype.loanPaymentComission);
+          const defaultCommission = Math.round(parseFloat(selectedLoan.loantype.loanPaymentComission));
           if (defaultCommission > 0) {
             newPayments[index].comission = defaultCommission;
             console.log('✅ Comisión por defecto cargada automáticamente:', defaultCommission, 'para préstamo:', selectedLoan.loantype.name);
@@ -1620,10 +1621,33 @@ export const CreatePaymentForm = ({
             type="payments"
             selectedDate={selectedDate}
             selectedLead={selectedLead}
-            onSuccess={() => {
-              refetchPayments();
-              refetchMigratedPayments();
-              // Aquí deberías llamar a refetchRoute si tienes acceso a esa query
+            onSuccess={async () => {
+              // Limpiar el estado local de pagos inmediatamente
+              setState(prev => ({ 
+                ...prev,
+                payments: [],
+                editedPayments: {},
+                isEditing: false,
+                groupedPayments: undefined,
+                existingPayments: [] // Forzar limpieza de pagos existentes
+              }));
+              setDeletedPaymentIds([]);
+              
+              // Forzar recarga de datos con refetch y cache eviction
+              try {
+                await Promise.all([
+                  refetchPayments(),
+                  refetchMigratedPayments(),
+                  refetchFalcos()
+                ]);
+                
+                // Llamar al callback para actualizar balances
+                if (onSaveComplete) {
+                  onSaveComplete();
+                }
+              } catch (error) {
+                console.error('Error al recargar datos después de mover pagos:', error);
+              }
             }}
             itemCount={existingPayments.filter(p => !deletedPaymentIds.includes(p.id)).length + payments.length}
             label="pago(s)"
@@ -1666,7 +1690,7 @@ export const CreatePaymentForm = ({
                   color: '#64748b',
                   fontStyle: 'italic',
                 }}>
-                  Aplicar a todos los pagos nuevos
+                  Aplicar solo a pagos con comisión &gt; 0
                 </div>
               </div>
               <div style={{
@@ -1698,14 +1722,14 @@ export const CreatePaymentForm = ({
                     
                     const updatedPayments = payments.map(payment => ({
                       ...payment,
-                      comission: commissionValue
+                      comission: parseFloat(payment.comission?.toString() || '0') > 0 ? commissionValue : payment.comission
                     }));
                     
                     updateState({ payments: updatedPayments });
                     // Comisión masiva aplicada - no mostrar alert
                   }}
                 >
-                  Aplicar a Todos
+                  Aplicar a Comisiones &gt; 0
                 </Button>
               </div>
             </div>
@@ -1898,7 +1922,7 @@ export const CreatePaymentForm = ({
                         />
                       ) : (
                         <span style={payment.isMigrated ? { color: '#6B7280', fontStyle: 'italic' } : {}}>
-                          {payment.amount}
+                          {Math.round(parseFloat(payment.amount || '0'))}
                         </span>
                       )}
                     </td>
@@ -1930,7 +1954,7 @@ export const CreatePaymentForm = ({
                       ) : (
                         <div style={{ position: 'relative' }}>
                           <span style={payment.isMigrated ? { color: '#6B7280', fontStyle: 'italic' } : {}}>
-                            {payment.comission}
+                            {Math.round(parseFloat(payment.comission || '0'))}
                           </span>
                           {!payment.isMigrated && payment.loan?.loantype?.loanPaymentComission && 
                            parseFloat(payment.loan.loantype.loanPaymentComission) > 0 && (
@@ -2066,14 +2090,14 @@ export const CreatePaymentForm = ({
                   <td>
                     <TextInput
                       type="number"
-                      value={payment.amount}
+                      value={Math.round(parseFloat(payment.amount || '0'))}
                       onChange={(e) => handleChange(index, 'amount', e.target.value)}
                     />
                   </td>
                   <td>
                     <TextInput
                       type="number"
-                      value={payment.comission}
+                      value={Math.round(parseFloat(payment.comission?.toString() || '0'))}
                       onChange={(e) => handleChange(index, 'comission', e.target.value)}
                     />
                   </td>
