@@ -419,6 +419,7 @@ export const CreatePaymentForm = ({
     existingPayments: any[];
     editedPayments: { [key: string]: any };
     isEditing: boolean;
+    showSuccessMessage: boolean;
     groupedPayments?: Record<string, {
       payments: Array<{
         amount: number;
@@ -451,6 +452,7 @@ export const CreatePaymentForm = ({
     existingPayments: [],
     editedPayments: {},
     isEditing: false,
+    showSuccessMessage: false,
   });
 
   // ✅ AGREGAR: Estado para comisión masiva
@@ -459,7 +461,7 @@ export const CreatePaymentForm = ({
   const { 
     payments, comission, isModalOpen, isFalcoModalOpen, isCreateFalcoModalOpen, falcoPaymentAmount, 
     selectedFalcoId, createFalcoAmount, loadPaymentDistribution, existingPayments, editedPayments, 
-    isEditing, groupedPayments
+    isEditing, showSuccessMessage, groupedPayments
   } = state;
 
   // Estado separado para trackear pagos eliminados visualmente
@@ -591,7 +593,7 @@ export const CreatePaymentForm = ({
   const handleFalcoPayment = async () => {
     try {
       if (!selectedFalcoId || falcoPaymentAmount <= 0) {
-        alert('Por favor seleccione un falco válido y una cantidad mayor a 0');
+        // Validación fallida - no mostrar alert
         return;
       }
 
@@ -616,10 +618,18 @@ export const CreatePaymentForm = ({
         selectedFalcoId: null
       });
 
-      alert('Pago de falco registrado exitosamente');
+      // Mostrar mensaje de éxito
+      updateState({ 
+        showSuccessMessage: true
+      });
+      
+      // Ocultar el mensaje después de 3 segundos
+      setTimeout(() => {
+        updateState({ showSuccessMessage: false });
+      }, 3000);
     } catch (error) {
       console.error('Error creating falco payment:', error);
-      alert('Error al registrar el pago de falco');
+      // Aquí podrías agregar un estado de error si quieres mostrar un mensaje de error específico
     }
   };
 
@@ -627,7 +637,7 @@ export const CreatePaymentForm = ({
   const handleCreateFalco = async () => {
     try {
       if (!selectedLead?.id || !selectedDate || createFalcoAmount <= 0) {
-        alert('Por favor complete todos los campos y asegúrese de que la cantidad sea mayor a 0');
+        // Validación fallida - no mostrar alert
         return;
       }
 
@@ -657,10 +667,18 @@ export const CreatePaymentForm = ({
         createFalcoAmount: 0
       });
 
-      alert('Falco registrado exitosamente');
+      // Mostrar mensaje de éxito
+      updateState({ 
+        showSuccessMessage: true
+      });
+      
+      // Ocultar el mensaje después de 3 segundos
+      setTimeout(() => {
+        updateState({ showSuccessMessage: false });
+      }, 3000);
     } catch (error) {
       console.error('Error creating falco:', error);
-      alert('Error al registrar el falco');
+      // Aquí podrías agregar un estado de error si quieres mostrar un mensaje de error específico
     }
   };
 
@@ -734,7 +752,7 @@ export const CreatePaymentForm = ({
       // Obtener el primer grupo de pagos (asumimos que solo hay uno por ahora)
       const firstPaymentGroup = Object.values(paymentsByLeadPayment)[0];
       if (!firstPaymentGroup) {
-        alert('No hay pagos para actualizar');
+        // No hay pagos para actualizar - no mostrar alert
         return;
       }
 
@@ -756,14 +774,14 @@ export const CreatePaymentForm = ({
       }));
     } catch (error) {
       console.error('Error preparing changes:', error);
-      alert('Error al preparar los cambios');
+        // Error al preparar los cambios - no mostrar alert
     }
   };
 
   const handleSubmit = async () => {
     try {
       if (!selectedLead?.id || !selectedDate) {
-        alert('Por favor seleccione un líder y una fecha');
+        // Validación fallida - no mostrar alert
         return;
       }
 
@@ -782,7 +800,7 @@ export const CreatePaymentForm = ({
           : 0;
 
       if (Math.abs(totalPaid - expectedAmount) > 0.01) {
-        alert('La distribución no coincide con el total pagado');
+        // La distribución no coincide - no mostrar alert
         return;
       }
 
@@ -854,10 +872,27 @@ export const CreatePaymentForm = ({
         console.warn('⚠️ abonosTab: onSaveComplete callback no está definido');
       }
 
-      alert('Cambios guardados exitosamente');
+      // Mostrar mensaje de éxito y limpiar el estado
+      updateState({ 
+        showSuccessMessage: true,
+        payments: [],
+        editedPayments: {},
+        isEditing: false,
+        isModalOpen: false,
+        groupedPayments: undefined
+      });
+      
+      // Ocultar el mensaje después de 3 segundos
+      setTimeout(() => {
+        updateState({ showSuccessMessage: false });
+      }, 3000);
     } catch (error) {
       console.error('Error saving changes:', error);
-      alert('Error al guardar los cambios');
+      // Mostrar mensaje de error temporal
+      updateState({ 
+        showSuccessMessage: false
+      });
+      // Aquí podrías agregar un estado de error si quieres mostrar un mensaje de error específico
     } finally {
       setIsSaving(false);
     }
@@ -1073,6 +1108,26 @@ export const CreatePaymentForm = ({
               Por favor espera mientras se procesan los pagos y se actualizan los balances.
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Mensaje de éxito */}
+      {showSuccessMessage && (
+        <div style={{
+          backgroundColor: '#F0FDF4',
+          border: '2px solid #10B981',
+          borderRadius: '8px',
+          padding: '16px',
+          marginBottom: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          fontSize: '16px',
+          fontWeight: '600',
+          color: '#059669'
+        }}>
+          <span>✅</span>
+          <span>Cambios guardados exitosamente</span>
         </div>
       )}
 
@@ -1647,7 +1702,7 @@ export const CreatePaymentForm = ({
                     }));
                     
                     updateState({ payments: updatedPayments });
-                    alert(`✅ Comisión masiva de ${commissionValue} aplicada a ${payments.length} pagos`);
+                    // Comisión masiva aplicada - no mostrar alert
                   }}
                 >
                   Aplicar a Todos

@@ -1641,7 +1641,8 @@ export const Transaction = list({
         { label: 'Pérdida por Falco', value: 'FALCO_LOSS' },
         { label: 'Lavado de Auto', value: 'LAVADO_DE_AUTO' },
         { label: 'Caseta', value: 'CASETA' },
-        { label: 'Papelería', value: 'PAPELERIA' }
+        { label: 'Papelería', value: 'PAPELERIA' },
+        { label: 'Renta', value: 'HOUSE_RENT' }
       ],
     }),
     description: text(),

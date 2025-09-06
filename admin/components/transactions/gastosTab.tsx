@@ -75,7 +75,8 @@ const expenseTypes = [
   { label: 'Gasto de Líder', value: 'LEAD_EXPENSE' },
   { label: 'Lavado de Auto', value: 'LAVADO_DE_AUTO' },
   { label: 'Caseta', value: 'CASETA' },
-  { label: 'Papelería', value: 'PAPELERIA' }
+  { label: 'Papelería', value: 'PAPELERIA' },
+  { label: 'Renta', value: 'HOUSE_RENT' }
 ];
 
 interface DropdownPortalProps {
