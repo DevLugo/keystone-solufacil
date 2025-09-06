@@ -16,6 +16,8 @@ import { createPortal } from 'react-dom';
 // Import components
 import RouteLeadSelector from '../routes/RouteLeadSelector';
 import DateMover from './utils/DateMover';
+import { useBalanceRefresh } from '../../hooks/useBalanceRefresh';
+import { BalanceRefreshProvider } from '../../contexts/BalanceRefreshContext';
 
 // Import GraphQL queries and mutations
 import { GET_ROUTES_SIMPLE } from '../../graphql/queries/routes-optimized';
@@ -123,6 +125,8 @@ export const CreateExpensesForm = ({
   refreshKey,
   onSaveComplete
 }: GastosProps) => {
+  const { triggerRefresh } = useBalanceRefresh();
+  
   const [state, setState] = useState<FormState>({
     newTransactions: [],
     transactions: [],
@@ -155,14 +159,14 @@ export const CreateExpensesForm = ({
     onCompleted: (data) => {
       if (data?.transactions) {
         // Filtramos las transacciones por líder en el cliente si hay uno seleccionado
-        // Y también excluimos las transacciones de comisiones
+        // Y también excluimos las transacciones de comisiones, préstamos y pagos de líderes
         const filteredTransactions = selectedLead
           ? data.transactions.filter((t: Transaction) => 
               t.lead?.id === selectedLead.id && 
-              !['LOAN_PAYMENT_COMISSION', 'LOAN_GRANTED_COMISSION', 'LEAD_COMISSION'].includes(t.expenseSource || '')
+              !['LOAN_PAYMENT_COMISSION', 'LOAN_GRANTED_COMISSION', 'LEAD_COMISSION', 'leadPaymentReceived', 'LOAN_GRANTED'].includes(t.expenseSource || '')
             )
           : data.transactions.filter((t: Transaction) => 
-              !['LOAN_PAYMENT_COMISSION', 'LOAN_GRANTED_COMISSION', 'LEAD_COMISSION'].includes(t.expenseSource || '')
+              !['LOAN_PAYMENT_COMISSION', 'LOAN_GRANTED_COMISSION', 'LEAD_COMISSION', 'leadPaymentReceived', 'LOAN_GRANTED'].includes(t.expenseSource || '')
             );
         updateState({ transactions: filteredTransactions });
       }
@@ -281,6 +285,9 @@ export const CreateExpensesForm = ({
         await onSaveComplete();
       }
 
+      // Triggear refresh de balances
+      triggerRefresh();
+
       // Mostrar mensaje de éxito y limpiar el estado
       updateState({ 
         showSuccessMessage: true,
@@ -350,6 +357,9 @@ export const CreateExpensesForm = ({
         await onSaveComplete();
       }
 
+      // Triggear refresh de balances
+      triggerRefresh();
+
       updateState({ 
         showSuccessMessage: true,
         editingTransaction: null
@@ -386,6 +396,9 @@ export const CreateExpensesForm = ({
         await onSaveComplete();
       }
 
+      // Triggear refresh de balances
+      triggerRefresh();
+
       updateState({ showSuccessMessage: true });
       setTimeout(() => {
         updateState({ showSuccessMessage: false });
@@ -404,10 +417,10 @@ export const CreateExpensesForm = ({
       const filteredTransactions = selectedLead
         ? expensesData.transactions.filter((t: Transaction) => 
             t.lead?.id === selectedLead.id && 
-            !['LOAN_PAYMENT_COMISSION', 'LOAN_GRANTED_COMISSION', 'LEAD_COMISSION'].includes(t.expenseSource || '')
+            !['LOAN_PAYMENT_COMISSION', 'LOAN_GRANTED_COMISSION', 'LEAD_COMISSION', 'leadPaymentReceived', 'LOAN_GRANTED'].includes(t.expenseSource || '')
           )
         : expensesData.transactions.filter((t: Transaction) => 
-            !['LOAN_PAYMENT_COMISSION', 'LOAN_GRANTED_COMISSION', 'LEAD_COMISSION'].includes(t.expenseSource || '')
+            !['LOAN_PAYMENT_COMISSION', 'LOAN_GRANTED_COMISSION', 'LEAD_COMISSION', 'leadPaymentReceived', 'LOAN_GRANTED'].includes(t.expenseSource || '')
           );
       updateState({ transactions: filteredTransactions });
     }
@@ -1257,11 +1270,12 @@ export const CreateExpensesForm = ({
   );
 };
 
-export default function ExpensesPage() {
+function ExpensesPageContent() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [selectedLead, setSelectedLead] = useState<Employee | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const { triggerRefresh } = useBalanceRefresh();
 
   const { refetch: refetchRouteData } = useQuery(GET_ROUTES_SIMPLE, {
     variables: { where: {} },
@@ -1288,6 +1302,7 @@ export default function ExpensesPage() {
       if (selectedRoute?.id) {
         await refetchRouteData();
         setRefreshKey(prev => prev + 1);
+        triggerRefresh();
       }
     } catch (error) {
       console.error('Error refreshing data:', error);
@@ -1331,6 +1346,14 @@ export default function ExpensesPage() {
         />
       </Box>
     </PageContainer>
+  );
+}
+
+export default function ExpensesPage() {
+  return (
+    <BalanceRefreshProvider>
+      <ExpensesPageContent />
+    </BalanceRefreshProvider>
   );
 }
 

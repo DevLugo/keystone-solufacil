@@ -2201,11 +2201,14 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
               // 1.2 Actualizar balance de cuenta EMPLOYEE_CASH_FUND según delta de montos (usar originalLoan)
               try {
+
                 if (originalLoan) {
                   const lead = await context.db.Employee.findOne({ where: { id: (originalLoan as any).leadId } });
                   const account = await context.prisma.account.findFirst({
                     where: {
-                      routeId: (lead as any)?.routesId,
+                      routes: { 
+                        some: { id: (lead as any)?.routesId }
+                      },
                       type: 'EMPLOYEE_CASH_FUND'
                     }
                   });
@@ -2225,7 +2228,19 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     const currentAmount = parseFloat(account.amount.toString());
                     const updatedAmount = currentAmount + balanceChange;
 
-                    await context.db.Account.updateOne({
+                    console.log('💰 Calculando actualización de cuenta:', {
+                      oldAmount,
+                      oldCommission,
+                      newAmount,
+                      newCommission,
+                      oldTotal,
+                      newTotal,
+                      balanceChange,
+                      currentAmount,
+                      updatedAmount
+                    });
+
+                    const updateResult = await context.db.Account.updateOne({
                       where: { id: account.id },
                       data: { amount: updatedAmount.toString() }
                     });
@@ -2235,8 +2250,11 @@ export const extendGraphqlSchema = graphql.extend(base => {
                       oldTotal,
                       newTotal,
                       balanceChange,
-                      updatedAmount
+                      updatedAmount,
+                      updateResult
                     });
+                  } else {
+                    console.log('⚠️ No se encontró cuenta EMPLOYEE_CASH_FUND para la ruta:', (lead as any)?.routesId);
                   }
                 }
               } catch (e) {
@@ -2467,7 +2485,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   const lead = await context.db.Employee.findOne({ where: { id: (originalLoan as any).leadId } });
                   const account = await context.prisma.account.findFirst({
                     where: {
-                      routeId: (lead as any)?.routesId,
+                      route: { id: (lead as any)?.routesId },
                       type: 'EMPLOYEE_CASH_FUND'
                     }
                   });

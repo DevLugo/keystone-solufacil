@@ -12,6 +12,7 @@ import { GET_LEADS_SIMPLE, GET_ROUTES_SIMPLE } from '../../graphql/queries/route
 import type { Employee, Option } from '../../types/transaction';
 import { gql } from '@apollo/client';
 import { FaTimes } from 'react-icons/fa';
+import { useBalanceRefresh } from '../../contexts/BalanceRefreshContext';
 
 type Lead = {
   id: string;
@@ -263,10 +264,16 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
   onDateSelect,
   hideDateField = false,
 }) => {
-  // OPTIMIZADO: Usar cache-first y consulta simple
-  const { data: routesData, loading: routesLoading, error: routesError } = useQuery<{ routes: RouteSimple[] }>(GET_ROUTES_SIMPLE, {
+  // Estado para controlar loading de amounts
+  const [isRefreshingAmounts, setIsRefreshingAmounts] = useState(false);
+  
+  // Usar el contexto para obtener el refreshTrigger
+  const { refreshTrigger } = useBalanceRefresh();
+
+  // OPTIMIZADO: Usar network-only para obtener datos frescos cuando se triggea refresh
+  const { data: routesData, loading: routesLoading, error: routesError, refetch: refetchRoutes } = useQuery<{ routes: RouteSimple[] }>(GET_ROUTES_SIMPLE, {
     variables: { where: {} },
-    fetchPolicy: 'cache-first', // Cambiado de 'network-only'
+    fetchPolicy: 'network-only', // Cambiado para obtener datos frescos
   });
 
   const [getLeads, { data: leadsData, loading: leadsLoading, error: leadsError }] = useLazyQuery<{ employees: Lead[] }>(GET_LEADS_SIMPLE);
@@ -294,6 +301,21 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
       getLeads({ variables: { routeId: selectedRoute.id } });
     }
   }, [selectedRoute, getLeads]);
+
+  // Efecto para triggear refetch cuando cambie el refreshTrigger
+  React.useEffect(() => {
+    if (refreshTrigger > 0) {
+      console.log('🔄 RouteLeadSelector: Triggeando refresh de balances, refreshTrigger:', refreshTrigger);
+      setIsRefreshingAmounts(true);
+      refetchRoutes().then(() => {
+        console.log('✅ RouteLeadSelector: Refresh de balances completado');
+        setIsRefreshingAmounts(false);
+      }).catch((error) => {
+        console.error('❌ RouteLeadSelector: Error en refresh de balances:', error);
+        setIsRefreshingAmounts(false);
+      });
+    }
+  }, [refreshTrigger, refetchRoutes]);
 
   const routes = routesData?.routes || [];
   const leads = leadsData?.employees || [];
@@ -392,6 +414,23 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
     <Box css={styles.container}>
       <Box css={styles.header}>
         <h2 css={styles.title}>Selección de Ruta y Localidad</h2>
+        {isRefreshingAmounts && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '8px 12px',
+            backgroundColor: '#E0F2FE',
+            borderRadius: '6px',
+            border: '1px solid #0284C7',
+            fontSize: '13px',
+            color: '#0284C7',
+            fontWeight: '500'
+          }}>
+            <LoadingDots label="Actualizando" size="small" />
+            <span>Actualizando balances...</span>
+          </div>
+        )}
       </Box>
 
       <Box css={styles.content}>
@@ -454,11 +493,38 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
 
         {selectedRoute && routeSummary && (
           <Box css={styles.accountsContainer}>
+            {isRefreshingAmounts && (
+              <div style={{
+                gridColumn: '1 / -1',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '20px',
+                backgroundColor: '#F8FAFC',
+                borderRadius: '8px',
+                border: '1px solid #E2E8F0',
+                marginBottom: '16px'
+              }}>
+                <LoadingDots label="Actualizando balances" size="small" />
+                <span style={{ marginLeft: '12px', color: '#64748B', fontSize: '14px' }}>
+                  Actualizando balances de cuentas...
+                </span>
+              </div>
+            )}
             {routeSummary.accounts.map((account) => (
               <div key={account.id} css={styles.summaryCard}>
                 <div css={styles.cardTopBorder} />
                 <div css={styles.cardLabel}>{account.name}</div>
-                <div css={styles.cardValue}>{formatCurrency(account.amount)}</div>
+                <div css={styles.cardValue}>
+                  {isRefreshingAmounts ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <LoadingDots label="Loading" size="small" />
+                      <span>Actualizando...</span>
+                    </div>
+                  ) : (
+                    formatCurrency(account.amount)
+                  )}
+                </div>
                 <div css={styles.cardSubValue}>
                   {account.totalAccounts} cuentas
                 </div>

@@ -16,6 +16,8 @@ import { FaPlus } from 'react-icons/fa';
 
 // Import components
 import DateMover from './utils/DateMover';
+import RouteLeadSelector from '../routes/RouteLeadSelector';
+import { useBalanceRefresh } from '../../contexts/BalanceRefreshContext';
 
 const GET_LEADS = gql`
   query GetLeads($routeId: ID!) {
@@ -390,12 +392,14 @@ export const CreatePaymentForm = ({
   selectedDate, 
   selectedRoute, 
   selectedLead,
-  refreshKey 
+  refreshKey,
+  onSaveComplete
 }: { 
   selectedDate: Date, 
   selectedRoute: Route | null, 
   selectedLead: Employee | null,
-  refreshKey: number 
+  refreshKey: number,
+  onSaveComplete?: () => void
 }) => {
   const [state, setState] = useState<{
     payments: LoanPayment[];
@@ -559,6 +563,9 @@ export const CreatePaymentForm = ({
   const [updateLeadPayment, { loading: updateLoading }] = useMutation(UPDATE_LEAD_PAYMENT);
   const [updateLoanPayment, { loading: updateLoanPaymentLoading }] = useMutation(UPDATE_LOAN_PAYMENT);
   const [createFalcoPayment, { loading: falcoPaymentLoading }] = useMutation(CREATE_FALCO_PAYMENT);
+
+  // Estado para controlar loading general de guardado
+  const [isSaving, setIsSaving] = useState(false);
 
   const router = useRouter();
 
@@ -760,6 +767,9 @@ export const CreatePaymentForm = ({
         return;
       }
 
+      // Activar estado de loading
+      setIsSaving(true);
+
       // Verificar que la suma de la distribución coincida con el total pagado
       const { cashPaidAmount, bankPaidAmount } = loadPaymentDistribution;
       const totalPaid = cashPaidAmount + bankPaidAmount;
@@ -836,10 +846,20 @@ export const CreatePaymentForm = ({
         groupedPayments: undefined
       }));
 
+      // Llamar al callback para actualizar balances
+      if (onSaveComplete) {
+        console.log('🔄 abonosTab: Llamando callback onSaveComplete para actualizar balances');
+        onSaveComplete();
+      } else {
+        console.warn('⚠️ abonosTab: onSaveComplete callback no está definido');
+      }
+
       alert('Cambios guardados exitosamente');
     } catch (error) {
       console.error('Error saving changes:', error);
       alert('Error al guardar los cambios');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -1021,6 +1041,39 @@ export const CreatePaymentForm = ({
           networkError={customLeadPaymentError?.networkError}
           errors={customLeadPaymentError?.graphQLErrors}
         />
+      )}
+
+      {/* Banner de loading cuando se están guardando los pagos */}
+      {isSaving && (
+        <div style={{
+          backgroundColor: '#E0F2FE',
+          border: '2px solid #0284C7',
+          borderRadius: '8px',
+          padding: '16px',
+          marginBottom: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+        }}>
+          <LoadingDots label="Guardando" size="small" />
+          <div style={{ flex: 1 }}>
+            <div style={{
+              fontWeight: '600',
+              color: '#0284C7',
+              fontSize: '14px',
+              marginBottom: '4px',
+            }}>
+              Guardando pagos...
+            </div>
+            <div style={{
+              color: '#0369A1',
+              fontSize: '13px',
+              lineHeight: '1.4',
+            }}>
+              Por favor espera mientras se procesan los pagos y se actualizan los balances.
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Banner de falcos pendientes y historial mejorado */}
@@ -2003,14 +2056,14 @@ export const CreatePaymentForm = ({
 
       <Box marginTop="large">
         <Button 
-          isLoading={customLeadPaymentLoading}
+          isLoading={customLeadPaymentLoading || isSaving}
           weight="bold"
           tone="active"
           onClick={() => updateState({ isModalOpen: true })}
           style={{ marginLeft: '10px' }}
-          isDisabled={!payments.length && !isEditing}
+          isDisabled={(!payments.length && !isEditing) || isSaving}
         >
-          {isEditing ? 'Guardar Cambios' : 'Registrar pagos'}
+          {isSaving ? 'Guardando...' : (isEditing ? 'Guardar Cambios' : 'Registrar pagos')}
         </Button>
       </Box>
 
@@ -2445,46 +2498,24 @@ export const CreatePaymentForm = ({
 
 export default function CustomPage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
+  const [selectedRoute, setSelectedRoute] = useState<any | null>(null);
   const [selectedLead, setSelectedLead] = useState<Employee | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Usar el contexto para obtener la función de refresh
+  const { triggerBalanceRefresh } = useBalanceRefresh();
 
   return (
     <PageContainer header="Abonos">
       <Box padding="large">
         <Box marginBottom="large">
-          <label>Fecha</label>
-          <DatePicker
-            value={selectedDate.toISOString()}
-            onUpdate={(date: string) => setSelectedDate(new Date(date))}
-            onClear={() => setSelectedDate(new Date())}
-          />
-        </Box>
-        <Box marginBottom="large">
-          <label>Ruta</label>
-          <RouteSelector
-            value={selectedRoute ? { value: selectedRoute.id, label: selectedRoute.name } : null}
-            onRouteSelect={(route) => setSelectedRoute(route ? { id: route.value, name: route.label } : null)}
-          />
-        </Box>
-        <Box marginBottom="large">
-          <label>Líder</label>
-          <LeadSelector
-            routeId={selectedRoute?.id}
-            value={selectedLead ? { value: selectedLead.id, label: selectedLead.personalData.fullName } : null}
-            onLeadSelect={(lead) => setSelectedLead(lead ? { 
-              id: lead.value, 
-              personalData: { fullName: lead.label },
-              type: 'LEAD',
-              routes: { 
-                accounts: [{
-                  id: '',
-                  name: 'Lead Account',
-                  type: 'EMPLOYEE_CASH_FUND',
-                  amount: 0
-                }]
-              }
-            } : null)}
+          <RouteLeadSelector
+            selectedRoute={selectedRoute}
+            selectedLead={selectedLead}
+            selectedDate={selectedDate}
+            onRouteSelect={setSelectedRoute}
+            onLeadSelect={setSelectedLead}
+            onDateSelect={setSelectedDate}
           />
         </Box>
         <CreatePaymentForm 
@@ -2492,6 +2523,7 @@ export default function CustomPage() {
           selectedRoute={selectedRoute}
           selectedLead={selectedLead}
           refreshKey={refreshKey}
+          onSaveComplete={triggerBalanceRefresh}
         />
       </Box>
     </PageContainer>

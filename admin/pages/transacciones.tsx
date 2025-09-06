@@ -17,6 +17,7 @@ import { CreditosTab } from '../components/transactions/CreditosTab';
 import { CreatePaymentForm } from '../components/transactions/abonosTab';
 import { SummaryTab } from '../components/transactions/SummaryTab';
 import TransferForm from '../components/transactions/TransferTab';
+import { BalanceRefreshProvider, useBalanceRefresh } from '../contexts/BalanceRefreshContext';
 
 const GET_TRANSACTIONS_SUMMARY = gql`
   query GetTransactionsSummary($date: DateTime!, $nextDate: DateTime!) {
@@ -86,7 +87,7 @@ function toCreditLead(lead: EmployeeWithTypename | null): any {
   };
 }
 
-export default function TransaccionesPage() {
+function TransaccionesPageContent() {
   const [activeTab, setActiveTab] = useState('summary');
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
     const date = new Date();
@@ -97,6 +98,9 @@ export default function TransaccionesPage() {
   const [selectedLead, setSelectedLead] = useState<EmployeeWithTypename | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Usar el contexto para obtener la función de refresh
+  const { triggerBalanceRefresh } = useBalanceRefresh();
 
   const { data: routesData, loading: routesLoading } = useQuery(GET_ROUTES_SIMPLE, {
     variables: {
@@ -163,6 +167,7 @@ export default function TransaccionesPage() {
     }
   };
 
+
   const renderTabContent = () => {
     if (isLoading) {
       return (
@@ -204,6 +209,7 @@ export default function TransaccionesPage() {
             selectedRoute={toRoute(selectedRoute)}
             selectedLead={toEmployee(selectedLead)}
             refreshKey={refreshKey}
+            onSaveComplete={triggerBalanceRefresh}
           />
         );
       case 'transfers':
@@ -328,5 +334,13 @@ export default function TransaccionesPage() {
         {renderTabContent()}
       </Box>
     </PageContainer>
+  );
+}
+
+export default function TransaccionesPage() {
+  return (
+    <BalanceRefreshProvider>
+      <TransaccionesPageContent />
+    </BalanceRefreshProvider>
   );
 }
