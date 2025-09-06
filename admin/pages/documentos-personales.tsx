@@ -18,7 +18,7 @@ import { ImageModal } from '../components/documents/ImageModal';
 import { UploadModal } from '../components/documents/UploadModal';
 import { DocumentsModal } from '../components/documents/DocumentsModal';
 import { ErrorModal } from '../components/documents/ErrorModal';
-import { UPDATE_PERSONAL_DATA_NAME, UPDATE_PERSONAL_DATA_PHONE, CREATE_PERSONAL_DATA_PHONE } from '../graphql/mutations/personalData';
+import { UPDATE_PERSONAL_DATA_NAME, UPDATE_PERSONAL_DATA_PHONE, CREATE_PERSONAL_DATA_PHONE, UPDATE_DOCUMENT_PHOTO_MISSING } from '../graphql/mutations/personalData';
 
 // Query para obtener rutas
 const GET_ROUTES = gql`
@@ -92,6 +92,7 @@ const GET_LOANS_WITH_DOCUMENTS = gql`
         documentType
         isError
         errorDescription
+        isMissing
         createdAt
         personalData {
           id
@@ -175,6 +176,7 @@ interface DocumentPhoto {
   documentType: 'INE' | 'DOMICILIO' | 'PAGARE';
   isError: boolean;
   errorDescription?: string;
+  isMissing: boolean;
   createdAt: string;
   personalData: {
     id: string;
@@ -286,9 +288,9 @@ export default function DocumentosPersonalesPage() {
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [routes, setRoutes] = useState<Array<{id: string; name: string}>>([]);
   
-  // Estado para filtro de completos/incompletos
-  const [completionFilter, setCompletionFilter] = useState<'all' | 'complete' | 'incomplete'>('incomplete');
-  const [showCompletionFilter, setShowCompletionFilter] = useState(false);
+  // Estado para filtro de revisados/no revisados
+  const [reviewFilter, setReviewFilter] = useState<'all' | 'reviewed' | 'not_reviewed'>('not_reviewed');
+  const [showReviewFilter, setShowReviewFilter] = useState(false);
   
   // Estado para loader de cambio de ruta
   const [isChangingRoute, setIsChangingRoute] = useState(false);
@@ -392,6 +394,7 @@ export default function DocumentosPersonalesPage() {
   const [createDocumentPhoto] = useMutation(CREATE_DOCUMENT_PHOTO);
   const [deleteDocumentPhoto] = useMutation(DELETE_DOCUMENT_PHOTO);
   const [updateDocumentPhotoError] = useMutation(UPDATE_DOCUMENT_PHOTO_ERROR);
+  const [updateDocumentPhotoMissing] = useMutation(UPDATE_DOCUMENT_PHOTO_MISSING);
   const [updatePersonalDataName] = useMutation(UPDATE_PERSONAL_DATA_NAME);
   const [updatePersonalDataPhone] = useMutation(UPDATE_PERSONAL_DATA_PHONE);
   const [createPersonalDataPhone] = useMutation(CREATE_PERSONAL_DATA_PHONE);
@@ -488,6 +491,7 @@ export default function DocumentosPersonalesPage() {
             documentType: data.documentType,
             isError: data.isError,
             errorDescription: data.errorDescription,
+            isMissing: false, // Si tiene imagen, no es faltante
             personalData: { connect: { id: data.personalDataId } },
             loan: { connect: { id: data.loanId } }
           }
@@ -541,6 +545,56 @@ export default function DocumentosPersonalesPage() {
     } catch (error) {
       console.error('Error al actualizar estado del documento:', error);
       alert('Error al actualizar el estado del documento');
+    }
+  };
+
+  // Función para manejar el estado de faltante del documento
+  const handleDocumentMissing = async (documentId: string, isMissing: boolean) => {
+    try {
+      await updateDocumentPhotoMissing({
+        variables: { 
+          id: documentId, 
+          isMissing
+        }
+      });
+
+      // Refrescar datos
+      refetch();
+    } catch (error) {
+      console.error('Error al actualizar estado de faltante del documento:', error);
+      alert('Error al actualizar el estado de faltante del documento');
+    }
+  };
+
+  // Función para crear un documento faltante
+  const handleCreateMissingDocument = async (
+    documentType: 'INE' | 'DOMICILIO' | 'PAGARE',
+    personalDataId: string,
+    loanId: string,
+    personName: string
+  ) => {
+    try {
+      await createDocumentPhoto({
+        variables: {
+          data: {
+            title: `${getTypeLabel(documentType)} - ${personName}`,
+            description: 'Documento marcado como faltante',
+            // No incluir photoUrl y publicId - son opcionales y no deben enviarse como null
+            documentType: documentType,
+            isError: false,
+            errorDescription: '',
+            isMissing: true, // Explícitamente marcado como faltante
+            personalData: { connect: { id: personalDataId } },
+            loan: { connect: { id: loanId } }
+          }
+        }
+      });
+
+      // Refrescar datos
+      refetch();
+    } catch (error) {
+      console.error('Error al crear documento faltante:', error);
+      alert('Error al crear documento faltante');
     }
   };
 
@@ -744,13 +798,10 @@ export default function DocumentosPersonalesPage() {
     }
   };
 
-  // Función para verificar si un préstamo tiene todos los documentos requeridos y sin errores
+  // Función para verificar si un préstamo tiene todos los documentos requeridos revisados
+  // Un documento está "revisado" si está subido, marcado como error, o marcado como faltante
   const isLoanComplete = (loan: any) => {
     const documents = loan.documentPhotos;
-    
-    // Verificar que no haya documentos con errores
-    const hasErrors = documents.some((doc: any) => doc.isError);
-    if (hasErrors) return false;
     
     // Contar documentos por tipo y persona
     const titularDocs = documents.filter((doc: any) => 
@@ -760,16 +811,25 @@ export default function DocumentosPersonalesPage() {
       doc.personalData.id === loan.lead.personalData.id
     );
     
+    // Función auxiliar para verificar si un tipo de documento está revisado
+    // Un documento está revisado si: tiene imagen, está marcado como error, o está marcado como faltante
+    const isDocumentTypeReviewed = (docs: any[], documentType: string) => {
+      return docs.some((doc: any) => 
+        doc.documentType === documentType && 
+        (doc.photoUrl || doc.isError || doc.isMissing) // Tiene imagen, marcado como error, o marcado como faltante
+      );
+    };
+    
     // Verificar documentos del TITULAR (INE, DOMICILIO, PAGARE)
-    const hasTitularINE = titularDocs.some((doc: any) => doc.documentType === 'INE');
-    const hasTitularDOMICILIO = titularDocs.some((doc: any) => doc.documentType === 'DOMICILIO');
-    const hasTitularPAGARE = titularDocs.some((doc: any) => doc.documentType === 'PAGARE');
+    const hasTitularINE = isDocumentTypeReviewed(titularDocs, 'INE');
+    const hasTitularDOMICILIO = isDocumentTypeReviewed(titularDocs, 'DOMICILIO');
+    const hasTitularPAGARE = isDocumentTypeReviewed(titularDocs, 'PAGARE');
     
     // Verificar documentos del AVAL (INE, DOMICILIO)
-    const hasAvalINE = avalDocs.some((doc: any) => doc.documentType === 'INE');
-    const hasAvalDOMICILIO = avalDocs.some((doc: any) => doc.documentType === 'DOMICILIO');
+    const hasAvalINE = isDocumentTypeReviewed(avalDocs, 'INE');
+    const hasAvalDOMICILIO = isDocumentTypeReviewed(avalDocs, 'DOMICILIO');
     
-    // Un préstamo está completo si tiene todos los documentos requeridos sin errores
+    // Un préstamo está completo si todos los documentos requeridos están revisados
     return hasTitularINE && hasTitularDOMICILIO && hasTitularPAGARE && hasAvalINE && hasAvalDOMICILIO;
   };
 
@@ -853,11 +913,11 @@ export default function DocumentosPersonalesPage() {
       }
     }
     
-    // Filtro por completitud
-    let matchesCompletion = true;
-    if (completionFilter !== 'all') {
-      const isComplete = isLoanComplete(loan);
-      matchesCompletion = completionFilter === 'complete' ? isComplete : !isComplete;
+    // Filtro por estado de revisión
+    let matchesReview = true;
+    if (reviewFilter !== 'all') {
+      const isReviewed = isLoanComplete(loan);
+      matchesReview = reviewFilter === 'reviewed' ? isReviewed : !isReviewed;
     }
     
     // Filtro por localidad
@@ -867,14 +927,14 @@ export default function DocumentosPersonalesPage() {
       matchesLocality = loanLocality === selectedLocality;
     }
     
-    return matchesSearch && matchesRoute && matchesCompletion && matchesLocality;
+    return matchesSearch && matchesRoute && matchesReview && matchesLocality;
   });
 
   // Calcular estadísticas basadas en los préstamos filtrados
   const totalCredits = filteredLoans.length;
-  const creditsWithDocuments = filteredLoans.filter(loan => isLoanComplete(loan)).length;
+  const creditsReviewed = filteredLoans.filter(loan => isLoanComplete(loan)).length;
   const totalDocuments = filteredLoans.reduce((total, loan) => total + loan.documentPhotos.length, 0);
-  const creditsWithoutDocuments = totalCredits - creditsWithDocuments;
+  const creditsNotReviewed = totalCredits - creditsReviewed;
 
   if (loading || queryLoading) {
     return (
@@ -1038,13 +1098,13 @@ export default function DocumentosPersonalesPage() {
               Filtros adicionales
             </Text>
             
-            {/* Botón para mostrar/ocultar filtro de localidad */}
+            {/* Botón para mostrar/ocultar filtros */}
             <Button
               size="small"
-              onClick={() => setShowLocalityFilter(!showLocalityFilter)}
+              onClick={() => setShowReviewFilter(!showReviewFilter)}
               css={{
-                backgroundColor: showLocalityFilter ? '#3b82f6' : '#f8fafc',
-                color: showLocalityFilter ? 'white' : '#6b7280',
+                backgroundColor: showReviewFilter ? '#3b82f6' : '#f8fafc',
+                color: showReviewFilter ? 'white' : '#6b7280',
                 border: '1px solid #e2e8f0',
                 borderRadius: '8px',
                 padding: '8px 12px',
@@ -1055,8 +1115,8 @@ export default function DocumentosPersonalesPage() {
                 gap: '6px',
                 transition: 'all 0.2s ease',
                 '&:hover': {
-                  backgroundColor: showLocalityFilter ? '#2563eb' : '#f1f5f9',
-                  borderColor: showLocalityFilter ? '#2563eb' : '#cbd5e1'
+                  backgroundColor: showReviewFilter ? '#2563eb' : '#f1f5f9',
+                  borderColor: showReviewFilter ? '#2563eb' : '#cbd5e1'
                 },
                 '@media (max-width: 768px)': {
                   width: '100%',
@@ -1065,12 +1125,12 @@ export default function DocumentosPersonalesPage() {
               }}
             >
               <FaFilter size={14} />
-              {selectedLocality ? `Localidad: ${selectedLocality}` : 'Filtrar por localidad'}
+              Filtros
             </Button>
           </Box>
 
-          {/* Panel de filtro de localidad (colapsable) */}
-          {showLocalityFilter && (
+          {/* Panel de filtros (colapsable) */}
+          {showReviewFilter && (
             <Box
               css={{
                 marginTop: '12px',
@@ -1084,10 +1144,10 @@ export default function DocumentosPersonalesPage() {
                 }
               }}
             >
-              {/* Filtro de estado */}
+              {/* Filtro de estado de revisión */}
               <Box css={{ marginBottom: '16px' }}>
                 <Text weight="medium" size="small" color="black" css={{ marginBottom: '8px' }}>
-                  Estado de Documentos
+                  Estado de Revisión
                 </Text>
                 
                 <Box
@@ -1105,10 +1165,10 @@ export default function DocumentosPersonalesPage() {
                 >
                   <Button
                     size="small"
-                    onClick={() => setCompletionFilter('incomplete')}
+                    onClick={() => setReviewFilter('not_reviewed')}
                     css={{
-                      backgroundColor: completionFilter === 'incomplete' ? '#3b82f6' : 'transparent',
-                      color: completionFilter === 'incomplete' ? 'white' : '#6b7280',
+                      backgroundColor: reviewFilter === 'not_reviewed' ? '#3b82f6' : 'transparent',
+                      color: reviewFilter === 'not_reviewed' ? 'white' : '#6b7280',
                       border: 'none',
                       borderRadius: '6px',
                       padding: '6px 12px',
@@ -1116,21 +1176,21 @@ export default function DocumentosPersonalesPage() {
                       fontWeight: '500',
                       whiteSpace: 'nowrap',
                       transition: 'all 0.15s ease',
-                      boxShadow: completionFilter === 'incomplete' ? '0 1px 2px 0 rgba(0, 0, 0, 0.1)' : 'none',
+                      boxShadow: reviewFilter === 'not_reviewed' ? '0 1px 2px 0 rgba(0, 0, 0, 0.1)' : 'none',
                       flex: 1,
                       '&:hover': {
-                        backgroundColor: completionFilter === 'incomplete' ? '#2563eb' : '#e2e8f0'
+                        backgroundColor: reviewFilter === 'not_reviewed' ? '#2563eb' : '#e2e8f0'
                       }
                     }}
                   >
-                    Pendientes
+                    No Revisados
                   </Button>
                   <Button
                     size="small"
-                    onClick={() => setCompletionFilter('complete')}
+                    onClick={() => setReviewFilter('reviewed')}
                     css={{
-                      backgroundColor: completionFilter === 'complete' ? '#3b82f6' : 'transparent',
-                      color: completionFilter === 'complete' ? 'white' : '#6b7280',
+                      backgroundColor: reviewFilter === 'reviewed' ? '#3b82f6' : 'transparent',
+                      color: reviewFilter === 'reviewed' ? 'white' : '#6b7280',
                       border: 'none',
                       borderRadius: '6px',
                       padding: '6px 12px',
@@ -1138,21 +1198,21 @@ export default function DocumentosPersonalesPage() {
                       fontWeight: '500',
                       whiteSpace: 'nowrap',
                       transition: 'all 0.15s ease',
-                      boxShadow: completionFilter === 'complete' ? '0 1px 2px 0 rgba(0, 0, 0, 0.1)' : 'none',
+                      boxShadow: reviewFilter === 'reviewed' ? '0 1px 2px 0 rgba(0, 0, 0, 0.1)' : 'none',
                       flex: 1,
                       '&:hover': {
-                        backgroundColor: completionFilter === 'complete' ? '#2563eb' : '#e2e8f0'
+                        backgroundColor: reviewFilter === 'reviewed' ? '#2563eb' : '#e2e8f0'
                       }
                     }}
                   >
-                    Finalizados
+                    Revisados
                   </Button>
                   <Button
                     size="small"
-                    onClick={() => setCompletionFilter('all')}
+                    onClick={() => setReviewFilter('all')}
                     css={{
-                      backgroundColor: completionFilter === 'all' ? '#3b82f6' : 'transparent',
-                      color: completionFilter === 'all' ? 'white' : '#6b7280',
+                      backgroundColor: reviewFilter === 'all' ? '#3b82f6' : 'transparent',
+                      color: reviewFilter === 'all' ? 'white' : '#6b7280',
                       border: 'none',
                       borderRadius: '6px',
                       padding: '6px 12px',
@@ -1160,10 +1220,10 @@ export default function DocumentosPersonalesPage() {
                       fontWeight: '500',
                       whiteSpace: 'nowrap',
                       transition: 'all 0.15s ease',
-                      boxShadow: completionFilter === 'all' ? '0 1px 2px 0 rgba(0, 0, 0, 0.1)' : 'none',
+                      boxShadow: reviewFilter === 'all' ? '0 1px 2px 0 rgba(0, 0, 0, 0.1)' : 'none',
                       flex: 1,
                       '&:hover': {
-                        backgroundColor: completionFilter === 'all' ? '#2563eb' : '#e2e8f0'
+                        backgroundColor: reviewFilter === 'all' ? '#2563eb' : '#e2e8f0'
                       }
                     }}
                   >
@@ -1256,8 +1316,8 @@ export default function DocumentosPersonalesPage() {
               Resumen de Clientes
             </Text>
             <Text size="small" color="neutral600">
-              {completionFilter === 'incomplete' ? 'Mostrando solo pendientes' : 
-               completionFilter === 'complete' ? 'Mostrando solo finalizados' : 
+              {reviewFilter === 'not_reviewed' ? 'Mostrando solo no revisados' : 
+               reviewFilter === 'reviewed' ? 'Mostrando solo revisados' : 
                'Mostrando todos los clientes'}
             </Text>
         </Box>
@@ -1293,7 +1353,7 @@ export default function DocumentosPersonalesPage() {
             </Text>
           </Box>
 
-            {/* Finalizados */}
+            {/* Revisados */}
           <Box
             css={{
                 textAlign: 'center',
@@ -1307,14 +1367,14 @@ export default function DocumentosPersonalesPage() {
               }}
             >
               <Text weight="bold" size="large" color="green600">
-                {creditsWithDocuments}
+                {creditsReviewed}
             </Text>
               <Text size="small" color="neutral600" weight="medium">
-                Finalizados
+                Revisados
             </Text>
           </Box>
 
-            {/* Pendientes */}
+            {/* No Revisados */}
           <Box
             css={{
                 textAlign: 'center',
@@ -1328,10 +1388,10 @@ export default function DocumentosPersonalesPage() {
             }}
           >
             <Text weight="bold" size="large" color="red600">
-              {creditsWithoutDocuments}
+              {creditsNotReviewed}
             </Text>
               <Text size="small" color="neutral600" weight="medium">
-              Pendientes
+              No Revisados
             </Text>
           </Box>
           </Box>
@@ -1349,7 +1409,7 @@ export default function DocumentosPersonalesPage() {
             >
               <Box
                 css={{
-                  width: `${(creditsWithDocuments / totalCredits) * 100}%`,
+                  width: `${(creditsReviewed / totalCredits) * 100}%`,
                   backgroundColor: '#10b981',
                   height: '100%',
                   transition: 'width 0.3s ease'
@@ -1473,7 +1533,7 @@ export default function DocumentosPersonalesPage() {
                     }
                   }}
                 >
-                  {isLoanComplete(loan) ? 'Finalizado' : 'Pendiente'}
+                  {isLoanComplete(loan) ? 'Revisado' : 'No Revisado'}
                 </Box>
 
                 {/* Header del crédito */}
@@ -1672,6 +1732,7 @@ export default function DocumentosPersonalesPage() {
                           );
                           const hasDocument = !!document;
                           const hasError = hasDocument && document.isError;
+                          const isMissing = hasDocument && document.isMissing;
                           
                           return (
                             <Box
@@ -1683,38 +1744,47 @@ export default function DocumentosPersonalesPage() {
                                 fontWeight: '600',
                                 backgroundColor: hasError 
                                   ? 'rgba(239, 68, 68, 0.15)' 
-                                  : hasDocument 
-                                    ? 'rgba(34, 197, 94, 0.15)' 
-                                    : '#f3f4f6',
+                                  : isMissing
+                                    ? 'rgba(156, 163, 175, 0.15)'
+                                    : hasDocument 
+                                      ? 'rgba(34, 197, 94, 0.15)' 
+                                      : '#f3f4f6',
                                 color: hasError 
                                   ? '#dc2626' 
-                                  : hasDocument 
-                                    ? '#166534' 
-                                    : '#6b7280',
+                                  : isMissing
+                                    ? '#6b7280'
+                                    : hasDocument 
+                                      ? '#166534' 
+                                      : '#6b7280',
                                 border: hasError 
                                   ? '1px solid rgba(239, 68, 68, 0.4)' 
-                                  : hasDocument 
-                                    ? '1px solid rgba(34, 197, 94, 0.4)' 
-                                    : '1px solid #e5e7eb',
+                                  : isMissing
+                                    ? '1px solid rgba(156, 163, 175, 0.4)'
+                                    : hasDocument 
+                                      ? '1px solid rgba(34, 197, 94, 0.4)' 
+                                      : '1px solid #e5e7eb',
                                 transition: 'all 0.2s ease',
                                 cursor: 'pointer',
                                 '&:hover': {
                                   transform: 'translateY(-1px)',
                                   boxShadow: hasError 
                                     ? '0 2px 4px rgba(239, 68, 68, 0.2)' 
-                                    : hasDocument 
-                                      ? '0 2px 4px rgba(34, 197, 94, 0.2)' 
-                                      : '0 2px 4px rgba(0, 0, 0, 0.1)'
+                                    : isMissing
+                                      ? '0 2px 4px rgba(156, 163, 175, 0.2)'
+                                      : hasDocument 
+                                        ? '0 2px 4px rgba(34, 197, 94, 0.2)' 
+                                        : '0 2px 4px rgba(0, 0, 0, 0.1)'
                                 },
                                 '@media (max-width: 768px)': {
                                   padding: '5px 10px',
                                   fontSize: '11px'
                                 }
                               }}
-                              title={hasError ? `Error: ${document.errorDescription || 'Documento marcado como error'}` : undefined}
+                              title={hasError ? `Error: ${document.errorDescription || 'Documento marcado como error'}` : isMissing ? 'Documento marcado como faltante' : undefined}
                             >
                               {getTypeLabel(type)}
                               {hasError && ' ⚠️'}
+                              {isMissing && ' ❌'}
                             </Box>
                           );
                         })}
@@ -1745,6 +1815,7 @@ export default function DocumentosPersonalesPage() {
                           );
                           const hasDocument = !!document;
                           const hasError = hasDocument && document.isError;
+                          const isMissing = hasDocument && document.isMissing;
                           
                           return (
                             <Box
@@ -1756,38 +1827,47 @@ export default function DocumentosPersonalesPage() {
                                 fontWeight: '600',
                                 backgroundColor: hasError 
                                   ? 'rgba(239, 68, 68, 0.15)' 
-                                  : hasDocument 
-                                    ? 'rgba(34, 197, 94, 0.15)' 
-                                    : '#f3f4f6',
+                                  : isMissing
+                                    ? 'rgba(156, 163, 175, 0.15)'
+                                    : hasDocument 
+                                      ? 'rgba(34, 197, 94, 0.15)' 
+                                      : '#f3f4f6',
                                 color: hasError 
                                   ? '#dc2626' 
-                                  : hasDocument 
-                                    ? '#166534' 
-                                    : '#6b7280',
+                                  : isMissing
+                                    ? '#6b7280'
+                                    : hasDocument 
+                                      ? '#166534' 
+                                      : '#6b7280',
                                 border: hasError 
                                   ? '1px solid rgba(239, 68, 68, 0.4)' 
-                                  : hasDocument 
-                                    ? '1px solid rgba(34, 197, 94, 0.4)' 
-                                    : '1px solid #e5e7eb',
+                                  : isMissing
+                                    ? '1px solid rgba(156, 163, 175, 0.4)'
+                                    : hasDocument 
+                                      ? '1px solid rgba(34, 197, 94, 0.4)' 
+                                      : '1px solid #e5e7eb',
                                 transition: 'all 0.2s ease',
                                 cursor: 'pointer',
                                 '&:hover': {
                                   transform: 'translateY(-1px)',
                                   boxShadow: hasError 
                                     ? '0 2px 4px rgba(239, 68, 68, 0.2)' 
-                                    : hasDocument 
-                                      ? '0 2px 4px rgba(34, 197, 94, 0.2)' 
-                                      : '0 2px 4px rgba(0, 0, 0, 0.1)'
+                                    : isMissing
+                                      ? '0 2px 4px rgba(156, 163, 175, 0.2)'
+                                      : hasDocument 
+                                        ? '0 2px 4px rgba(34, 197, 94, 0.2)' 
+                                        : '0 2px 4px rgba(0, 0, 0, 0.1)'
                                 },
                                 '@media (max-width: 768px)': {
                                   padding: '5px 10px',
                                   fontSize: '11px'
                                 }
                               }}
-                              title={hasError ? `Error: ${document.errorDescription || 'Documento marcado como error'}` : undefined}
+                              title={hasError ? `Error: ${document.errorDescription || 'Documento marcado como error'}` : isMissing ? 'Documento marcado como faltante' : undefined}
                             >
                               {getTypeLabel(type)}
                               {hasError && ' ⚠️'}
+                              {isMissing && ' ❌'}
                             </Box>
                           );
                         })}
@@ -1874,10 +1954,10 @@ export default function DocumentosPersonalesPage() {
                 }
               }}
             >
-              {completionFilter === 'complete' 
-                ? 'No hay clientes finalizados' 
-                : completionFilter === 'incomplete' 
-                  ? 'No hay clientes pendientes' 
+              {reviewFilter === 'reviewed' 
+                ? 'No hay clientes revisados' 
+                : reviewFilter === 'not_reviewed' 
+                  ? 'No hay clientes sin revisar' 
                   : 'No hay clientes en esta ruta'
               }
             </Text>
@@ -1891,18 +1971,18 @@ export default function DocumentosPersonalesPage() {
                 }
               }}
             >
-              {completionFilter === 'complete' 
-                ? 'Todos los clientes de esta ruta están pendientes de documentos'
-                : completionFilter === 'incomplete' 
-                  ? 'Todos los clientes de esta ruta ya están finalizados'
+              {reviewFilter === 'reviewed' 
+                ? 'Todos los clientes de esta ruta están sin revisar'
+                : reviewFilter === 'not_reviewed' 
+                  ? 'Todos los clientes de esta ruta ya están revisados'
                   : 'Esta ruta no tiene clientes para la semana seleccionada'
               }
             </Text>
             <Text size="small" color="neutral500">
-              {completionFilter === 'complete' 
-                ? 'Los clientes finalizados aparecerán aquí una vez que se suban todos los documentos'
-                : completionFilter === 'incomplete' 
-                  ? 'Los clientes pendientes aparecerán aquí una vez que falten documentos'
+              {reviewFilter === 'reviewed' 
+                ? 'Los clientes revisados aparecerán aquí una vez que se revisen todos los documentos'
+                : reviewFilter === 'not_reviewed' 
+                  ? 'Los clientes sin revisar aparecerán aquí una vez que falten documentos por revisar'
                   : 'Intenta seleccionar otra ruta o semana'
               }
             </Text>
@@ -1973,6 +2053,8 @@ export default function DocumentosPersonalesPage() {
           });
         }}
         onDocumentError={handleMarkAsError}
+        onDocumentMissing={handleDocumentMissing}
+        onCreateMissingDocument={handleCreateMissingDocument}
         onDocumentDelete={handleDocumentDelete}
         onNameEdit={handleNameEdit}
         onPhoneEdit={handlePhoneEdit}

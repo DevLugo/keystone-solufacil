@@ -27,7 +27,9 @@ Start Command: npm start
 Auto-Deploy: Yes
 ```
 
-⚠️ **IMPORTANTE**: El comando de build está optimizado para **NO** ejecutar tests de Cypress ni instalar dependencias de desarrollo en producción.
+⚠️ **IMPORTANTE**: 
+- El comando de build está optimizado para **NO** ejecutar tests de Cypress ni instalar dependencias de desarrollo en producción
+- El comando `start` ejecuta automáticamente las migraciones de base de datos antes de iniciar la aplicación
 
 ### 3. **Variables de Entorno Requeridas**
 
@@ -98,9 +100,8 @@ openssl rand -hex 32
 ### **Deploy Automático:**
 1. Push tu código a la rama principal
 2. Render detecta automáticamente los cambios
-3. Ejecuta `npm run build` 
-4. Ejecuta migraciones de DB automáticamente
-5. Inicia la aplicación con `npm start`
+3. Ejecuta `npm run build` (construye la aplicación)
+4. Ejecuta `npm start` (aplica migraciones automáticamente y inicia la aplicación)
 
 ### **Deploy Manual:**
 1. Ve a tu servicio en Render
@@ -126,8 +127,9 @@ Los siguientes archivos/carpetas se ignoran automáticamente y **NO** se suben a
 
 ### **Verificar Deploy:**
 - Espera mensaje: `✅ Environment variables validated successfully`
-- Luego: `🚀 Starting Keystone in production mode`
-- Finalmente: `KeystoneJS ready on https://tu-app.onrender.com`
+- Luego: `📋 Ejecutando: keystone prisma migrate deploy` (aplicando migraciones)
+- Después: `✅ Comando completado exitosamente: keystone` (migraciones aplicadas)
+- Finalmente: `🚀 Starting Keystone in production mode` y `KeystoneJS ready on https://tu-app.onrender.com`
 
 ## 🐛 Troubleshooting
 

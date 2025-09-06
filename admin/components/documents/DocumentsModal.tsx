@@ -18,6 +18,7 @@ interface DocumentPhoto {
   documentType: 'INE' | 'DOMICILIO' | 'PAGARE';
   isError: boolean;
   errorDescription?: string;
+  isMissing: boolean;
   createdAt: string;
   personalData: {
     id: string;
@@ -60,6 +61,8 @@ interface DocumentsModalProps {
     personName: string;
   }) => void;
   onDocumentError: (documentId: string, isError: boolean, errorDescription?: string) => void;
+  onDocumentMissing: (documentId: string, isMissing: boolean) => void;
+  onCreateMissingDocument: (documentType: 'INE' | 'DOMICILIO' | 'PAGARE', personalDataId: string, loanId: string, personName: string) => void;
   onDocumentDelete: (documentId: string, documentTitle: string) => void;
   onNameEdit: (personalDataId: string, newName: string) => void;
   onPhoneEdit: (personalDataId: string, phoneId: string | undefined, newPhone: string) => void;
@@ -93,6 +96,8 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
   loan,
   onDocumentUpload,
   onDocumentError,
+  onDocumentMissing,
+  onCreateMissingDocument,
   onDocumentDelete,
   onNameEdit,
   onPhoneEdit
@@ -299,6 +304,7 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
                         publicId={document?.publicId}
                         isError={document?.isError || false}
                         errorDescription={document?.errorDescription || ''}
+                        isMissing={document?.isMissing || false}
                         onImageClick={() => document && window.open(document.photoUrl, '_blank')}
                         onUploadClick={() => handleUploadClick(
                           type,
@@ -309,6 +315,14 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
                         onMarkAsError={(isError, errorDescription) => 
                           document && onDocumentError(document.id, isError, errorDescription)
                         }
+                        onMarkAsMissing={(isMissing) => {
+                          if (document) {
+                            onDocumentMissing(document.id, isMissing);
+                          } else if (isMissing) {
+                            // Si no hay documento y queremos marcarlo como faltante, crear uno
+                            onCreateMissingDocument(type, loan.borrower.personalData.id, loan.id, loan.borrower.personalData.fullName);
+                          }
+                        }}
                         onDelete={() => document && onDocumentDelete(document.id, document.title)}
                         size="large"
                       />
@@ -399,6 +413,7 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
                         publicId={document?.publicId}
                         isError={document?.isError || false}
                         errorDescription={document?.errorDescription || ''}
+                        isMissing={document?.isMissing || false}
                         onImageClick={() => document && window.open(document.photoUrl, '_blank')}
                         onUploadClick={() => handleUploadClick(
                           type,
@@ -409,6 +424,14 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
                         onMarkAsError={(isError, errorDescription) => 
                           document && onDocumentError(document.id, isError, errorDescription)
                         }
+                        onMarkAsMissing={(isMissing) => {
+                          if (document) {
+                            onDocumentMissing(document.id, isMissing);
+                          } else if (isMissing) {
+                            // Si no hay documento y queremos marcarlo como faltante, crear uno
+                            onCreateMissingDocument(type, loan.lead.personalData.id, loan.id, loan.lead.personalData.fullName);
+                          }
+                        }}
                         onDelete={() => document && onDocumentDelete(document.id, document.title)}
                         size="large"
                       />

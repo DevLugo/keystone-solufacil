@@ -14,9 +14,11 @@ interface DocumentThumbnailProps {
   publicId?: string;
   isError?: boolean;
   errorDescription?: string;
+  isMissing?: boolean;
   onImageClick?: () => void;
   onUploadClick?: () => void;
   onMarkAsError?: (isError: boolean, errorDescription?: string) => void;
+  onMarkAsMissing?: (isMissing: boolean) => void;
   onDelete?: () => void;
   isUploading?: boolean;
   size?: 'small' | 'medium' | 'large';
@@ -29,9 +31,11 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
   publicId,
   isError = false,
   errorDescription = '',
+  isMissing = false,
   onImageClick,
   onUploadClick,
   onMarkAsError,
+  onMarkAsMissing,
   onDelete,
   isUploading = false,
   size = 'medium'
@@ -56,7 +60,7 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
       case 'small':
         return { width: '80px', height: '80px', fontSize: '10px' };
       case 'large':
-        return { width: '140px', height: '140px', fontSize: '14px' };
+        return { width: '160px', height: '180px', fontSize: '14px' }; // Aumenté el ancho y altura
       default: // medium
         return { width: '110px', height: '110px', fontSize: '12px' };
     }
@@ -65,6 +69,7 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
   const sizeStyles = getSizeStyles(size);
 
   const hasImage = imageUrl && publicId;
+  const isDocumentReviewed = hasImage || isError || isMissing;
 
   return (
     <Box
@@ -77,8 +82,8 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
         cursor: hasImage ? 'pointer' : 'default',
         transition: 'all 0.2s ease',
         border: '2px solid',
-        borderColor: hasImage ? '#10b981' : '#d1d5db',
-        backgroundColor: hasImage ? '#f0fdf4' : '#f9fafb',
+        borderColor: hasImage ? '#10b981' : isMissing ? '#9ca3af' : '#d1d5db',
+        backgroundColor: hasImage ? '#f0fdf4' : isMissing ? '#f3f4f6' : '#f9fafb',
         '&:hover': {
           transform: hasImage ? 'scale(1.05)' : 'none',
           boxShadow: hasImage ? '0 4px 12px rgba(16, 185, 129, 0.3)' : 'none'
@@ -108,7 +113,7 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
         </Box>
       )}
 
-      {/* Imagen existente */}
+      {/* Imagen existente o estado de faltante */}
       {hasImage ? (
         <>
           <img
@@ -217,8 +222,8 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
           )}
 
         </>
-      ) : (
-        /* Estado vacío */
+      ) : isMissing ? (
+        /* Estado de faltante */
         <Box
           css={{
             width: '100%',
@@ -229,8 +234,8 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
             justifyContent: 'center',
             padding: '16px',
             textAlign: 'center',
-            backgroundColor: '#f8fafc',
-            border: '2px dashed #d1d5db',
+            backgroundColor: '#f3f4f6',
+            border: '2px solid #9ca3af',
             borderRadius: '8px'
           }}
         >
@@ -243,7 +248,7 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
               transition: 'all 0.2s ease'
             }}
           >
-            <FaCamera size={20} color="#3b82f6" />
+            <Text size="large" color="gray500">❌</Text>
           </Box>
           
           <Text
@@ -271,31 +276,210 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
             {getPersonLabel(personType)}
           </Text>
 
-          {/* Botón para subir */}
-          <Button
+          <Text
             size="small"
-            onClick={(e) => {
-              e.stopPropagation();
-              onUploadClick?.();
+            color="gray500"
+            css={{
+              fontSize: Math.max(8, sizeStyles.fontSize - 2),
+              lineHeight: '1.2',
+              fontWeight: '500'
             }}
-                          css={{
-                padding: '4px 8px',
-                fontSize: Math.max(8, sizeStyles.fontSize - 2),
+          >
+            Faltante
+          </Text>
+
+          {/* Botón para desmarcar como faltante */}
+          {onMarkAsMissing && (
+            <Button
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                onMarkAsMissing(false);
+              }}
+              css={{
+                padding: '8px 12px',
+                fontSize: Math.max(10, sizeStyles.fontSize - 1),
+                backgroundColor: '#6b7280',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                fontWeight: '500',
+                marginTop: '8px',
+                height: '32px', // Altura fija para consistencia
+                width: '100%', // Ocupa todo el ancho disponible
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                '&:hover': { 
+                  backgroundColor: '#4b5563',
+                  transform: 'scale(1.02)',
+                  boxShadow: '0 2px 8px rgba(107, 114, 128, 0.3)'
+                },
+                '&:active': {
+                  transform: 'scale(0.98)'
+                },
+                transition: 'all 0.2s ease',
+                '@media (max-width: 768px)': {
+                  padding: '10px 14px',
+                  fontSize: Math.max(11, sizeStyles.fontSize),
+                  height: '36px'
+                }
+              }}
+            >
+              Desmarcar
+            </Button>
+          )}
+        </Box>
+      ) : (
+        /* Estado vacío */
+        <Box
+          css={{
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '12px 8px',
+            textAlign: 'center',
+            backgroundColor: '#f8fafc',
+            border: '2px dashed #d1d5db',
+            borderRadius: '8px'
+          }}
+        >
+          {/* Títulos en la parte superior */}
+          <Box css={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center',
+            gap: '4px'
+          }}>
+            <Box
+              css={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <FaCamera size={16} color="#3b82f6" />
+            </Box>
+            
+            <Text
+              size="small"
+              color="gray600"
+              css={{
+                fontSize: sizeStyles.fontSize,
+                fontWeight: '600',
+                lineHeight: '1.2'
+              }}
+            >
+              {getTypeLabel(type)}
+            </Text>
+            
+            <Text
+              size="small"
+              color="gray500"
+              css={{
+                fontSize: Math.max(9, sizeStyles.fontSize - 1),
+                lineHeight: '1.2'
+              }}
+            >
+              {getPersonLabel(personType)}
+            </Text>
+          </Box>
+
+          {/* Botones de acción en la parte inferior */}
+          <Box css={{ 
+            display: 'flex', 
+            gap: '6px', 
+            flexDirection: 'column', 
+            alignItems: 'center',
+            width: '100%'
+          }}>
+            {/* Botón para subir */}
+            <Button
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                onUploadClick?.();
+              }}
+              css={{
+                padding: '8px 12px',
+                fontSize: Math.max(10, sizeStyles.fontSize - 1),
                 backgroundColor: '#3b82f6',
                 color: 'white',
                 border: 'none',
                 borderRadius: '6px',
                 fontWeight: '500',
+                height: '32px', // Altura fija para consistencia
+                width: '100%', // Ocupa todo el ancho disponible
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '4px',
                 '&:hover': { 
                   backgroundColor: '#2563eb',
-                  transform: 'scale(1.05)',
-                  boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
+                  transform: 'scale(1.02)',
+                  boxShadow: '0 2px 8px rgba(59, 130, 246, 0.3)'
                 },
-                transition: 'all 0.2s ease'
+                '&:active': {
+                  transform: 'scale(0.98)'
+                },
+                transition: 'all 0.2s ease',
+                '@media (max-width: 768px)': {
+                  padding: '10px 14px',
+                  fontSize: Math.max(11, sizeStyles.fontSize),
+                  height: '36px'
+                }
               }}
             >
-              <FaPlus size={10} />
-          </Button>
+              <FaPlus size={12} />
+              Subir
+            </Button>
+
+            {/* Botón para marcar como faltante */}
+            {onMarkAsMissing && (
+              <Button
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMarkAsMissing(true);
+                }}
+                css={{
+                  padding: '8px 12px',
+                  fontSize: Math.max(10, sizeStyles.fontSize - 1),
+                  backgroundColor: '#6b7280',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontWeight: '500',
+                  height: '32px', // Altura fija para consistencia
+                  width: '100%', // Ocupa todo el ancho disponible
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '4px',
+                  '&:hover': { 
+                    backgroundColor: '#4b5563',
+                    transform: 'scale(1.02)',
+                    boxShadow: '0 2px 8px rgba(107, 114, 128, 0.3)'
+                  },
+                  '&:active': {
+                    transform: 'scale(0.98)'
+                  },
+                  transition: 'all 0.2s ease',
+                  '@media (max-width: 768px)': {
+                    padding: '10px 14px',
+                    fontSize: Math.max(11, sizeStyles.fontSize),
+                    height: '36px'
+                  }
+                }}
+              >
+                ❌ Faltante
+              </Button>
+            )}
+          </Box>
         </Box>
       )}
     </Box>

@@ -2285,8 +2285,8 @@ export const DocumentPhoto = list({
   fields: {
     title: text({ validation: { isRequired: true } }),
     description: text(),
-    photoUrl: text({ validation: { isRequired: true } }),
-    publicId: text({ validation: { isRequired: true } }),
+    photoUrl: text({ validation: { isRequired: false } }),
+    publicId: text({ validation: { isRequired: false } }),
     documentType: select({
       type: 'enum',
       options: [
@@ -2299,6 +2299,7 @@ export const DocumentPhoto = list({
     }),
     isError: checkbox({ defaultValue: false }),
     errorDescription: text(),
+    isMissing: checkbox({ defaultValue: false }),
     personalData: relationship({ 
       ref: 'PersonalData.documentPhotos'
     }),

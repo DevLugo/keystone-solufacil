@@ -41,3 +41,18 @@ export const CREATE_PERSONAL_DATA_PHONE = gql`
     }
   }
 `;
+
+// Mutation para actualizar el estado de faltante de un documento
+export const UPDATE_DOCUMENT_PHOTO_MISSING = gql`
+  mutation UpdateDocumentPhotoMissing($id: ID!, $isMissing: Boolean!) {
+    updateDocumentPhoto(where: { id: $id }, data: { isMissing: $isMissing }) {
+      id
+      isMissing
+      documentType
+      personalData {
+        id
+        fullName
+      }
+    }
+  }
+`;

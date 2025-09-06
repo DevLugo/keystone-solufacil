@@ -433,6 +433,7 @@ model DocumentPhoto {
   documentType String?
   isError   Boolean?
   errorDescription String?
+  isMissing Boolean?
   personalData PersonalData?
   loan      Loan?
   uploadedBy User?    @relation(fields: [uploadedById], references: [id])

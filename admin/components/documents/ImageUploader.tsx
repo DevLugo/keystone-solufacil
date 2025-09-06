@@ -5,8 +5,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@keystone-ui/button';
 import { LoadingDots } from '@keystone-ui/loading';
-import { FaUpload, FaCamera, FaTrash, FaEye, FaExclamationTriangle, FaSyncAlt, FaCheck, FaArrowsAltH } from 'react-icons/fa';
+import { FaUpload, FaCamera, FaTrash, FaEye, FaExclamationTriangle, FaSyncAlt, FaCheck, FaArrowsAltH, FaCompress } from 'react-icons/fa';
 import { Box, Text } from '@keystone-ui/core';
+import { compressImage, isValidImageFile, formatFileSize, getCompressionPreset } from '../../utils/imageCompression';
 
 interface ImageUploaderProps {
   onImageUpload: (imageUrl: string, publicId: string) => void;
@@ -45,6 +46,8 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   const [isCameraReady, setIsCameraReady] = useState(false);
   const [currentCamera, setCurrentCamera] = useState<'front' | 'back'>('back'); // Por defecto cámara trasera
   const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
+  const [isCompressing, setIsCompressing] = useState(false);
+  const [compressionStats, setCompressionStats] = useState<{ originalSize: number; compressedSize: number; ratio: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -100,33 +103,54 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
     if (!file) return;
 
     // Validar tipo de archivo
-    if (!file.type.startsWith('image/')) {
-      setMessage({ text: 'Por favor selecciona un archivo de imagen válido', tone: 'warning' });
+    if (!isValidImageFile(file)) {
+      setMessage({ text: 'Por favor selecciona un archivo de imagen válido (JPG, PNG, WebP)', tone: 'warning' });
       setTimeout(() => setMessage(null), 3000);
       return;
     }
 
-    // Validar tamaño (10MB máximo)
-    if (file.size > 10 * 1024 * 1024) {
-      setMessage({ text: 'El archivo es demasiado grande. Máximo 10MB', tone: 'warning' });
+    // Validar tamaño (50MB máximo antes de compresión)
+    if (file.size > 50 * 1024 * 1024) {
+      setMessage({ text: 'El archivo es demasiado grande. Máximo 50MB', tone: 'warning' });
       setTimeout(() => setMessage(null), 3000);
       return;
     }
 
-    // Crear preview
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setPreviewUrl(e.target?.result as string);
-    };
-    reader.readAsDataURL(file);
-
-    // Subir a Cloudinary
     try {
+      setIsCompressing(true);
+      setMessage({ text: 'Optimizando imagen...', tone: 'success' });
+
+      // Obtener configuración de compresión según el dispositivo
+      const compressionOptions = getCompressionPreset();
+      
+      // Comprimir imagen
+      const compressedResult = await compressImage(file, compressionOptions);
+      
+      // Actualizar estadísticas de compresión
+      setCompressionStats({
+        originalSize: compressedResult.originalSize,
+        compressedSize: compressedResult.compressedSize,
+        ratio: compressedResult.compressionRatio
+      });
+
+      // Crear preview con la imagen comprimida
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setPreviewUrl(e.target?.result as string);
+      };
+      reader.readAsDataURL(compressedResult.file);
+
+      // Mostrar mensaje de compresión exitosa
+      setMessage({ 
+        text: 'Imagen optimizada y lista para subir', 
+        tone: 'success' 
+      });
+
+      // Subir a Cloudinary
       setIsUploading(true);
       
-      // Subir a Cloudinary a través del endpoint de API
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('file', compressedResult.file);
       formData.append('folder', 'documentos-personales');
 
       const response = await fetch('/api/upload-image', {
@@ -143,19 +167,25 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       // Llamar al callback con la URL y public_id
       onImageUpload(result.secure_url, result.public_id);
       
+      // Limpiar mensaje de compresión después de un tiempo
+      setTimeout(() => setMessage(null), 5000);
+      
     } catch (error) {
-      console.error('Error al subir imagen:', error);
-      setMessage({ text: 'Error al subir la imagen. Por favor, inténtalo de nuevo.', tone: 'error' });
+      console.error('Error al procesar imagen:', error);
+      setMessage({ text: 'Error al procesar la imagen. Por favor, inténtalo de nuevo.', tone: 'error' });
       setTimeout(() => setMessage(null), 5000);
       setPreviewUrl(null);
+      setCompressionStats(null);
     } finally {
       setIsUploading(false);
+      setIsCompressing(false);
     }
   };
 
   const handleRemoveImage = () => {
     setPreviewUrl(null);
     setShowPreview(false);
+    setCompressionStats(null);
     if (onImageRemove) {
       onImageRemove();
     }
@@ -243,19 +273,35 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
             // Crear archivo desde el blob
             const file = new File([blob], 'foto-capturada.jpg', { type: 'image/jpeg' });
             
-            // Crear preview
-            const reader = new FileReader();
-            reader.onload = (e) => {
-              setPreviewUrl(e.target?.result as string);
-            };
-            reader.readAsDataURL(file);
-            
-            // Subir a Cloudinary
             try {
+              setIsCompressing(true);
+              setMessage({ text: 'Optimizando foto...', tone: 'success' });
+
+              // Obtener configuración de compresión según el dispositivo
+              const compressionOptions = getCompressionPreset();
+              
+              // Comprimir imagen capturada
+              const compressedResult = await compressImage(file, compressionOptions);
+              
+              // Actualizar estadísticas de compresión
+              setCompressionStats({
+                originalSize: compressedResult.originalSize,
+                compressedSize: compressedResult.compressedSize,
+                ratio: compressedResult.compressionRatio
+              });
+
+              // Crear preview con la imagen comprimida
+              const reader = new FileReader();
+              reader.onload = (e) => {
+                setPreviewUrl(e.target?.result as string);
+              };
+              reader.readAsDataURL(compressedResult.file);
+              
+              // Subir a Cloudinary
               setIsUploading(true);
               
               const formData = new FormData();
-              formData.append('file', file);
+              formData.append('file', compressedResult.file);
               formData.append('folder', 'documentos-personales');
 
               const response = await fetch('/api/upload-image', {
@@ -272,13 +318,24 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
               // Llamar al callback con la URL y public_id
               onImageUpload(result.secure_url, result.public_id);
               
+              // Mostrar mensaje de compresión exitosa
+              setMessage({ 
+                text: 'Foto optimizada y lista para subir', 
+                tone: 'success' 
+              });
+              
+              // Limpiar mensaje después de un tiempo
+              setTimeout(() => setMessage(null), 5000);
+              
             } catch (error) {
-              console.error('Error al subir imagen capturada:', error);
-              setMessage({ text: 'Error al subir la imagen capturada. Por favor, inténtalo de nuevo.', tone: 'error' });
+              console.error('Error al procesar foto capturada:', error);
+              setMessage({ text: 'Error al procesar la foto capturada. Por favor, inténtalo de nuevo.', tone: 'error' });
               setTimeout(() => setMessage(null), 5000);
               setPreviewUrl(null);
+              setCompressionStats(null);
             } finally {
               setIsUploading(false);
+              setIsCompressing(false);
             }
           }
         }, 'image/jpeg', 0.9);
@@ -732,10 +789,15 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
           tone="active"
           size="small"
           onClick={() => fileInputRef.current?.click()}
-          disabled={disabled || isUploading}
+          disabled={disabled || isUploading || isCompressing}
           style={{ fontSize: '12px' }}
         >
-          {isUploading ? (
+          {isCompressing ? (
+            <>
+              <FaCompress size={12} style={{ marginRight: '6px' }} />
+              Optimizando...
+            </>
+          ) : isUploading ? (
             <LoadingDots label="Subiendo" size="small" />
           ) : (
             <>
@@ -749,7 +811,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
           tone="passive"
           size="small"
           onClick={handleCapturePhoto}
-          disabled={disabled || isUploading}
+          disabled={disabled || isUploading || isCompressing}
           style={{ 
             fontSize: '12px',
             backgroundColor: '#6b7280',
@@ -774,6 +836,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
           </Button>
         )}
       </div>
+
 
       {/* Información de la imagen actual */}
       {currentImageUrl && !previewUrl && (

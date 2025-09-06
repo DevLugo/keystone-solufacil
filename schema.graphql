@@ -2295,6 +2295,7 @@ type DocumentPhoto {
   documentType: DocumentPhotoDocumentTypeType
   isError: Boolean
   errorDescription: String
+  isMissing: Boolean
   personalData: PersonalData
   loan: Loan
   uploadedBy: User
@@ -2325,6 +2326,7 @@ input DocumentPhotoWhereInput {
   documentType: DocumentPhotoDocumentTypeTypeNullableFilter
   isError: BooleanFilter
   errorDescription: StringFilter
+  isMissing: BooleanFilter
   personalData: PersonalDataWhereInput
   loan: LoanWhereInput
   uploadedBy: UserWhereInput
@@ -2353,6 +2355,7 @@ input DocumentPhotoOrderByInput {
   documentType: OrderDirection
   isError: OrderDirection
   errorDescription: OrderDirection
+  isMissing: OrderDirection
   createdAt: OrderDirection
   updatedAt: OrderDirection
 }
@@ -2365,6 +2368,7 @@ input DocumentPhotoUpdateInput {
   documentType: DocumentPhotoDocumentTypeType
   isError: Boolean
   errorDescription: String
+  isMissing: Boolean
   personalData: PersonalDataRelateToOneForUpdateInput
   loan: LoanRelateToOneForUpdateInput
   uploadedBy: UserRelateToOneForUpdateInput
@@ -2385,6 +2389,7 @@ input DocumentPhotoCreateInput {
   documentType: DocumentPhotoDocumentTypeType
   isError: Boolean
   errorDescription: String
+  isMissing: Boolean
   personalData: PersonalDataRelateToOneForCreateInput
   loan: LoanRelateToOneForCreateInput
   uploadedBy: UserRelateToOneForCreateInput
