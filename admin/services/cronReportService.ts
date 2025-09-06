@@ -1,6 +1,86 @@
 import { TelegramService } from './telegramService';
 import { generateCreditsWithDocumentErrorsReport } from './reportGenerationService';
 
+// Función para calcular la semana anterior basada en semanas activas (lunes-domingo)
+const calculatePreviousWeek = () => {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1; // getMonth() devuelve 0-11, necesitamos 1-12
+  
+  // Obtener información de las semanas activas del mes actual
+  const activeWeeksInfo = getActiveWeeksInfo(currentYear, currentMonth);
+  
+  // Encontrar en qué semana activa estamos actualmente
+  let currentWeekNumber = 0;
+  for (const week of activeWeeksInfo) {
+    if (now >= week.start && now <= week.end) {
+      currentWeekNumber = week.weekNumber;
+      break;
+    }
+  }
+  
+  // Si estamos en la semana 1, necesitamos la última semana del mes anterior
+  if (currentWeekNumber === 1) {
+    const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+    const prevYear = currentMonth === 1 ? currentYear - 1 : currentYear;
+    return { year: prevYear, month: prevMonth };
+  }
+  
+  // Si estamos en la semana 2 o más, necesitamos la semana anterior del mes actual
+  return { year: currentYear, month: currentMonth };
+};
+
+// Función helper para obtener información de semanas activas (necesaria para el cálculo)
+const getActiveWeeksInfo = (year: number, month: number) => {
+  const firstDayOfMonth = new Date(year, month - 1, 1);
+  const lastDayOfMonth = new Date(year, month, 0);
+
+  // Generar todas las semanas que tocan el mes
+  const weeks: Array<{ start: Date, end: Date, weekNumber: number }> = [];
+  let currentDate = new Date(firstDayOfMonth);
+
+  // Retroceder hasta encontrar el primer lunes antes del mes
+  while (currentDate.getDay() !== 1) { // 1 = lunes
+    currentDate.setDate(currentDate.getDate() - 1);
+  }
+
+  let weekNumber = 1;
+
+  // Generar semanas hasta cubrir todo el mes
+  while (currentDate <= lastDayOfMonth) {
+    const weekStart = new Date(currentDate);
+    const weekEnd = new Date(currentDate);
+    weekEnd.setDate(weekEnd.getDate() + 6); // Lunes a domingo
+    weekEnd.setHours(23, 59, 59, 999);
+
+    // Contar días de trabajo (lunes-sábado) que pertenecen al mes
+    let workDaysInMonth = 0;
+    let tempDate = new Date(weekStart);
+
+    for (let i = 0; i < 6; i++) { // 6 días de trabajo
+      if (tempDate.getMonth() === month - 1) {
+        workDaysInMonth++;
+      }
+      tempDate.setDate(tempDate.getDate() + 1);
+    }
+
+    // La semana pertenece al mes que tiene más días activos
+    // Si hay empate (3-3), la semana va al mes que tiene el lunes
+    if (workDaysInMonth > 3 || (workDaysInMonth === 3 && weekStart.getMonth() === month - 1)) {
+      weeks.push({
+        start: new Date(weekStart),
+        end: new Date(weekEnd),
+        weekNumber
+      });
+      weekNumber++;
+    }
+
+    currentDate.setDate(currentDate.getDate() + 7);
+  }
+
+  return weeks;
+};
+
 // Interfaz para la configuración del reporte
 interface ReportConfig {
   id: string;
@@ -9,6 +89,41 @@ interface ReportConfig {
   routes: any[];
   recipients: any[];
 }
+
+// Función para generar reporte de cobranza con semana anterior
+const generateCobranzaReport = async (prisma: any, routeId: string) => {
+  try {
+    // Calcular la semana anterior
+    const previousWeek = calculatePreviousWeek();
+    
+    console.log(`📊 [CRON] Generando reporte de cobranza para semana anterior:`, {
+      year: previousWeek.year,
+      month: previousWeek.month,
+      routeId
+    });
+
+    // Llamar a la query getActiveLoansReport con la semana anterior
+    const reportData = await prisma.$queryRaw`
+      SELECT * FROM getActiveLoansReport(${routeId}, ${previousWeek.year}, ${previousWeek.month}, true)
+    `;
+
+    return {
+      success: true,
+      data: reportData,
+      weekInfo: {
+        year: previousWeek.year,
+        month: previousWeek.month,
+        monthName: new Date(previousWeek.year, previousWeek.month - 1).toLocaleString('es-ES', { month: 'long' })
+      }
+    };
+  } catch (error) {
+    console.error('❌ [CRON] Error generando reporte de cobranza:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    };
+  }
+};
 
 // Función para enviar reporte a Telegram (replica la lógica del frontend)
 export const sendCronReportToTelegram = async (
@@ -30,8 +145,52 @@ export const sendCronReportToTelegram = async (
     // Crear instancia del servicio de Telegram
     const telegramService = new TelegramService({ botToken, chatId });
     
+    // Para reporte de cobranza, generar con semana anterior
+    if (reportType === 'reporte_cobranza') {
+      console.log(`📊 [CRON] Generando reporte de cobranza con semana anterior...`);
+      
+      try {
+        // Obtener la primera ruta configurada o usar todas
+        const routeId = reportConfig.routes?.length > 0 ? reportConfig.routes[0].id : 'all';
+        
+        // Generar el reporte de cobranza
+        const cobranzaReport = await generateCobranzaReport(prisma, routeId);
+        
+        if (cobranzaReport.success && cobranzaReport.weekInfo) {
+          const weekInfo = cobranzaReport.weekInfo;
+          const message = `📊 <b>REPORTE AUTOMÁTICO - COBRANZA</b>\n\n` +
+            `📅 Semana mostrada: ${weekInfo.monthName} ${weekInfo.year}\n` +
+            `🛣️ Ruta: ${reportConfig.routes?.length > 0 ? reportConfig.routes[0].name : 'Todas'}\n` +
+            `📈 Datos: ${JSON.stringify(cobranzaReport.data).length} caracteres\n\n` +
+            `✅ Reporte generado automáticamente el ${new Date().toLocaleString('es-ES')}\n` +
+            `🤖 Enviado por el sistema de cron`;
+          
+          const result = await telegramService.sendHtmlMessage(chatId, message);
+          return result.ok || false;
+        } else {
+          const errorMessage = `📊 <b>REPORTE AUTOMÁTICO - COBRANZA</b>\n\n` +
+            `❌ Error generando reporte: ${cobranzaReport.error}\n` +
+            `📅 Generado: ${new Date().toLocaleString('es-ES')}\n\n` +
+            `🤖 Enviado automáticamente por el sistema de cron`;
+          
+          const result = await telegramService.sendHtmlMessage(chatId, errorMessage);
+          return result.ok || false;
+        }
+        
+      } catch (error) {
+        console.error(`❌ [CRON] Error generando reporte de cobranza:`, error);
+        
+        const errorMessage = `📊 <b>REPORTE AUTOMÁTICO - COBRANZA</b>\n\n` +
+          `❌ Error: ${error instanceof Error ? error.message : 'Error desconocido'}\n` +
+          `📅 Generado: ${new Date().toLocaleString('es-ES')}\n\n` +
+          `🤖 Enviado automáticamente por el sistema de cron`;
+        
+        const result = await telegramService.sendHtmlMessage(chatId, errorMessage);
+        return result.ok || false;
+      }
+    }
     // Para créditos con errores, generar y enviar PDF REAL usando función unificada
-    if (reportType === 'creditos_con_errores') {
+    else if (reportType === 'creditos_con_errores') {
       console.log(`📊 [CRON] Generando reporte de créditos con errores usando función unificada...`);
       
       try {
