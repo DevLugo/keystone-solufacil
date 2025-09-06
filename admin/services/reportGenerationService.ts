@@ -30,6 +30,8 @@ interface ReportContext {
 }
 
 // ✅ FUNCIÓN UNIFICADA PARA GENERAR REPORTE DE CRÉDITOS CON DOCUMENTOS CON ERROR
+// IMPORTANTE: Esta función solo incluye clientes que tienen documentos con problemas EXPLÍCITOS
+// marcados con isError=true o isMissing=true. NO incluye clientes sin documentos.
 export async function generateCreditsWithDocumentErrorsReport(
   context: ReportContext,
   routeIds: string[] = []
@@ -117,24 +119,29 @@ export async function generateCreditsWithDocumentErrorsReport(
       
       // Analizar documentos del cliente
       const clientDocuments = credit.documentPhotos || [];
-      const clientDocErrors = clientDocuments.filter((doc: DocumentPhoto) => doc.isError);
+      const clientDocErrors = clientDocuments.filter((doc: DocumentPhoto) => doc.isError === true);
       
       // Verificar documentos faltantes del cliente
       // Usar campo isMissing en lugar de comparar tipos
-      const clientMissingDocs = clientDocuments.filter((doc: DocumentPhoto) => doc.isMissing);
+      const clientMissingDocs = clientDocuments.filter((doc: DocumentPhoto) => doc.isMissing === true);
       
       
       // Analizar documentos del aval (si existe)
       const avalDocuments = credit.collaterals?.[0]?.documentPhotos || [];
-      const avalDocErrors = avalDocuments.filter((doc: DocumentPhoto) => doc.isError);
-      const avalMissingDocs = avalDocuments.filter((doc: DocumentPhoto) => doc.isMissing);
+      const avalDocErrors = avalDocuments.filter((doc: DocumentPhoto) => doc.isError === true);
+      const avalMissingDocs = avalDocuments.filter((doc: DocumentPhoto) => doc.isMissing === true);
       
       
-      // Solo incluir si hay problemas
+      // Solo incluir si hay problemas EXPLÍCITOS (isError=true o isMissing=true)
+      // NO incluir clientes sin documentos o con documentos sin problemas marcados
       const hasClientProblems = clientDocErrors.length > 0 || clientMissingDocs.length > 0;
       const hasAvalProblems = avalDocErrors.length > 0 || avalMissingDocs.length > 0;
       
-      if (hasClientProblems || hasAvalProblems) {
+      // Verificación adicional: asegurar que solo se incluyan clientes con documentos que tienen problemas marcados
+      const hasAnyDocumentsWithProblems = clientDocuments.some((doc: DocumentPhoto) => doc.isError === true || doc.isMissing === true) ||
+                                         avalDocuments.some((doc: DocumentPhoto) => doc.isError === true || doc.isMissing === true);
+      
+      if (hasAnyDocumentsWithProblems) {
         console.log(`📋 Crédito con problemas encontrado: ${credit.id} - Cliente: ${clientName}`);
         
         // Agregar fila para problemas del cliente
