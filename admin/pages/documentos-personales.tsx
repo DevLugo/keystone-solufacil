@@ -551,12 +551,21 @@ export default function DocumentosPersonalesPage() {
   // Función para manejar el estado de faltante del documento
   const handleDocumentMissing = async (documentId: string, isMissing: boolean) => {
     try {
-      await updateDocumentPhotoMissing({
-        variables: { 
-          id: documentId, 
-          isMissing
-        }
-      });
+      if (isMissing) {
+        // Marcar como faltante
+        await updateDocumentPhotoMissing({
+          variables: { 
+            id: documentId, 
+            isMissing: true
+          }
+        });
+      } else {
+        // Si se quita el estado de faltante, eliminar el documento
+        // porque un documento no faltante sin foto no debería existir
+        await deleteDocumentPhoto({
+          variables: { id: documentId }
+        });
+      }
 
       // Refrescar datos
       refetch();
