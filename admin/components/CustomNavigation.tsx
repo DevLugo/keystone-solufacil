@@ -127,22 +127,21 @@ export function CustomNavigation({ authenticatedItem, lists }: NavigationProps) 
             },
             body: JSON.stringify({
               query: `
-                query GetCurrentUser($id: ID!) {
-                  user(where: { id: $id }) {
-                    id
-                    role
+                query GetCurrentUser {
+                  authenticatedItem {
+                    ... on User {
+                      id
+                      role
+                    }
                   }
                 }
-              `,
-              variables: {
-                id: authenticatedItem.id
-              }
+              `
             })
           });
 
           const result = await response.json();
-          if (result.data?.user?.role) {
-            setUserRole(result.data.user.role);
+          if (result.data?.authenticatedItem?.role) {
+            setUserRole(result.data.authenticatedItem.role);
           }
         } catch (error) {
           console.error('Error fetching user role:', error);

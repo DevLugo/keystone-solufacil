@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 
 interface User {
   id: string;
+  name: string;
   role: string;
+  createdAt: string;
 }
 
 export function useAuth() {
@@ -12,6 +14,7 @@ export function useAuth() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
+        // Usar la API de Keystone para obtener el usuario actual de la sesión
         const response = await fetch('/api/graphql', {
           method: 'POST',
           headers: {
@@ -20,9 +23,13 @@ export function useAuth() {
           body: JSON.stringify({
             query: `
               query GetCurrentUser {
-                users {
-                  id
-                  role
+                authenticatedItem {
+                  ... on User {
+                    id
+                    name
+                    role
+                    createdAt
+                  }
                 }
               }
             `
@@ -30,8 +37,8 @@ export function useAuth() {
         });
 
         const result = await response.json();
-        if (result.data?.users?.[0]) {
-          setUser(result.data.users[0]);
+        if (result.data?.authenticatedItem) {
+          setUser(result.data.authenticatedItem);
         }
         setLoading(false);
       } catch (error) {

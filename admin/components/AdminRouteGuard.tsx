@@ -14,31 +14,32 @@ export default function AdminRouteGuard({ children, pageTitle = "Página Adminis
 
   // Verificar rol del usuario al cargar la página
   useEffect(() => {
-    const checkUserRole = async () => {
-      try {
-        // Obtener el ID del usuario desde la sesión actual
-        const response = await fetch('/api/graphql', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            query: `
-              query GetCurrentUser {
-                users {
-                  id
-                  role
+      const checkUserRole = async () => {
+        try {
+          // Usar la API de Keystone para obtener el usuario actual de la sesión
+          const response = await fetch('/api/graphql', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              query: `
+                query GetCurrentUser {
+                  authenticatedItem {
+                    ... on User {
+                      id
+                      role
+                    }
+                  }
                 }
-              }
-            `
-          })
-        });
+              `
+            })
+          });
 
-        const result = await response.json();
-        // Tomar el primer usuario (asumiendo que es el usuario actual)
-        if (result.data?.users?.[0]?.role) {
-          setUserRole(result.data.users[0].role);
-        }
+          const result = await response.json();
+          if (result.data?.authenticatedItem?.role) {
+            setUserRole(result.data.authenticatedItem.role);
+          }
         setIsLoadingRole(false);
       } catch (error) {
         console.error('Error fetching user role:', error);
@@ -77,6 +78,9 @@ export default function AdminRouteGuard({ children, pageTitle = "Página Adminis
           </Box>
           <Box css={{ fontSize: '16px', color: '#7f1d1d' }}>
             No tienes permisos para acceder a esta página. Solo los administradores pueden acceder a páginas administrativas.
+          </Box>
+          <Box css={{ fontSize: '14px', color: '#991b1b', marginTop: '16px' }}>
+            Rol actual: {userRole}
           </Box>
         </Box>
       </PageContainer>
