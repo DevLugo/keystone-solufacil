@@ -1,6 +1,20 @@
 import PDFDocument from 'pdfkit';
 
 // ✅ INTERFACES TIPADAS
+interface DocumentPhoto {
+  id: string;
+  title: string;
+  description?: string;
+  photoUrl?: string;
+  publicId?: string;
+  documentType: 'INE' | 'DOMICILIO' | 'PAGARE' | 'OTRO';
+  isError: boolean;
+  errorDescription?: string;
+  isMissing: boolean;
+  personalData?: any;
+  loan?: any;
+}
+
 interface DocumentErrorData {
   locality: string;
   routeName: string;
@@ -103,18 +117,18 @@ export async function generateCreditsWithDocumentErrorsReport(
       
       // Analizar documentos del cliente
       const clientDocuments = credit.documentPhotos || [];
-      const clientDocErrors = clientDocuments.filter(doc => doc.isError);
+      const clientDocErrors = clientDocuments.filter((doc: DocumentPhoto) => doc.isError);
       
       // Verificar documentos faltantes del cliente
-      const requiredDocTypes = ['INE', 'DOMICILIO', 'PAGARE'];
-      const clientAvailableTypes = clientDocuments.map(doc => doc.documentType);
-      const clientMissingDocs = requiredDocTypes.filter(type => !clientAvailableTypes.includes(type));
+      // Usar campo isMissing en lugar de comparar tipos
+      const clientMissingDocs = clientDocuments.filter((doc: DocumentPhoto) => doc.isMissing);
+      
       
       // Analizar documentos del aval (si existe)
       const avalDocuments = credit.collaterals?.[0]?.documentPhotos || [];
-      const avalDocErrors = avalDocuments.filter(doc => doc.isError);
-      const avalAvailableTypes = avalDocuments.map(doc => doc.documentType);
-      const avalMissingDocs = requiredDocTypes.filter(type => !avalAvailableTypes.includes(type));
+      const avalDocErrors = avalDocuments.filter((doc: DocumentPhoto) => doc.isError);
+      const avalMissingDocs = avalDocuments.filter((doc: DocumentPhoto) => doc.isMissing);
+      
       
       // Solo incluir si hay problemas
       const hasClientProblems = clientDocErrors.length > 0 || clientMissingDocs.length > 0;
@@ -125,12 +139,12 @@ export async function generateCreditsWithDocumentErrorsReport(
         
         // Agregar fila para problemas del cliente
         if (hasClientProblems) {
-          const errorDescriptions = clientDocErrors.map(doc => `${doc.documentType} con error`);
-          const missingDescriptions = clientMissingDocs.map(type => `${type} faltante`);
+          const errorDescriptions = clientDocErrors.map((doc: DocumentPhoto) => `${doc.documentType} con error: ${doc.errorDescription || "Sin descripción"}`);
+          const missingDescriptions = clientMissingDocs.map((doc: DocumentPhoto) => `${doc.documentType} faltante`);
           const allProblems = [...errorDescriptions, ...missingDescriptions];
           
           const detailedObservations = clientDocErrors
-            .map(doc => doc.errorDescription)
+            .map((doc: DocumentPhoto) => `${doc.documentType}: ${doc.errorDescription}`)
             .filter(Boolean)
             .join('; ') || 'Sin observaciones específicas';
           
@@ -148,12 +162,12 @@ export async function generateCreditsWithDocumentErrorsReport(
         // Agregar fila para problemas del aval
         if (hasAvalProblems && credit.collaterals?.[0]) {
           const avalName = credit.collaterals[0].fullName || 'Aval sin nombre';
-          const avalErrorDescriptions = avalDocErrors.map(doc => `${doc.documentType} con error`);
-          const avalMissingDescriptions = avalMissingDocs.map(type => `${type} faltante`);
+          const avalErrorDescriptions = avalDocErrors.map((doc: DocumentPhoto) => `${doc.documentType} con error: ${doc.errorDescription || "Sin descripción"}`);
+          const avalMissingDescriptions = avalMissingDocs.map((doc: DocumentPhoto) => `${doc.documentType} faltante`);
           const allAvalProblems = [...avalErrorDescriptions, ...avalMissingDescriptions];
           
           const avalDetailedObservations = avalDocErrors
-            .map(doc => doc.errorDescription)
+            .map((doc: DocumentPhoto) => `${doc.documentType}: ${doc.errorDescription}`)
             .filter(Boolean)
             .join('; ') || 'Sin observaciones específicas';
           
