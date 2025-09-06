@@ -464,8 +464,10 @@ export const CreatePaymentForm = ({
     isEditing, showSuccessMessage, groupedPayments
   } = state;
 
-  // Estado separado para trackear pagos eliminados visualmente
-  const [deletedPaymentIds, setDeletedPaymentIds] = useState<string[]>([]);
+  // Estado separado para trackear pagos tachados (eliminados visualmente)
+  const [strikethroughPaymentIds, setStrikethroughPaymentIds] = useState<string[]>([]);
+  // Estado para trackear pagos nuevos tachados (por índice)
+  const [strikethroughNewPaymentIndices, setStrikethroughNewPaymentIndices] = useState<number[]>([]);
 
   const updateState = (updates: Partial<typeof state>) => {
     setState(prev => ({ ...prev, ...updates }));
@@ -518,17 +520,17 @@ export const CreatePaymentForm = ({
       // Combinar ambos tipos de pagos
       const allPayments = [...regularPayments, ...markedMigratedPayments];
 
-      // ✅ AGREGAR: Cargar comisiones por defecto automáticamente
+      // ✅ AGREGAR: Cargar comisiones por defecto automáticamente y asegurar tipo 'PAYMENT'
       const paymentsWithDefaultCommissions = allPayments.map((payment: any) => {
         const defaultCommission = payment.loan?.loantype?.loanPaymentComission;
         
-        if (defaultCommission && parseFloat(defaultCommission) > 0) {
-          return {
-            ...payment,
+        return {
+          ...payment,
+          type: 'PAYMENT', // ✅ Siempre tipo 'PAYMENT' (abono)
+          ...(defaultCommission && parseFloat(defaultCommission) > 0 ? {
             comission: Math.round(parseFloat(defaultCommission))
-          };
-        }
-        return payment;
+          } : {})
+        };
       });
       
       // ✅ AGREGAR: Ordenar abonos por fecha de creación del crédito (más viejo primero)
@@ -687,9 +689,9 @@ export const CreatePaymentForm = ({
 
   const handleSaveAllChanges = async () => {
     try {
-      // Agrupar los pagos por leadPaymentReceived (excluyendo los eliminados y migrados)
+      // Agrupar los pagos por leadPaymentReceived (excluyendo los tachados y migrados)
       const paymentsByLeadPayment = existingPayments
-        .filter((payment: any) => !deletedPaymentIds.includes(payment.id) && !payment.isMigrated)
+        .filter((payment: any) => !strikethroughPaymentIds.includes(payment.id) && !payment.isMigrated)
         .reduce((acc: Record<string, {
           payments: Array<{
             amount: number;
@@ -795,7 +797,9 @@ export const CreatePaymentForm = ({
       
       // Calcular el total esperado
       const expectedAmount = payments.length > 0
-        ? payments.reduce((sum, payment) => sum + parseFloat(payment.amount || '0'), 0)
+        ? payments
+            .filter((_, index) => !strikethroughNewPaymentIndices.includes(index))
+            .reduce((sum, payment) => sum + parseFloat(payment.amount || '0'), 0)
         : state.groupedPayments 
           ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0
           : 0;
@@ -815,13 +819,15 @@ export const CreatePaymentForm = ({
             agentId: selectedLead.id,
             leadId: selectedLead.id,
             paymentDate: selectedDate.toISOString(),
-            payments: payments.map(payment => ({
-              amount: parseFloat(payment.amount),
-              comission: parseFloat(payment.comission.toString()),
-              loanId: payment.loanId,
-              type: payment.type,
-              paymentMethod: payment.paymentMethod
-            }))
+            payments: payments
+              .filter((_, index) => !strikethroughNewPaymentIndices.includes(index))
+              .map(payment => ({
+                amount: parseFloat(payment.amount),
+                comission: parseFloat(payment.comission.toString()),
+                loanId: payment.loanId,
+                type: payment.type,
+                paymentMethod: payment.paymentMethod
+              }))
           }
         });
       }
@@ -996,8 +1002,10 @@ export const CreatePaymentForm = ({
   };
 
   const totalAmount = useMemo(() => {
-    return payments.reduce((sum, payment) => sum + parseFloat(payment.amount || '0'), 0);
-  }, [payments]);
+    return payments
+      .filter((_, index) => !strikethroughNewPaymentIndices.includes(index))
+      .reduce((sum, payment) => sum + parseFloat(payment.amount || '0'), 0);
+  }, [payments, strikethroughNewPaymentIndices]);
 
   useEffect(() => {
     updateState({
@@ -1018,27 +1026,29 @@ export const CreatePaymentForm = ({
   }, [payments]);
   
   const totalComission = useMemo(() => {
-    return payments.reduce((sum, payment) => sum + parseFloat(payment.comission.toString() || '0'), 0);
-  }, [payments]);
+    return payments
+      .filter((_, index) => !strikethroughNewPaymentIndices.includes(index))
+      .reduce((sum, payment) => sum + parseFloat(payment.comission.toString() || '0'), 0);
+  }, [payments, strikethroughNewPaymentIndices]);
 
-  // Calcular totales de pagos existentes (considerando ediciones y eliminaciones, incluyendo migrados)
+  // Calcular totales de pagos existentes (considerando ediciones y tachados, incluyendo migrados)
   const totalExistingAmount = useMemo(() => {
     return existingPayments
-      .filter((payment: any) => !deletedPaymentIds.includes(payment.id))
+      .filter((payment: any) => !strikethroughPaymentIds.includes(payment.id))
       .reduce((sum: number, payment: any) => {
         const editedPayment = editedPayments[payment.id] || payment;
         return sum + parseFloat(editedPayment.amount || '0');
       }, 0);
-  }, [existingPayments, editedPayments, deletedPaymentIds]);
+  }, [existingPayments, editedPayments, strikethroughPaymentIds]);
 
   const totalExistingComission = useMemo(() => {
     return existingPayments
-      .filter((payment: any) => !deletedPaymentIds.includes(payment.id))
+      .filter((payment: any) => !strikethroughPaymentIds.includes(payment.id))
       .reduce((sum: number, payment: any) => {
         const editedPayment = editedPayments[payment.id] || payment;
         return sum + parseFloat(editedPayment.comission || '0');
       }, 0);
-  }, [existingPayments, editedPayments, deletedPaymentIds]);
+  }, [existingPayments, editedPayments, strikethroughPaymentIds]);
 
   // Total general (nuevos + existentes)
   const grandTotalAmount = useMemo(() => {
@@ -1049,10 +1059,10 @@ export const CreatePaymentForm = ({
     return totalComission + totalExistingComission;
   }, [totalComission, totalExistingComission]);
 
-  // Contar pagos existentes (considerando eliminaciones)
+  // Contar pagos existentes (considerando tachados)
   const existingPaymentsCount = useMemo(() => {
-    return existingPayments.filter((payment: any) => !deletedPaymentIds.includes(payment.id)).length;
-  }, [existingPayments, deletedPaymentIds]);
+    return existingPayments.filter((payment: any) => !strikethroughPaymentIds.includes(payment.id)).length;
+  }, [existingPayments, strikethroughPaymentIds]);
 
 
 
@@ -1180,14 +1190,14 @@ export const CreatePaymentForm = ({
                     fontSize: '16px',
                     marginBottom: '4px',
                   }}>
-                    HISTORIAL DE FALCOS - TODOS COMPENSADOS
+                    HISTORIAL DE FALTAS - TODAS COMPENSADAS
                   </div>
                   <div style={{
                     color: '#065F46',
                     fontSize: '14px',
                     lineHeight: '1.4',
                   }}>
-                    {completedFalcos.length} falco(s) completamente compensados. 
+                    {completedFalcos.length} falta(s) completamente compensada(s). 
                     Total compensado histórico: ${totalCompensatedAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </div>
                 </div>
@@ -1229,7 +1239,7 @@ export const CreatePaymentForm = ({
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
                           <div style={{ fontSize: '12px', fontWeight: '600', color: '#059669' }}>
-                            ✅ Falco #{index + 1} - {new Date(falco.createdAt).toLocaleDateString('es-MX')}
+                            ✅ Falta #{index + 1} - {new Date(falco.createdAt).toLocaleDateString('es-MX')}
                           </div>
                           <div style={{ fontSize: '11px', color: '#065F46' }}>
                             Agente: {falco.agent?.personalData?.fullName}
@@ -1265,7 +1275,7 @@ export const CreatePaymentForm = ({
                   size="small"
                   onClick={() => updateState({ isCreateFalcoModalOpen: true })}
                 >
-                  ⚠️ Reportar Nuevo Falco
+                  ⚠️ Reportar Nueva Falta
                 </Button>
               </div>
             </div>
@@ -1291,14 +1301,14 @@ export const CreatePaymentForm = ({
                     fontSize: '16px',
                     marginBottom: '4px',
                   }}>
-                    FALCOS PENDIENTES DETECTADOS
+                    FALTAS PENDIENTES DETECTADAS
                   </div>
                   <div style={{
                     color: '#991B1B',
                     fontSize: '14px',
                     lineHeight: '1.4',
                   }}>
-                    {pendingFalcos.length} falco(s) pendientes
+                    {pendingFalcos.length} falta(s) pendiente(s)
                     {completedFalcos.length > 0 && `, ${completedFalcos.length} completados en historial`}
                     <br />Total pendiente: ${totalPendingAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     {completedFalcos.length > 0 && ` | Histórico compensado: $${totalCompensatedAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
@@ -1334,7 +1344,7 @@ export const CreatePaymentForm = ({
                   size="small"
                   onClick={() => updateState({ isCreateFalcoModalOpen: true })}
                 >
-                  ⚠️ Reportar Nuevo Falco
+                  ⚠️ Reportar Nueva Falta
                 </Button>
               </div>
             </div>
@@ -1424,7 +1434,7 @@ export const CreatePaymentForm = ({
         {/* Stats Grid */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(5, 1fr)',
+          gridTemplateColumns: 'repeat(6, 1fr)',
           gap: '1px',
           background: '#E2E8F0',
           borderRadius: '8px',
@@ -1455,7 +1465,7 @@ export const CreatePaymentForm = ({
               color: '#6B7280',
               marginBottom: '4px',
             }}>
-              TOTAL DE PAGOS
+              TOTAL CLIENTES
             </div>
             <div style={{
               fontSize: '20px',
@@ -1465,7 +1475,7 @@ export const CreatePaymentForm = ({
               lineHeight: '1',
               marginBottom: '2px',
             }}>
-              {existingPaymentsCount + payments.length}
+              {loansData?.loans?.length || 0}
             </div>
             <div style={{
               fontSize: '12px',
@@ -1474,7 +1484,7 @@ export const CreatePaymentForm = ({
               alignItems: 'center',
               gap: '4px',
             }}>
-              <span>{existingPaymentsCount} registrados + {payments.length} nuevos</span>
+              <span>Clientes activos en la ruta</span>
             </div>
           </div>
 
@@ -1511,11 +1521,11 @@ export const CreatePaymentForm = ({
               lineHeight: '1',
               marginBottom: '2px',
             }}>
-              {payments.length}
+              {payments.length - strikethroughNewPaymentIndices.length}
             </div>
             <div style={{
               fontSize: '12px',
-              color: '#6B7280',
+              color: '#0052CC',
               display: 'flex',
               alignItems: 'center',
               gap: '4px',
@@ -1542,12 +1552,21 @@ export const CreatePaymentForm = ({
               opacity: 0.1,
             }} />
             <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '2px',
+              background: '#EF4444',
+              opacity: 0.1,
+            }} />
+            <div style={{
               fontSize: '12px',
               fontWeight: '500',
               color: '#6B7280',
               marginBottom: '4px',
             }}>
-              TOTAL PAGADO
+              FALTAS
             </div>
             <div style={{
               fontSize: '20px',
@@ -1557,19 +1576,36 @@ export const CreatePaymentForm = ({
               lineHeight: '1',
               marginBottom: '2px',
             }}>
-              ${grandTotalAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {(() => {
+                // Falcos pendientes
+                let pendingFalcos = 0;
+                if (falcosData?.leadPaymentReceiveds && falcosData.leadPaymentReceiveds.length > 0) {
+                  pendingFalcos = falcosData.leadPaymentReceiveds.filter((falco: any) => {
+                    const falcoAmount = parseFloat(falco.falcoAmount || '0');
+                    const compensatedAmount = falco.falcoCompensatoryPayments?.reduce((sum: number, comp: any) => 
+                      sum + parseFloat(comp.amount || '0'), 0) || 0;
+                    return (falcoAmount - compensatedAmount) > 0;
+                  }).length;
+                }
+                
+                // Pagos tachados (existentes + nuevos)
+                const tachadosCount = strikethroughPaymentIds.length + strikethroughNewPaymentIndices.length;
+                
+                return pendingFalcos + tachadosCount;
+              })()}
             </div>
             <div style={{
               fontSize: '12px',
-              color: '#6B7280',
+              color: '#EF4444',
               display: 'flex',
               alignItems: 'center',
               gap: '4px',
             }}>
-              <span>${totalExistingAmount.toFixed(2)} registrados + ${totalAmount.toFixed(2)} nuevos</span>
+              <span>Faltas</span>
             </div>
           </div>
 
+          {/* Cuarta columna - Comisiones */}
           <div style={{
             display: 'flex',
             flexDirection: 'column' as const,
@@ -1584,7 +1620,7 @@ export const CreatePaymentForm = ({
               left: 0,
               right: 0,
               height: '2px',
-              background: '#0052CC',
+              background: '#8B5CF6',
               opacity: 0.1,
             }} />
             <div style={{
@@ -1593,7 +1629,7 @@ export const CreatePaymentForm = ({
               color: '#6B7280',
               marginBottom: '4px',
             }}>
-              COMISIÓN TOTAL
+              COMISIONES
             </div>
             <div style={{
               fontSize: '20px',
@@ -1607,16 +1643,120 @@ export const CreatePaymentForm = ({
             </div>
             <div style={{
               fontSize: '12px',
-              color: '#6B7280',
+              color: '#8B5CF6',
               display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
+              flexDirection: 'column',
+              gap: '2px',
             }}>
-              <span>${totalExistingComission.toFixed(2)} registradas + ${totalComission.toFixed(2)} nuevas</span>
+              {(() => {
+                // Calcular desglose de comisiones por tipo
+                const commissionBreakdown: { [key: string]: { count: number, amount: number } } = {};
+                
+                // Procesar pagos existentes
+                existingPayments
+                  .filter((payment: any) => !strikethroughPaymentIds.includes(payment.id))
+                  .forEach((payment: any) => {
+                    const editedPayment = editedPayments[payment.id] || payment;
+                    const commission = parseFloat(editedPayment.comission || '0');
+                    const key = commission.toString();
+                    if (!commissionBreakdown[key]) {
+                      commissionBreakdown[key] = { count: 0, amount: 0 };
+                    }
+                    commissionBreakdown[key].count += 1;
+                    commissionBreakdown[key].amount += commission;
+                  });
+                
+                // Procesar pagos nuevos
+                payments
+                  .filter((_, index) => !strikethroughNewPaymentIndices.includes(index))
+                  .forEach((payment) => {
+                    const commission = parseFloat(payment.comission?.toString() || '0');
+                    const key = commission.toString();
+                    if (!commissionBreakdown[key]) {
+                      commissionBreakdown[key] = { count: 0, amount: 0 };
+                    }
+                    commissionBreakdown[key].count += 1;
+                    commissionBreakdown[key].amount += commission;
+                  });
+                
+                // Ordenar por comisión (mayor a menor) y mostrar los más relevantes
+                const sortedBreakdown = Object.entries(commissionBreakdown)
+                  .sort(([,a], [,b]) => b.amount - a.amount)
+                  .slice(0, 3); // Mostrar máximo 3 tipos
+                
+                return sortedBreakdown.map(([commission, data]) => {
+                  const isZeroCommission = parseFloat(commission) === 0;
+                  return (
+                    <span 
+                      key={commission}
+                      style={{
+                        backgroundColor: isZeroCommission ? '#FEF3C7' : 'transparent',
+                        color: isZeroCommission ? '#D97706' : '#8B5CF6',
+                        padding: isZeroCommission ? '2px 4px' : '0',
+                        borderRadius: isZeroCommission ? '3px' : '0',
+                        fontSize: isZeroCommission ? '11px' : '12px',
+                        fontWeight: isZeroCommission ? '500' : 'normal',
+                        display: 'inline-block',
+                        marginBottom: '1px'
+                      }}
+                    >
+                      {data.count}x{commission}: ${data.amount.toFixed(2)}
+                    </span>
+                  );
+                });
+              })()}
             </div>
           </div>
 
-          {/* Quinta tarjeta - Cambiar Fecha */}
+          {/* Quinta columna - Dinero Total Recibido */}
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column' as const,
+            background: 'white',
+            padding: '12px',
+            position: 'relative',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '2px',
+              background: '#059669',
+              opacity: 0.1,
+            }} />
+            <div style={{
+              fontSize: '12px',
+              fontWeight: '500',
+              color: '#6B7280',
+              marginBottom: '4px',
+            }}>
+              DINERO TOTAL
+            </div>
+            <div style={{
+              fontSize: '20px',
+              fontWeight: '600',
+              color: '#111827',
+              letterSpacing: '-0.02em',
+              lineHeight: '1',
+              marginBottom: '2px',
+            }}>
+              ${grandTotalAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <div style={{
+              fontSize: '12px',
+              color: '#059669',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '2px',
+            }}>
+              <span>${totalExistingAmount.toFixed(2)} registrados</span>
+              <span>${totalAmount.toFixed(2)} nuevos</span>
+            </div>
+          </div>
+
+          {/* Sexta columna - Cambiar Fecha (siempre al final) */}
           <DateMover
             type="payments"
             selectedDate={selectedDate}
@@ -1631,7 +1771,8 @@ export const CreatePaymentForm = ({
                 groupedPayments: undefined,
                 existingPayments: [] // Forzar limpieza de pagos existentes
               }));
-              setDeletedPaymentIds([]);
+              setStrikethroughPaymentIds([]);
+              setStrikethroughNewPaymentIndices([]);
               
               // Forzar recarga de datos con refetch y cache eviction
               try {
@@ -1649,7 +1790,7 @@ export const CreatePaymentForm = ({
                 console.error('Error al recargar datos después de mover pagos:', error);
               }
             }}
-            itemCount={existingPayments.filter(p => !deletedPaymentIds.includes(p.id)).length + payments.length}
+            itemCount={existingPayments.filter(p => !strikethroughPaymentIds.includes(p.id)).length + payments.length}
             label="pago(s)"
           />
         </div>
@@ -1736,7 +1877,7 @@ export const CreatePaymentForm = ({
           )}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 style={{ margin: 0, fontSize: '18px', color: '#333' }}>Todos los Pagos</h3>
+            <h3 style={{ margin: 0, fontSize: '18px', color: '#333' }}>Todos los Abonos</h3>
             <div style={{ display: 'flex', gap: '8px' }}>
               {isEditing ? (
                 <div style={{ display: 'flex', gap: '8px' }}>
@@ -1745,7 +1886,8 @@ export const CreatePaymentForm = ({
                     weight="bold"
                     onClick={() => {
                       setState(prev => ({ ...prev, editedPayments: {}, isEditing: false }));
-                      setDeletedPaymentIds([]); // Resetear eliminados al cancelar
+                      setStrikethroughPaymentIds([]); // Resetear tachados al cancelar
+                      setStrikethroughNewPaymentIndices([]); // Resetear tachados nuevos al cancelar
                     }}
                   >
                     Cancelar
@@ -1768,7 +1910,7 @@ export const CreatePaymentForm = ({
                       weight="bold"
                       onClick={() => setState(prev => ({ ...prev, isEditing: true }))}
                     >
-                      Editar Pagos
+                      Editar Abonos
                     </Button>
                   )}
                   <Button
@@ -1805,28 +1947,39 @@ export const CreatePaymentForm = ({
                 </th>
                 <th>Monto</th>
                 <th>Comisión</th>
-                <th>Tipo</th>
                 <th>Forma de Pago</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {/* Pagos Registrados */}
+              {/* Abonos Registrados */}
               {existingPayments
-                .filter((payment: any) => !deletedPaymentIds.includes(payment.id))
                 .map((payment, index) => {
                 const editedPayment = editedPayments[payment.id] || payment;
+                const isStrikethrough = strikethroughPaymentIds.includes(payment.id);
+                const hasZeroCommission = parseFloat(editedPayment.comission || '0') === 0;
+                console.log(`Pago ${payment.id}: isStrikethrough=${isStrikethrough}, hasZeroCommission=${hasZeroCommission}, strikethroughPaymentIds=`, strikethroughPaymentIds);
+                
                 return (
-                  <tr key={`existing-${payment.id}`} style={{ backgroundColor: '#f8fafc' }}>
+                  <tr key={`existing-${payment.id}`} style={{ 
+                    backgroundColor: isStrikethrough ? '#fee2e2' : (hasZeroCommission ? '#FEF3C7' : '#f8fafc'),
+                    opacity: isStrikethrough ? 0.7 : 1,
+                    borderLeft: isStrikethrough ? '4px solid #ef4444' : (hasZeroCommission ? '4px solid #D97706' : 'none')
+                  }}>
                     <td style={{ 
                       textAlign: 'center',
                       fontWeight: 'bold',
-                      color: '#6B7280',
-                      fontSize: '14px'
+                      color: isStrikethrough ? '#dc2626' : '#6B7280',
+                      fontSize: '14px',
+                      textDecoration: isStrikethrough ? 'line-through' : 'none'
                     }}>
                       {index + 1}
                     </td>
-                    <td>
+                    <td style={{
+                      textDecoration: isStrikethrough ? 'line-through' : 'none',
+                      color: isStrikethrough ? '#dc2626' : 'inherit',
+                      fontWeight: isStrikethrough ? '500' : 'inherit'
+                    }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         {payment.isMigrated ? (
                           <>
@@ -1902,8 +2055,18 @@ export const CreatePaymentForm = ({
                         )}
                       </div>
                     </td>
-                    <td>{payment.loan?.borrower?.personalData?.fullName}</td>
-                    <td>
+                    <td style={{
+                      textDecoration: isStrikethrough ? 'line-through' : 'none',
+                      color: isStrikethrough ? '#dc2626' : 'inherit',
+                      fontWeight: isStrikethrough ? '500' : 'inherit'
+                    }}>
+                      {payment.loan?.borrower?.personalData?.fullName}
+                    </td>
+                    <td style={{
+                      textDecoration: isStrikethrough ? 'line-through' : 'none',
+                      color: isStrikethrough ? '#dc2626' : 'inherit',
+                      fontWeight: isStrikethrough ? '500' : 'inherit'
+                    }}>
                       {payment.loan?.signDate ? 
                         new Date(payment.loan.signDate).toLocaleDateString('es-MX', {
                           year: 'numeric',
@@ -1913,26 +2076,41 @@ export const CreatePaymentForm = ({
                         '-'
                       }
                     </td>
-                    <td>
+                    <td style={{
+                      textDecoration: isStrikethrough ? 'line-through' : 'none',
+                      color: isStrikethrough ? '#dc2626' : 'inherit',
+                      fontWeight: isStrikethrough ? '500' : 'inherit'
+                    }}>
                       {isEditing && !payment.isMigrated ? (
                         <TextInput
                           type="number"
                           value={editedPayment.amount}
                           onChange={e => handleEditExistingPayment(payment.id, 'amount', e.target.value)}
+                          disabled={isStrikethrough}
                         />
                       ) : (
-                        <span style={payment.isMigrated ? { color: '#6B7280', fontStyle: 'italic' } : {}}>
+                        <span style={{
+                          ...(payment.isMigrated ? { color: '#6B7280', fontStyle: 'italic' } : {}),
+                          textDecoration: isStrikethrough ? 'line-through' : 'none',
+                          color: isStrikethrough ? '#dc2626' : (payment.isMigrated ? '#6B7280' : 'inherit'),
+                          fontWeight: isStrikethrough ? '500' : 'inherit'
+                        }}>
                           {Math.round(parseFloat(payment.amount || '0'))}
                         </span>
                       )}
                     </td>
-                    <td>
+                    <td style={{
+                      textDecoration: isStrikethrough ? 'line-through' : 'none',
+                      color: isStrikethrough ? '#dc2626' : 'inherit',
+                      fontWeight: isStrikethrough ? '500' : 'inherit'
+                    }}>
                       {isEditing && !payment.isMigrated ? (
                         <div style={{ position: 'relative' }}>
                           <TextInput
                             type="number"
                             value={editedPayment.comission}
                             onChange={e => handleEditExistingPayment(payment.id, 'comission', e.target.value)}
+                            disabled={isStrikethrough}
                           />
                           {payment.loan?.loantype?.loanPaymentComission && 
                            parseFloat(payment.loan.loantype.loanPaymentComission) > 0 && (
@@ -1953,7 +2131,12 @@ export const CreatePaymentForm = ({
                         </div>
                       ) : (
                         <div style={{ position: 'relative' }}>
-                          <span style={payment.isMigrated ? { color: '#6B7280', fontStyle: 'italic' } : {}}>
+                          <span style={{
+                            ...(payment.isMigrated ? { color: '#6B7280', fontStyle: 'italic' } : {}),
+                            textDecoration: isStrikethrough ? 'line-through' : 'none',
+                            color: isStrikethrough ? '#dc2626' : (payment.isMigrated ? '#6B7280' : 'inherit'),
+                          fontWeight: isStrikethrough ? '500' : 'inherit'
+                          }}>
                             {Math.round(parseFloat(payment.comission || '0'))}
                           </span>
                           {!payment.isMigrated && payment.loan?.loantype?.loanPaymentComission && 
@@ -1975,48 +2158,68 @@ export const CreatePaymentForm = ({
                         </div>
                       )}
                     </td>
-                    <td>
-                      {isEditing && !payment.isMigrated ? (
-                        <Select
-                          options={paymentTypeOptions}
-                          value={paymentTypeOptions.find(option => option.value === editedPayment.type) || null}
-                          onChange={(option) => handleEditExistingPayment(payment.id, 'type', (option as Option).value)}
-                        />
-                      ) : (
-                        <span style={payment.isMigrated ? { color: '#6B7280', fontStyle: 'italic' } : {}}>
-                          {paymentTypeOptions.find(opt => opt.value === payment.type)?.label}
-                        </span>
-                      )}
-                    </td>
-                    <td>
+                    <td style={{
+                      textDecoration: isStrikethrough ? 'line-through' : 'none',
+                      color: isStrikethrough ? '#dc2626' : 'inherit',
+                      fontWeight: isStrikethrough ? '500' : 'inherit'
+                    }}>
                       {isEditing && !payment.isMigrated ? (
                         <Select
                           options={paymentMethods}
                           value={paymentMethods.find(option => option.value === editedPayment.paymentMethod) || null}
                           onChange={(option) => handleEditExistingPayment(payment.id, 'paymentMethod', (option as Option).value)}
+                          isDisabled={isStrikethrough}
                         />
                       ) : (
-                        <span style={payment.isMigrated ? { color: '#6B7280', fontStyle: 'italic' } : {}}>
+                        <span style={{
+                          ...(payment.isMigrated ? { color: '#6B7280', fontStyle: 'italic' } : {}),
+                          textDecoration: isStrikethrough ? 'line-through' : 'none',
+                          color: isStrikethrough ? '#dc2626' : (payment.isMigrated ? '#6B7280' : 'inherit'),
+                          fontWeight: isStrikethrough ? '500' : 'inherit'
+                        }}>
                           {paymentMethods.find(opt => opt.value === payment.paymentMethod)?.label}
                         </span>
                       )}
                     </td>
                     <td>
-                      {isEditing && !payment.isMigrated && (
-                        <Button
-                          tone="negative"
-                          size="small"
-                          onClick={() => {
-                            // Agregar a la lista de eliminados visualmente
-                            setDeletedPaymentIds(prev => [...prev, payment.id]);
-                            // También eliminar del estado editedPayments
-                            const newEditedPayments = { ...editedPayments };
-                            delete newEditedPayments[payment.id];
-                            setState(prev => ({ ...prev, editedPayments: newEditedPayments }));
-                          }}
-                        >
-                          <TrashIcon size="small" />
-                        </Button>
+                      {!payment.isMigrated && (
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          {strikethroughPaymentIds.includes(payment.id) ? (
+                            <Button
+                              tone="positive"
+                              size="small"
+                              onClick={() => {
+                                // Restaurar pago (quitar de tachados)
+                                console.log('Restaurando pago:', payment.id);
+                                setStrikethroughPaymentIds(prev => prev.filter(id => id !== payment.id));
+                              }}
+                              title="Restaurar pago"
+                            >
+                              ✓
+                            </Button>
+                          ) : (
+                            <Button
+                              tone="negative"
+                              size="small"
+                              onClick={() => {
+                                // Marcar como tachado (eliminado visualmente)
+                                console.log('Marcando como tachado:', payment.id);
+                                setStrikethroughPaymentIds(prev => {
+                                  const newIds = [...prev, payment.id];
+                                  console.log('Nuevos IDs tachados:', newIds);
+                                  return newIds;
+                                });
+                                // También eliminar del estado editedPayments
+                                const newEditedPayments = { ...editedPayments };
+                                delete newEditedPayments[payment.id];
+                                setState(prev => ({ ...prev, editedPayments: newEditedPayments }));
+                              }}
+                              title="Marcar como eliminado"
+                            >
+                              <TrashIcon size="small" />
+                            </Button>
+                          )}
+                        </div>
                       )}
                       {payment.isMigrated && (
                         <span style={{
@@ -2032,24 +2235,36 @@ export const CreatePaymentForm = ({
                 );
               })}
 
-              {/* Pagos Nuevos */}
-              {payments.map((payment, index) => (
-                <tr key={`new-${index}`} style={{ backgroundColor: '#ECFDF5' }}>
+              {/* Abonos Nuevos */}
+              {payments.map((payment, index) => {
+                const isStrikethrough = strikethroughNewPaymentIndices.includes(index);
+                const hasZeroCommission = parseFloat(payment.comission?.toString() || '0') === 0;
+                return (
+                <tr key={`new-${index}`} style={{ 
+                  backgroundColor: isStrikethrough ? '#fee2e2' : (hasZeroCommission ? '#FEF3C7' : '#ECFDF5'),
+                  opacity: isStrikethrough ? 0.7 : 1,
+                  borderLeft: isStrikethrough ? '4px solid #ef4444' : (hasZeroCommission ? '4px solid #D97706' : 'none')
+                }}>
                   <td style={{ 
                     textAlign: 'center',
                     fontWeight: 'bold',
-                    color: '#059669',
-                    fontSize: '14px'
+                    color: isStrikethrough ? '#dc2626' : '#059669',
+                    fontSize: '14px',
+                    textDecoration: isStrikethrough ? 'line-through' : 'none'
                   }}>
-                    {existingPayments.filter(p => !deletedPaymentIds.includes(p.id)).length + index + 1}
+                    {existingPayments.filter(p => !strikethroughPaymentIds.includes(p.id)).length + index + 1}
                   </td>
-                  <td>
+                  <td style={{
+                    textDecoration: isStrikethrough ? 'line-through' : 'none',
+                    color: isStrikethrough ? '#dc2626' : 'inherit',
+                    fontWeight: isStrikethrough ? '500' : 'inherit'
+                  }}>
                     <span style={{
                       display: 'inline-flex',
                       alignItems: 'center',
                       padding: '4px 8px',
-                      backgroundColor: '#D1FAE5',
-                      color: '#059669',
+                      backgroundColor: isStrikethrough ? '#fee2e2' : '#D1FAE5',
+                      color: isStrikethrough ? '#dc2626' : '#059669',
                       borderRadius: '4px',
                       fontSize: '12px',
                       fontWeight: '500',
@@ -2057,7 +2272,11 @@ export const CreatePaymentForm = ({
                       Nuevo
                     </span>
                   </td>
-                  <td>
+                  <td style={{
+                    textDecoration: isStrikethrough ? 'line-through' : 'none',
+                    color: isStrikethrough ? '#dc2626' : 'inherit',
+                    fontWeight: isStrikethrough ? '500' : 'inherit'
+                  }}>
                     <Select
                       options={loansData?.loans
                         ?.filter(loan => loan.borrower && loan.borrower.personalData)
@@ -2070,9 +2289,14 @@ export const CreatePaymentForm = ({
                         label: loansData.loans.find(loan => loan.id === payment.loanId)?.borrower?.personalData?.fullName || 'Sin nombre'
                       } : null}
                       onChange={(option) => handleChange(index, 'loanId', (option as Option).value)}
+                      isDisabled={isStrikethrough}
                     />
                   </td>
-                  <td>
+                  <td style={{
+                    textDecoration: isStrikethrough ? 'line-through' : 'none',
+                    color: isStrikethrough ? '#dc2626' : 'inherit',
+                    fontWeight: isStrikethrough ? '500' : 'inherit'
+                  }}>
                     {payment.loanId && loansData?.loans ? 
                       (() => {
                         const selectedLoan = loansData.loans.find(loan => loan.id === payment.loanId);
@@ -2087,45 +2311,74 @@ export const CreatePaymentForm = ({
                       '-'
                     }
                   </td>
-                  <td>
+                  <td style={{
+                    textDecoration: isStrikethrough ? 'line-through' : 'none',
+                    color: isStrikethrough ? '#dc2626' : 'inherit',
+                    fontWeight: isStrikethrough ? '500' : 'inherit'
+                  }}>
                     <TextInput
                       type="number"
                       value={Math.round(parseFloat(payment.amount || '0'))}
                       onChange={(e) => handleChange(index, 'amount', e.target.value)}
+                      disabled={isStrikethrough}
                     />
                   </td>
-                  <td>
+                  <td style={{
+                    textDecoration: isStrikethrough ? 'line-through' : 'none',
+                    color: isStrikethrough ? '#dc2626' : 'inherit',
+                    fontWeight: isStrikethrough ? '500' : 'inherit'
+                  }}>
                     <TextInput
                       type="number"
                       value={Math.round(parseFloat(payment.comission?.toString() || '0'))}
                       onChange={(e) => handleChange(index, 'comission', e.target.value)}
+                      disabled={isStrikethrough}
                     />
                   </td>
-                  <td>
-                    <Select
-                      options={paymentTypeOptions}
-                      value={paymentTypeOptions.find(option => option.value === payment.type) || null}
-                      onChange={(option) => handleChange(index, 'type', (option as Option).value)}
-                    />
-                  </td>
-                  <td>
+                  <td style={{
+                    textDecoration: isStrikethrough ? 'line-through' : 'none',
+                    color: isStrikethrough ? '#dc2626' : 'inherit',
+                    fontWeight: isStrikethrough ? '500' : 'inherit'
+                  }}>
                     <Select
                       options={paymentMethods}
                       value={paymentMethods.find(option => option.value === payment.paymentMethod) || null}
                       onChange={(option) => handleChange(index, 'paymentMethod', (option as Option).value)}
+                      isDisabled={isStrikethrough}
                     />
                   </td>
                   <td>
-                    <Button
-                      tone="negative"
-                      size="small"
-                      onClick={() => handleRemovePayment(index)}
-                    >
-                      <TrashIcon size="small" />
-                    </Button>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      {isStrikethrough ? (
+                        <Button
+                          tone="positive"
+                          size="small"
+                          onClick={() => {
+                            console.log('Restaurando pago nuevo:', index);
+                            setStrikethroughNewPaymentIndices(prev => prev.filter(i => i !== index));
+                          }}
+                          title="Restaurar pago"
+                        >
+                          ✓
+                        </Button>
+                      ) : (
+                        <Button
+                          tone="negative"
+                          size="small"
+                          onClick={() => {
+                            console.log('Marcando pago nuevo como tachado:', index);
+                            setStrikethroughNewPaymentIndices(prev => [...prev, index]);
+                          }}
+                          title="Marcar como eliminado"
+                        >
+                          <TrashIcon size="small" />
+                        </Button>
+                      )}
+                    </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </Box>
@@ -2142,7 +2395,7 @@ export const CreatePaymentForm = ({
           style={{ marginLeft: '10px' }}
           isDisabled={(!payments.length && !isEditing) || isSaving}
         >
-          {isSaving ? 'Guardando...' : (isEditing ? 'Guardar Cambios' : 'Registrar pagos')}
+          {isSaving ? 'Guardando...' : (isEditing ? 'Guardar Cambios' : 'Registrar abonos')}
         </Button>
       </Box>
 
