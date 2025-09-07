@@ -446,7 +446,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               
               // 5. Actualizar todas las transacciones asociadas a estos pagos
               // Esto incluye tanto INCOME (CASH_LOAN_PAYMENT, BANK_LOAN_PAYMENT) 
-              // como EXPENSE (LOAN_PAYMENT_COMISSION)
+              // como EXPENSE (LOAN_PAYMENT_COMISSION) y TRANSFER (transferencias)
               const transactionResult = await tx.transaction.updateMany({
                 where: {
                   OR: [
@@ -464,7 +464,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
                       OR: [
                         { incomeSource: 'CASH_LOAN_PAYMENT' },
                         { incomeSource: 'BANK_LOAN_PAYMENT' },
-                        { expenseSource: 'LOAN_PAYMENT_COMISSION' }
+                        { expenseSource: 'LOAN_PAYMENT_COMISSION' },
+                        // CORREGIDO: Incluir transferencias del líder en esa fecha
+                        { type: 'TRANSFER' }
                       ]
                     }
                   ]
@@ -915,31 +917,63 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   });
                 }
 
-                // Acumular cambios en balances
-                if (payment.paymentMethod === 'CASH') {
-                  cashAmountChange += paymentAmount;
-                } else {
-                  bankAmountChange += paymentAmount;
-                }
+                // 🆕 MODIFICADO: Registrar TODO como efectivo (tanto CASH como BANK)
+                // Esto permite que después se haga la transferencia automática del monto bancario
+                cashAmountChange += paymentAmount; // Sumar el pago (aumenta efectivo)
 
-                // ✅ AGREGAR: Descontar comisiones de los balances
-              if (comissionAmount > 0) {
-                if (payment.paymentMethod === 'CASH') {
-                  cashAmountChange -= comissionAmount; // Descontar de efectivo
-                } else {
-                  bankAmountChange -= comissionAmount; // Descontar de banco
+                // ✅ AGREGAR: Descontar comisiones de los balances (siempre de efectivo)
+                if (comissionAmount > 0) {
+                  cashAmountChange -= comissionAmount; // Restar comisión (disminuye efectivo)
                 }
-              }
               }
 
               console.log('🔍 DEBUG - Total transacciones a crear:', transactionData.length);
               console.log('🔍 DEBUG - Transacciones de comisiones:', transactionData.filter(t => t.type === 'EXPENSE' && t.expenseSource === 'LOAN_PAYMENT_COMISSION').length);
+              console.log('🔍 DEBUG - cashAmountChange calculado:', cashAmountChange);
 
               // Crear todas las transacciones de una vez
               if (transactionData.length > 0) {
                 try {
                   await tx.transaction.createMany({ data: transactionData });
                   console.log('✅ Transacciones creadas exitosamente');
+                  
+                  // ✅ CORREGIR: Actualizar cuentas manualmente ya que createMany no dispara hooks
+                  // Usar el cashAmountChange que ya se calculó correctamente arriba
+                  // (incluye todos los pagos menos las comisiones)
+                  
+                  // Calcular el cambio neto total (incluyendo transferencias)
+                  let netCashChange = cashAmountChange;
+                  console.log('🔍 DEBUG - Valores antes del cálculo neto:', {
+                    cashAmountChange,
+                    bankPaidAmount,
+                    netCashChange
+                  });
+                  
+                  if (bankPaidAmount > 0) {
+                    netCashChange -= bankPaidAmount; // Restar la parte que se transfiere al banco
+                    console.log('🔍 DEBUG - Después de restar bankPaidAmount:', {
+                      bankPaidAmount,
+                      netCashChange
+                    });
+                  }
+                  
+                  if (netCashChange !== 0) {
+                    const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
+                    const newCashAmount = currentCashAmount + netCashChange;
+                    
+                    console.log('🔧 Actualizando cuenta de efectivo con cambio neto:', {
+                      currentAmount: currentCashAmount,
+                      cashAmountChange,
+                      bankPaidAmount,
+                      netCashChange,
+                      newAmount: newCashAmount
+                    });
+                    
+                    await tx.account.update({
+                      where: { id: cashAccount.id },
+                      data: { amount: newCashAmount.toString() }
+                    });
+                  }
                 } catch (error) {
                   console.error('❌ Error creando transacciones:', error);
                   throw error;
@@ -982,7 +1016,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                       expectedWeeklyPayment: expectedWeekly.toFixed(2),
                       totalPaid: totalPaid.toFixed(2),
                       pendingAmountStored: pending.toFixed(2),
-                      ...(isCompleted && { finishedDate: new Date() })
+                      ...(isCompleted && { finishedDate: new Date(paymentDate) })
                     }
                   });
                 } catch (loanError) {
@@ -991,21 +1025,42 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
               }));
 
-              // Actualizar balances de cuentas si hay cambios
-              if (cashAmountChange > 0) {
-                const currentCashAmount = safeToNumber(cashAccount.amount);
-                await tx.account.update({
-                  where: { id: cashAccount.id },
-                  data: { amount: (currentCashAmount + cashAmountChange).toString() }
-                });
-              }
+              // ✅ NOTA: La actualización de la cuenta de efectivo se hace más abajo
+              // con el cálculo del cambio neto que incluye las transferencias
 
-              if (bankAmountChange > 0) {
+              // 🆕 NUEVA LÓGICA: Si hay monto bancario, crear transferencia automática
+              if (bankPaidAmount > 0) {
+                console.log('🔄 Creando transferencia automática por pago mixto:', {
+                  amount: bankPaidAmount,
+                  from: 'EMPLOYEE_CASH_FUND',
+                  to: 'BANK'
+                });
+
+                // Crear transacción de transferencia desde efectivo hacia banco
+                await tx.transaction.create({
+                  data: {
+                    amount: bankPaidAmount.toFixed(2),
+                    date: new Date(paymentDate),
+                    type: 'TRANSFER',
+                    sourceAccountId: cashAccount.id,
+                    destinationAccountId: bankAccount.id,
+                    leadId: leadId,
+                    leadPaymentReceivedId: leadPaymentReceived.id,
+                    description: `Transferencia automática por pago mixto - Líder: ${agentId}`,
+                  }
+                });
+
+                // Actualizar balance bancario con el monto transferido
                 const currentBankAmount = safeToNumber(bankAccount.amount);
                 await tx.account.update({
                   where: { id: bankAccount.id },
-                  data: { amount: (currentBankAmount + bankAmountChange).toString() }
+                  data: { amount: (currentBankAmount + bankPaidAmount).toString() }
                 });
+
+                // ✅ NOTA: La cuenta de efectivo ya se actualizó arriba con el cambio neto
+                // que incluye la resta de la parte bancaria, no es necesario actualizarla aquí
+
+                console.log('✅ Transferencia automática creada exitosamente');
               }
 
               // Validar si los préstamos están completados y marcarlos como terminados
@@ -1131,6 +1186,20 @@ export const extendGraphqlSchema = graphql.extend(base => {
               throw new Error('Pago no encontrado');
             }
 
+            // 🆕 LOGS DETALLADOS PARA DEBUGGING
+            console.log('🔍 UPDATE: LeadPaymentReceived encontrado:', {
+              id: existingPayment.id,
+              expectedAmount: existingPayment.expectedAmount,
+              paidAmount: existingPayment.paidAmount,
+              paymentsCount: existingPayment.payments.length,
+              payments: existingPayment.payments.map(p => ({
+                id: p.id,
+                amount: p.amount,
+                comission: p.comission,
+                transactionsCount: p.transactions.length
+              }))
+            });
+
             const agentId = existingPayment.agentId || '';
             const leadId = existingPayment.leadId || '';
 
@@ -1177,28 +1246,80 @@ export const extendGraphqlSchema = graphql.extend(base => {
               const commissionAmount = parseFloat((payment.comission || 0).toString());
               const totalAmount = paymentAmount + commissionAmount; // ✅ INCLUIR comisión
               
-              if (payment.paymentMethod === 'CASH') {
-                oldCashAmountChange += totalAmount;
-              } else {
-                oldBankAmountChange += totalAmount;
-              }
+              // 🆕 MODIFICADO: Revertir TODO como efectivo (tanto CASH como BANK)
+              // Esto es consistente con la nueva lógica de registro
+              oldCashAmountChange += totalAmount;
             }
 
-            // Eliminar transacciones existentes en lote
+            // 🆕 LÓGICA CORREGIDA: Eliminar pagos existentes SIEMPRE que existan
+            // Esto se ejecuta independientemente de si se van a crear nuevos pagos
             if (existingPayment.payments.length > 0) {
+              console.log('🗑️ UPDATE: Eliminando pagos existentes:', existingPayment.payments.length);
+              console.log('🗑️ UPDATE: IDs de pagos a eliminar:', existingPayment.payments.map(p => p.id));
+              
+              // Obtener IDs de transacciones existentes
               const transactionIds = existingPayment.payments
                 .flatMap((payment: any) => payment.transactions.map((t: any) => t.id));
               
+              console.log('🗑️ UPDATE: Transacciones a eliminar:', transactionIds.length);
+              console.log('🗑️ UPDATE: IDs de transacciones:', transactionIds);
+              
+              // Eliminar transacciones existentes en lote
               if (transactionIds.length > 0) {
-                await tx.transaction.deleteMany({
+                const deleteResult = await tx.transaction.deleteMany({
                   where: { id: { in: transactionIds } }
                 });
+                console.log('✅ UPDATE: Transacciones eliminadas:', deleteResult.count);
+              }
+
+              // 🆕 NUEVA LÓGICA: Revertir efectos en cuentas antes de eliminar pagos
+              // Calcular el total que se debe revertir de las cuentas
+              let totalCashToRevert = 0;
+
+              for (const payment of existingPayment.payments) {
+                const paymentAmount = parseFloat((payment.amount || 0).toString());
+                const commissionAmount = parseFloat((payment.comission || 0).toString());
+                const totalAmount = paymentAmount + commissionAmount;
+                
+                // Como ahora todo se registra como efectivo, revertir todo de efectivo
+                totalCashToRevert += totalAmount;
+              }
+
+              console.log('🔄 UPDATE: Total a revertir de efectivo:', totalCashToRevert);
+
+              // Revertir el efecto en la cuenta de efectivo
+              if (totalCashToRevert > 0) {
+                const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
+                const newCashAmount = currentCashAmount - totalCashToRevert;
+                
+                console.log('🔄 UPDATE: Revirtiendo efectivo por eliminación de pagos:', {
+                  currentAmount: currentCashAmount,
+                  amountToRevert: totalCashToRevert,
+                  newAmount: newCashAmount
+                });
+                
+                await tx.account.update({
+                  where: { id: cashAccount.id },
+                  data: { amount: newCashAmount.toString() }
+                });
+                console.log('✅ UPDATE: Balance de efectivo revertido');
               }
 
               // Eliminar pagos existentes en lote
-              await tx.loanPayment.deleteMany({
+              console.log('🗑️ UPDATE: Ejecutando deleteMany para LoanPayments...');
+              const deletePaymentsResult = await tx.loanPayment.deleteMany({
                 where: { leadPaymentReceivedId: id }
               });
+
+              console.log('✅ UPDATE: Pagos existentes eliminados:', deletePaymentsResult.count);
+              
+              // 🆕 VERIFICACIÓN: Confirmar que los pagos se eliminaron
+              const remainingPayments = await tx.loanPayment.findMany({
+                where: { leadPaymentReceivedId: id }
+              });
+              console.log('🔍 UPDATE: Pagos restantes después de eliminación:', remainingPayments.length);
+            } else {
+              console.log('ℹ️ UPDATE: No hay pagos existentes para eliminar');
             }
 
             // Actualizar el LeadPaymentReceived
@@ -1262,25 +1383,44 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   transactionData.push({
                     amount: (payment.comission || 0).toString(),
                     date: new Date(paymentDate),
-                    type: 'INCOME',
-                    incomeSource: 'LOAN_PAYMENT_COMISSION',
+                    type: 'EXPENSE',
+                    expenseSource: 'LOAN_PAYMENT_COMISSION',
+                    sourceAccountId: cashAccount.id,
                     loanPaymentId: payment.id,
                     loanId: payment.loanId,
                     leadId: leadId,
+                    description: `Comisión por pago de préstamo - ${payment.id}`,
                   });
                 }
 
-                // Acumular cambios en balances (pago + comisión)
-                if (payment.paymentMethod === 'CASH') {
-                  newCashAmountChange += totalAmount;
-                } else {
-                  newBankAmountChange += totalAmount;
-                }
+                // 🆕 MODIFICADO: Registrar TODO como efectivo (tanto CASH como BANK)
+                // Esto permite que después se haga la transferencia automática del monto bancario
+                newCashAmountChange += totalAmount;
               }
 
               // Crear todas las transacciones de una vez
               if (transactionData.length > 0) {
                 await tx.transaction.createMany({ data: transactionData });
+                
+                // ✅ CORREGIR: Actualizar cuentas manualmente ya que createMany no dispara hooks
+                // Usar el newCashAmountChange que ya se calculó correctamente arriba
+                // (incluye todos los pagos menos las comisiones)
+                
+                if (newCashAmountChange !== 0) {
+                  const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
+                  const newCashAmount = currentCashAmount + newCashAmountChange;
+                  
+                  console.log('🔧 Actualizando cuenta de efectivo con newCashAmountChange:', {
+                    currentAmount: currentCashAmount,
+                    newCashAmountChange,
+                    newAmount: newCashAmount
+                  });
+                  
+                  await tx.account.update({
+                    where: { id: cashAccount.id },
+                    data: { amount: newCashAmount.toString() }
+                  });
+                }
               }
             }
 
@@ -1330,6 +1470,93 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 where: { id: bankAccount.id },
                 data: { amount: newBankBalance.toString() }
               });
+            }
+
+            // 🆕 NUEVA LÓGICA: Manejar transferencias automáticas (crear/actualizar/eliminar)
+            const oldBankPaidAmount = parseFloat(existingPayment.bankPaidAmount?.toString() || '0');
+            const newBankPaidAmount = bankPaidAmount;
+            const bankAmountChange = newBankPaidAmount - oldBankPaidAmount;
+
+            // Buscar transferencias automáticas existentes de este LeadPaymentReceived
+            const existingTransferTransactions = await tx.transaction.findMany({
+              where: {
+                leadPaymentReceivedId: id,
+                type: 'TRANSFER',
+                description: { contains: 'Transferencia automática por pago mixto' }
+              }
+            });
+
+            if (existingTransferTransactions.length > 0) {
+              console.log('🔄 UPDATE: Eliminando transferencias automáticas existentes:', existingTransferTransactions.length);
+              
+              // Eliminar transferencias existentes
+              await tx.transaction.deleteMany({
+                where: {
+                  id: { in: existingTransferTransactions.map(t => t.id) }
+                }
+              });
+
+              // Revertir el efecto de las transferencias eliminadas en ambos balances
+              const totalRevertedAmount = existingTransferTransactions.reduce((sum, t) => {
+                return sum + parseFloat((t.amount || 0).toString());
+              }, 0);
+
+              if (totalRevertedAmount > 0) {
+                // Revertir balance bancario (reducir)
+                const currentBankAmount = parseFloat((bankAccount.amount || 0).toString());
+                await tx.account.update({
+                  where: { id: bankAccount.id },
+                  data: { amount: (currentBankAmount - totalRevertedAmount).toString() }
+                });
+
+                // Revertir balance de efectivo (aumentar)
+                const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
+                await tx.account.update({
+                  where: { id: cashAccount.id },
+                  data: { amount: (currentCashAmount + totalRevertedAmount).toString() }
+                });
+
+                console.log('🔄 UPDATE: Revertidos balances bancario y efectivo:', totalRevertedAmount);
+              }
+            }
+
+            // Crear nueva transferencia si hay monto bancario
+            if (newBankPaidAmount > 0) {
+              console.log('🔄 UPDATE: Creando nueva transferencia automática por pago mixto:', {
+                amount: newBankPaidAmount,
+                from: 'EMPLOYEE_CASH_FUND',
+                to: 'BANK'
+              });
+
+              // Crear transacción de transferencia desde efectivo hacia banco
+              await tx.transaction.create({
+                data: {
+                  amount: newBankPaidAmount.toFixed(2),
+                  date: new Date(paymentDate),
+                  type: 'TRANSFER',
+                  sourceAccountId: cashAccount.id,
+                  destinationAccountId: bankAccount.id,
+                  leadId: leadId,
+                  leadPaymentReceivedId: leadPaymentReceived.id,
+                  description: `Transferencia automática por pago mixto actualizado - Líder: ${agentId}`,
+                }
+              });
+
+              // Actualizar balance bancario con el monto transferido
+              const currentBankAmount = parseFloat((bankAccount.amount || 0).toString());
+              await tx.account.update({
+                where: { id: bankAccount.id },
+                data: { amount: (currentBankAmount + newBankPaidAmount).toString() }
+              });
+
+              // Actualizar balance de efectivo (reducir el monto transferido)
+              const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
+              await tx.account.update({
+                where: { id: cashAccount.id },
+                data: { amount: (currentCashAmount - newBankPaidAmount).toString() }
+              });
+
+              console.log('✅ UPDATE: Nueva transferencia automática creada exitosamente');
             }
 
             // ✅ NUEVO: Manejar cambios en falco (crear/actualizar/eliminar transacciones de pérdida)
@@ -1390,6 +1617,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 });
               }
             }
+
+            // 🆕 LOGS FINALES: Verificar estado final
+            const finalPayments = await tx.loanPayment.findMany({
+              where: { leadPaymentReceivedId: id }
+            });
+            console.log('🔍 UPDATE: Estado final - Pagos restantes:', finalPayments.length);
+            console.log('🔍 UPDATE: Estado final - IDs de pagos:', finalPayments.map(p => p.id));
 
             return {
               id: leadPaymentReceived.id,
@@ -2789,6 +3023,14 @@ export const extendGraphqlSchema = graphql.extend(base => {
               type: graphql.nonNull(graphql.Float),
               resolve: (item: any) => item.bankAbono
             }),
+            transferFromCash: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item: any) => item.transferFromCash || 0
+            }),
+            transferToBank: graphql.field({ 
+              type: graphql.nonNull(graphql.Float),
+              resolve: (item: any) => item.transferToBank || 0
+            }),
           },
         })))),
         args: {
@@ -3010,7 +3252,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 NOMINA_SALARY: 0, EXTERNAL_SALARY: 0, VEHICULE_MAINTENANCE: 0,
                 LOAN_GRANTED: 0, LOAN_PAYMENT_COMISSION: 0,
                 LOAN_GRANTED_COMISSION: 0, LEAD_COMISSION: 0, LEAD_EXPENSE: 0,
-                MONEY_INVESMENT: 0, OTRO: 0, CASH_BALANCE: 0, BANK_BALANCE: 0
+                MONEY_INVESMENT: 0, OTRO: 0, CASH_BALANCE: 0, BANK_BALANCE: 0,
+                TRANSFER_FROM_CASH: 0, TRANSFER_TO_BANK: 0
               };
             }
 
@@ -3069,100 +3312,124 @@ export const extendGraphqlSchema = graphql.extend(base => {
               // Determinar si es un gasto en efectivo o bancario
               const isBankExpense = sourceAccount?.type === 'BANK';
               
+              if (isBankExpense) {
+                console.log(`💰 Gasto bancario: ${transaction.expenseSource} - $${amount} para ${leaderKey}`);
+                console.log(`   - Balance banco antes: ${localidades[transactionDate][leaderKey].BANK_BALANCE}`);
+                console.log(`   - NOTA: Los gastos bancarios NO se descuentan del balance bancario (solo se suman ingresos)`);
+                console.log(`   - Balance banco después: ${localidades[transactionDate][leaderKey].BANK_BALANCE}`);
+              }
+              
               // CORREGIDO: Verificar el tipo de gasto según expenseSource
+              // IMPORTANTE: Los gastos bancarios NO se descuentan del BANK_BALANCE
+              // El BANK_BALANCE solo suma ingresos bancarios
               if (transaction.expenseSource === 'GASOLINE') {
                 localidades[transactionDate][leaderKey].GASOLINE += amount;
-                if (isBankExpense) {
-                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
-                } else {
+                // Solo descontar del balance de efectivo si es gasto en efectivo
+                if (!isBankExpense) {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'VIATIC') {
                 localidades[transactionDate][leaderKey].VIATIC += amount;
-                if (isBankExpense) {
-                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
-                } else {
+                if (!isBankExpense) {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'ACCOMMODATION') {
                 localidades[transactionDate][leaderKey].ACCOMMODATION += amount;
-                if (isBankExpense) {
-                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
-                } else {
+                if (!isBankExpense) {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'VEHICULE_MAINTENANCE') {
                 localidades[transactionDate][leaderKey].VEHICULE_MAINTENANCE += amount;
-                if (isBankExpense) {
-                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
-                } else {
+                if (!isBankExpense) {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'NOMINA_SALARY') {
                 localidades[transactionDate][leaderKey].NOMINA_SALARY += amount;
-                if (isBankExpense) {
-                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
-                } else {
+                if (!isBankExpense) {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'EXTERNAL_SALARY') {
                 localidades[transactionDate][leaderKey].EXTERNAL_SALARY += amount;
-                if (isBankExpense) {
-                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
-                } else {
+                if (!isBankExpense) {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'CREDITO') {
                 localidades[transactionDate][leaderKey].CREDITO += amount;
-                if (isBankExpense) {
-                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
-                } else {
+                if (!isBankExpense) {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'LOAN_GRANTED') {
                 localidades[transactionDate][leaderKey].LOAN_GRANTED += amount;
-                if (isBankExpense) {
-                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
-                } else {
+                console.log(`💰 Préstamo otorgado: ${amount} - isBankExpense: ${isBankExpense} para ${leaderKey}`);
+                if (!isBankExpense) {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
+                  console.log(`   - CASH_BALANCE después: ${localidades[transactionDate][leaderKey].CASH_BALANCE}`);
                 }
               } else if (transaction.expenseSource === 'LOAN_GRANTED_COMISSION') {
                 localidades[transactionDate][leaderKey].LOAN_GRANTED_COMISSION += amount;
-                if (isBankExpense) {
-                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
-                } else {
+                if (!isBankExpense) {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'LOAN_PAYMENT_COMISSION') {
                 localidades[transactionDate][leaderKey].LOAN_PAYMENT_COMISSION += amount;
-                if (isBankExpense) {
-                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
-                } else {
+                console.log(`💰 Comisión pago: ${amount} - isBankExpense: ${isBankExpense} para ${leaderKey}`);
+                if (!isBankExpense) {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
+                  console.log(`   - CASH_BALANCE después: ${localidades[transactionDate][leaderKey].CASH_BALANCE}`);
                 }
               } else if (transaction.expenseSource === 'LEAD_COMISSION') {
                 localidades[transactionDate][leaderKey].LEAD_COMISSION += amount;
-                if (isBankExpense) {
-                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
-                } else {
+                if (!isBankExpense) {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'LEAD_EXPENSE') {
                 localidades[transactionDate][leaderKey].LEAD_EXPENSE += amount;
-                if (isBankExpense) {
-                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
-                } else {
+                if (!isBankExpense) {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else {
                 localidades[transactionDate][leaderKey].OTRO += amount;
-                if (isBankExpense) {
-                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
-                } else {
+                if (!isBankExpense) {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               }
 
+            } else if (transaction.type === 'TRANSFER') {
+              // Procesar transferencias entre cuentas
+              const amount = Number(transaction.amount || 0);
+              
+              // Determinar el tipo de transferencia basado en las cuentas
+              const isFromCashToBank = sourceAccount?.type === 'EMPLOYEE_CASH_FUND' && destinationAccount?.type === 'BANK';
+              const isFromBankToCash = sourceAccount?.type === 'BANK' && destinationAccount?.type === 'EMPLOYEE_CASH_FUND';
+              
+              if (isFromCashToBank) {
+                // Transferencia de efectivo a banco: 
+                // 1. Reducir abonos en efectivo (porque se transfirió a banco)
+                localidades[transactionDate][leaderKey].CASH_ABONO -= amount;
+                // 2. Aumentar abonos en banco (porque llegó al banco)
+                localidades[transactionDate][leaderKey].BANK_ABONO += amount;
+                // 3. Ajustar balances finales
+                localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
+                localidades[transactionDate][leaderKey].BANK_BALANCE += amount;
+                // 4. Rastrear transferencias
+                localidades[transactionDate][leaderKey].TRANSFER_FROM_CASH += amount;
+                localidades[transactionDate][leaderKey].TRANSFER_TO_BANK += amount;
+                console.log(`🔄 Transferencia efectivo->banco: ${amount} para ${leaderKey}`);
+                console.log(`   - Balance efectivo después: ${localidades[transactionDate][leaderKey].CASH_BALANCE}`);
+                console.log(`   - Balance banco después: ${localidades[transactionDate][leaderKey].BANK_BALANCE}`);
+              } else if (isFromBankToCash) {
+                // Transferencia de banco a efectivo: 
+                // 1. Reducir abonos en banco (porque se transfirió a efectivo)
+                localidades[transactionDate][leaderKey].BANK_ABONO -= amount;
+                // 2. Aumentar abonos en efectivo (porque llegó al efectivo)
+                localidades[transactionDate][leaderKey].CASH_ABONO += amount;
+                // 3. Ajustar balances finales
+                localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                localidades[transactionDate][leaderKey].CASH_BALANCE += amount;
+                // Nota: No rastreamos transferencias de banco a efectivo en estos campos
+                console.log(`🔄 Transferencia banco->efectivo: ${amount} para ${leaderKey}`);
+              }
+              // Nota: No procesamos otras transferencias (entre cuentas del mismo tipo o diferentes tipos)
             }
           }
 
@@ -3177,12 +3444,20 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
           const result = Object.entries(localidades).flatMap(([date, localities]) => 
             Object.entries(localities).map(([locality, data]) => {
-              // Verificar si hay valores negativos o inválidos
+              // Verificar si hay valores inválidos (permitir negativos para balances)
               const checkValue = (value: number, name: string) => {
-                if (isNaN(value) || value < 0) {
+                if (isNaN(value)) {
                   return 0;
                 }
                 return value;
+              };
+              
+              // Función especial para balances que permite valores negativos
+              const checkBalanceValue = (value: number, name: string) => {
+                if (isNaN(value)) {
+                  return 0;
+                }
+                return value; // Permite valores negativos
               };
 
               // Calcular el balance final usando los totales acumulados
@@ -3202,6 +3477,17 @@ export const extendGraphqlSchema = graphql.extend(base => {
               
               const balanceFinal = totalIngresos - totalGastos - totalComisiones;
               const profitFinal = totalIngresos - totalGastos;
+              
+              // Logging final para debugging
+              console.log(`📊 RESUMEN FINAL para ${locality} (${date}):`);
+              console.log(`   - CASH_ABONO: ${data.CASH_ABONO}`);
+              console.log(`   - BANK_ABONO: ${data.BANK_ABONO}`);
+              console.log(`   - LOAN_GRANTED: ${data.LOAN_GRANTED}`);
+              console.log(`   - LOAN_PAYMENT_COMISSION: ${data.LOAN_PAYMENT_COMISSION}`);
+              console.log(`   - LOAN_GRANTED_COMISSION: ${data.LOAN_GRANTED_COMISSION}`);
+              console.log(`   - CASH_BALANCE: ${data.CASH_BALANCE}`);
+              console.log(`   - BANK_BALANCE: ${data.BANK_BALANCE}`);
+              console.log(`   - TRANSFER_TO_BANK: ${data.TRANSFER_TO_BANK}`);
               
               return {
                 date,
@@ -3225,8 +3511,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 otro: checkValue(data.OTRO, 'OTRO'),
                 balance: balanceFinal,
                 profit: profitFinal,
-                cashBalance: checkValue(data.CASH_BALANCE, 'CASH_BALANCE'),
-                bankBalance: checkValue(data.BANK_BALANCE, 'BANK_BALANCE'),
+                cashBalance: checkBalanceValue(data.CASH_BALANCE, 'CASH_BALANCE'),
+                bankBalance: checkBalanceValue(data.BANK_BALANCE, 'BANK_BALANCE'),
+                transferFromCash: checkValue(data.TRANSFER_FROM_CASH, 'TRANSFER_FROM_CASH'),
+                transferToBank: checkValue(data.TRANSFER_TO_BANK, 'TRANSFER_TO_BANK'),
               };
             })
           );

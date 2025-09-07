@@ -1553,6 +1553,23 @@ export const LoanPayment = list({
           const expectedWeekly = weekDuration > 0 ? (totalDebt / weekDuration) : 0;
           const totalPaid = (loan.payments || []).reduce((s: number, p: any) => s + parseFloat((p.amount || 0).toString()), 0);
           const pending = Math.max(0, totalDebt - totalPaid);
+          
+          // Verificar si el préstamo está completado
+          const isCompleted = totalPaid >= totalDebt;
+          
+          // Obtener la fecha del último pago para usar como fecha de finalización
+          const lastPayment = loan.payments && loan.payments.length > 0 
+            ? loan.payments.reduce((latest: any, current: any) => {
+                const latestDate = new Date(latest.receivedAt || latest.createdAt);
+                const currentDate = new Date(current.receivedAt || current.createdAt);
+                return currentDate > latestDate ? current : latest;
+              })
+            : null;
+          
+          const finishDate = isCompleted && lastPayment 
+            ? new Date(lastPayment.receivedAt || lastPayment.createdAt)
+            : null;
+          
           await context.prisma.loan.update({
             where: { id: loanId },
             data: {
@@ -1560,6 +1577,7 @@ export const LoanPayment = list({
               expectedWeeklyPayment: expectedWeekly.toFixed(2),
               totalPaid: totalPaid.toFixed(2),
               pendingAmountStored: pending.toFixed(2),
+              ...(isCompleted && finishDate && { finishedDate: finishDate })
             }
           });
         } catch (e) {
@@ -1827,56 +1845,36 @@ export const Transaction = list({
           const originalAmount = parseAmount(originalTransaction.amount);
           const newAmount = parseAmount(transactionItem.amount);
 
-          // PASO 1: Revertir el efecto de la transacción original
+          // Calcular la diferencia para aplicar solo el cambio neto
+          const amountDifference = newAmount - originalAmount;
 
-          // Revertir efecto en cuenta origen original
-          if (originalSourceAccount && (originalTransaction.type === 'EXPENSE' || originalTransaction.type === 'TRANSFER')) {
-            const currentAmount = parseAmount(originalSourceAccount.amount);
-            const revertedAmount = parseFloat((currentAmount + originalAmount).toFixed(2)); // Sumar porque había sido restado
-            
-            await context.prisma.account.update({
-              where: { id: originalSourceAccount.id },
-              data: { amount: revertedAmount.toString() }
-            });
-          }
+          // Solo procesar si hay diferencia en el monto
+          if (amountDifference !== 0) {
+            // Aplicar diferencia en cuenta origen (para EXPENSE y TRANSFER)
+            if (newSourceAccount && (transactionItem.type === 'EXPENSE' || transactionItem.type === 'TRANSFER')) {
+              const currentAmount = parseAmount(newSourceAccount.amount);
+              const finalAmount = parseFloat((currentAmount - amountDifference).toFixed(2));
+              
+              if (finalAmount < 0) {
+                throw new Error(`La operación resultaría en un balance negativo: ${finalAmount}`);
+              }
 
-          // Revertir efecto en cuenta destino original
-          if (originalDestinationAccount && (originalTransaction.type === 'INCOME' || originalTransaction.type === 'TRANSFER')) {
-            const currentAmount = parseAmount(originalDestinationAccount.amount);
-            const revertedAmount = parseFloat((currentAmount - originalAmount).toFixed(2)); // Restar porque había sido sumado
-            
-            await context.prisma.account.update({
-              where: { id: originalDestinationAccount.id },
-              data: { amount: revertedAmount.toString() }
-            });
-          }
-
-          // PASO 2: Aplicar el efecto de la nueva transacción
-
-          // Aplicar nuevo efecto en cuenta origen
-          if (newSourceAccount && (transactionItem.type === 'EXPENSE' || transactionItem.type === 'TRANSFER')) {
-            const currentAmount = parseAmount(newSourceAccount.amount);
-            const finalAmount = parseFloat((currentAmount - newAmount).toFixed(2));
-            
-            if (finalAmount < 0) {
-              throw new Error(`La operación resultaría en un balance negativo: ${finalAmount}`);
+              await context.prisma.account.update({
+                where: { id: newSourceAccount.id },
+                data: { amount: finalAmount.toString() }
+              });
             }
 
-            await context.prisma.account.update({
-              where: { id: newSourceAccount.id },
-              data: { amount: finalAmount.toString() }
-            });
-          }
-
-          // Aplicar nuevo efecto en cuenta destino
-          if (newDestinationAccount && (transactionItem.type === 'INCOME' || transactionItem.type === 'TRANSFER')) {
-            const currentAmount = parseAmount(newDestinationAccount.amount);
-            const finalAmount = parseFloat((currentAmount + newAmount).toFixed(2));
-            
-            await context.prisma.account.update({
-              where: { id: newDestinationAccount.id },
-              data: { amount: finalAmount.toString() }
-            });
+            // Aplicar diferencia en cuenta destino (para INCOME y TRANSFER)
+            if (newDestinationAccount && (transactionItem.type === 'INCOME' || transactionItem.type === 'TRANSFER')) {
+              const currentAmount = parseAmount(newDestinationAccount.amount);
+              const finalAmount = parseFloat((currentAmount + amountDifference).toFixed(2));
+              
+              await context.prisma.account.update({
+                where: { id: newDestinationAccount.id },
+                data: { amount: finalAmount.toString() }
+              });
+            }
           }
         }
         else if (operation === 'delete') {

@@ -31,6 +31,8 @@ const GET_TRANSACTIONS_SUMMARY = gql`
       profit
       cashBalance
       bankBalance
+      transferFromCash
+      transferToBank
     }
   }
 `;
@@ -146,43 +148,10 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
                     item.otro + item.leadExpense; // loanGranted se muestra por separado
     const comissions = item.loanPaymentComission + item.loanGrantedComission + item.leadComission;
     
-    // CALCULAR BALANCES EN EL FRONTEND (ingresos - gastos)
-    const totalIngresosReales = item.cashAbono + item.bankAbono;
-    const totalEgresos = expenses + item.credito + item.loanGranted + comissions;
-    
-    // CORREGIDO: Balance = Ingresos - Gastos (puede ser negativo)
-    let calculatedCashBalance = 0;
-    let calculatedBankBalance = 0;
-    
-    if (totalIngresosReales === 0 && item.moneyInvestment === 0) {
-      // CASO 1: No hay ingresos, solo gastos -> Balance negativo
-      // Asumir que los gastos se hacen en efectivo por defecto
-      calculatedCashBalance = -totalEgresos;
-      calculatedBankBalance = 0;
-      
-    } else if (totalIngresosReales === 0 && item.moneyInvestment > 0) {
-      // CASO 2: Solo hay inversión de dinero, no abonos
-      // Asumir que la inversión es en efectivo por defecto
-      calculatedCashBalance = item.moneyInvestment - totalEgresos;
-      calculatedBankBalance = 0;
-      
-    } else {
-      // CASO 3: Hay ingresos reales (abonos), distribuir proporcionalmente
-      const cashProportion = item.cashAbono / totalIngresosReales;
-      const bankProportion = item.bankAbono / totalIngresosReales;
-      
-      // Distribuir moneyInvestment proporcionalmente
-      const moneyInvestmentCash = item.moneyInvestment * cashProportion;
-      const moneyInvestmentBank = item.moneyInvestment * bankProportion;
-      
-      // Distribuir gastos proporcionalmente
-      const cashExpenses = totalEgresos * cashProportion;
-      const bankExpenses = totalEgresos * bankProportion;
-      
-      // Balance final = Ingresos - Gastos
-      calculatedCashBalance = (item.cashAbono + moneyInvestmentCash) - cashExpenses;
-      calculatedBankBalance = (item.bankAbono + moneyInvestmentBank) - bankExpenses;
-    }
+    // CORREGIDO: Usar directamente los balances del API (ya calculados correctamente)
+    // El API ya tiene la lógica correcta para calcular balances
+    const calculatedCashBalance = item.cashBalance;
+    const calculatedBankBalance = item.bankBalance;
 
     acc[locationKey].totalIncome += income;
     acc[locationKey].totalExpenses += expenses;
@@ -433,6 +402,7 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
                 }
                 return null;
               })()}
+              
             </tbody>
           </table>
           
@@ -453,14 +423,26 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
                   <tr>
                     <td css={{ padding: '8px', border: '1px solid #e2e8f0', fontWeight: 'bold' }}>CUOTA</td>
                     <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', fontWeight: 'bold' }}>
-                      ${(locality.totalComissions + locality.details.reduce((sum: number, item: any) => sum + item.loanGrantedComission, 0)).toFixed(2)}
+                      ${locality.totalComissions.toFixed(2)}
                     </td>
                   </tr>
                   <tr>
                     <td css={{ padding: '8px', border: '1px solid #e2e8f0', fontWeight: 'bold' }}>COBRANZA</td>
                     <td css={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'right', fontWeight: 'bold' }}>
-                      ${(locality.details.reduce((sum: number, item: any) => sum + item.cashAbono, 0) + 
-                         locality.details.reduce((sum: number, item: any) => sum + item.bankAbono, 0)).toFixed(2)}
+                      <div css={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
+                        <div css={{ fontSize: '14px', fontWeight: 'bold' }}>
+                          ${(locality.details.reduce((sum: number, item: any) => sum + item.cashAbono, 0) + 
+                             locality.details.reduce((sum: number, item: any) => sum + item.bankAbono, 0)).toFixed(2)}
+                        </div>
+                        <div css={{ fontSize: '11px', display: 'flex', gap: '8px' }}>
+                          <span css={{ color: '#38a169' }}>
+                            Efectivo: ${locality.details.reduce((sum: number, item: any) => sum + item.cashAbono, 0).toFixed(2)}
+                          </span>
+                          <span css={{ color: '#3182ce' }}>
+                            Banco: ${locality.details.reduce((sum: number, item: any) => sum + item.bankAbono, 0).toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
                     </td>
                   </tr>
                 </tbody>

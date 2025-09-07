@@ -3033,6 +3033,8 @@ type TransactionSummary {
   bankBalance: Float!
   cashAbono: Float!
   bankAbono: Float!
+  transferFromCash: Float!
+  transferToBank: Float!
 }
 
 union AuthenticatedItem = User

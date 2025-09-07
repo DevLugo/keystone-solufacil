@@ -565,7 +565,7 @@ export const CreatePaymentForm = ({
   });
 
   const [createCustomLeadPaymentReceived, { error: customLeadPaymentError, loading: customLeadPaymentLoading }] = useMutation(CREATE_LEAD_PAYMENT_RECEIVED);
-  const [updateLeadPayment, { loading: updateLoading }] = useMutation(UPDATE_LEAD_PAYMENT);
+  const [updateCustomLeadPaymentReceived, { loading: updateLoading }] = useMutation(UPDATE_LEAD_PAYMENT);
   const [updateLoanPayment, { loading: updateLoanPaymentLoading }] = useMutation(UPDATE_LOAN_PAYMENT);
   const [createFalcoPayment, { loading: falcoPaymentLoading }] = useMutation(CREATE_FALCO_PAYMENT);
 
@@ -754,8 +754,53 @@ export const CreatePaymentForm = ({
 
       // Obtener el primer grupo de pagos (asumimos que solo hay uno por ahora)
       const firstPaymentGroup = Object.values(paymentsByLeadPayment)[0];
+      
       if (!firstPaymentGroup) {
-        // No hay pagos para actualizar - no mostrar alert
+        // 🆕 NUEVA LÓGICA: Si no hay pagos (todos fueron eliminados), 
+        // necesitamos actualizar el LeadPaymentReceived con array vacío
+        console.log('🗑️ handleSaveAllChanges: Todos los pagos fueron eliminados, ejecutando actualización con array vacío');
+        
+        // Obtener el ID del LeadPaymentReceived del primer pago existente (antes de filtrar)
+        const firstExistingPayment = existingPayments.find((payment: any) => !payment.isMigrated);
+        if (!firstExistingPayment?.leadPaymentReceived?.id) {
+          console.error('❌ No se pudo encontrar el LeadPaymentReceived para actualizar');
+          return;
+        }
+        
+        const leadPaymentId = firstExistingPayment.leadPaymentReceived.id;
+        
+        // Ejecutar actualización directamente con array vacío
+        await updateCustomLeadPaymentReceived({
+          variables: {
+            id: leadPaymentId,
+            expectedAmount: 0, // Sin pagos, monto esperado es 0
+            cashPaidAmount: 0,
+            bankPaidAmount: 0,
+            falcoAmount: 0,
+            paymentDate: firstExistingPayment.leadPaymentReceived.createdAt,
+            payments: [] // Array vacío para eliminar todos los pagos
+          }
+        });
+        
+        // Refrescar datos y limpiar estado
+        await Promise.all([
+          refetchPayments(),
+          refetchMigratedPayments(),
+          refetchFalcos(),
+        ]);
+        
+        setState(prev => ({ 
+          ...prev,
+          editedPayments: {},
+          isEditing: false,
+          groupedPayments: undefined
+        }));
+        
+        // Llamar al callback para actualizar balances
+        if (onSaveComplete) {
+          onSaveComplete();
+        }
+        
         return;
       }
 
@@ -838,7 +883,7 @@ export const CreatePaymentForm = ({
           const { payments, paymentDate } = data;
           const { cashPaidAmount, bankPaidAmount, falcoAmount } = loadPaymentDistribution;
 
-          await updateLeadPayment({
+          await updateCustomLeadPaymentReceived({
             variables: {
               id: leadPaymentId,
               expectedAmount: data.expectedAmount,
@@ -1893,6 +1938,21 @@ export const CreatePaymentForm = ({
                     Cancelar
                   </Button>
                   <Button
+                    tone="negative"
+                    weight="bold"
+                    onClick={() => {
+                      // Marcar TODOS los pagos existentes como eliminados
+                      const allExistingPaymentIds = existingPayments
+                        .filter((payment: any) => !payment.isMigrated)
+                        .map((payment: any) => payment.id);
+                      setStrikethroughPaymentIds(allExistingPaymentIds);
+                      console.log('🗑️ Marcando todos los pagos existentes como eliminados:', allExistingPaymentIds);
+                    }}
+                    style={{ backgroundColor: '#DC2626', color: 'white' }}
+                  >
+                    Eliminar Todos (Existentes)
+                  </Button>
+                  <Button
                     tone="positive"
                     weight="bold"
                     onClick={handleSaveAllChanges}
@@ -1903,15 +1963,35 @@ export const CreatePaymentForm = ({
                 </div>
               ) : (
                 <>
-                  {/* Solo mostrar botón de editar si hay pagos existentes */}
+                  {/* Solo mostrar botones si hay pagos existentes */}
                   {existingPayments.length > 0 && (
-                    <Button
-                      tone="active"
-                      weight="bold"
-                      onClick={() => setState(prev => ({ ...prev, isEditing: true }))}
-                    >
-                      Editar Abonos
-                    </Button>
+                    <>
+                      <Button
+                        tone="active"
+                        weight="bold"
+                        onClick={() => setState(prev => ({ ...prev, isEditing: true }))}
+                      >
+                        Editar Abonos
+                      </Button>
+                      {/* Solo mostrar el botón de eliminar todos cuando esté en modo edición */}
+                      {isEditing && (
+                        <Button
+                          tone="negative"
+                          weight="bold"
+                          onClick={() => {
+                            // Marcar todos como eliminados
+                            const allExistingPaymentIds = existingPayments
+                              .filter((payment: any) => !payment.isMigrated)
+                              .map((payment: any) => payment.id);
+                            setStrikethroughPaymentIds(allExistingPaymentIds);
+                            console.log('🗑️ Marcando todos los pagos existentes como eliminados:', allExistingPaymentIds);
+                          }}
+                          style={{ backgroundColor: '#DC2626', color: 'white' }}
+                        >
+                          Eliminar Todos (Existentes)
+                        </Button>
+                      )}
+                    </>
                   )}
                   <Button
                     tone="active"
@@ -1922,6 +2002,22 @@ export const CreatePaymentForm = ({
                     <FaPlus size={12} style={{ marginRight: '8px' }} />
                     Agregar Pago
                   </Button>
+                  {/* Botón para eliminar todos los pagos nuevos */}
+                  {payments.length > 0 && (
+                    <Button
+                      tone="negative"
+                      weight="bold"
+                      onClick={() => {
+                        // Marcar TODOS los pagos nuevos como eliminados
+                        const allNewPaymentIndices = payments.map((_, index) => index);
+                        setStrikethroughNewPaymentIndices(allNewPaymentIndices);
+                        console.log('🗑️ Marcando todos los pagos nuevos como eliminados:', allNewPaymentIndices);
+                      }}
+                      style={{ backgroundColor: '#DC2626', color: 'white' }}
+                    >
+                      Eliminar Todos (Nuevos)
+                    </Button>
+                  )}
                 </>
               )}
             </div>
@@ -2182,7 +2278,7 @@ export const CreatePaymentForm = ({
                       )}
                     </td>
                     <td>
-                      {!payment.isMigrated && (
+                      {!payment.isMigrated && isEditing && (
                         <div style={{ display: 'flex', gap: '4px' }}>
                           {strikethroughPaymentIds.includes(payment.id) ? (
                             <Button
@@ -2384,18 +2480,21 @@ export const CreatePaymentForm = ({
         </Box>
       </Box>
 
-      <Box marginTop="large">
-        <Button 
-          isLoading={customLeadPaymentLoading || isSaving}
-          weight="bold"
-          tone="active"
-          onClick={() => updateState({ isModalOpen: true })}
-          style={{ marginLeft: '10px' }}
-          isDisabled={(!payments.length && !isEditing) || isSaving}
-        >
-          {isSaving ? 'Guardando...' : (isEditing ? 'Guardar Cambios' : 'Registrar abonos')}
-        </Button>
-      </Box>
+      {/* Solo mostrar el botón principal cuando NO se está editando */}
+      {!isEditing && (
+        <Box marginTop="large">
+          <Button 
+            isLoading={customLeadPaymentLoading || isSaving}
+            weight="bold"
+            tone="active"
+            onClick={() => updateState({ isModalOpen: true })}
+            style={{ marginLeft: '10px' }}
+            isDisabled={!payments.length || isSaving}
+          >
+            {isSaving ? 'Guardando...' : 'Registrar abonos'}
+          </Button>
+        </Box>
+      )}
 
       {/* Modal para crear falco */}
       <AlertDialog 
@@ -2782,44 +2881,68 @@ export const CreatePaymentForm = ({
       >
         <Box padding="large">
           <Box marginBottom="large">
-            <h4>Total pagado: ${(payments.length > 0 ? totalAmount : state.groupedPayments ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0 : 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h4>
+            <h4><strong>Total:</strong> ${(payments.length > 0 ? totalAmount : state.groupedPayments ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0 : 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h4>
           </Box>
-          <Box marginBottom="large">
-            <label>Efectivo</label>
-            <TextInput
-              type="number"
-              value={loadPaymentDistribution.cashPaidAmount}
-              onChange={(e) => updateState({
-                loadPaymentDistribution: {
-                  ...loadPaymentDistribution,
-                  cashPaidAmount: parseFloat(e.target.value),
-                  totalPaidAmount: parseFloat(e.target.value) + loadPaymentDistribution.bankPaidAmount,
-                }
-              })}
-            />
-          </Box>
-          <Box marginBottom="large">
-            <label>Transferencia</label>
-            <TextInput
-              type="number"
-              value={loadPaymentDistribution.bankPaidAmount}
-              onChange={(e) => updateState({
-                loadPaymentDistribution: {
-                  ...loadPaymentDistribution,
-                  bankPaidAmount: parseFloat(e.target.value),
-                  totalPaidAmount: parseFloat(e.target.value) + loadPaymentDistribution.cashPaidAmount,
-                }
-              })}
-            />
-          </Box>
-          <Box marginBottom="large">
-            <label>Total distribuido</label>
-            <TextInput
-              type="number"
-              value={loadPaymentDistribution.totalPaidAmount}
-              readOnly
-            />
-          </Box>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', alignItems: 'start' }}>
+            <Box marginBottom="large">
+              <label>Efectivo:</label>
+              <div style={{ 
+                padding: '0.75rem', 
+                backgroundColor: '#f5f5f5', 
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                color: '#333',
+                fontWeight: '500',
+                marginTop: '0.5rem'
+              }}>
+                ${(loadPaymentDistribution.totalPaidAmount - loadPaymentDistribution.bankPaidAmount).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </Box>
+            
+            <Box marginBottom="large">
+              <label>Transferencia:</label>
+              <TextInput
+                type="number"
+                min="0"
+                max={payments.length > 0 ? totalAmount : state.groupedPayments ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0 : 0}
+                value={loadPaymentDistribution.bankPaidAmount}
+                onChange={(e) => {
+                  const transferAmount = Math.max(0, Math.min(parseFloat(e.target.value) || 0, payments.length > 0 ? totalAmount : state.groupedPayments ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0 : 0));
+                  const totalAmountValue = payments.length > 0 ? totalAmount : state.groupedPayments ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0 : 0;
+                  const cashAmount = totalAmountValue - transferAmount;
+                  
+                  updateState({
+                    loadPaymentDistribution: {
+                      ...loadPaymentDistribution,
+                      bankPaidAmount: transferAmount,
+                      cashPaidAmount: cashAmount,
+                      totalPaidAmount: totalAmountValue,
+                    }
+                  });
+                }}
+                style={{ 
+                  border: loadPaymentDistribution.bankPaidAmount > (payments.length > 0 ? totalAmount : state.groupedPayments ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0 : 0) ? '2px solid #e74c3c' : '1px solid #ccc',
+                  marginTop: '0.5rem'
+                }}
+              />
+            </Box>
+          </div>
+          
+          {loadPaymentDistribution.bankPaidAmount > (payments.length > 0 ? totalAmount : state.groupedPayments ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0 : 0) && (
+            <div style={{ 
+              color: '#e74c3c', 
+              fontSize: '0.9em', 
+              textAlign: 'center',
+              padding: '0.5rem',
+              backgroundColor: '#fdf2f2',
+              border: '1px solid #fecaca',
+              borderRadius: '4px',
+              marginTop: '1rem'
+            }}>
+              El monto de transferencia no puede ser mayor al total de cobranza
+            </div>
+          )}
         </Box>
       </AlertDialog>
     </Box>

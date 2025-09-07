@@ -23,15 +23,17 @@ export const PaymentDistributionModal: React.FC<PaymentDistributionModalProps> =
   onDistributionChange,
   totalAmount,
 }) => {
-  const handleInputChange = (field: keyof PaymentDistribution, value: string) => {
-    const numValue = parseFloat(value) || 0;
-    const newDistribution = { ...distribution };
-
-    if (field === 'cashPaidAmount' || field === 'bankPaidAmount') {
-      newDistribution[field] = numValue;
-      newDistribution.totalPaidAmount = newDistribution.cashPaidAmount + newDistribution.bankPaidAmount;
-      newDistribution.falcoAmount = Math.max(0, totalAmount - newDistribution.totalPaidAmount);
-    }
+  const handleTransferChange = (value: string) => {
+    const transferAmount = Math.max(0, Math.min(parseFloat(value) || 0, totalAmount));
+    const cashAmount = totalAmount - transferAmount;
+    
+    const newDistribution = {
+      ...distribution,
+      bankPaidAmount: transferAmount,
+      cashPaidAmount: cashAmount,
+      totalPaidAmount: totalAmount,
+      falcoAmount: 0
+    };
 
     onDistributionChange(newDistribution);
   };
@@ -53,33 +55,55 @@ export const PaymentDistributionModal: React.FC<PaymentDistributionModalProps> =
     >
       <div css={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <div css={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', alignItems: 'center' }}>
-          <label>Monto Total Esperado:</label>
-          <div>{totalAmount.toFixed(2)}</div>
+          <label><strong>Total:</strong></label>
+          <div css={{ fontWeight: 'bold', fontSize: '1.1em' }}>
+            ${totalAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
         </div>
+        
         <div css={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', alignItems: 'center' }}>
-          <label>Efectivo:</label>
-          <TextInput
-            type="number"
-            value={distribution.cashPaidAmount.toString()}
-            onChange={e => handleInputChange('cashPaidAmount', e.target.value)}
-          />
+          <div css={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <label>Efectivo:</label>
+            <div css={{ 
+              padding: '0.75rem', 
+              backgroundColor: '#f5f5f5', 
+              border: '1px solid #ddd',
+              borderRadius: '4px',
+              color: '#333',
+              fontWeight: '500'
+            }}>
+              ${distribution.cashPaidAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+          </div>
+          
+          <div css={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <label>Transferencia:</label>
+            <TextInput
+              type="number"
+              min="0"
+              max={totalAmount}
+              value={distribution.bankPaidAmount.toString()}
+              onChange={e => handleTransferChange(e.target.value)}
+              css={{ 
+                border: distribution.bankPaidAmount > totalAmount ? '2px solid #e74c3c' : '1px solid #ccc'
+              }}
+            />
+          </div>
         </div>
-        <div css={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', alignItems: 'center' }}>
-          <label>Transferencia:</label>
-          <TextInput
-            type="number"
-            value={distribution.bankPaidAmount.toString()}
-            onChange={e => handleInputChange('bankPaidAmount', e.target.value)}
-          />
-        </div>
-        <div css={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', alignItems: 'center' }}>
-          <label>Total Pagado:</label>
-          <div>{distribution.totalPaidAmount.toFixed(2)}</div>
-        </div>
-        <div css={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', alignItems: 'center' }}>
-          <label>Falco:</label>
-          <div>{distribution.falcoAmount.toFixed(2)}</div>
-        </div>
+        
+        {distribution.bankPaidAmount > totalAmount && (
+          <div css={{ 
+            color: '#e74c3c', 
+            fontSize: '0.9em', 
+            textAlign: 'center',
+            padding: '0.5rem',
+            backgroundColor: '#fdf2f2',
+            border: '1px solid #fecaca',
+            borderRadius: '4px'
+          }}>
+            El monto de transferencia no puede ser mayor al total de cobranza
+          </div>
+        )}
       </div>
     </AlertDialog>
   );
