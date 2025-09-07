@@ -587,7 +587,13 @@ const AvalDropdown: React.FC<AvalDropdownProps> = ({
   const actionConfig = useMemo(() => getActionConfig(), [avalName, avalPhone, isNewAval, hasDataChanges, selectedPersonalDataId]);
 
   return (
-    <div style={{ position: 'relative', width: '100%' }}>
+    <div style={{ 
+      position: 'relative', 
+      width: '100%',
+      minWidth: isNameInputFocused ? '300px' : '200px',
+      maxWidth: isNameInputFocused ? '400px' : '300px',
+      transition: 'all 0.3s ease'
+    }}>
       {/* Container simplificado para alinearse con otros inputs */}
       <div style={{
         backgroundColor: actionConfig.backgroundColor,

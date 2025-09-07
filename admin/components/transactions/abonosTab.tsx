@@ -2384,8 +2384,6 @@ export const CreatePaymentForm = ({
         </Box>
       </Box>
 
-
-
       <Box marginTop="large">
         <Button 
           isLoading={customLeadPaymentLoading || isSaving}
