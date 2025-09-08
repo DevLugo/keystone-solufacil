@@ -4298,22 +4298,41 @@ export const extendGraphqlSchema = graphql.extend(base => {
             });
 
             // ✅ CRITERIOS ESTRICTOS: Determina si el préstamo se considera ACTIVO según los 3 puntos clave
-            const isLoanConsideredOnDate = (loan: any, date: Date) => {
+            const isLoanConsideredOnDate = (loan: any, date: Date, debugForAtasta = false) => {
+              // Si no hay signDate, el préstamo no puede estar activo
+              if (!loan.signDate) {
+                if (debugForAtasta) {
+                  console.log(`    ❌ PUNTO 0: Préstamo ${loan.id} no tiene signDate`);
+                }
+                return false;
+              }
+              
               const signDate = new Date(loan.signDate);
-              if (signDate > date) return false;
+              if (signDate > date) {
+                if (debugForAtasta) {
+                  console.log(`    ❌ PUNTO 0: Préstamo ${loan.id} firmado después de la fecha (${signDate.toISOString()} > ${date.toISOString()})`);
+                }
+                return false;
+              }
               
               // ✅ PUNTO 0: Si ya fue finalizado antes de la fecha de referencia, NO está activo
               if (loan.finishedDate !== null) {
                 const finishedDate = new Date(loan.finishedDate);
                 if (finishedDate <= date) {
+                  if (debugForAtasta) {
+                    console.log(`    ❌ PUNTO 1: Préstamo ${loan.id} ya finalizado antes de la fecha (${finishedDate.toISOString()} <= ${date.toISOString()})`);
+                  }
                   return false; // Ya fue finalizado antes de la fecha de referencia
                 }
               }
               
               // ✅ PUNTO 1: Si para la semana de revisión fue marcado como portafolioCleanup, entonces no se contempla
-              if (loan.excludedByCleanup !== null) {
+              if (loan.excludedByCleanup !== null && loan.excludedByCleanup !== undefined) {
                 const cleanupDate = new Date(loan.excludedByCleanup.cleanupDate as any);
                 if (cleanupDate <= date) {
+                  if (debugForAtasta) {
+                    console.log(`    ❌ PUNTO 2: Préstamo ${loan.id} excluido por cleanup antes de la fecha (${cleanupDate.toISOString()} <= ${date.toISOString()})`);
+                  }
                   return false; // Ya fue excluido por cleanup antes de la fecha de referencia
                 }
               }
@@ -4327,13 +4346,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 });
                 
                 if (hasNewerRenewal) {
+                  if (debugForAtasta) {
+                    console.log(`    ❌ PUNTO 3: Préstamo ${loan.id} ya renovado antes de la fecha`);
+                  }
                   return false;
                 }
               }
 
               // ✅ PUNTO 3: Si para la semana de revisión ya se pagó por completo, entonces no se contempla
               // ✅ OPTIMIZACIÓN: Usar datos pre-calculados
-              const { totalDebt } = loan._calculated;
+              const totalDebt = loan._calculated?.totalDebt || (Number(loan.amountGived || 0) + Number(loan.profitAmount || 0));
               
               // Calcular el total pagado hasta la fecha de referencia
               let totalPaid = 0;
@@ -4347,8 +4369,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
               // Calcular el monto pendiente real
               const realPendingAmount = Math.max(0, totalDebt - totalPaid);
               
+              if (debugForAtasta) {
+                console.log(`    💰 PUNTO 4: Préstamo ${loan.id} - Total deuda: ${totalDebt}, Total pagado: ${totalPaid}, Pendiente: ${realPendingAmount}`);
+              }
+              
               // Solo está activo si tiene monto pendiente real > 0
-              return realPendingAmount > 0;
+              const isActive = realPendingAmount > 0;
+              if (debugForAtasta) {
+                console.log(`    ${isActive ? '✅' : '❌'} RESULTADO: Préstamo ${loan.id} ${isActive ? 'ACTIVO' : 'NO ACTIVO'}`);
+              }
+              return isActive;
             };
 
             // ✅ OPTIMIZACIÓN: Procesar datos por semana de manera más eficiente
@@ -4401,9 +4431,56 @@ export const extendGraphqlSchema = graphql.extend(base => {
               const { start: weekStart, end: weekEnd } = weeks[weekKey];
               reportData[weekKey] = {};
 
+              // 🔍 DEBUG: Log general para todas las semanas
+              console.log(`\n📅 PROCESANDO SEMANA: ${weekKey} - RouteId: ${routeId}`);
+              console.log(`  - Fechas: ${weekStart.toISOString()} - ${weekEnd.toISOString()}`);
+
               // Agrupar por localidad
               const localitiesData: { [locality: string]: any } = {};
               const isFirstWeek = weekKey === weekOrder[0];
+
+              // 🔍 DEBUG: Log específico para semana 3 de Atasta
+              const isAtastaWeek3 = weekKey === 'SEMANA 3';
+              
+              // Helper function para verificar si una localidad es de Atasta
+              const isAtastaLocality = (locality: string) => {
+                return locality && typeof locality === 'string' && locality.toLowerCase().includes('atasta');
+              };
+              
+              // 🔍 DEBUG: Contadores para rastrear el flujo de Atasta
+              let atastaFinishedCount = 0;
+              let atastaRenewedNotFinishedCount = 0;
+              let atastaRenewedFinishedCount = 0;
+              
+              // 🔍 DEBUG: Verificar condición para semana 3
+              if (weekKey === 'SEMANA 3') {
+                console.log(`\n🔍 VERIFICANDO SEMANA 3:`);
+                console.log(`  - weekKey: ${weekKey}`);
+                console.log(`  - routeId: ${routeId}`);
+                console.log(`  - isAtastaWeek3: ${isAtastaWeek3}`);
+              }
+              
+              if (isAtastaWeek3) {
+                console.log(`\n🔍 DEBUG SEMANA 3 ATASTA:`);
+                console.log(`  - Semana: ${weekKey}`);
+                console.log(`  - Fechas: ${weekStart.toISOString()} - ${weekEnd.toISOString()}`);
+                console.log(`  - RouteId: ${routeId}`);
+                console.log(`  - ¿Es primera semana?: ${isFirstWeek}`);
+                console.log(`  - Condición cumplida: weekKey=${weekKey}`);
+                
+                // 🔍 DEBUG: Mostrar todas las localidades disponibles
+                console.log(`\n🔍 LOCALIDADES DISPONIBLES EN ESTA RUTA:`);
+                Object.keys(loansByLocality).forEach(locality => {
+                  const loans = loansByLocality.get(locality);
+                  console.log(`  - Localidad: "${locality}" (tipo: ${typeof locality})`);
+                  console.log(`    - Préstamos: ${loans.length}`);
+                  console.log(`    - lowercase: "${locality?.toLowerCase()}"`);
+                  console.log(`    - includes('atasta'): ${locality?.toLowerCase()?.includes('atasta')}`);
+                  if (isAtastaLocality(locality)) {
+                    console.log(`    ✅ CONTIENE 'atasta'`);
+                  }
+                });
+              }
 
               // ✅ RESTAURAR CONTINUIDAD: Para semanas que no son la primera, usar activeAtEnd de la semana anterior
               if (!isFirstWeek) {
@@ -4420,9 +4497,11 @@ export const extendGraphqlSchema = graphql.extend(base => {
                         granted: 0,
                         grantedNew: 0,
                         grantedRenewed: 0,
+                        grantedReintegros: 0,
                         grantedLoans: [],
                         grantedLoansNew: [],
                         grantedLoansRenewed: [],
+                        grantedLoansReintegros: [],
                         finished: 0,
                         finishedLoans: [],
                         cvClients: [],
@@ -4449,9 +4528,11 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     granted: 0,
                     grantedNew: 0,
                     grantedRenewed: 0,
+                    grantedReintegros: 0,
                     grantedLoans: [],
                     grantedLoansNew: [],
                     grantedLoansRenewed: [],
+                    grantedLoansReintegros: [],
                     finished: 0,
                     finishedLoans: [],
                     cvClients: [],
@@ -4462,6 +4543,31 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     finishedAmount: 0,
                     cvAmount: 0
                   };
+                }
+                
+                // 🔍 DEBUG: Log específico para semana 3 de Atasta - TODOS los préstamos de la localidad
+                if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                  console.log(`\n  📋 PROCESANDO LOCALIDAD: ${locality}`);
+                  console.log(`    - Total préstamos en localidad: ${loans.length}`);
+                  const loansInWeek = loans.filter((loan: any) => {
+                    const signDate = new Date(loan.signDate);
+                    return signDate >= weekStart && signDate <= weekEnd;
+                  });
+                  console.log(`    - Préstamos otorgados en esta semana: ${loansInWeek.length}`);
+                  
+                  const loansFinishedInWeek = loans.filter((loan: any) => {
+                    if (!loan.finishedDate) return false;
+                    const finishedDate = new Date(loan.finishedDate);
+                    return finishedDate >= weekStart && finishedDate <= weekEnd;
+                  });
+                  console.log(`    - Préstamos finalizados en esta semana: ${loansFinishedInWeek.length}`);
+                  
+                  const loansCleanupInWeek = loans.filter((loan: any) => {
+                    if (!loan.excludedByCleanup?.cleanupDate) return false;
+                    const cleanupDate = new Date(loan.excludedByCleanup.cleanupDate);
+                    return cleanupDate >= weekStart && cleanupDate <= weekEnd;
+                  });
+                  console.log(`    - Préstamos finalizados por CLEANUP en esta semana: ${loansCleanupInWeek.length}`);
                 }
 
                 const data = localitiesData[locality];
@@ -4502,16 +4608,137 @@ export const extendGraphqlSchema = graphql.extend(base => {
                       previousFinishedDate: loan.previousLoan?.finishedDate || null
                     });
                     
+                    // 🔍 DEBUG: Log específico para semana 3 de Atasta
+                    if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                      console.log(`  - Préstamo otorgado: ${loan.id} (${loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A'})`);
+                      console.log(`    - Fecha firma: ${signDate.toISOString()}`);
+                      console.log(`    - Monto: ${loanAmount}`);
+                      console.log(`    - ¿Tiene préstamo anterior?: ${!!loan.previousLoanId}`);
+                    }
+                    
                     if (loan.previousLoanId) {
-                      data.grantedRenewed++;
-                      (data.grantedLoansRenewed as any[]).push({
-                        id: loan.id,
-                        date: signDate,
-                        finishedDate: loan.finishedDate || null,
-                        amountGived: Number(loan.amountGived || 0),
-                        fullName: loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A',
-                        previousFinishedDate: loan.previousLoan?.finishedDate || null
-                      });
+                      // Verificar si es un reintegro (préstamo anterior ya estaba finalizado al inicio de la semana)
+                      const previousLoan = loan.previousLoan;
+                      let isReintegro = false;
+                      
+                      if (previousLoan) {
+                        // 🔍 DEBUG: Log detallado para Atasta
+                        const fullName = loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A';
+                        const locality = loan.borrower?.personalData?.addresses?.[0]?.location?.name ||
+                                        loan.lead?.personalData?.addresses?.[0]?.location?.name ||
+                                        'Sin localidad';
+                        
+                        // 🔍 DEBUG: Log específico para semana 3 de Atasta
+                        if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                          console.log(`  - ANÁLISIS REINTEGRO/RENOVADO para ${loan.id} (${fullName}):`);
+                          console.log(`    - Fecha firma nuevo préstamo: ${new Date(loan.signDate).toISOString()}`);
+                          console.log(`    - Fecha finalización préstamo anterior: ${previousLoan.finishedDate ? new Date(previousLoan.finishedDate).toISOString() : 'NO FINALIZADO'}`);
+                          console.log(`    - Semana actual: ${weekStart.toISOString()} - ${weekEnd.toISOString()}`);
+                        }
+                        
+                        // 🔍 LÓGICA CORREGIDA PARA REINTEGROS
+                        // Un reintegro es cuando el préstamo anterior ya estaba finalizado ANTES del inicio de la semana
+                        // Un renovado es cuando el préstamo anterior se finaliza DURANTE la misma semana que se firma el nuevo
+                        
+                        if (previousLoan.finishedDate) {
+                          const finishedDate = new Date(previousLoan.finishedDate);
+                          const signDate = new Date(loan.signDate);
+                          
+                          // ✅ CRITERIO CORREGIDO: 
+                          // - REINTEGRO: Préstamo anterior finalizado ANTES del inicio de la semana
+                          // - RENOVADO: Préstamo anterior finalizado DURANTE la semana (mismo día o después del inicio de semana)
+                          if (finishedDate < weekStart) {
+                            isReintegro = true;
+                            if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                              console.log(`  ✅ REINTEGRO: Préstamo anterior finalizado ANTES del inicio de semana (${finishedDate.toISOString()} < ${weekStart.toISOString()})`);
+                            }
+                          } else {
+                            // Verificar si el préstamo anterior se finalizó en la misma semana que se firmó el nuevo
+                            if (finishedDate >= weekStart && finishedDate <= weekEnd) {
+                              // Es una renovación en la misma semana
+                              isReintegro = false;
+                              if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                                console.log(`  ❌ RENOVADO: Préstamo anterior finalizado DURANTE la semana (${finishedDate.toISOString()} entre ${weekStart.toISOString()} y ${weekEnd.toISOString()})`);
+                              }
+                            } else {
+                              // Préstamo anterior finalizado después de la semana actual
+                              isReintegro = false;
+                              if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                                console.log(`  ❌ RENOVADO: Préstamo anterior finalizado DESPUÉS de la semana (${finishedDate.toISOString()} > ${weekEnd.toISOString()})`);
+                              }
+                            }
+                          }
+                        } else {
+                          // Si no tiene finishedDate, verificar si estaba activo usando la función
+                          const wasActiveAtWeekStart = isLoanConsideredOnDate(previousLoan, weekStart, isAtastaWeek3 && isAtastaLocality(locality));
+                          if (!wasActiveAtWeekStart) {
+                            isReintegro = true;
+                            if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                              console.log(`  ✅ REINTEGRO: Préstamo anterior no estaba activo al inicio de semana`);
+                            }
+                          } else {
+                            isReintegro = false;
+                            if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                              console.log(`  ❌ RENOVADO: Préstamo anterior estaba activo al inicio de semana`);
+                            }
+                          }
+                        }
+                      }
+                      
+                      if (isReintegro) {
+                        data.grantedReintegros++;
+                        (data.grantedLoansReintegros as any[]).push({
+                          id: loan.id,
+                          date: signDate,
+                          finishedDate: loan.finishedDate || null,
+                          amountGived: Number(loan.amountGived || 0),
+                          fullName: loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A',
+                          previousFinishedDate: loan.previousLoan?.finishedDate || null,
+                          isReintegro: true
+                        });
+                        
+                        // 🔍 DEBUG: Log específico para semana 3 de Atasta
+                        if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                          console.log(`    - ✅ CLASIFICADO como REINTEGRO`);
+                        }
+                      } else {
+                        data.grantedRenewed++;
+                        (data.grantedLoansRenewed as any[]).push({
+                          id: loan.id,
+                          date: signDate,
+                          finishedDate: loan.finishedDate || null,
+                          amountGived: Number(loan.amountGived || 0),
+                          fullName: loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A',
+                          previousFinishedDate: loan.previousLoan?.finishedDate || null,
+                          isReintegro: false
+                        });
+                        
+                        // 🔍 DEBUG: Log específico para semana 3 de Atasta
+                        if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                          console.log(`    - ✅ CLASIFICADO como RENOVADO`);
+                          
+                          // Verificar si el préstamo anterior se finalizó en la misma semana
+                          const previousFinishedDate = loan.previousLoan?.finishedDate;
+                          if (previousFinishedDate) {
+                            const prevFinished = new Date(previousFinishedDate);
+                            const isPreviousFinishedInWeek = prevFinished >= weekStart && prevFinished <= weekEnd;
+                            
+                            if (isPreviousFinishedInWeek) {
+                              // RENOVADO de un crédito que se cerró en la misma semana
+                              atastaRenewedFinishedCount++;
+                              console.log(`    - 🔄 RENOVADO de crédito que se cerró en la misma semana`);
+                              console.log(`    - 📊 CONTADOR: Renovados de finalizados = ${atastaRenewedFinishedCount}`);
+                              console.log(`    - 📊 BALANCE AJUSTADO: -${atastaFinishedCount} + ${atastaRenewedFinishedCount} = -${atastaFinishedCount - atastaRenewedFinishedCount}`);
+                            } else {
+                              // RENOVADO de un crédito que aún no finalizaba
+                              atastaRenewedNotFinishedCount++;
+                              console.log(`    - 🔄 RENOVADO de crédito que aún no finalizaba`);
+                              console.log(`    - 📊 CONTADOR: Renovados no finalizados = ${atastaRenewedNotFinishedCount}`);
+                              console.log(`    - 📊 BALANCE: Sin cambio (sigue -${atastaFinishedCount})`);
+                            }
+                          }
+                        }
+                      }
                     } else {
                       data.grantedNew++;
                       (data.grantedLoansNew as any[]).push({
@@ -4522,31 +4749,188 @@ export const extendGraphqlSchema = graphql.extend(base => {
                         fullName: loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A',
                         previousFinishedDate: null
                       });
+                      
+                      // 🔍 DEBUG: Log específico para semana 3 de Atasta
+                      if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                        console.log(`    - ✅ CLASIFICADO como NUEVO`);
+                      }
                     }
                   }
 
                   // Préstamos finalizados durante la semana (por finishedDate)
+                  // Solo contar como finalizados si NO fueron renovados por otro préstamo
                   if (loan.finishedDate) {
                     const finishedDate = new Date(loan.finishedDate);
                     const isWithinWeek = finishedDate >= weekStart && finishedDate <= weekEnd;
+                    
+                      // 🔍 DEBUG: Log específico para semana 3 de Atasta - TODOS los préstamos con finishedDate
+                      if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                        const fullName = loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A';
+                        console.log(`  - Préstamo con finishedDate: ${loan.id} (${fullName})`);
+                        console.log(`    - Fecha finishedDate: ${finishedDate.toISOString()}`);
+                        console.log(`    - ¿Dentro de semana?: ${isWithinWeek}`);
+                        console.log(`    - Semana: ${weekStart.toISOString()} - ${weekEnd.toISOString()}`);
+                        
+                        // 🔍 DEBUG ESPECÍFICO: Buscar el préstamo con oldid 7415
+                        if (loan.fullName === 'MARIA CONSEPCION TACU SANCHEZ') {
+                          console.log(`\n🔍 PRÉSTAMO ESPECÍFICO OLDID 7415 ENCONTRADO:`);
+                          console.log(`  - ID: ${loan.id}`);
+                          console.log(`  - Nombre: ${fullName}`);
+                          console.log(`  - Localidad: ${locality}`);
+                          console.log(`  - Fecha finishedDate: ${finishedDate.toISOString()}`);
+                          console.log(`  - Semana actual: ${weekStart.toISOString()} - ${weekEnd.toISOString()}`);
+                          console.log(`  - ¿Dentro de semana?: ${isWithinWeek}`);
+                          console.log(`  - ¿Es Atasta?: ${isAtastaLocality(locality)}`);
+                          console.log(`  - ¿Es semana 3?: ${isAtastaWeek3}`);
+                        }
+                      }
+                    
                     if (isWithinWeek) {
-                      data.finished++;
-                      data.finishedAmount += loanAmount;
-                      (data.finishedLoans as any[]).push({
-                        id: loan.id,
-                        finishedDate,
-                        startDate: loan.signDate,
-                        amountGived: Number(loan.amountGived || 0),
-                        fullName: loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A',
-                        reason: 'FINISHED_DATE'
-                      });
+                      // Verificar si este préstamo fue renovado por otro préstamo
+                      const wasRenewed = renewalMap.has(loan.id);
+                      
+                      // Definir fullName y locality para uso en logs
+                      const fullName = loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A';
+                      const loanLocality = loan.borrower?.personalData?.addresses?.[0]?.location?.name ||
+                                      loan.lead?.personalData?.addresses?.[0]?.location?.name ||
+                                      'Sin localidad';
+                      
+                      // 🔍 DEBUG: Solo para CELENE DZUL CHABLE de Xbacab
+                      
+                      if (loanLocality.toLowerCase().includes('xbacab') && fullName.toLowerCase().includes('celene')) {
+                        console.log(`🔍 DEBUG CELENE DZUL CHABLE - XBACAB:`);
+                        console.log(`  - Préstamo ID: ${loan.id}`);
+                        console.log(`  - Fecha finalización: ${finishedDate.toISOString()}`);
+                        console.log(`  - Semana: ${weekStart.toISOString()} - ${weekEnd.toISOString()}`);
+                        console.log(`  - ¿Dentro de semana?: ${isWithinWeek}`);
+                        console.log(`  - ¿Fue renovado?: ${wasRenewed}`);
+                        
+                        // Calcular deuda pendiente real
+                        const totalDebt = loan._calculated?.totalDebt || (Number(loan.amountGived || 0) + Number(loan.profitAmount || 0));
+                        let totalPaid = 0;
+                        for (const payment of loan.payments || []) {
+                          const paymentDate = new Date(payment.receivedAt || payment.createdAt);
+                          if (paymentDate <= finishedDate) {
+                            totalPaid += parseFloat((payment.amount || 0).toString());
+                          }
+                        }
+                        const realPendingAmount = Math.max(0, totalDebt - totalPaid);
+                        
+                        console.log(`  - Total deuda: ${totalDebt}`);
+                        console.log(`  - Total pagado: ${totalPaid}`);
+                        console.log(`  - Deuda pendiente: ${realPendingAmount}`);
+                        console.log(`  - ¿Realmente finalizado?: ${realPendingAmount === 0}`);
+                      }
+                      
+                      // ✅ NUEVA LÓGICA: Contar TODOS los préstamos con finishedDate como finalizados
+                      // independientemente de si fueron renovados o no
+                      if (true) {
+                        // ✅ VALIDAR DEUDA PENDIENTE REAL: Solo marcar como finalizado si realmente no tiene deuda
+                        const totalDebt = loan._calculated?.totalDebt || (Number(loan.amountGived || 0) + Number(loan.profitAmount || 0));
+                        let totalPaid = 0;
+                        for (const payment of loan.payments || []) {
+                          const paymentDate = new Date(payment.receivedAt || payment.createdAt);
+                          if (paymentDate <= finishedDate) {
+                            totalPaid += parseFloat((payment.amount || 0).toString());
+                          }
+                        }
+                        const realPendingAmount = Math.max(0, totalDebt - totalPaid);
+                        
+                        // 🔍 DEBUG: Log específico para semana 3 de Atasta
+                        if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                          console.log(`  - Préstamo finalizado: ${loan.id} (${fullName})`);
+                          console.log(`    - Fecha finishedDate: ${finishedDate.toISOString()}`);
+                          console.log(`    - Total deuda: ${totalDebt}`);
+                          console.log(`    - Total pagado: ${totalPaid}`);
+                          console.log(`    - Deuda pendiente: ${realPendingAmount}`);
+                          console.log(`    - ¿Fue renovado?: ${wasRenewed}`);
+                          console.log(`    - ¿Dentro de semana?: ${isWithinWeek}`);
+                        }
+                        
+                        // Solo marcar como finalizado si realmente no tiene deuda pendiente
+                        // ✅ NUEVA LÓGICA: Siempre contar como finalizado si tiene finishedDate
+                        if (true) {
+                          data.finished++;
+                          data.finishedAmount += loanAmount;
+                          (data.finishedLoans as any[]).push({
+                            id: loan.id,
+                            finishedDate,
+                            startDate: loan.signDate,
+                            amountGived: Number(loan.amountGived || 0),
+                            fullName: loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A',
+                            reason: wasRenewed ? 'FINISHED_DATE_RENEWED' : 'FINISHED_DATE'
+                          });
+                          
+                          // 🔍 DEBUG: Log específico para semana 3 de Atasta
+                          if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                            atastaFinishedCount++;
+                            console.log(`    - ✅ CONTADO como finalizado${wasRenewed ? ' (RENOVADO)' : ''}`);
+                            console.log(`    - 📊 CONTADOR: Créditos finalizados = ${atastaFinishedCount}`);
+                            console.log(`    - 📊 BALANCE ACTUAL: -${atastaFinishedCount}`);
+                            
+                            // 🔍 DEBUG ESPECÍFICO: Log adicional para oldid 7415
+                            if (loan.id === '7415') {
+                              console.log(`\n🔍 OLDID 7415 - PROCESADO COMO FINALIZADO:`);
+                              console.log(`  - ID: ${loan.id}`);
+                              console.log(`  - ¿Fue renovado?: ${wasRenewed}`);
+                              console.log(`  - Total deuda: ${totalDebt}`);
+                              console.log(`  - Total pagado: ${totalPaid}`);
+                              console.log(`  - Deuda pendiente: ${totalDebt - totalPaid}`);
+                              console.log(`  - ¿Deuda pendiente = 0?: ${totalDebt - totalPaid === 0}`);
+                            }
+                          }
+                        } else {
+                          // 🔍 DEBUG: Log específico para semana 3 de Atasta
+                          if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                            console.log(`    - ❌ NO contado como finalizado (tiene deuda pendiente)`);
+                            
+                            // 🔍 DEBUG ESPECÍFICO: Log adicional para oldid 7415 si NO se cuenta
+                            if (loan.id === '7415') {
+                              console.log(`\n🔍 OLDID 7415 - NO CONTADO COMO FINALIZADO:`);
+                              console.log(`  - ID: ${loan.id}`);
+                              console.log(`  - ¿Fue renovado?: ${wasRenewed}`);
+                              console.log(`  - Total deuda: ${totalDebt}`);
+                              console.log(`  - Total pagado: ${totalPaid}`);
+                              console.log(`  - Deuda pendiente: ${totalDebt - totalPaid}`);
+                              console.log(`  - ¿Deuda pendiente = 0?: ${totalDebt - totalPaid === 0}`);
+                              console.log(`  - RAZÓN: Tiene deuda pendiente`);
+                            }
+                          }
+                          
+                          // 🔍 DEBUG: Solo para CELENE DZUL CHABLE de Xbacab
+                          if (locality.toLowerCase().includes('xbacab') && fullName.toLowerCase().includes('celene')) {
+                            console.log(`⚠️ CELENE DZUL CHABLE NO FINALIZADO - XBACAB:`);
+                            console.log(`  - Préstamo ID: ${loan.id}`);
+                            console.log(`  - Fecha finishedDate: ${finishedDate.toISOString()}`);
+                            console.log(`  - Total deuda: ${totalDebt}`);
+                            console.log(`  - Total pagado: ${totalPaid}`);
+                            console.log(`  - Deuda pendiente: ${realPendingAmount}`);
+                            console.log(`  - ❌ NO se marca como finalizado (tiene deuda pendiente)`);
+                          }
+                        }
+                      } else {
+                        // 🔍 DEBUG: Log específico para semana 3 de Atasta
+                        if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                          console.log(`  - Préstamo NO finalizado: ${loan.id} (${fullName}) - FUE RENOVADO`);
+                        }
+                      }
                     }
                   }
 
                   // Efecto de PortfolioCleanup durante la semana: tratarlo como salida de cartera
                   if (loan.excludedByCleanup?.cleanupDate) {
                     const cleanupDate = new Date(loan.excludedByCleanup.cleanupDate as any);
-                    if (cleanupDate >= weekStart && cleanupDate <= weekEnd) {
+                    const isCleanupInWeek = cleanupDate >= weekStart && cleanupDate <= weekEnd;
+                    
+                    // 🔍 DEBUG: Log específico para semana 3 de Atasta - TODOS los préstamos con cleanup
+                    if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                      console.log(`  - Préstamo con cleanup: ${loan.id} (${loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A'})`);
+                      console.log(`    - Fecha cleanup: ${cleanupDate.toISOString()}`);
+                      console.log(`    - ¿Dentro de semana?: ${isCleanupInWeek}`);
+                      console.log(`    - Semana: ${weekStart.toISOString()} - ${weekEnd.toISOString()}`);
+                    }
+                    
+                    if (isCleanupInWeek) {
                       data.finished++;
                       data.finishedAmount += loanAmount;
                       (data.finishedLoans as any[]).push({
@@ -4557,6 +4941,11 @@ export const extendGraphqlSchema = graphql.extend(base => {
                         fullName: loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A',
                         reason: 'PORTFOLIO_CLEANUP'
                       });
+                      
+                      // 🔍 DEBUG: Log específico para semana 3 de Atasta
+                      if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                        console.log(`    - ✅ CONTADO como finalizado por CLEANUP`);
+                      }
                     }
                   }
                 });
@@ -4577,7 +4966,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   if (signDate >= weekStart && signDate <= weekEnd) return;
 
                   // ✅ OPTIMIZACIÓN: Usar datos pre-calculados
-                  const { expectedWeekly } = loan._calculated;
+                  const expectedWeekly = loan._calculated?.expectedWeekly || (Number(loan.amountGived || 0) + Number(loan.profitAmount || 0)) / (loan.weekDuration || 16);
 
                   // Sumar pagos de la semana
                   let weeklyPaid = 0;
@@ -4672,29 +5061,166 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   const data = localitiesData[locality];
                   const previousValue = previousWeekActiveAtEnd[locality];
                   if (previousValue !== undefined) {
-    
                     data.activeAtStart = previousValue;
+                    
+                    // 🔍 DEBUG: Log específico para semana 3 de Atasta
+                    if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                      console.log(`  - Localidad ${locality}: activeAtStart = ${previousValue} (de semana anterior)`);
+                    }
                   }
                 });
               }
 
               // Calcular activos al final usando N-Y sobre el stock inicial
+              // ✅ SOLO NUEVOS Y REINTEGROS SUMAN A CLIENTES ACTIVOS
               Object.keys(localitiesData).forEach(locality => {
                 const data = localitiesData[locality];
-                const delta = (data.granted || 0) - (data.finished || 0);
+                // Solo nuevos y reintegros suman a clientes activos (renovados ya estaban activos)
+                // ✅ AJUSTE: Los préstamos renovados que se cerraron en la misma semana no descuentan del balance
+                const finishedNotRenewed = (data.finished || 0) - (data.grantedRenewed || 0);
+                const delta = (data.grantedNew || 0) + (data.grantedReintegros || 0) - finishedNotRenewed;
                 const oldActiveAtEnd = data.activeAtEnd;
                 data.activeAtEnd = data.activeAtStart + delta;
                 if (data.activeAtEnd < 0) data.activeAtEnd = 0;
                 data.totalAmountAtEnd = Math.max(0, data.totalAmountAtStart + (data.grantedAmount || 0) - (data.finishedAmount || 0));
                 
-
+                // 🔍 DEBUG: Log específico para semana 3 de Atasta
+                if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                  console.log(`  - CÁLCULO FINAL para ${locality}:`);
+                  console.log(`    - activeAtStart: ${data.activeAtStart}`);
+                  console.log(`    - grantedNew: ${data.grantedNew || 0}`);
+                  console.log(`    - grantedReintegros: ${data.grantedReintegros || 0}`);
+                  console.log(`    - finished: ${data.finished || 0}`);
+                  console.log(`    - grantedRenewed: ${data.grantedRenewed || 0}`);
+                  console.log(`    - finishedNotRenewed: ${finishedNotRenewed}`);
+                  console.log(`    - delta: ${delta}`);
+                  console.log(`    - activeAtEnd: ${data.activeAtEnd}`);
+                  console.log(`    - netChange: ${data.activeAtEnd - data.activeAtStart}`);
+                }
                 
                 previousWeekActiveAtEnd[locality] = data.activeAtEnd;
               });
 
               reportData[weekKey] = localitiesData;
 
-
+              // 🔍 DEBUG: Log resumen para semana 3 de Atasta
+              if (isAtastaWeek3) {
+                console.log(`\n📊 RESUMEN SEMANA 2 ATASTA:`);
+                Object.keys(localitiesData).forEach(locality => {
+                  const data = localitiesData[locality];
+                  if (isAtastaLocality(locality)) {
+                    console.log(`  - Localidad: ${locality}`);
+                    console.log(`    - activeAtStart: ${data.activeAtStart}`);
+                    console.log(`    - grantedNew: ${data.grantedNew || 0}`);
+                    console.log(`    - grantedReintegros: ${data.grantedReintegros || 0}`);
+                    console.log(`    - grantedRenewed: ${data.grantedRenewed || 0}`);
+                    console.log(`    - finished: ${data.finished || 0}`);
+                    console.log(`    - activeAtEnd: ${data.activeAtEnd}`);
+                    console.log(`    - netChange: ${data.activeAtEnd - data.activeAtStart}`);
+                    console.log(`    - Total otorgados: ${data.granted || 0}`);
+                    
+                    // 🔍 DEBUG: Resumen del flujo de Atasta
+                    console.log(`\n  🔍 ANÁLISIS DEL FLUJO ATASTA:`);
+                    console.log(`    - Créditos finalizados: ${atastaFinishedCount}`);
+                    console.log(`    - Renovados de no finalizados: ${atastaRenewedNotFinishedCount}`);
+                    console.log(`    - Renovados de finalizados: ${atastaRenewedFinishedCount}`);
+                    console.log(`    - Balance final esperado: -${atastaFinishedCount - atastaRenewedFinishedCount}`);
+                    
+                    console.log(`    - Préstamos finalizados detalle:`);
+                    (data.finishedLoans || []).forEach((finished: any) => {
+                      console.log(`      - ${finished.id} (${finished.fullName}) - ${finished.reason}`);
+                    });
+                    console.log(`    - Préstamos otorgados detalle:`);
+                    (data.grantedLoans || []).forEach((granted: any) => {
+                      console.log(`      - ${granted.id} (${granted.fullName}) - ${granted.date}`);
+                    });
+                    console.log(`    - Préstamos nuevos detalle:`);
+                    (data.grantedLoansNew || []).forEach((newLoan: any) => {
+                      console.log(`      - ${newLoan.id} (${newLoan.fullName}) - ${newLoan.date}`);
+                    });
+                    console.log(`    - Préstamos reintegros detalle:`);
+                    (data.grantedLoansReintegros || []).forEach((reintegro: any) => {
+                      console.log(`      - ${reintegro.id} (${reintegro.fullName}) - ${reintegro.date}`);
+                    });
+                    console.log(`    - Préstamos renovados detalle:`);
+                    (data.grantedLoansRenewed || []).forEach((renewed: any) => {
+                      console.log(`      - ${renewed.id} (${renewed.fullName}) - ${renewed.date}`);
+                    });
+                  }
+                });
+                
+                // 🔍 DEBUG: Análisis de créditos terminados sin renovar
+                console.log(`\n🔍 ANÁLISIS CRÉDITOS TERMINADOS SIN RENOVAR - SEMANA 2:`);
+                Object.keys(localitiesData).forEach(locality => {
+                  const data = localitiesData[locality];
+                  if (isAtastaLocality(locality)) {
+                    console.log(`  - Localidad: ${locality}`);
+                    
+                    // Contar créditos terminados por FINISHED_DATE (no por cleanup)
+                    const finishedByDate = (data.finishedLoans || []).filter((f: any) => f.reason === 'FINISHED_DATE');
+                    const finishedByCleanup = (data.finishedLoans || []).filter((f: any) => f.reason === 'PORTFOLIO_CLEANUP');
+                    
+                    console.log(`    - Créditos terminados por FINISHED_DATE: ${finishedByDate.length}`);
+                    console.log(`    - Créditos terminados por CLEANUP: ${finishedByCleanup.length}`);
+                    console.log(`    - Total terminados: ${data.finished || 0}`);
+                    
+                    // Mostrar detalles de cada crédito terminado
+                    finishedByDate.forEach((finished: any) => {
+                      console.log(`      - FINISHED_DATE: ${finished.id} (${finished.fullName}) - ${finished.finishedDate}`);
+                    });
+                    finishedByCleanup.forEach((finished: any) => {
+                      console.log(`      - CLEANUP: ${finished.id} (${finished.fullName}) - ${finished.finishedDate}`);
+                    });
+                    
+                    // Verificar si estos créditos terminados fueron renovados
+                    console.log(`    - Verificando renovaciones:`);
+                    (data.finishedLoans || []).forEach((finished: any) => {
+                      const wasRenewed = renewalMap.has(finished.id);
+                      console.log(`      - ${finished.id} (${finished.fullName}) - ¿Fue renovado?: ${wasRenewed}`);
+                      if (wasRenewed) {
+                        const renewals = renewalMap.get(finished.id) || [];
+                        renewals.forEach((renewal: any) => {
+                          console.log(`        - Renovado por: ${renewal.id} (${renewal.borrower?.personalData?.fullName || renewal.lead?.personalData?.fullName || 'N/A'}) - ${renewal.signDate}`);
+                        });
+                      }
+                    });
+                  }
+                });
+                
+                // 🔍 DEBUG: Análisis de TODOS los préstamos con finishedDate en la semana 3
+                console.log(`\n🔍 ANÁLISIS TODOS LOS PRÉSTAMOS CON FINISHED_DATE - SEMANA 2:`);
+                Object.keys(loansByLocality).forEach(locality => {
+                  if (isAtastaLocality(locality)) {
+                    const loans = loansByLocality.get(locality);
+                    console.log(`  - Localidad: ${locality}`);
+                    
+                    // Buscar todos los préstamos con finishedDate en la semana 3
+                    const loansWithFinishedDate = loans.filter((loan: any) => {
+                      if (!loan.finishedDate) return false;
+                      const finishedDate = new Date(loan.finishedDate);
+                      return finishedDate >= weekStart && finishedDate <= weekEnd;
+                    });
+                    
+                    console.log(`    - Total préstamos con finishedDate en semana 3: ${loansWithFinishedDate.length}`);
+                    
+                    loansWithFinishedDate.forEach((loan: any) => {
+                      const finishedDate = new Date(loan.finishedDate);
+                      const wasRenewed = renewalMap.has(loan.id);
+                      const fullName = loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A';
+                      
+                      console.log(`      - ${loan.id} (${fullName})`);
+                      console.log(`        - Fecha finishedDate: ${finishedDate.toISOString()}`);
+                      console.log(`        - ¿Fue renovado?: ${wasRenewed}`);
+                      if (wasRenewed) {
+                        const renewals = renewalMap.get(loan.id) || [];
+                        renewals.forEach((renewal: any) => {
+                          console.log(`        - Renovado por: ${renewal.id} - ${renewal.signDate}`);
+                        });
+                      }
+                    });
+                  }
+                });
+              }
 
               // ✅ OPTIMIZACIÓN: Eliminar debug counters para mejor performance
             }
@@ -4708,6 +5234,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 granted: 0,
                 grantedNew: 0,
                 grantedRenewed: 0,
+                grantedReintegros: 0,
                 finished: 0,
                 finishedLoans: [],
                 finishedByCleanup: 0,
@@ -4728,6 +5255,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 weeklyTotals[weekKey].granted += localityData.granted;
                 weeklyTotals[weekKey].grantedNew += localityData.grantedNew;
                 weeklyTotals[weekKey].grantedRenewed += localityData.grantedRenewed;
+                weeklyTotals[weekKey].grantedReintegros += localityData.grantedReintegros;
                 weeklyTotals[weekKey].finished += localityData.finished;
                 weeklyTotals[weekKey].finishedLoans.push(...(localityData.finishedLoans || []));
                 weeklyTotals[weekKey].finishedByCleanup += (localityData.finishedLoans || []).filter((f: any) => f.reason === 'PORTFOLIO_CLEANUP').length;
@@ -4820,10 +5348,25 @@ export const extendGraphqlSchema = graphql.extend(base => {
               let renewalsInMonth = 0;
               let renewalsIncreasedCount = 0;
               let renewalsIncreasePercentSum = 0;
+              let reintegrosInMonth = 0;
               preCalculatedLoans.forEach((loan: any) => {
                 const sd = new Date(loan.signDate);
                 if (sd >= monthStart && sd <= monthEnd && loan.previousLoanId) {
                   renewalsInMonth++;
+                  
+                  // Verificar si es un reintegro (préstamo anterior ya estaba finalizado al inicio del mes)
+                  const previousLoan = loan.previousLoan;
+                  if (previousLoan) {
+                    // Un reintegro es cuando el préstamo anterior ya estaba finalizado al inicio del mes
+                    const monthStartForCheck = new Date(year, month - 1, 1, 0, 0, 0, 0);
+                    const wasActiveAtMonthStart = isLoanConsideredOnDate(previousLoan, monthStartForCheck);
+                    
+                    // Si NO estaba activo al inicio del mes, es un reintegro
+                    if (!wasActiveAtMonthStart) {
+                      reintegrosInMonth++;
+                    }
+                  }
+                  
                   const prevAmount = Number(loan.previousLoan?.amountGived || 0);
                   const currAmount = Number(loan.amountGived || 0);
                   if (prevAmount > 0 && currAmount > prevAmount) {
@@ -5079,6 +5622,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 payingClientsWeeklyAvg,
                 payingClientsWeeklyAvgPrev: payingClientsPrevMonth,
                 renewalsInMonth,
+                reintegrosInMonth,
                 renewalsIncreasedCount,
                 renewalsAvgIncreasePercent,
                 weeklyClosedWithoutRenewalSeries,
@@ -5183,7 +5727,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               if (signDate > referenceDate) return false;
               
               // ✅ PUNTO 1: Si para la semana de revisión fue marcado como portafolioCleanup, entonces no se contempla
-              if (loan.excludedByCleanup !== null) {
+              if (loan.excludedByCleanup !== null && loan.excludedByCleanup !== undefined) {
                 const cleanupDate = new Date(loan.excludedByCleanup.cleanupDate as any);
                 if (cleanupDate <= referenceDate) {
                   return false; // Ya fue excluido por cleanup antes de la fecha de referencia
@@ -5369,7 +5913,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 if (signDate > referenceDate) return false;
                 
                 // Verificar cada criterio
-                if (loan.excludedByCleanup !== null) {
+                if (loan.excludedByCleanup !== null && loan.excludedByCleanup !== undefined) {
                   const cleanupDate = new Date(loan.excludedByCleanup.cleanupDate as any);
                   if (cleanupDate <= referenceDate) return false;
                 }
@@ -5408,7 +5952,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 console.log(`  ${index + 1}. ${clientName} (${locality})`);
                 
                 // Verificar cada criterio
-                if (loan.excludedByCleanup !== null) {
+                if (loan.excludedByCleanup !== null && loan.excludedByCleanup !== undefined) {
                   const cleanupDate = new Date(loan.excludedByCleanup.cleanupDate as any);
                   if (cleanupDate <= referenceDate) {
                     console.log(`     🧹 EXCLUIDO: Cleanup el ${cleanupDate.toLocaleDateString()}`);

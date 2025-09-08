@@ -324,10 +324,7 @@ export default function LimpiezaCarteraPage() {
     });
   };
 
-  useEffect(() => {
-    handlePreview();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRoute, bulkCleanupForm.fromDate, bulkCleanupForm.toDate, bulkCleanupForm.weeksWithoutPaymentThreshold, bulkCleanupForm.includeAll]);
+  // Eliminado el useEffect que ejecutaba preview automáticamente
 
   const handleCreateCleanup = async () => {
     if (selectedLoans.size === 0) {
@@ -427,9 +424,12 @@ export default function LimpiezaCarteraPage() {
     }
   };
 
-  const totalSelectedAmount = availableLoans
-    .filter(loan => selectedLoans.has(loan.id))
-    .reduce((sum, loan) => sum + loan.amountGived, 0);
+  // Cálculo optimizado del monto total - solo se calcula cuando es necesario
+  const getTotalSelectedAmount = () => {
+    return availableLoans
+      .filter(loan => selectedLoans.has(loan.id))
+      .reduce((sum, loan) => sum + loan.amountGived, 0);
+  };
 
   if (routesLoading) {
     return <LoadingDots label="Cargando rutas..." />;
@@ -494,7 +494,7 @@ export default function LimpiezaCarteraPage() {
                     Monto Seleccionado
                   </div>
                   <div style={{ fontSize: '18px', fontWeight: '600', color: '#059669' }}>
-                    {formatCurrency(totalSelectedAmount)}
+                    {formatCurrency(getTotalSelectedAmount())}
                   </div>
                 </div>
               </div>
@@ -579,7 +579,7 @@ export default function LimpiezaCarteraPage() {
               <div style={{ fontSize: '13px', color: '#92400e' }}>
                 • {selectedLoans.size} préstamos serán excluidos
                 <br />
-                • Monto total: {formatCurrency(totalSelectedAmount)}
+                • Monto total: {formatCurrency(getTotalSelectedAmount())}
               </div>
             </div>
 
@@ -717,17 +717,17 @@ export default function LimpiezaCarteraPage() {
               )}
             </div>
 
-            {/* Preview */}
+            {/* Preview simplificado - sin cálculos automáticos */}
             <div style={{ padding: '12px 16px', background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 8, marginBottom: 12 }}>
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
                   <div style={{ fontSize: 13, color: '#6b7280' }}>Previsualización</div>
                   <div style={{ fontSize: 14, fontWeight: 600 }}>
-                    {previewLoading ? 'Calculando...' : `Préstamos a excluir: ${preview?.count || 0} — Monto total: ${formatCurrency(preview?.totalAmount || 0)}`}
+                    {previewLoading ? 'Calculando...' : preview ? `Préstamos a excluir: ${preview.count} — Monto total: ${formatCurrency(preview.totalAmount)}` : 'Haz clic en "Buscar" para ver los préstamos que se excluirán'}
                   </div>
                 </div>
-                <Button tone="active" onClick={handlePreview} disabled={!selectedRoute || !bulkCleanupForm.fromDate || !bulkCleanupForm.toDate}>
-                  Buscar
+                <Button tone="active" onClick={handlePreview} disabled={!selectedRoute || !bulkCleanupForm.fromDate || !bulkCleanupForm.toDate || previewLoading}>
+                  {previewLoading ? 'Buscando...' : 'Buscar'}
                 </Button>
               </div>
               {preview && preview.count > 0 && (
@@ -735,6 +735,11 @@ export default function LimpiezaCarteraPage() {
                   ✅ Se encontraron {preview.count} préstamos que cumplen con los criterios de limpieza.
                   <br />
                   💰 Monto total a excluir: {formatCurrency(preview.totalAmount)}
+                </div>
+              )}
+              {preview && preview.count === 0 && (
+                <div style={{ marginTop: 8, padding: '8px 12px', backgroundColor: '#fef3c7', borderRadius: '6px', fontSize: 12, color: '#92400e' }}>
+                  ⚠️ No se encontraron préstamos que cumplan con los criterios especificados.
                 </div>
               )}
             </div>

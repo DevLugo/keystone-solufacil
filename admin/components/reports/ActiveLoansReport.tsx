@@ -72,6 +72,7 @@ interface ReportData {
 
 const styles = {
   container: {
+    position: 'relative' as const,
     padding: '32px',
     backgroundColor: '#f8fafc',
     minHeight: '100vh',
@@ -778,7 +779,7 @@ export default function ActiveLoansReport() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [viewMode, setViewMode] = useState<'table' | 'chart'>('table');
-  const [useActiveWeeks, setUseActiveWeeks] = useState(false);
+  const [useActiveWeeks, setUseActiveWeeks] = useState(true);
   const [showTooltip, setShowTooltip] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
@@ -1012,6 +1013,7 @@ export default function ActiveLoansReport() {
       let totalCV = 0;
       let totalGrantedNew = 0;
       let totalGrantedRenewed = 0;
+      let totalGrantedReintegros = 0;
 
       Object.values(weekData).forEach((localityData: any) => {
         if (localityData) {
@@ -1021,6 +1023,7 @@ export default function ActiveLoansReport() {
           totalCV += localityData.cv || 0;
           totalGrantedNew += localityData.grantedNew || 0;
           totalGrantedRenewed += localityData.grantedRenewed || 0;
+          totalGrantedReintegros += localityData.grantedReintegros || 0;
         }
       });
 
@@ -1113,6 +1116,7 @@ export default function ActiveLoansReport() {
       let totalCV = 0;
       let totalGrantedNew = 0;
       let totalGrantedRenewed = 0;
+      let totalGrantedReintegros = 0;
 
       processedData.weeks.forEach(week => {
         const weekData = processedData.data[week]?.[locality];
@@ -1123,6 +1127,7 @@ export default function ActiveLoansReport() {
           totalCV += weekData.cv || 0;
           totalGrantedNew += weekData.grantedNew || 0;
           totalGrantedRenewed += weekData.grantedRenewed || 0;
+          totalGrantedReintegros += weekData.grantedReintegros || 0;
         }
       });
 
@@ -1222,6 +1227,7 @@ export default function ActiveLoansReport() {
       month: selectedMonth,
       useActiveWeeks: useActiveWeeks,
     },
+    notifyOnNetworkStatusChange: true,
     skip: !selectedRoute,
   });
 
@@ -1540,6 +1546,31 @@ export default function ActiveLoansReport() {
 
   return (
     <div style={styles.container}>
+      {reportLoading && (
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          background: 'rgba(255,255,255,0.7)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            background: 'white',
+            border: '1px solid #e2e8f0',
+            borderRadius: 8,
+            padding: '12px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.12)'
+          }}>
+            <LoadingDots label="" />
+            <span style={{ color: '#475569', fontWeight: 600 }}>Actualizando reporte…</span>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div style={styles.header}>
         <h1 style={styles.title}>📊 Análisis de Cartera Activa</h1>
@@ -1677,27 +1708,7 @@ export default function ActiveLoansReport() {
             />
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'end', gap: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <input
-                type="checkbox"
-                id="useActiveWeeks"
-                checked={useActiveWeeks}
-                onChange={(e) => setUseActiveWeeks(e.target.checked)}
-                style={{ margin: 0 }}
-              />
-              <label
-                htmlFor="useActiveWeeks"
-                style={{
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  cursor: 'pointer',
-                  userSelect: 'none' as const
-                }}
-              >
-                Semanas activas del mes
-              </label>
-            </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Button
               tone="active"
               onClick={() => refetchReport()}
@@ -1705,6 +1716,7 @@ export default function ActiveLoansReport() {
             >
               <FaSync /> Actualizar
             </Button>
+            {reportLoading && <LoadingDots label="" />}
           </div>
 
         </div>
@@ -1887,6 +1899,28 @@ export default function ActiveLoansReport() {
                 return (
                   <div title={title} style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color: '#0f172a', textAlign: 'center' }}>
                     {count} ({share.toFixed(1)}%)
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Reintegros */}
+            <div style={styles.miniChartCard}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#334155', marginBottom: 8 }}>🔄 Reintegros</div>
+              <ApexMiniChart
+                type="donut"
+                color="#8b5cf6"
+                series={[Number(processedData.summary.reintegrosInMonth || 0), Math.max(0, Number(processedData.summary.renewalsInMonth || 0) - Number(processedData.summary.reintegrosInMonth || 0))]}
+                labels={["Reintegros", "Renovaciones normales"]}
+              />
+              {(() => {
+                const reintegros = Number(processedData.summary.reintegrosInMonth || 0);
+                const totalRen = Number(processedData.summary.renewalsInMonth || 0);
+                const share = totalRen > 0 ? (reintegros / totalRen) * 100 : 0;
+                const title = `Total renovaciones: ${totalRen} | Reintegros: ${reintegros} (${share.toFixed(1)}%) | Renovaciones normales: ${totalRen - reintegros}`;
+                return (
+                  <div title={title} style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color: '#8b5cf6', textAlign: 'center' }}>
+                    {reintegros} ({share.toFixed(1)}%)
                   </div>
                 );
               })()}
@@ -2176,6 +2210,22 @@ export default function ActiveLoansReport() {
                                 })()} />
                               </div>
                               <div style={styles.statRow}>
+                                <span style={{ ...styles.statLabel, paddingLeft: '8px', fontSize: '10px' }}>• Reintegros:</span>
+                                <span style={{ ...styles.statValue, color: '#8b5cf6', fontSize: '10px' }}>
+                                  {weekData.grantedReintegros || 0}
+                                </span>
+                                <InfoHoverCard title="Reintegros en la semana (renovaciones donde el préstamo anterior ya estaba pagado)" items={(() => {
+                                  const list = (weekData as any).grantedLoansReintegros || [];
+                                  return list.map((l: any) => ({
+                                    id: l.id,
+                                    fullName: l.fullName,
+                                    amountGived: l.amountGived,
+                                    finishedDate: l.date,
+                                    isReintegro: true
+                                  }));
+                                })()} />
+                              </div>
+                              <div style={styles.statRow}>
                                 <span style={styles.statLabel}>Finalizados:</span>
                                 <span style={styles.statValue}>{weekData.finished}</span>
                                 <InfoHoverCard title="Préstamos finalizados en la semana" items={(weekData as any).finishedLoans || []} />
@@ -2327,6 +2377,21 @@ export default function ActiveLoansReport() {
                                         }
                                       });
                                       return totalRenewed;
+                                    })()}
+                                  </span>
+                                </div>
+                                <div style={styles.statRow}>
+                                  <span style={{ ...styles.statLabel, paddingLeft: '8px', fontSize: '10px' }}>• Reintegros:</span>
+                                  <span style={{ ...styles.statValue, color: '#8b5cf6', fontSize: '10px' }}>
+                                    {(() => {
+                                      let totalReintegros = 0;
+                                      processedData.weeks.forEach(week => {
+                                        const weekData = processedData.data[week]?.[locality];
+                                        if (weekData) {
+                                          totalReintegros += weekData.grantedReintegros || 0;
+                                        }
+                                      });
+                                      return totalReintegros;
                                     })()}
                                   </span>
                                 </div>
@@ -2520,6 +2585,12 @@ export default function ActiveLoansReport() {
                               </span>
                             </div>
                             <div style={styles.statRow}>
+                              <span style={{ fontSize: '11px' }}>• Reintegros:</span>
+                              <span style={{ color: '#8b5cf6', fontSize: '11px' }}>
+                                {weekTotal.grantedReintegros || 0}
+                              </span>
+                            </div>
+                            <div style={styles.statRow}>
                               <span>Finalizados:</span>
                               <span>{weekTotal.finished}</span>
                               <InfoHoverCard items={(weekTotal as any).finishedLoans || []} />
@@ -2644,6 +2715,18 @@ export default function ActiveLoansReport() {
                                 totalRenewed += week.grantedRenewed || 0;
                               });
                               return totalRenewed;
+                            })()}
+                          </span>
+                        </div>
+                        <div style={styles.statRow}>
+                          <span style={{ fontSize: '11px' }}>• Reintegros:</span>
+                          <span style={{ color: '#8b5cf6', fontSize: '11px' }}>
+                            {(() => {
+                              let totalReintegros = 0;
+                              Object.values(processedData.weeklyTotals).forEach((week: any) => {
+                                totalReintegros += week.grantedReintegros || 0;
+                              });
+                              return totalReintegros;
                             })()}
                           </span>
                         </div>
