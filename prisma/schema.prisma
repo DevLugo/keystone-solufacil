@@ -211,6 +211,7 @@ model Loan {
   amountGived Decimal?
   signDate  DateTime?
   badDebtDate DateTime?
+  isDeceased  Boolean  @default(false)
   profitAmount Decimal?
   totalDebtAcquired Decimal?
   expectedWeeklyPayment Decimal?

@@ -12,7 +12,7 @@ import { PageContainer, GraphQLErrorNotice } from '@keystone-6/core/admin-ui/com
 import { DatePicker, Select, TextInput } from '@keystone-ui/fields';
 import { LoanPayment } from '../../../schema';
 import type { Employee, Option } from '../../types/transaction';
-import { FaPlus } from 'react-icons/fa';
+import { FaPlus, FaEllipsisV } from 'react-icons/fa';
 
 // Import components
 import DateMover from './utils/DateMover';
@@ -278,6 +278,24 @@ const UPDATE_LOAN_PAYMENT = gql`
   }
 `;
 
+const MARK_LOAN_AS_DECEASED = gql`
+  mutation MarkLoanAsDeceased($loanId: ID!, $date: DateTime!) {
+    updateLoan(
+      where: { id: $loanId }
+      data: {
+        badDebtDate: $date
+        finishedDate: $date
+        isDeceased: true
+      }
+    ) {
+      id
+      badDebtDate
+      finishedDate
+      isDeceased
+    }
+  }
+`;
+
 type Lead = {
   id: string;
   personalData: {
@@ -469,6 +487,21 @@ export const CreatePaymentForm = ({
   // Estado para trackear pagos nuevos tachados (por índice)
   const [strikethroughNewPaymentIndices, setStrikethroughNewPaymentIndices] = useState<number[]>([]);
 
+  // Estados para el menú de 3 puntos y modal de deceso
+  const [showMenuForPayment, setShowMenuForPayment] = useState<string | null>(null);
+  const [deceasedModal, setDeceasedModal] = useState<{
+    isOpen: boolean;
+    loanId: string | null;
+    clientName: string;
+  }>({
+    isOpen: false,
+    loanId: null,
+    clientName: ''
+  });
+
+  // Estado para trackear préstamos marcados como deceso
+  const [deceasedLoanIds, setDeceasedLoanIds] = useState<Set<string>>(new Set());
+
   const updateState = (updates: Partial<typeof state>) => {
     setState(prev => ({ ...prev, ...updates }));
   };
@@ -568,6 +601,7 @@ export const CreatePaymentForm = ({
   const [updateCustomLeadPaymentReceived, { loading: updateLoading }] = useMutation(UPDATE_LEAD_PAYMENT);
   const [updateLoanPayment, { loading: updateLoanPaymentLoading }] = useMutation(UPDATE_LOAN_PAYMENT);
   const [createFalcoPayment, { loading: falcoPaymentLoading }] = useMutation(CREATE_FALCO_PAYMENT);
+  const [markLoanAsDeceased, { loading: markDeceasedLoading }] = useMutation(MARK_LOAN_AS_DECEASED);
 
   // Estado para controlar loading general de guardado
   const [isSaving, setIsSaving] = useState(false);
@@ -685,7 +719,28 @@ export const CreatePaymentForm = ({
     }
   };
 
-
+  // Función para manejar el deceso
+  const handleMarkAsDeceased = async () => {
+    if (!selectedDate || !deceasedModal.loanId) return;
+    
+    try {
+      await markLoanAsDeceased({
+        variables: {
+          loanId: deceasedModal.loanId,
+          date: selectedDate.toISOString()
+        }
+      });
+      
+      // Marcar el préstamo como deceso en el estado local
+      setDeceasedLoanIds(prev => new Set([...prev, deceasedModal.loanId!]));
+      
+      setDeceasedModal({ isOpen: false, loanId: null, clientName: '' });
+      alert('Préstamo marcado como deceso exitosamente');
+    } catch (error) {
+      console.error('Error marcando como deceso:', error);
+      alert('Error al procesar el deceso');
+    }
+  };
 
   const handleSaveAllChanges = async () => {
     try {
@@ -2002,22 +2057,38 @@ export const CreatePaymentForm = ({
                     <FaPlus size={12} style={{ marginRight: '8px' }} />
                     Agregar Pago
                   </Button>
-                  {/* Botón para eliminar todos los pagos nuevos */}
-                  {payments.length > 0 && (
-                    <Button
-                      tone="negative"
-                      weight="bold"
-                      onClick={() => {
-                        // Marcar TODOS los pagos nuevos como eliminados
-                        const allNewPaymentIndices = payments.map((_, index) => index);
-                        setStrikethroughNewPaymentIndices(allNewPaymentIndices);
-                        console.log('🗑️ Marcando todos los pagos nuevos como eliminados:', allNewPaymentIndices);
-                      }}
-                      style={{ backgroundColor: '#DC2626', color: 'white' }}
-                    >
-                      Eliminar Todos (Nuevos)
-                    </Button>
-                  )}
+                  {/* Botón dinámico para eliminar/desmarcar todos los pagos nuevos */}
+                  {payments.length > 0 && (() => {
+                    // Calcular si todos los pagos están marcados para eliminar
+                    const allNewPaymentIndices = payments.map((_, index) => index);
+                    const allMarkedForDeletion = allNewPaymentIndices.every(index => 
+                      strikethroughNewPaymentIndices.includes(index)
+                    );
+                    
+                    return (
+                      <Button
+                        tone={allMarkedForDeletion ? "positive" : "negative"}
+                        weight="bold"
+                        onClick={() => {
+                          if (allMarkedForDeletion) {
+                            // Desmarcar todos
+                            setStrikethroughNewPaymentIndices([]);
+                            console.log('✅ Desmarcando todos los pagos nuevos');
+                          } else {
+                            // Marcar todos como eliminados
+                            setStrikethroughNewPaymentIndices(allNewPaymentIndices);
+                            console.log('🗑️ Marcando todos los pagos nuevos como eliminados:', allNewPaymentIndices);
+                          }
+                        }}
+                        style={{ 
+                          backgroundColor: allMarkedForDeletion ? '#059669' : '#DC2626', 
+                          color: 'white' 
+                        }}
+                      >
+                        {allMarkedForDeletion ? 'Desmarcar Todos (Nuevos)' : 'Eliminar Todos (Nuevos)'}
+                      </Button>
+                    );
+                  })()}
                 </>
               )}
             </div>
@@ -2335,16 +2406,17 @@ export const CreatePaymentForm = ({
               {payments.map((payment, index) => {
                 const isStrikethrough = strikethroughNewPaymentIndices.includes(index);
                 const hasZeroCommission = parseFloat(payment.comission?.toString() || '0') === 0;
+                const isDeceased = deceasedLoanIds.has(payment.loanId || '');
                 return (
                 <tr key={`new-${index}`} style={{ 
-                  backgroundColor: isStrikethrough ? '#fee2e2' : (hasZeroCommission ? '#FEF3C7' : '#ECFDF5'),
-                  opacity: isStrikethrough ? 0.7 : 1,
-                  borderLeft: isStrikethrough ? '4px solid #ef4444' : (hasZeroCommission ? '4px solid #D97706' : 'none')
+                  backgroundColor: isDeceased ? '#f3f4f6' : (isStrikethrough ? '#fee2e2' : (hasZeroCommission ? '#FEF3C7' : '#ECFDF5')),
+                  opacity: isDeceased ? 0.6 : (isStrikethrough ? 0.7 : 1),
+                  borderLeft: isDeceased ? '4px solid #6b7280' : (isStrikethrough ? '4px solid #ef4444' : (hasZeroCommission ? '4px solid #D97706' : 'none'))
                 }}>
                   <td style={{ 
                     textAlign: 'center',
                     fontWeight: 'bold',
-                    color: isStrikethrough ? '#dc2626' : '#059669',
+                    color: isDeceased ? '#6b7280' : (isStrikethrough ? '#dc2626' : '#059669'),
                     fontSize: '14px',
                     textDecoration: isStrikethrough ? 'line-through' : 'none'
                   }}>
@@ -2352,20 +2424,20 @@ export const CreatePaymentForm = ({
                   </td>
                   <td style={{
                     textDecoration: isStrikethrough ? 'line-through' : 'none',
-                    color: isStrikethrough ? '#dc2626' : 'inherit',
+                    color: isDeceased ? '#6b7280' : (isStrikethrough ? '#dc2626' : 'inherit'),
                     fontWeight: isStrikethrough ? '500' : 'inherit'
                   }}>
                     <span style={{
                       display: 'inline-flex',
                       alignItems: 'center',
                       padding: '4px 8px',
-                      backgroundColor: isStrikethrough ? '#fee2e2' : '#D1FAE5',
-                      color: isStrikethrough ? '#dc2626' : '#059669',
+                      backgroundColor: isDeceased ? '#e5e7eb' : (isStrikethrough ? '#fee2e2' : '#D1FAE5'),
+                      color: isDeceased ? '#6b7280' : (isStrikethrough ? '#dc2626' : '#059669'),
                       borderRadius: '4px',
                       fontSize: '12px',
                       fontWeight: '500',
                     }}>
-                      Nuevo
+                      {isDeceased ? 'Deceso' : 'Nuevo'}
                     </span>
                   </td>
                   <td style={{
@@ -2385,7 +2457,7 @@ export const CreatePaymentForm = ({
                         label: loansData.loans.find(loan => loan.id === payment.loanId)?.borrower?.personalData?.fullName || 'Sin nombre'
                       } : null}
                       onChange={(option) => handleChange(index, 'loanId', (option as Option).value)}
-                      isDisabled={isStrikethrough}
+                      isDisabled={isStrikethrough || isDeceased}
                     />
                   </td>
                   <td style={{
@@ -2416,7 +2488,7 @@ export const CreatePaymentForm = ({
                       type="number"
                       value={Math.round(parseFloat(payment.amount || '0'))}
                       onChange={(e) => handleChange(index, 'amount', e.target.value)}
-                      disabled={isStrikethrough}
+                      disabled={isStrikethrough || isDeceased}
                     />
                   </td>
                   <td style={{
@@ -2428,7 +2500,7 @@ export const CreatePaymentForm = ({
                       type="number"
                       value={Math.round(parseFloat(payment.comission?.toString() || '0'))}
                       onChange={(e) => handleChange(index, 'comission', e.target.value)}
-                      disabled={isStrikethrough}
+                      disabled={isStrikethrough || isDeceased}
                     />
                   </td>
                   <td style={{
@@ -2440,36 +2512,95 @@ export const CreatePaymentForm = ({
                       options={paymentMethods}
                       value={paymentMethods.find(option => option.value === payment.paymentMethod) || null}
                       onChange={(option) => handleChange(index, 'paymentMethod', (option as Option).value)}
-                      isDisabled={isStrikethrough}
+                      isDisabled={isStrikethrough || isDeceased}
                     />
                   </td>
                   <td>
-                    <div style={{ display: 'flex', gap: '4px' }}>
-                      {isStrikethrough ? (
+                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                      {/* Menú de 3 puntos */}
+                      <div style={{ position: 'relative' }}>
                         <Button
-                          tone="positive"
+                          tone="passive"
                           size="small"
-                          onClick={() => {
-                            console.log('Restaurando pago nuevo:', index);
-                            setStrikethroughNewPaymentIndices(prev => prev.filter(i => i !== index));
-                          }}
-                          title="Restaurar pago"
+                          onClick={() => setShowMenuForPayment(`new-${index}`)}
+                          style={{ padding: '4px' }}
+                          isDisabled={isDeceased}
                         >
-                          ✓
+                          <FaEllipsisV size={12} />
                         </Button>
-                      ) : (
-                        <Button
-                          tone="negative"
-                          size="small"
-                          onClick={() => {
-                            console.log('Marcando pago nuevo como tachado:', index);
-                            setStrikethroughNewPaymentIndices(prev => [...prev, index]);
-                          }}
-                          title="Marcar como eliminado"
-                        >
-                          <TrashIcon size="small" />
-                        </Button>
-                      )}
+                        
+                        {showMenuForPayment === `new-${index}` && (
+                          <div style={{
+                            position: 'absolute',
+                            top: '100%',
+                            right: '0',
+                            backgroundColor: 'white',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '6px',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                            zIndex: 1000,
+                            minWidth: '180px'
+                          }}>
+                            <button
+                              onClick={() => {
+                                const selectedLoan = loansData?.loans?.find(loan => loan.id === payment.loanId);
+                                setDeceasedModal({
+                                  isOpen: true,
+                                  loanId: payment.loanId || '',
+                                  clientName: selectedLoan?.borrower?.personalData?.fullName || 'Cliente'
+                                });
+                                setShowMenuForPayment(null);
+                              }}
+                              style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                border: 'none',
+                                backgroundColor: 'transparent',
+                                textAlign: 'left',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                color: '#dc2626',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px'
+                              }}
+                              onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#fef2f2'}
+                              onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
+                            >
+                              💀 Registrar deceso
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Botones existentes */}
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        {!isDeceased && (isStrikethrough ? (
+                          <Button
+                            tone="positive"
+                            size="small"
+                            onClick={() => {
+                              console.log('Restaurando pago nuevo:', index);
+                              setStrikethroughNewPaymentIndices(prev => prev.filter(i => i !== index));
+                            }}
+                            title="Restaurar pago"
+                          >
+                            ✓
+                          </Button>
+                        ) : (
+                          <Button
+                            tone="negative"
+                            size="small"
+                            onClick={() => {
+                              console.log('Marcando pago nuevo como tachado:', index);
+                              setStrikethroughNewPaymentIndices(prev => [...prev, index]);
+                            }}
+                            title="Marcar como eliminado"
+                          >
+                            <TrashIcon size="small" />
+                          </Button>
+                        ))}
+                      </div>
                     </div>
                   </td>
                 </tr>
@@ -2943,6 +3074,80 @@ export const CreatePaymentForm = ({
               El monto de transferencia no puede ser mayor al total de cobranza
             </div>
           )}
+        </Box>
+      </AlertDialog>
+
+      {/* Modal de confirmación de deceso */}
+      <AlertDialog 
+        title="Confirmar Registro de Deceso" 
+        isOpen={deceasedModal.isOpen} 
+        actions={{
+          confirm: { 
+            label: 'Confirmar Deceso', 
+            action: handleMarkAsDeceased, 
+            loading: markDeceasedLoading 
+          },
+          cancel: { 
+            label: 'Cancelar', 
+            action: () => setDeceasedModal({ isOpen: false, loanId: null, clientName: '' }) 
+          }
+        }}
+      >
+        <Box padding="large">
+          <div style={{
+            backgroundColor: '#FEF2F2',
+            border: '1px solid #FECACA',
+            borderRadius: '8px',
+            padding: '16px',
+            marginBottom: '16px'
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              marginBottom: '12px',
+              color: '#DC2626',
+              fontWeight: '600'
+            }}>
+              ⚠️ Acción Irreversible
+            </div>
+            <p style={{ margin: 0, fontSize: '14px', color: '#991B1B' }}>
+              Esta acción marcará el préstamo como deceso y establecerá la fecha de finalización.
+              No se puede deshacer.
+            </p>
+          </div>
+          
+          <div style={{ marginBottom: '16px' }}>
+            <h4 style={{ margin: '0 0 8px 0', color: '#374151' }}>Detalles del Préstamo</h4>
+            <div style={{ 
+              backgroundColor: '#F9FAFB', 
+              padding: '12px', 
+              borderRadius: '6px',
+              border: '1px solid #E5E7EB'
+            }}>
+              <div style={{ marginBottom: '4px' }}>
+                <strong>Cliente:</strong> {deceasedModal.clientName}
+              </div>
+              <div style={{ marginBottom: '4px' }}>
+                <strong>Fecha de deceso:</strong> {selectedDate?.toLocaleDateString('es-MX')}
+              </div>
+              <div>
+                <strong>Estado:</strong> Se marcará como finalizado por deceso
+              </div>
+            </div>
+          </div>
+          
+          <div style={{
+            backgroundColor: '#EFF6FF',
+            border: '1px solid #BFDBFE',
+            borderRadius: '6px',
+            padding: '12px',
+            fontSize: '13px',
+            color: '#1E40AF'
+          }}>
+            <strong>💡 Información:</strong> Al confirmar, el préstamo se marcará como deceso 
+            con fecha {selectedDate?.toLocaleDateString('es-MX')} y se establecerá como finalizado.
+          </div>
         </Box>
       </AlertDialog>
     </Box>

@@ -1170,6 +1170,7 @@ type Loan {
   loantype: Loantype
   signDate: DateTime
   badDebtDate: DateTime
+  isDeceased: Boolean
   profitAmount: Decimal
   collaterals(where: PersonalDataWhereInput! = {}, orderBy: [PersonalDataOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: PersonalDataWhereUniqueInput): [PersonalData!]
   collateralsCount(where: PersonalDataWhereInput! = {}): Int
@@ -1223,6 +1224,7 @@ input LoanWhereInput {
   loantype: LoantypeWhereInput
   signDate: DateTimeFilter
   badDebtDate: DateTimeNullableFilter
+  isDeceased: BooleanFilter
   profitAmount: DecimalNullableFilter
   collaterals: PersonalDataManyRelationFilter
   grantor: EmployeeWhereInput
@@ -1266,6 +1268,11 @@ input DateTimeFilter {
   not: DateTimeFilter
 }
 
+input BooleanFilter {
+  equals: Boolean
+  not: BooleanFilter
+}
+
 input PersonalDataManyRelationFilter {
   every: PersonalDataWhereInput
   some: PersonalDataWhereInput
@@ -1279,6 +1286,7 @@ input LoanOrderByInput {
   amountGived: OrderDirection
   signDate: OrderDirection
   badDebtDate: OrderDirection
+  isDeceased: OrderDirection
   profitAmount: OrderDirection
   snapshotLeadId: OrderDirection
   snapshotLeadAssignedAt: OrderDirection
@@ -1304,6 +1312,7 @@ input LoanUpdateInput {
   loantype: LoantypeRelateToOneForUpdateInput
   signDate: DateTime
   badDebtDate: DateTime
+  isDeceased: Boolean
   profitAmount: Decimal
   collaterals: PersonalDataRelateToManyForUpdateInput
   grantor: EmployeeRelateToOneForUpdateInput
@@ -1375,6 +1384,7 @@ input LoanCreateInput {
   loantype: LoantypeRelateToOneForCreateInput
   signDate: DateTime
   badDebtDate: DateTime
+  isDeceased: Boolean
   profitAmount: Decimal
   collaterals: PersonalDataRelateToManyForCreateInput
   grantor: EmployeeRelateToOneForCreateInput
@@ -2339,11 +2349,6 @@ input DocumentPhotoDocumentTypeTypeNullableFilter {
   in: [DocumentPhotoDocumentTypeType!]
   notIn: [DocumentPhotoDocumentTypeType!]
   not: DocumentPhotoDocumentTypeTypeNullableFilter
-}
-
-input BooleanFilter {
-  equals: Boolean
-  not: BooleanFilter
 }
 
 input DocumentPhotoOrderByInput {

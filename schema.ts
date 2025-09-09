@@ -713,6 +713,7 @@ export const Loan = list({
     loantype: relationship({ ref: 'Loantype.loan' }),
     signDate: timestamp({ defaultValue: { kind: 'now' }, validation: { isRequired: true } }),
     badDebtDate: timestamp({ validation: { isRequired: false } }),
+    isDeceased: checkbox({ defaultValue: false }),
     profitAmount: decimal(
       {
         precision: 10,
@@ -1167,7 +1168,7 @@ export const Loan = list({
           }
 
           // Actualizar balance de la cuenta
-          if (account) {
+          if (account && account.amount) {
             const currentAmount = parseFloat(account.amount.toString());
             const oldAmount = parseAmount(originalItem?.amountGived);
             const oldCommission = parseAmount(originalItem?.comissionAmount);
