@@ -157,6 +157,7 @@ export const TransferForm: React.FC<TransferFormProps> = ({
         incomeSource: 'MONEY_INVESMENT',
         description: description || 'Inversión de capital',
         destinationAccount: { connect: { id: destinationAccount } },
+        route: { connect: { id: selectedRoute.id } },
         lead: selectedLead ? { connect: { id: selectedLead.id } } : undefined
       } : {
         amount: numericAmount.toString(),

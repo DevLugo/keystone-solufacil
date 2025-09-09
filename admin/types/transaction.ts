@@ -63,4 +63,9 @@ export interface TransactionCreateInput {
       id: string;
     };
   };
+  route?: {
+    connect: {
+      id: string;
+    };
+  };
 }

@@ -2272,13 +2272,14 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
                 // ✅ AGREGAR: Crear transacciones y actualizar balance (lógica del hook)
                 const lead = await tx.employee.findUnique({
-                  where: { id: loanData.leadId }
+                  where: { id: loanData.leadId },
+                  include: { routes: true }
                 });
 
-                if (lead?.routesId) {
+                if (lead?.routes?.id) {
                   const account = await tx.account.findFirst({
                     where: { 
-                      routes: { some: { id: lead.routesId } },
+                      routes: { some: { id: lead.routes.id } },
                       type: 'EMPLOYEE_CASH_FUND'
                     },
                   });
@@ -2299,7 +2300,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                           expenseSource: 'LOAN_GRANTED',
                           sourceAccountId: account.id,
                           loanId: loan.id,
-                          leadId: loanData.leadId
+                          leadId: loanData.leadId,
+                          routeId: lead.routes.id
                         },
                         {
                           amount: commissionAmountNum.toString(),
@@ -2308,7 +2310,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                           expenseSource: 'LOAN_GRANTED_COMISSION',
                           sourceAccountId: account.id,
                           loanId: loan.id,
-                          leadId: loanData.leadId
+                          leadId: loanData.leadId,
+                          routeId: lead.routes.id
                         }
                       ]
                     });

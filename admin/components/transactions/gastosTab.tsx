@@ -200,6 +200,7 @@ export const CreateExpensesForm = ({
       expenseSource: '',
       date: selectedDate.toISOString(),
       sourceAccount: { connect: { id: routeAccount.id } },
+      route: { connect: { id: selectedRoute.id } },
       ...(selectedLead && { lead: { connect: { id: selectedLead.id } } })
     };
 
