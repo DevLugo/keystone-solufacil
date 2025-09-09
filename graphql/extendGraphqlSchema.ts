@@ -926,8 +926,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   loanPaymentId: payment.id,
                   loanId: payment.loanId,
                   leadId: leadId,
-                  routeId: lead?.routes?.id,
-                  snapshotRouteId: lead?.routes?.id,
+                  routeId: agent?.routes?.id,
+                  snapshotRouteId: agent?.routes?.id,
                   returnToCapital: returnToCapital.toFixed(2),
                   profitAmount: profitAmount.toFixed(2),
                 });
@@ -955,8 +955,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     loanPaymentId: payment.id,
                     loanId: payment.loanId,
                     leadId: leadId,
-                    routeId: lead?.routes?.id,
-                    snapshotRouteId: lead?.routes?.id,
+                    routeId: agent?.routes?.id,
+                    snapshotRouteId: agent?.routes?.id,
                     description: `Comisión por pago de préstamo - ${payment.id}`,
                   });
                 }
@@ -1090,8 +1090,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     destinationAccountId: bankAccount.id,
                     leadId: leadId,
                     leadPaymentReceivedId: leadPaymentReceived.id,
-                    routeId: lead?.routes?.id,
-                    snapshotRouteId: lead?.routes?.id,
+                    routeId: agent?.routes?.id,
+                    snapshotRouteId: agent?.routes?.id,
                     description: `Transferencia automática por pago mixto - Líder: ${agentId}`,
                   }
                 });
@@ -1124,8 +1124,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   sourceAccountId: cashAccount.id,
                   leadPaymentReceivedId: leadPaymentReceived.id,
                   leadId: leadId,
-                  routeId: lead?.routes?.id,
-                  snapshotRouteId: lead?.routes?.id,
+                  routeId: agent?.routes?.id,
+                  snapshotRouteId: agent?.routes?.id,
                   description: `Pérdida por falco - ${leadPaymentReceived.id}`,
                 }
               });
@@ -1459,8 +1459,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   loanPaymentId: payment.id,
                   loanId: payment.loanId,
                   leadId: leadId,
-                  routeId: lead?.routes?.id,
-                  snapshotRouteId: lead?.routes?.id,
+                  routeId: agent?.routes?.id,
+                  snapshotRouteId: agent?.routes?.id,
                   returnToCapital: returnToCapital.toFixed(2),
                   profitAmount: profitAmount.toFixed(2),
                 });
@@ -1476,8 +1476,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     loanPaymentId: payment.id,
                     loanId: payment.loanId,
                     leadId: leadId,
-                    routeId: lead?.routes?.id,
-                    snapshotRouteId: lead?.routes?.id,
+                    routeId: agent?.routes?.id,
+                    snapshotRouteId: agent?.routes?.id,
                     description: `Comisión por pago de préstamo - ${payment.id}`,
                   });
                 }
@@ -1627,8 +1627,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   destinationAccountId: bankAccount.id,
                   leadId: leadId,
                   leadPaymentReceivedId: leadPaymentReceived.id,
-                  routeId: lead?.routes?.id,
-                  snapshotRouteId: lead?.routes?.id,
+                  routeId: agent?.routes?.id,
+                  snapshotRouteId: agent?.routes?.id,
                   description: `Transferencia automática por pago mixto actualizado - Líder: ${agentId}`,
                 }
               });
@@ -1693,8 +1693,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     sourceAccountId: cashAccount.id,
                     leadPaymentReceivedId: id,
                     leadId: leadId,
-                    routeId: lead?.routes?.id,
-                    snapshotRouteId: lead?.routes?.id,
+                    routeId: agent?.routes?.id,
+                    snapshotRouteId: agent?.routes?.id,
                     description: `Pérdida por falco - ${id}`,
                   }
                 });
