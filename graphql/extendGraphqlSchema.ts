@@ -2,6 +2,7 @@ import { graphql } from '@keystone-6/core';
 import type { Context } from '.keystone/types';
 import { Decimal } from '@prisma/client/runtime/library';
 import { telegramGraphQLExtensions, telegramResolvers } from './telegramExtensions';
+import { calculatePaymentProfitAmount } from '../utils/loanPayment';
 
 // Import fetch for Telegram API calls
 const fetch = require('node-fetch');
@@ -878,6 +879,42 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   comission: payment.comission,
                   comissionAmount,
                 });
+
+                // Obtener datos del préstamo para calcular returnToCapital y profitAmount
+                const loan = await tx.loan.findUnique({
+                  where: { id: payment.loanId },
+                  include: { loantype: true }
+                });
+
+                // Obtener el líder para obtener su routeId
+                const lead = await tx.employee.findUnique({
+                  where: { id: leadId },
+                  include: { routes: true }
+                });
+
+                let returnToCapital = 0;
+                let profitAmount = 0;
+
+                if (loan && loan.loantype) {
+                  const loanData = {
+                    amountGived: safeToNumber(loan.amountGived),
+                    profitAmount: safeToNumber(loan.profitAmount),
+                    weekDuration: loan.loantype.weekDuration || 0,
+                    rate: safeToNumber(loan.loantype.rate)
+                  };
+
+                  const paymentCalculation = await calculatePaymentProfitAmount(
+                    paymentAmount,
+                    loanData.profitAmount,
+                    loanData.amountGived + loanData.profitAmount,
+                    loanData.amountGived,
+                    0 // loanPayedAmount - asumimos 0 para el primer pago
+                  );
+
+                  returnToCapital = paymentCalculation.returnToCapital;
+                  profitAmount = paymentCalculation.profitAmount;
+
+                }
                 
                 // Preparar datos de transacción para el PAGO (INCOME)
                 transactionData.push({
@@ -888,6 +925,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   loanPaymentId: payment.id,
                   loanId: payment.loanId,
                   leadId: leadId,
+                  routeId: lead?.routes?.id,
+                  returnToCapital: returnToCapital.toFixed(2),
+                  profitAmount: profitAmount.toFixed(2),
                 });
 
                 // Preparar datos de transacción para la COMISIÓN (EXPENSE)
@@ -913,6 +953,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     loanPaymentId: payment.id,
                     loanId: payment.loanId,
                     leadId: leadId,
+                    routeId: lead?.routes?.id,
                     description: `Comisión por pago de préstamo - ${payment.id}`,
                   });
                 }
@@ -1366,6 +1407,41 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 const paymentAmount = parseFloat((payment.amount || 0).toString());
                 const commissionAmount = parseFloat((payment.comission || 0).toString());
                 const totalAmount = paymentAmount + commissionAmount; // ✅ INCLUIR comisión
+
+                // Obtener datos del préstamo para calcular returnToCapital y profitAmount
+                const loan = await tx.loan.findUnique({
+                  where: { id: payment.loanId },
+                  include: { loantype: true }
+                });
+
+                // Obtener el líder para obtener su routeId
+                const lead = await tx.employee.findUnique({
+                  where: { id: leadId },
+                  include: { routes: true }
+                });
+
+                let returnToCapital = 0;
+                let profitAmount = 0;
+
+                if (loan && loan.loantype) {
+                  const loanData = {
+                    amountGived: safeToNumber(loan.amountGived),
+                    profitAmount: safeToNumber(loan.profitAmount),
+                    weekDuration: loan.loantype.weekDuration || 0,
+                    rate: safeToNumber(loan.loantype.rate)
+                  };
+
+                  const paymentCalculation = await calculatePaymentProfitAmount(
+                    paymentAmount,
+                    loanData.profitAmount,
+                    loanData.amountGived + loanData.profitAmount,
+                    loanData.amountGived,
+                    0 // loanPayedAmount - asumimos 0 para el primer pago
+                  );
+
+                  returnToCapital = paymentCalculation.returnToCapital;
+                  profitAmount = paymentCalculation.profitAmount;
+                }
                 
                 // Preparar datos de transacción para el pago principal
                 transactionData.push({
@@ -1376,6 +1452,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   loanPaymentId: payment.id,
                   loanId: payment.loanId,
                   leadId: leadId,
+                  routeId: lead?.routes?.id,
+                  returnToCapital: returnToCapital.toFixed(2),
+                  profitAmount: profitAmount.toFixed(2),
                 });
 
                 // ✅ AGREGAR: Crear transacción separada para la comisión si existe
@@ -1389,6 +1468,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     loanPaymentId: payment.id,
                     loanId: payment.loanId,
                     leadId: leadId,
+                    routeId: lead?.routes?.id,
                     description: `Comisión por pago de préstamo - ${payment.id}`,
                   });
                 }
