@@ -68,4 +68,5 @@ export interface TransactionCreateInput {
       id: string;
     };
   };
+  snapshotRouteId?: string;
 }

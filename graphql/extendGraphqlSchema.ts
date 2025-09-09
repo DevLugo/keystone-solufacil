@@ -705,6 +705,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     expenseSource: 'GASOLINE',
                     description: 'Gasto gasolina TOKA',
                     route: effectiveRouteId,
+                    snapshotRouteId: effectiveRouteId,
                     ...(effectiveRouteId ? { route: { connect: { id: effectiveRouteId } } } : {}),
                     ...(sourceAccountId ? { sourceAccount: { connect: { id: sourceAccountId } } } : {}),
                   } as any)
@@ -926,6 +927,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   loanId: payment.loanId,
                   leadId: leadId,
                   routeId: lead?.routes?.id,
+                  snapshotRouteId: lead?.routes?.id,
                   returnToCapital: returnToCapital.toFixed(2),
                   profitAmount: profitAmount.toFixed(2),
                 });
@@ -954,6 +956,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     loanId: payment.loanId,
                     leadId: leadId,
                     routeId: lead?.routes?.id,
+                    snapshotRouteId: lead?.routes?.id,
                     description: `Comisión por pago de préstamo - ${payment.id}`,
                   });
                 }
@@ -1087,6 +1090,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     destinationAccountId: bankAccount.id,
                     leadId: leadId,
                     leadPaymentReceivedId: leadPaymentReceived.id,
+                    routeId: lead?.routes?.id,
+                    snapshotRouteId: lead?.routes?.id,
                     description: `Transferencia automática por pago mixto - Líder: ${agentId}`,
                   }
                 });
@@ -1119,6 +1124,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   sourceAccountId: cashAccount.id,
                   leadPaymentReceivedId: leadPaymentReceived.id,
                   leadId: leadId,
+                  routeId: lead?.routes?.id,
+                  snapshotRouteId: lead?.routes?.id,
                   description: `Pérdida por falco - ${leadPaymentReceived.id}`,
                 }
               });
@@ -1453,6 +1460,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   loanId: payment.loanId,
                   leadId: leadId,
                   routeId: lead?.routes?.id,
+                  snapshotRouteId: lead?.routes?.id,
                   returnToCapital: returnToCapital.toFixed(2),
                   profitAmount: profitAmount.toFixed(2),
                 });
@@ -1469,6 +1477,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     loanId: payment.loanId,
                     leadId: leadId,
                     routeId: lead?.routes?.id,
+                    snapshotRouteId: lead?.routes?.id,
                     description: `Comisión por pago de préstamo - ${payment.id}`,
                   });
                 }
@@ -1618,6 +1627,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   destinationAccountId: bankAccount.id,
                   leadId: leadId,
                   leadPaymentReceivedId: leadPaymentReceived.id,
+                  routeId: lead?.routes?.id,
+                  snapshotRouteId: lead?.routes?.id,
                   description: `Transferencia automática por pago mixto actualizado - Líder: ${agentId}`,
                 }
               });
@@ -1682,6 +1693,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     sourceAccountId: cashAccount.id,
                     leadPaymentReceivedId: id,
                     leadId: leadId,
+                    routeId: lead?.routes?.id,
+                    snapshotRouteId: lead?.routes?.id,
                     description: `Pérdida por falco - ${id}`,
                   }
                 });
@@ -1941,6 +1954,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 type: 'TRANSFER',
                 description: description || `Ajuste de balance a ${targetAmount.toFixed ? targetAmount.toFixed(2) : targetAmount}`,
                 route: account.routes && account.routes.length > 0 ? { connect: { id: account.routes[0].id } } : undefined,
+                snapshotRouteId: account.routes && account.routes.length > 0 ? account.routes[0].id : undefined,
                 sourceAccount: { connect: { id: isIncrease ? counter : account.id } },
                 destinationAccount: { connect: { id: isIncrease ? account.id : counter } },
               }
@@ -2301,7 +2315,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                           sourceAccountId: account.id,
                           loanId: loan.id,
                           leadId: loanData.leadId,
-                          routeId: lead.routes.id
+                          routeId: lead.routes.id,
+                          snapshotRouteId: lead.routes.id
                         },
                         {
                           amount: commissionAmountNum.toString(),
@@ -2311,7 +2326,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                           sourceAccountId: account.id,
                           loanId: loan.id,
                           leadId: loanData.leadId,
-                          routeId: lead.routes.id
+                          routeId: lead.routes.id,
+                          snapshotRouteId: lead.routes.id
                         }
                       ]
                     });
@@ -6771,6 +6787,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 type: 'TRANSFER',
                 description: description || `Ajuste de balance a ${targetAmount.toFixed ? targetAmount.toFixed(2) : targetAmount}`,
                 route: account.routes && account.routes.length > 0 ? { connect: { id: account.routes[0].id } } : undefined,
+                snapshotRouteId: account.routes && account.routes.length > 0 ? account.routes[0].id : undefined,
                 sourceAccount: { connect: { id: isIncrease ? counter : account.id } },
                 destinationAccount: { connect: { id: isIncrease ? account.id : counter } },
               }

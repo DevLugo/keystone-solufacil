@@ -158,6 +158,7 @@ export const TransferForm: React.FC<TransferFormProps> = ({
         description: description || 'Inversión de capital',
         destinationAccount: { connect: { id: destinationAccount } },
         route: { connect: { id: selectedRoute.id } },
+        snapshotRouteId: selectedRoute.id,
         lead: selectedLead ? { connect: { id: selectedLead.id } } : undefined
       } : {
         amount: numericAmount.toString(),
@@ -166,6 +167,8 @@ export const TransferForm: React.FC<TransferFormProps> = ({
         description: description || 'Transferencia entre cuentas',
         sourceAccount: { connect: { id: sourceAccount } },
         destinationAccount: { connect: { id: destinationAccount } },
+        route: { connect: { id: selectedRoute.id } },
+        snapshotRouteId: selectedRoute.id,
         lead: selectedLead ? { connect: { id: selectedLead.id } } : undefined
       };
 

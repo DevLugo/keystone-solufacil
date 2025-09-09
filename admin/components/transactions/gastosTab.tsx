@@ -201,6 +201,7 @@ export const CreateExpensesForm = ({
       date: selectedDate.toISOString(),
       sourceAccount: { connect: { id: routeAccount.id } },
       route: { connect: { id: selectedRoute.id } },
+      snapshotRouteId: selectedRoute.id,
       ...(selectedLead && { lead: { connect: { id: selectedLead.id } } })
     };
 
