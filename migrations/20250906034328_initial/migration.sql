@@ -750,3 +750,5 @@ CREATE INDEX idx_employee_routes ON "Employee" ("routes");
 
 -- Índice compuesto para cuentas
 CREATE INDEX idx_account_type ON "Account" ("type");
+
+ALTER TABLE "Loan" ADD COLUMN "isDeceased" BOOLEAN NOT NULL DEFAULT false;

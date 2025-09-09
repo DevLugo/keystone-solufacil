@@ -1,1 +1,0 @@
-ALTER TABLE "Loan" ADD COLUMN "isDeceased" BOOLEAN NOT NULL DEFAULT false;
