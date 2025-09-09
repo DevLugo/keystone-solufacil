@@ -48,7 +48,6 @@ if (!process.env.DATABASE_URL?.startsWith('postgresql://') && !process.env.DATAB
 
 console.log('✅ Environment variables validated successfully');
 console.log(`🚀 Starting Keystone in ${process.env.NODE_ENV || 'development'} mode`);
-
 // Comentado temporalmente - no funciona con Keystone
 // const app = express();
 // ... endpoints comentados temporalmente
@@ -69,7 +68,7 @@ export default withAuth(
   config({
     db: {
       provider: 'postgresql',
-      url: process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/solufacil',
+      url: process.env.DATABASE_URL,
       enableLogging: false,
     },
     lists,
