@@ -235,6 +235,7 @@ model Transaction {
   lead                  Employee?            @relation("Transaction_lead", fields: [leadId], references: [id])
   leadId                String?              @map("lead")
   snapshotLeadId        String               @default("")
+  snapshotRouteId       String               @default("")
   sourceAccount         Account?             @relation("Transaction_sourceAccount", fields: [sourceAccountId], references: [id])
   sourceAccountId       String?              @map("sourceAccount")
   destinationAccount    Account?             @relation("Transaction_destinationAccount", fields: [destinationAccountId], references: [id])

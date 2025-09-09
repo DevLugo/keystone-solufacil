@@ -1541,6 +1541,7 @@ type Transaction {
   route: Route
   lead: Employee
   snapshotLeadId: String
+  snapshotRouteId: String
   sourceAccount: Account
   destinationAccount: Account
   loan: Loan
@@ -1570,6 +1571,7 @@ input TransactionWhereInput {
   route: RouteWhereInput
   lead: EmployeeWhereInput
   snapshotLeadId: StringFilter
+  snapshotRouteId: StringFilter
   sourceAccount: AccountWhereInput
   destinationAccount: AccountWhereInput
   loan: LoanWhereInput
@@ -1590,6 +1592,7 @@ input TransactionOrderByInput {
   expenseSource: OrderDirection
   description: OrderDirection
   snapshotLeadId: OrderDirection
+  snapshotRouteId: OrderDirection
   profitAmount: OrderDirection
   returnToCapital: OrderDirection
   createdAt: OrderDirection
@@ -1606,6 +1609,7 @@ input TransactionUpdateInput {
   route: RouteRelateToOneForUpdateInput
   lead: EmployeeRelateToOneForUpdateInput
   snapshotLeadId: String
+  snapshotRouteId: String
   sourceAccount: AccountRelateToOneForUpdateInput
   destinationAccount: AccountRelateToOneForUpdateInput
   loan: LoanRelateToOneForUpdateInput
@@ -1644,6 +1648,7 @@ input TransactionCreateInput {
   route: RouteRelateToOneForCreateInput
   lead: EmployeeRelateToOneForCreateInput
   snapshotLeadId: String
+  snapshotRouteId: String
   sourceAccount: AccountRelateToOneForCreateInput
   destinationAccount: AccountRelateToOneForCreateInput
   loan: LoanRelateToOneForCreateInput

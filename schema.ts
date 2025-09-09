@@ -1668,6 +1668,7 @@ export const Transaction = list({
     route: relationship({ ref: 'Route.transactions' }),
     lead: relationship({ ref: 'Employee.transactions' }),
     snapshotLeadId: text(),
+    snapshotRouteId: text(),
     // Nota: los campos de snapshotLocation/Route se desactivan para evitar errores de Prisma
     sourceAccount: relationship({ ref: 'Account.transactions' }),
     destinationAccount: relationship({ ref: 'Account.receivedTransactions' }),

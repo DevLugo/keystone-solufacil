@@ -3169,69 +3169,31 @@ export const extendGraphqlSchema = graphql.extend(base => {
           });
           
           
-          // OPTIMIZADO: Recopilamos todos los IDs de líderes únicos para minimizar consultas
-          const leadIds = new Set<string>();
+          // OPTIMIZADO: Recopilamos todos los IDs de rutas únicos para minimizar consultas
+          const routeIds = new Set<string>();
           rangeTransactions.forEach(transaction => {
-            if (transaction.leadId) {
-              leadIds.add(transaction.leadId.toString());
+            // Prioridad: snapshotRouteId > routeId
+            const routeId = transaction.snapshotRouteId || transaction.routeId;
+            if (routeId) {
+              routeIds.add(routeId.toString());
             }
           });
           
-          // OPTIMIZADO: Una sola consulta para obtener todos los líderes con sus datos personales
-          const leads = await context.prisma.employee.findMany({
+          // OPTIMIZADO: Una sola consulta para obtener todas las rutas
+          const routes = await context.prisma.route.findMany({
             where: { 
-              id: { in: Array.from(leadIds) } 
-            },
-            include: {
-              personalData: {
-                include: {
-                  addresses: {
-                    include: {
-                      location: {
-                        include: {
-                          municipality: {
-                            include: {
-                              state: true
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
+              id: { in: Array.from(routeIds) } 
             },
             orderBy: { id: 'asc' }
           });
           
-          // OPTIMIZADO: Crear mapa de localidades por líder usando las relaciones ya cargadas
-          const leadInfoMap = new Map();
-          
-          leads.forEach(lead => {
-            if (lead.personalData) {
-              const personalData = lead.personalData;
-              const addresses = personalData.addresses || [];
-              
-              if (addresses.length > 0) {
-                const address = addresses[0]; // Primera dirección
-                const location = address.location;
-                
-                if (location && location.municipality) {
-                  const municipality = location.municipality;
-                  const state = municipality.state;
-                  
-                  if (location.name && municipality.name && state && state.name) {
-                    leadInfoMap.set(lead.id, {
-                      locality: location.name,
-                      municipality: municipality.name,
-                      state: state.name,
-                      fullName: personalData.fullName || 'Sin nombre'
-                    });
-                    
-                  }
-                }
-              }
-            }
+          // OPTIMIZADO: Crear mapa de rutas por ID
+          const routeMap = new Map();
+          routes.forEach(route => {
+            routeMap.set(route.id, {
+              name: route.name,
+              id: route.id
+            });
           });
           
           // Obtenemos información de todas las cuentas relevantes
@@ -3269,51 +3231,36 @@ export const extendGraphqlSchema = graphql.extend(base => {
             const txDate = transaction.date ? new Date(transaction.date) : new Date();
             const transactionDate = txDate.toISOString().split('T')[0];
             
-            // ESTRATEGIA MEJORADA PARA LOCALIDADES:
-            let locality = null;
-            let state = null;
+            // ESTRATEGIA MEJORADA PARA RUTAS HISTÓRICAS:
+            // Prioridad: snapshotRouteId > routeId
+            const routeId = transaction.snapshotRouteId || transaction.routeId;
+            let routeName = 'Sin ruta';
+            let locality = 'General';
             let leadName = '';
             let leadId = transaction.leadId;
             let localitySource = 'sin fuente';
             
-            // Si tenemos leadId, buscamos primero en el mapa de líderes que ya cargamos
-            if (leadId) {
-              if (leadInfoMap.has(leadId)) {
-                const leadInfo = leadInfoMap.get(leadId);
-                locality = leadInfo.locality;
-                state = leadInfo.state;
-                leadName = leadInfo.fullName;
-                localitySource = 'mapa de líderes';
-                
-              } else {
-                // Verificar si es por problema de tipo
-                const leadIdString = leadId.toString();
-                if (leadInfoMap.has(leadIdString)) {
-                  const leadInfo = leadInfoMap.get(leadIdString);
-                  locality = leadInfo.locality;
-                  state = leadInfo.state;
-                  leadName = leadInfo.fullName;
-                  localitySource = 'mapa de líderes (string)';
-                  
-                }
+            // Obtener información de la ruta histórica
+            if (routeId) {
+              const route = routeMap.get(routeId.toString());
+              if (route) {
+                routeName = route.name;
+                locality = route.name; // Usar el nombre de la ruta como localidad
+                localitySource = 'ruta histórica';
               }
             }
             
-            // Construir la clave de agrupación con líder + localidad + municipio + estado
+            // Si tenemos leadId, usar solo el ID para el contexto (opcional)
+            // El nombre del líder se puede obtener después si es necesario
+            
+            // Construir la clave de agrupación basada en la ruta histórica
             let leaderKey = '';
             if (leadName && leadName !== '') {
-              if (locality && state && locality !== 'General' && state !== 'General') {
-                // Obtener el municipio del leadInfoMap
-                const leadInfo = leadInfoMap.get(leadId) || leadInfoMap.get(leadId?.toString());
-                const municipality = leadInfo?.municipality || locality; // Usar localidad como fallback
-                leaderKey = `${leadName} - ${locality}, ${municipality}, ${state}`;
-              } else {
-                leaderKey = leadName;
-              }
+              leaderKey = `${leadName} - ${routeName}`;
             } else if (leadId) {
-              leaderKey = `Líder ID: ${leadId}`;
+              leaderKey = `Líder ID: ${leadId} - ${routeName}`;
             } else {
-              leaderKey = 'General';
+              leaderKey = routeName;
             }
             
             
