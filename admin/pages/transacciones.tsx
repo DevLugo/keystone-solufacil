@@ -5,7 +5,6 @@ import React, { useState, useEffect } from 'react';
 import { Box, jsx } from '@keystone-ui/core';
 import { PageContainer } from '@keystone-6/core/admin-ui/components';
 import { DatePicker } from '@keystone-ui/fields';
-import { LoadingDots } from '@keystone-ui/loading';
 import { useQuery } from '@apollo/client';
 import { gql } from '@apollo/client';
 import { GET_ROUTES_SIMPLE } from '../graphql/queries/routes-optimized';
@@ -98,6 +97,7 @@ function TransaccionesPageContent() {
   const [selectedLead, setSelectedLead] = useState<EmployeeWithTypename | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [minLoadingTimeReached, setMinLoadingTimeReached] = useState(false);
 
   // Usar el contexto para obtener la función de refresh
   const { triggerBalanceRefresh } = useBalanceRefresh();
@@ -132,9 +132,30 @@ function TransaccionesPageContent() {
 
   useEffect(() => {
     setIsLoading(true);
-    const timeout = setTimeout(() => setIsLoading(false), 100);
-    return () => clearTimeout(timeout);
+    setMinLoadingTimeReached(false);
+    
+    // Timer para garantizar mínimo 1 segundo
+    const minTimer = setTimeout(() => {
+      setMinLoadingTimeReached(true);
+    }, 1000);
+    
+    return () => {
+      clearTimeout(minTimer);
+    };
   }, [selectedDate, refreshKey]);
+
+  // Efecto para ocultar loading cuando Apollo termine Y haya pasado el tiempo mínimo
+  useEffect(() => {
+    if (!routesLoading && isLoading && minLoadingTimeReached) {
+      // Pequeño delay para asegurar transición suave
+      const hideTimeout = setTimeout(() => {
+        setIsLoading(false);
+        setMinLoadingTimeReached(false);
+      }, 100);
+      
+      return () => clearTimeout(hideTimeout);
+    }
+  }, [routesLoading, isLoading, minLoadingTimeReached]);
 
   const handleRouteSelect = (route: RouteWithEmployees | null) => {
     setSelectedRoute(route);
@@ -171,8 +192,78 @@ function TransaccionesPageContent() {
   const renderTabContent = () => {
     if (isLoading) {
       return (
-        <Box css={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
-          <LoadingDots label="Cargando..." />
+        <Box css={{ 
+          display: 'flex', 
+          flexDirection: 'column',
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          height: '400px',
+          background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)',
+          borderRadius: '12px',
+          margin: '20px',
+          position: 'relative',
+          overflow: 'hidden'
+        }}>
+          {/* Efecto de ondas de fondo */}
+          <Box css={{
+            position: 'absolute',
+            top: '-50%',
+            left: '-50%',
+            width: '200%',
+            height: '200%',
+            background: 'radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%)',
+            animation: 'pulse 2s ease-in-out infinite'
+          }} />
+          
+          {/* Spinner moderno */}
+          <Box css={{
+            width: '60px',
+            height: '60px',
+            border: '4px solid #e2e8f0',
+            borderTop: '4px solid #3b82f6',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+            marginBottom: '20px',
+            position: 'relative',
+            zIndex: 1
+          }} />
+          
+          {/* Texto de carga */}
+          <Box css={{
+            fontSize: '18px',
+            fontWeight: '600',
+            color: '#374151',
+            marginBottom: '8px',
+            position: 'relative',
+            zIndex: 1
+          }}>
+            Cargando transacciones...
+          </Box>
+          
+          {/* Subtítulo */}
+          <Box css={{
+            fontSize: '14px',
+            color: '#6b7280',
+            position: 'relative',
+            zIndex: 1
+          }}>
+            Preparando datos para {activeTab === 'summary' ? 'resumen' : 
+                                 activeTab === 'payments' ? 'abonos' :
+                                 activeTab === 'credits' ? 'créditos' :
+                                 activeTab === 'expenses' ? 'gastos' : 'transferencias'}
+          </Box>
+          
+          {/* CSS para animaciones */}
+          <style jsx>{`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+            @keyframes pulse {
+              0%, 100% { opacity: 0.5; transform: scale(1); }
+              50% { opacity: 0.8; transform: scale(1.05); }
+            }
+          `}</style>
         </Box>
       );
     }
@@ -230,7 +321,16 @@ function TransaccionesPageContent() {
   return (
     <PageContainer header={<h2>Transacciones</h2>}>
       <Box css={{ padding: '24px' }}>
-        <Box css={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
+        {/* Sección de selección de ruta y localidad */}
+        <Box css={{ 
+          display: 'flex', 
+          gap: '16px', 
+          marginBottom: '32px',
+          padding: '20px',
+          backgroundColor: '#F8FAFC',
+          borderRadius: '12px',
+          border: '1px solid #E2E8F0'
+        }}>
           <RouteLeadSelector
             selectedRoute={selectedRoute}
             selectedLead={selectedLead}
@@ -241,97 +341,70 @@ function TransaccionesPageContent() {
           />
         </Box>
 
-        <Box css={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
-          <button
-            onClick={() => handleTabChange('summary')}
-            data-testid="tab-summary"
-            css={{
-              padding: '8px 16px',
-              backgroundColor: activeTab === 'summary' ? '#3182ce' : '#e2e8f0',
-              color: activeTab === 'summary' ? 'white' : '#4a5568',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              '&:hover': {
-                backgroundColor: activeTab === 'summary' ? '#2c5282' : '#cbd5e0',
-              },
-            }}
-          >
-            Resumen
-          </button>
-          <button
-            onClick={() => handleTabChange('payments')}
-            data-testid="tab-payments"
-            css={{
-              padding: '8px 16px',
-              backgroundColor: activeTab === 'payments' ? '#3182ce' : '#e2e8f0',
-              color: activeTab === 'payments' ? 'white' : '#4a5568',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              '&:hover': {
-                backgroundColor: activeTab === 'payments' ? '#2c5282' : '#cbd5e0',
-              },
-            }}
-          >
-            Abonos
-          </button>
-          
-          <button
-            onClick={() => handleTabChange('credits')}
-            data-testid="tab-credits"
-            css={{
-              padding: '8px 16px',
-              backgroundColor: activeTab === 'credits' ? '#3182ce' : '#e2e8f0',
-              color: activeTab === 'credits' ? 'white' : '#4a5568',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              '&:hover': {
-                backgroundColor: activeTab === 'credits' ? '#2c5282' : '#cbd5e0',
-              },
-            }}
-          >
-            Créditos
-          </button>
-          <button
-            onClick={() => handleTabChange('expenses')}
-            data-testid="tab-expenses"
-            css={{
-              padding: '8px 16px',
-              backgroundColor: activeTab === 'expenses' ? '#3182ce' : '#e2e8f0',
-              color: activeTab === 'expenses' ? 'white' : '#4a5568',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              '&:hover': {
-                backgroundColor: activeTab === 'expenses' ? '#2c5282' : '#cbd5e0',
-              },
-            }}
-          >
-            Gastos
-          </button>
-          
-          <button
-            onClick={() => handleTabChange('transfers')}
-            data-testid="tab-transfers"
-            css={{
-              padding: '8px 16px',
-              backgroundColor: activeTab === 'transfers' ? '#3182ce' : '#e2e8f0',
-              color: activeTab === 'transfers' ? 'white' : '#4a5568',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              '&:hover': {
-                backgroundColor: activeTab === 'transfers' ? '#2c5282' : '#cbd5e0',
-              },
-            }}
-          >
-            Transferencias
-          </button>
-        </Box>
+        {/* Sistema de tabs integrado */}
+        <Box css={{
+          backgroundColor: 'white',
+          borderRadius: '12px',
+          border: '1px solid #E2E8F0',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+        }}>
+          {/* Barra de tabs */}
+          <Box css={{
+            display: 'flex',
+            borderBottom: '1px solid #E2E8F0',
+            backgroundColor: '#F8FAFC',
+            padding: '0 4px'
+          }}>
+            {[
+              { key: 'summary', label: 'Resumen', testId: 'tab-summary' },
+              { key: 'payments', label: 'Abonos', testId: 'tab-payments' },
+              { key: 'credits', label: 'Créditos', testId: 'tab-credits' },
+              { key: 'expenses', label: 'Gastos', testId: 'tab-expenses' },
+              { key: 'transfers', label: 'Transferencias', testId: 'tab-transfers' }
+            ].map((tab, index) => (
+              <Box
+                key={tab.key}
+                onClick={() => handleTabChange(tab.key)}
+                data-testid={tab.testId}
+                css={{
+                  flex: 1,
+                  padding: '12px 16px',
+                  backgroundColor: activeTab === tab.key ? 'white' : 'transparent',
+                  color: activeTab === tab.key ? '#1E40AF' : '#64748B',
+                  border: 'none',
+                  borderBottom: activeTab === tab.key ? '2px solid #3B82F6' : '2px solid transparent',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: activeTab === tab.key ? '600' : '500',
+                  transition: 'all 0.2s ease',
+                  position: 'relative',
+                  textAlign: 'center',
+                  '&:hover': {
+                    backgroundColor: activeTab === tab.key ? 'white' : '#F1F5F9',
+                    color: activeTab === tab.key ? '#1E40AF' : '#475569',
+                  },
+                  '&:first-of-type': {
+                    borderTopLeftRadius: '8px'
+                  },
+                  '&:last-of-type': {
+                    borderTopRightRadius: '8px'
+                  }
+                }}
+              >
+                {tab.label}
+              </Box>
+            ))}
+          </Box>
 
-        {renderTabContent()}
+          {/* Contenido de la tab activa */}
+          <Box css={{
+            padding: '0',
+            backgroundColor: 'white',
+            minHeight: '400px'
+          }}>
+            {renderTabContent()}
+          </Box>
+        </Box>
       </Box>
     </PageContainer>
   );

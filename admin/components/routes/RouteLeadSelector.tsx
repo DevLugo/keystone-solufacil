@@ -5,7 +5,6 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useLazyQuery } from '@apollo/client';
 import { Box, jsx } from '@keystone-ui/core';
-import { LoadingDots } from '@keystone-ui/loading';
 import { Select } from '@keystone-ui/fields';
 import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
 import { GET_LEADS_SIMPLE, GET_ROUTES_SIMPLE } from '../../graphql/queries/routes-optimized';
@@ -43,6 +42,7 @@ type RouteSimple = {
 type AccountSummary = {
   id: string;
   name: string;
+  type: string;
   totalAccounts: number;
   amount: number;
 };
@@ -64,12 +64,12 @@ interface RouteLeadSelectorProps {
 const styles = {
   container: {
     width: '100%',
-    padding: '24px',
-    backgroundColor: 'white',
-    borderRadius: '8px',
-    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+    padding: '0',
+    backgroundColor: 'transparent',
+    borderRadius: '0',
+    boxShadow: 'none',
     '@media (max-width: 768px)': {
-      padding: '16px',
+      padding: '0',
       width: '100%',
       maxWidth: '100%'
     }
@@ -78,12 +78,12 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: '24px',
+    marginBottom: '20px',
   },
   title: {
-    fontSize: '20px',
+    fontSize: '18px',
     fontWeight: '600',
-    color: '#1a202c',
+    color: '#374151',
     margin: '0',
   },
   content: {
@@ -92,9 +92,9 @@ const styles = {
   selectorsContainer: {
     display: 'grid',
     gridTemplateColumns: 'repeat(3, 1fr)',
-    gap: '16px',
+    gap: '20px',
     width: '100%',
-    marginBottom: '24px',
+    marginBottom: '20px',
     '@media (max-width: 768px)': {
       gridTemplateColumns: '1fr',
       gap: '20px'
@@ -108,71 +108,118 @@ const styles = {
     }
   },
   selectorLabel: {
-    fontSize: '13px',
-    fontWeight: '500',
-    color: '#6B7280',
+    fontSize: '14px',
+    fontWeight: '600',
+    color: '#374151',
     marginBottom: '8px',
-    textTransform: 'uppercase' as const,
+    textTransform: 'none' as const,
     letterSpacing: '0.025em',
   },
   dateInput: {
     width: '100%',
-    padding: '8px 12px',
-    border: '1px solid #E5E7EB',
-    borderRadius: '8px',
+    padding: '12px 16px',
+    border: '2px solid #E5E7EB',
+    borderRadius: '10px',
     fontSize: '14px',
-    color: '#111827',
+    color: '#374151',
+    fontWeight: '500',
     transition: 'all 0.2s ease',
     outline: 'none',
     '&:focus': {
-      borderColor: '#0052CC',
-      boxShadow: '0 0 0 2px rgba(0, 82, 204, 0.1)',
+      borderColor: '#3B82F6',
+      boxShadow: '0 0 0 3px rgba(59, 130, 246, 0.1)',
     },
     '&:hover': {
-      borderColor: '#0052CC',
+      borderColor: '#9CA3AF',
     }
   },
   accountsContainer: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-    gap: '16px',
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '8px',
     width: '100%',
+    marginTop: '16px',
   },
   summaryCard: {
     backgroundColor: 'white',
-    padding: '20px',
-    borderRadius: '12px',
+    padding: '6px 12px',
+    borderRadius: '999px',
+    border: '1px solid #E5E7EB',
     boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
     overflow: 'hidden',
-  },
-  cardTopBorder: {
-    height: '2px',
-    background: '#0052CC',
-    opacity: 0.1,
-    marginBottom: '16px'
-  },
-  cardLabel: {
-    fontSize: '13px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '12px',
     fontWeight: '500',
     color: '#6B7280',
-    marginBottom: '8px',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.025em',
+    minWidth: 'fit-content',
+    whiteSpace: 'nowrap'
+  },
+  summaryCardCashFund: {
+    backgroundColor: '#F0F9FF',
+    padding: '8px 14px',
+    borderRadius: '999px',
+    border: '2px solid #0EA5E9',
+    boxShadow: '0 2px 4px rgba(14, 165, 233, 0.15)',
+    overflow: 'hidden',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#0C4A6E',
+    minWidth: 'fit-content',
+    whiteSpace: 'nowrap',
+    position: 'relative'
+  },
+  cardTopBorder: {
+    display: 'none'
+  },
+  cardLabel: {
+    fontSize: '11px',
+    fontWeight: '500',
+    color: '#6B7280',
+    marginBottom: 0,
+    textTransform: 'none' as const,
+    letterSpacing: '0.02em',
+    maxWidth: '120px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis'
   },
   cardValue: {
-    fontSize: '24px',
+    fontSize: '12px',
     fontWeight: '600',
     color: '#111827',
     letterSpacing: '-0.02em',
     lineHeight: '1',
-    marginBottom: '4px',
+    marginBottom: 0,
   },
   cardSubValue: {
-    fontSize: '13px',
-    color: '#6B7280',
+    fontSize: '10px',
+    color: '#64748B',
     display: 'flex',
     alignItems: 'center',
     gap: '4px',
+  },
+  cardLabelCashFund: {
+    fontSize: '11px',
+    fontWeight: '600',
+    color: '#0C4A6E',
+    marginBottom: 0,
+    textTransform: 'none' as const,
+    letterSpacing: '0.02em',
+    maxWidth: '120px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis'
+  },
+  cardValueCashFund: {
+    fontSize: '13px',
+    fontWeight: '700',
+    color: '#0C4A6E',
+    letterSpacing: '-0.02em',
+    lineHeight: '1',
+    marginBottom: 0,
   },
   clearButton: {
     display: 'flex',
@@ -196,6 +243,20 @@ const styles = {
     display: 'flex',
     gap: '8px',
     alignItems: 'center',
+  },
+  selectWrapper: {
+    width: '100%',
+    '& > div': {
+      display: 'flex',
+      alignItems: 'center',
+      minHeight: '40px',
+    },
+    '& input, & [role="combobox"]': {
+      display: 'flex',
+      alignItems: 'center',
+      minHeight: '40px',
+      padding: '8px 12px',
+    }
   }
 };
 
@@ -246,9 +307,17 @@ const processRouteStats = (route: RouteSimple) => {
       accounts.push({
         id: account.id,
         name: account.name || 'Cuenta sin nombre',
+        type: account.type || 'UNKNOWN',
         totalAccounts: 1, // Simplificado - solo contamos las cuentas
         amount: account.amount || 0
       });
+    });
+    
+    // Ordenar para que EMPLOYEE_CASH_FUND aparezca primero
+    accounts.sort((a, b) => {
+      if (a.type === 'EMPLOYEE_CASH_FUND') return -1;
+      if (b.type === 'EMPLOYEE_CASH_FUND') return 1;
+      return 0;
     });
   }
 
@@ -398,7 +467,18 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
     }
   };
 
-  if (routesLoading) return <LoadingDots label="Loading routes" />;
+  if (routesLoading) return (
+    <Box css={{
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      height: '200px',
+      fontSize: '14px',
+      color: '#6b7280'
+    }}>
+      Cargando rutas...
+    </Box>
+  );
   if (routesError) return <GraphQLErrorNotice errors={routesError?.graphQLErrors || []} networkError={routesError?.networkError} />;
 
   const formatCurrency = (amount: number) => {
@@ -427,7 +507,6 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
             color: '#0284C7',
             fontWeight: '500'
           }}>
-            <LoadingDots label="Actualizando" size="small" />
             <span>Actualizando balances...</span>
           </div>
         )}
@@ -444,28 +523,32 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
         }}>
           <Box css={styles.selector}>
             <div css={styles.selectorLabel}>Ruta</div>
-            <Select
-              value={routeOptions.find(option => option.value === selectedRoute?.id) || null}
-              options={routeOptions}
-              onChange={handleRouteChange}
-              placeholder="Seleccionar ruta"
-              isLoading={routesLoading}
-              data-testid="route-selector"
-            />
+            <Box css={styles.selectWrapper}>
+              <Select
+                value={routeOptions.find(option => option.value === selectedRoute?.id) || null}
+                options={routeOptions}
+                onChange={handleRouteChange}
+                placeholder="Seleccionar ruta"
+                isLoading={routesLoading}
+                data-testid="route-selector"
+              />
+            </Box>
           </Box>
 
           <Box css={styles.selector}>
             <div css={styles.selectorLabel}>Localidad</div>
             <Box css={styles.selectContainer}>
-              <Select
-                value={leadOptions.find(option => option.value === selectedLead?.id) || null}
-                options={leadOptions}
-                onChange={handleLeadChange}
-                placeholder="Seleccionar localidad"
-                isLoading={leadsLoading}
-                isDisabled={!selectedRoute}
-                data-testid="lead-selector"
-              />
+              <Box css={styles.selectWrapper}>
+                <Select
+                  value={leadOptions.find(option => option.value === selectedLead?.id) || null}
+                  options={leadOptions}
+                  onChange={handleLeadChange}
+                  placeholder="Seleccionar localidad"
+                  isLoading={leadsLoading}
+                  isDisabled={!selectedRoute}
+                  data-testid="lead-selector"
+                />
+              </Box>
               {selectedLead && (
                 <button
                   css={styles.clearButton}
@@ -492,45 +575,62 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
         </Box>
 
         {selectedRoute && routeSummary && (
-          <Box css={styles.accountsContainer}>
-            {isRefreshingAmounts && (
-              <div style={{
-                gridColumn: '1 / -1',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '20px',
-                backgroundColor: '#F8FAFC',
-                borderRadius: '8px',
-                border: '1px solid #E2E8F0',
-                marginBottom: '16px'
-              }}>
-                <LoadingDots label="Actualizando balances" size="small" />
-                <span style={{ marginLeft: '12px', color: '#64748B', fontSize: '14px' }}>
-                  Actualizando balances de cuentas...
-                </span>
-              </div>
-            )}
-            {routeSummary.accounts.map((account) => (
-              <div key={account.id} css={styles.summaryCard}>
-                <div css={styles.cardTopBorder} />
-                <div css={styles.cardLabel}>{account.name}</div>
-                <div css={styles.cardValue}>
-                  {isRefreshingAmounts ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <LoadingDots label="Loading" size="small" />
-                      <span>Actualizando...</span>
-                    </div>
-                  ) : (
-                    formatCurrency(account.amount)
-                  )}
+          <div>
+            <div style={{
+              fontSize: '13px',
+              fontWeight: '600',
+              color: '#374151',
+              marginBottom: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              Cuentas de la Ruta
+              {isRefreshingAmounts && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontSize: '11px',
+                  color: '#6B7280',
+                  fontWeight: '400'
+                }}>
+                  <span>Actualizando...</span>
                 </div>
-                <div css={styles.cardSubValue}>
-                  {account.totalAccounts} cuentas
-                </div>
-              </div>
-            ))}
-          </Box>
+              )}
+            </div>
+            <Box css={styles.accountsContainer}>
+              {routeSummary.accounts.map((account) => {
+                const isCashFund = account.type === 'EMPLOYEE_CASH_FUND';
+                return (
+                  <div key={account.id} css={isCashFund ? styles.summaryCardCashFund : styles.summaryCard}>
+                    <span css={isCashFund ? styles.cardLabelCashFund : styles.cardLabel}>{account.name}</span>
+                    <span css={isCashFund ? styles.cardValueCashFund : styles.cardValue}>
+                      {isRefreshingAmounts ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span>...</span>
+                        </div>
+                      ) : (
+                        formatCurrency(account.amount)
+                      )}
+                    </span>
+                    {isCashFund && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '-2px',
+                        right: '-2px',
+                        width: '8px',
+                        height: '8px',
+                        backgroundColor: '#0EA5E9',
+                        borderRadius: '50%',
+                        border: '2px solid white'
+                      }} />
+                    )}
+                  </div>
+                );
+              })}
+            </Box>
+          </div>
         )}
 
         {(routesError || leadsError) && (

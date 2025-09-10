@@ -4877,9 +4877,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
                           }
                         } else {
                           // Si no tiene finishedDate, es un RENOVADO (reemplaza un préstamo activo)
-                          isReintegro = false;
+                            isReintegro = false;
                           
-                          if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                            if (isAtastaWeek3 && isAtastaLocality(locality)) {
                             console.log(`  ❌ RENOVADO: Préstamo anterior NO FINALIZADO (reemplaza préstamo activo)`);
                           }
                           
@@ -5183,8 +5183,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                         // 2. finishedUI: Para mostrar en UI (excluye renovados)
                         
                         // Siempre contar para cálculos internos (balance de activos)
-                        data.finished++;
-                        data.finishedAmount += loanAmount;
+                          data.finished++;
+                          data.finishedAmount += loanAmount;
                         
                         // Solo contar para UI si NO fue renovado
                         if (!wasRenewed) {
@@ -5289,14 +5289,14 @@ export const extendGraphqlSchema = graphql.extend(base => {
                         data.finishedNotRenewed++;
                         data.finishedNotRenewedAmount += loanAmount;
                         data.finishedForUI++;
-                        (data.finishedLoans as any[]).push({
-                          id: loan.id,
-                          finishedDate: cleanupDate,
-                          startDate: loan.signDate,
-                          amountGived: Number(loan.amountGived || 0),
-                          fullName: loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A',
-                          reason: 'PORTFOLIO_CLEANUP'
-                        });
+                      (data.finishedLoans as any[]).push({
+                        id: loan.id,
+                        finishedDate: cleanupDate,
+                        startDate: loan.signDate,
+                        amountGived: Number(loan.amountGived || 0),
+                        fullName: loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A',
+                        reason: 'PORTFOLIO_CLEANUP'
+                      });
                       }
                       
                       // 🔍 DEBUG: Log específico para semana 3 de Atasta

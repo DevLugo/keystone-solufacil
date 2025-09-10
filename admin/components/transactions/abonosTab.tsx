@@ -12,7 +12,7 @@ import { PageContainer, GraphQLErrorNotice } from '@keystone-6/core/admin-ui/com
 import { DatePicker, Select, TextInput } from '@keystone-ui/fields';
 import { LoanPayment } from '../../../schema';
 import type { Employee, Option } from '../../types/transaction';
-import { FaPlus, FaEllipsisV } from 'react-icons/fa';
+import { FaPlus, FaEllipsisV, FaInfoCircle, FaCalendarAlt } from 'react-icons/fa';
 
 // Import components
 import DateMover from './utils/DateMover';
@@ -326,6 +326,7 @@ type LoanPayment = {
   loanId: string;
   type: string;
   paymentMethod: string;
+  isUserAdded?: boolean; // Indica si el pago fue agregado por el usuario
 };
 
 type Route = {
@@ -605,6 +606,9 @@ export const CreatePaymentForm = ({
 
   // Estado para controlar loading general de guardado
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Estado para tooltip de comisiones
+  const [showCommissionTooltip, setShowCommissionTooltip] = useState(false);
 
   const router = useRouter();
 
@@ -1016,6 +1020,7 @@ export const CreatePaymentForm = ({
         type: 'PAYMENT',
         paymentMethod: 'CASH',
         isNew: true, // Marcar como nuevo pago
+        isUserAdded: false, // Marcar como pagos existentes (no agregados por usuario)
         loan: {
           id: loan.id,
           signDate: loan.signDate,
@@ -1053,6 +1058,7 @@ export const CreatePaymentForm = ({
           type: 'PAYMENT',
           comission: comission,
           paymentMethod: 'CASH',
+          isUserAdded: true, // Marcar como agregado por usuario
         }
       ]
     });
@@ -1454,33 +1460,7 @@ export const CreatePaymentForm = ({
         return null;
       })()}
 
-      {/* Botón para crear falco cuando no hay falcos existentes */}
-      {(!falcosData?.leadPaymentReceiveds || falcosData.leadPaymentReceiveds.length === 0) && selectedLead && (
-        <div style={{
-          backgroundColor: '#F3F4F6',
-          border: '1px solid #D1D5DB',
-          borderRadius: '8px',
-          padding: '12px',
-          marginBottom: '16px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}>
-          <div style={{
-            fontSize: '14px',
-            color: '#374151',
-          }}>
-            No se detectaron falcos en esta localidad.
-          </div>
-          <Button
-            tone="active"
-            size="small"
-            onClick={() => updateState({ isCreateFalcoModalOpen: true })}
-          >
-            ⚠️ Reportar Falco
-          </Button>
-        </div>
-      )}
+      {/* Eliminado: Banner de falcos - ahora integrado en la barra de KPIs */}
 
       {/* Banner informativo para datos migrados */}
       {migratedPaymentsCount > 0 && (
@@ -1521,380 +1501,269 @@ export const CreatePaymentForm = ({
         </div>
       )}
 
+      {/* Barra fija y compacta con KPIs + Botones (70% KPIs, 30% Botones) */}
       <div style={{
-        display: 'flex',
-        gap: '16px',
-        alignItems: 'flex-start',
-        marginBottom: '16px',
+        position: 'sticky',
+        top: 0,
+        zIndex: 1000,
         background: 'white',
-        padding: '16px',
+        border: '1px solid #E5E7EB',
         borderRadius: '8px',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+        padding: '16px 20px',
+        margin: '0 24px 16px 24px',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '16px'
       }}>
-        {/* Stats Grid */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(6, 1fr)',
-          gap: '1px',
-          background: '#E2E8F0',
-          borderRadius: '8px',
-          overflow: 'hidden',
-          flex: 1,
-          boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+        {/* Sección de KPIs - 60% del ancho */}
+        <div style={{ 
+          display: 'flex', 
+          flexWrap: 'wrap', 
+          gap: '8px', 
+          alignItems: 'center',
+          flex: '0 0 60%',
+          minWidth: 0
         }}>
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column' as const,
-            background: 'white',
-            padding: '12px',
-            position: 'relative',
-            overflow: 'hidden',
-          }}>
-            <div style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              height: '2px',
-              background: '#0052CC',
-              opacity: 0.1,
-            }} />
-            <div style={{
-              fontSize: '12px',
-              fontWeight: '500',
-              color: '#6B7280',
-              marginBottom: '4px',
-            }}>
-              TOTAL CLIENTES
-            </div>
-            <div style={{
-              fontSize: '20px',
-              fontWeight: '600',
-              color: '#111827',
-              letterSpacing: '-0.02em',
-              lineHeight: '1',
-              marginBottom: '2px',
-            }}>
-              {loansData?.loans?.length || 0}
-            </div>
-            <div style={{
-              fontSize: '12px',
-              color: '#059669',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-            }}>
-              <span>Clientes activos en la ruta</span>
-            </div>
-          </div>
-
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column' as const,
-            background: 'white',
-            padding: '12px',
-            position: 'relative',
-            overflow: 'hidden',
-          }}>
-            <div style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              height: '2px',
-              background: '#0052CC',
-              opacity: 0.1,
-            }} />
-            <div style={{
-              fontSize: '12px',
-              fontWeight: '500',
-              color: '#6B7280',
-              marginBottom: '4px',
-            }}>
-              PAGOS NUEVOS
-            </div>
-            <div style={{
-              fontSize: '20px',
-              fontWeight: '600',
-              color: '#111827',
-              letterSpacing: '-0.02em',
-              lineHeight: '1',
-              marginBottom: '2px',
-            }}>
-              {payments.length - strikethroughNewPaymentIndices.length}
-            </div>
-            <div style={{
-              fontSize: '12px',
-              color: '#0052CC',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-            }}>
-              <span>Por guardar</span>
-            </div>
-          </div>
-
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column' as const,
-            background: 'white',
-            padding: '12px',
-            position: 'relative',
-            overflow: 'hidden',
-          }}>
-            <div style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              height: '2px',
-              background: '#0052CC',
-              opacity: 0.1,
-            }} />
-            <div style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              height: '2px',
-              background: '#EF4444',
-              opacity: 0.1,
-            }} />
-            <div style={{
-              fontSize: '12px',
-              fontWeight: '500',
-              color: '#6B7280',
-              marginBottom: '4px',
-            }}>
-              FALTAS
-            </div>
-            <div style={{
-              fontSize: '20px',
-              fontWeight: '600',
-              color: '#111827',
-              letterSpacing: '-0.02em',
-              lineHeight: '1',
-              marginBottom: '2px',
-            }}>
-              {(() => {
-                // Falcos pendientes
-                let pendingFalcos = 0;
-                if (falcosData?.leadPaymentReceiveds && falcosData.leadPaymentReceiveds.length > 0) {
-                  pendingFalcos = falcosData.leadPaymentReceiveds.filter((falco: any) => {
-                    const falcoAmount = parseFloat(falco.falcoAmount || '0');
-                    const compensatedAmount = falco.falcoCompensatoryPayments?.reduce((sum: number, comp: any) => 
-                      sum + parseFloat(comp.amount || '0'), 0) || 0;
-                    return (falcoAmount - compensatedAmount) > 0;
-                  }).length;
-                }
-                
-                // Pagos tachados (existentes + nuevos)
-                const tachadosCount = strikethroughPaymentIds.length + strikethroughNewPaymentIndices.length;
-                
-                return pendingFalcos + tachadosCount;
-              })()}
-            </div>
-            <div style={{
-              fontSize: '12px',
-              color: '#EF4444',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-            }}>
-              <span>Faltas</span>
-            </div>
-          </div>
-
-          {/* Cuarta columna - Comisiones */}
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column' as const,
-            background: 'white',
-            padding: '12px',
-            position: 'relative',
-            overflow: 'hidden',
-          }}>
-            <div style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              height: '2px',
-              background: '#8B5CF6',
-              opacity: 0.1,
-            }} />
-            <div style={{
-              fontSize: '12px',
-              fontWeight: '500',
-              color: '#6B7280',
-              marginBottom: '4px',
-            }}>
-              COMISIONES
-            </div>
-            <div style={{
-              fontSize: '20px',
-              fontWeight: '600',
-              color: '#111827',
-              letterSpacing: '-0.02em',
-              lineHeight: '1',
-              marginBottom: '2px',
-            }}>
-              ${grandTotalComission.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </div>
-            <div style={{
-              fontSize: '12px',
-              color: '#8B5CF6',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '2px',
-            }}>
-              {(() => {
-                // Calcular desglose de comisiones por tipo
-                const commissionBreakdown: { [key: string]: { count: number, amount: number } } = {};
-                
-                // Procesar pagos existentes
-                existingPayments
-                  .filter((payment: any) => !strikethroughPaymentIds.includes(payment.id))
-                  .forEach((payment: any) => {
-                    const editedPayment = editedPayments[payment.id] || payment;
-                    const commission = parseFloat(editedPayment.comission || '0');
-                    const key = commission.toString();
-                    if (!commissionBreakdown[key]) {
-                      commissionBreakdown[key] = { count: 0, amount: 0 };
-                    }
-                    commissionBreakdown[key].count += 1;
-                    commissionBreakdown[key].amount += commission;
-                  });
-                
-                // Procesar pagos nuevos
-                payments
-                  .filter((_, index) => !strikethroughNewPaymentIndices.includes(index))
-                  .forEach((payment) => {
-                    const commission = parseFloat(payment.comission?.toString() || '0');
-                    const key = commission.toString();
-                    if (!commissionBreakdown[key]) {
-                      commissionBreakdown[key] = { count: 0, amount: 0 };
-                    }
-                    commissionBreakdown[key].count += 1;
-                    commissionBreakdown[key].amount += commission;
-                  });
-                
-                // Ordenar por comisión (mayor a menor) y mostrar los más relevantes
-                const sortedBreakdown = Object.entries(commissionBreakdown)
-                  .sort(([,a], [,b]) => b.amount - a.amount)
-                  .slice(0, 3); // Mostrar máximo 3 tipos
-                
-                return sortedBreakdown.map(([commission, data]) => {
-                  const isZeroCommission = parseFloat(commission) === 0;
-                  return (
-                    <span 
-                      key={commission}
-                      style={{
-                        backgroundColor: isZeroCommission ? '#FEF3C7' : 'transparent',
-                        color: isZeroCommission ? '#D97706' : '#8B5CF6',
-                        padding: isZeroCommission ? '2px 4px' : '0',
-                        borderRadius: isZeroCommission ? '3px' : '0',
-                        fontSize: isZeroCommission ? '11px' : '12px',
-                        fontWeight: isZeroCommission ? '500' : 'normal',
-                        display: 'inline-block',
-                        marginBottom: '1px'
-                      }}
-                    >
-                      {data.count}x{commission}: ${data.amount.toFixed(2)}
-                    </span>
-                  );
-                });
-              })()}
-            </div>
-          </div>
-
-          {/* Quinta columna - Dinero Total Recibido */}
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column' as const,
-            background: 'white',
-            padding: '12px',
-            position: 'relative',
-            overflow: 'hidden',
-          }}>
-            <div style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              height: '2px',
-              background: '#059669',
-              opacity: 0.1,
-            }} />
-            <div style={{
-              fontSize: '12px',
-              fontWeight: '500',
-              color: '#6B7280',
-              marginBottom: '4px',
-            }}>
-              DINERO TOTAL
-            </div>
-            <div style={{
-              fontSize: '20px',
-              fontWeight: '600',
-              color: '#111827',
-              letterSpacing: '-0.02em',
-              lineHeight: '1',
-              marginBottom: '2px',
-            }}>
-              ${grandTotalAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </div>
-            <div style={{
-              fontSize: '12px',
-              color: '#059669',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '2px',
-            }}>
-              <span>${totalExistingAmount.toFixed(2)} registrados</span>
-              <span>${totalAmount.toFixed(2)} nuevos</span>
-            </div>
-          </div>
-
-          {/* Sexta columna - Cambiar Fecha (siempre al final) */}
-          <DateMover
-            type="payments"
-            selectedDate={selectedDate}
-            selectedLead={selectedLead}
-            onSuccess={async () => {
-              // Limpiar el estado local de pagos inmediatamente
-              setState(prev => ({ 
-                ...prev,
-                payments: [],
-                editedPayments: {},
-                isEditing: false,
-                groupedPayments: undefined,
-                existingPayments: [] // Forzar limpieza de pagos existentes
-              }));
-              setStrikethroughPaymentIds([]);
-              setStrikethroughNewPaymentIndices([]);
-              
-              // Forzar recarga de datos con refetch y cache eviction
-              try {
-                await Promise.all([
-                  refetchPayments(),
-                  refetchMigratedPayments(),
-                  refetchFalcos()
-                ]);
-                
-                // Llamar al callback para actualizar balances
-                if (onSaveComplete) {
-                  onSaveComplete();
-                }
-              } catch (error) {
-                console.error('Error al recargar datos después de mover pagos:', error);
+          <span style={{ fontSize: 12, color: '#111827', background: '#F3F4F6', border: '1px solid #E5E7EB', padding: '6px 12px', borderRadius: 999, fontWeight: '500' }}>
+            Clientes: {loansData?.loans?.length || 0}
+          </span>
+          <span style={{ fontSize: 12, color: '#0B5ED7', background: '#E7F1FF', border: '1px solid #CFE2FF', padding: '6px 12px', borderRadius: 999, fontWeight: '500' }}>
+            Abonos: {payments.length - strikethroughNewPaymentIndices.length}
+          </span>
+          <span style={{ fontSize: 12, color: '#B42318', background: '#FEE2E2', border: '1px solid #FECACA', padding: '6px 12px', borderRadius: 999, fontWeight: '500' }}>
+            Faltas: {(() => {
+              let pendingFalcos = 0;
+              if (falcosData?.leadPaymentReceiveds && falcosData.leadPaymentReceiveds.length > 0) {
+                pendingFalcos = falcosData.leadPaymentReceiveds.filter((falco: any) => {
+                  const falcoAmount = parseFloat(falco.falcoAmount || '0');
+                  const compensatedAmount = falco.falcoCompensatoryPayments?.reduce((sum: number, comp: any) => sum + parseFloat(comp.amount || '0'), 0) || 0;
+                  return (falcoAmount - compensatedAmount) > 0;
+                }).length;
               }
-            }}
-            itemCount={existingPayments.filter(p => !strikethroughPaymentIds.includes(p.id)).length + payments.length}
-            label="pago(s)"
-          />
+              const tachadosCount = strikethroughPaymentIds.length + strikethroughNewPaymentIndices.length;
+              return pendingFalcos + tachadosCount;
+            })()}
+          </span>
+          <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6D28D9', background: '#EDE9FE', border: '1px solid #DDD6FE', padding: '6px 12px', borderRadius: 999, fontWeight: '500' }}>
+            Comisiones: ${grandTotalComission.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            <span
+              onMouseEnter={() => setShowCommissionTooltip(true)}
+              onMouseLeave={() => setShowCommissionTooltip(false)}
+              style={{ cursor: 'help', width: 16, height: 16, borderRadius: 8, background: '#DDD6FE', color: '#6D28D9', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}
+            >
+              <FaInfoCircle size={10} />
+            </span>
+            {showCommissionTooltip && (
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                left: '0',
+                zIndex: 20,
+                backgroundColor: 'white',
+                border: '1px solid #E2E8F0',
+                borderRadius: '6px',
+                padding: '12px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                minWidth: '200px',
+                marginTop: '4px'
+              }}>
+                <div style={{ fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+                  Desglose de Comisiones
+                </div>
+                {(() => {
+                  const breakdown: { [key: string]: { count: number, amount: number } } = {};
+                  existingPayments
+                    .filter((payment: any) => !strikethroughPaymentIds.includes(payment.id))
+                    .forEach((payment: any) => {
+                      const editedPayment = editedPayments[payment.id] || payment;
+                      const c = parseFloat(editedPayment.comission || '0');
+                      const k = c.toString();
+                      if (!breakdown[k]) breakdown[k] = { count: 0, amount: 0 };
+                      breakdown[k].count += 1;
+                      breakdown[k].amount += c;
+                    });
+                  payments
+                    .filter((_: any, idx: number) => !strikethroughNewPaymentIndices.includes(idx))
+                    .forEach((payment: any) => {
+                      const c = parseFloat(payment.comission?.toString() || '0');
+                      const k = c.toString();
+                      if (!breakdown[k]) breakdown[k] = { count: 0, amount: 0 };
+                      breakdown[k].count += 1;
+                      breakdown[k].amount += c;
+                    });
+                  const sorted = Object.entries(breakdown).sort(([,a], [,b]) => b.amount - a.amount).slice(0, 5);
+                  
+                  if (sorted.length === 0) {
+                    return <div style={{ fontSize: '11px', color: '#6B7280', fontStyle: 'italic' }}>Sin desglose</div>;
+                  }
+                  
+                  return sorted.map(([commission, data]) => {
+                    const isZeroCommission = parseFloat(commission) === 0;
+                    return (
+                      <div key={commission} style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '4px 0',
+                        borderBottom: '1px solid #F3F4F6',
+                        fontSize: '11px'
+                      }}>
+                        <span style={{
+                          backgroundColor: isZeroCommission ? '#FEF3C7' : 'transparent',
+                          color: isZeroCommission ? '#D97706' : '#374151',
+                          padding: isZeroCommission ? '2px 6px' : '0',
+                          borderRadius: isZeroCommission ? '4px' : '0',
+                          fontWeight: isZeroCommission ? '500' : 'normal'
+                        }}>
+                          {data.count}x ${commission}
+                        </span>
+                        <span style={{ fontWeight: '600', color: '#6D28D9' }}>
+                          ${data.amount.toFixed(2)}
+                        </span>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            )}
+          </div>
+          <span style={{ fontSize: 12, color: '#065F46', background: '#ECFDF5', border: '1px solid #D1FAE5', padding: '6px 12px', borderRadius: 999, fontWeight: '500' }}>
+            Total: ${grandTotalAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </span>
+          
+          {/* Comisión Masiva - Solo cuando hay pagos nuevos */}
+          {payments.length > 0 && (
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '6px', 
+              fontSize: 11, 
+              color: '#6B7280', 
+              background: '#F8FAFC', 
+              border: '1px solid #E2E8F0', 
+              padding: '6px 10px', 
+              borderRadius: 999,
+              fontWeight: '500'
+            }}>
+              <span>Comisión:</span>
+              <input
+                type="number"
+                value={massCommission}
+                onChange={(e) => setMassCommission(e.target.value)}
+                style={{
+                  width: '60px',
+                  height: HEIGHT_SYSTEM.small,
+                  padding: PADDING_SYSTEM.small,
+                  border: '1px solid #D1D5DB',
+                  borderRadius: '4px',
+                  fontSize: FONT_SYSTEM.small,
+                  textAlign: 'center'
+                }}
+                placeholder="0"
+              />
+              <Button
+                tone="active"
+                size="small"
+                onClick={() => {
+                  const commission = parseFloat(massCommission);
+                  if (isNaN(commission)) return;
+                  
+                  const newPayments = payments.map(payment => ({
+                    ...payment,
+                    comission: commission
+                  }));
+                  setState(prev => ({ ...prev, payments: newPayments }));
+                }}
+                style={{ 
+                  fontSize: FONT_SYSTEM.small, 
+                  padding: PADDING_SYSTEM.small, 
+                  height: HEIGHT_SYSTEM.small, 
+                  minWidth: 'auto',
+                  fontWeight: '500'
+                }}
+              >
+                Aplicar
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* Sección de Botones - 40% del ancho */}
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: '8px',
+          flex: '0 0 40%',
+          justifyContent: 'flex-end',
+          flexWrap: 'wrap'
+        }}>
+          <Button
+            tone="active"
+            size="small"
+            onClick={() => updateState({ isCreateFalcoModalOpen: true })}
+            style={{ fontSize: FONT_SYSTEM.small, padding: PADDING_SYSTEM.small, height: HEIGHT_SYSTEM.small, fontWeight: '500' }}
+          >
+            ⚠️ Reportar Falco
+          </Button>
+          
+          <Button 
+            tone="positive" 
+            weight="bold" 
+            size="small" 
+            onClick={() => updateState({ isModalOpen: true })} 
+            isLoading={updateLoading}
+            style={{ fontSize: FONT_SYSTEM.small, padding: PADDING_SYSTEM.small, height: HEIGHT_SYSTEM.small }}
+          >
+            Guardar Cambios
+          </Button>
+          
+          {existingPayments.filter(p => !strikethroughPaymentIds.includes(p.id)).length > 0 ? (
+            <DateMover
+              type="payments"
+              selectedDate={selectedDate}
+              selectedLead={selectedLead}
+              onSuccess={async () => {
+                setState(prev => ({ 
+                  ...prev,
+                  payments: [],
+                  editedPayments: {},
+                  isEditing: false,
+                  groupedPayments: undefined,
+                  existingPayments: []
+                }));
+                setStrikethroughPaymentIds([]);
+                setStrikethroughNewPaymentIndices([]);
+                try {
+                  await Promise.all([
+                    refetchPayments(),
+                    refetchMigratedPayments(),
+                    refetchFalcos()
+                  ]);
+                  if (onSaveComplete) {
+                    onSaveComplete();
+                  }
+                } catch (error) {
+                  console.error('Error al recargar datos después de mover pagos:', error);
+                }
+              }}
+              itemCount={existingPayments.filter(p => !strikethroughPaymentIds.includes(p.id)).length}
+              label={`📅 Mover (${existingPayments.filter(p => !strikethroughPaymentIds.includes(p.id)).length})`}
+            />
+          ) : (
+            <Button
+              tone="passive"
+              size="small"
+              disabled
+              style={{ opacity: 0.5, cursor: 'not-allowed', fontSize: FONT_SYSTEM.small, padding: PADDING_SYSTEM.small, height: HEIGHT_SYSTEM.small }}
+            >
+              📅 Mover (0)
+            </Button>
+          )}
         </div>
       </div>
+
+      {/* Eliminado: Stats duplicados de TOTAL CLIENTES y PAGOS NUEVOS */}
 
       <Box
         style={{
@@ -1905,76 +1774,7 @@ export const CreatePaymentForm = ({
         }}
       >
         <Box padding="large">
-          {/* Panel de comisión masiva para nuevos pagos */}
-          {payments.length > 0 && (
-            <div style={{
-              display: 'flex',
-              gap: '12px',
-              alignItems: 'center',
-              marginBottom: '16px',
-              padding: '16px',
-              backgroundColor: '#f8fafc',
-              borderRadius: '8px',
-              border: '1px solid #e2e8f0'
-            }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '200px' }}>
-                <label style={{
-                  fontSize: '12px',
-                  fontWeight: '500',
-                  color: '#475569',
-                  marginBottom: '2px',
-                }}>
-                  COMISIÓN MASIVA
-                </label>
-                <div style={{
-                  fontSize: '11px',
-                  color: '#64748b',
-                  fontStyle: 'italic',
-                }}>
-                  Aplicar solo a pagos con comisión &gt; 0
-                </div>
-              </div>
-              <div style={{
-                display: 'flex',
-                gap: '8px',
-                alignItems: 'center',
-              }}>
-                <input
-                  type="number"
-                  value={massCommission}
-                  onChange={(e) => setMassCommission(e.target.value)}
-                  placeholder="0.00"
-                  style={{
-                    padding: '8px 12px',
-                    fontSize: '13px',
-                    border: '1px solid #E5E7EB',
-                    borderRadius: '6px',
-                    outline: 'none',
-                    width: '80px',
-                    height: '36px',
-                  }}
-                />
-                <Button
-                  tone="passive"
-                  size="small"
-                  onClick={() => {
-                    const commissionValue = parseFloat(massCommission);
-                    if (isNaN(commissionValue)) return;
-                    
-                    const updatedPayments = payments.map(payment => ({
-                      ...payment,
-                      comission: parseFloat(payment.comission?.toString() || '0') > 0 ? commissionValue : payment.comission
-                    }));
-                    
-                    updateState({ payments: updatedPayments });
-                    // Comisión masiva aplicada - no mostrar alert
-                  }}
-                >
-                  Aplicar a Comisiones &gt; 0
-                </Button>
-              </div>
-            </div>
-          )}
+          {/* Eliminado: Panel de comisión masiva - ahora integrado en la barra de KPIs */}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h3 style={{ margin: 0, fontSize: '18px', color: '#333' }}>Todos los Abonos</h3>
@@ -2003,7 +1803,7 @@ export const CreatePaymentForm = ({
                       setStrikethroughPaymentIds(allExistingPaymentIds);
                       console.log('🗑️ Marcando todos los pagos existentes como eliminados:', allExistingPaymentIds);
                     }}
-                    style={{ backgroundColor: '#DC2626', color: 'white' }}
+                    style={{ backgroundColor: '#DC2626', color: 'white', fontSize: FONT_SYSTEM.small, padding: '4px 8px', height: '28px' }}
                   >
                     Eliminar Todos (Existentes)
                   </Button>
@@ -2012,6 +1812,7 @@ export const CreatePaymentForm = ({
                     weight="bold"
                     onClick={handleSaveAllChanges}
                     isLoading={updateLoading}
+                    style={{ fontSize: FONT_SYSTEM.small, padding: PADDING_SYSTEM.small, height: HEIGHT_SYSTEM.small }}
                   >
                     Guardar Cambios
                   </Button>
@@ -2041,7 +1842,7 @@ export const CreatePaymentForm = ({
                             setStrikethroughPaymentIds(allExistingPaymentIds);
                             console.log('🗑️ Marcando todos los pagos existentes como eliminados:', allExistingPaymentIds);
                           }}
-                          style={{ backgroundColor: '#DC2626', color: 'white' }}
+                          style={{ backgroundColor: '#DC2626', color: 'white', fontSize: FONT_SYSTEM.small, padding: '4px 8px', height: '28px' }}
                         >
                           Eliminar Todos (Existentes)
                         </Button>
@@ -2053,6 +1854,7 @@ export const CreatePaymentForm = ({
                     size="medium"
                     weight="bold"
                     onClick={handleAddPayment}
+                    style={{ fontSize: FONT_SYSTEM.small, padding: '4px 8px', height: '28px' }}
                   >
                     <FaPlus size={12} style={{ marginRight: '8px' }} />
                     Agregar Pago
@@ -2068,6 +1870,7 @@ export const CreatePaymentForm = ({
                     return (
                       <Button
                         tone={allMarkedForDeletion ? "positive" : "negative"}
+
                         weight="bold"
                         onClick={() => {
                           if (allMarkedForDeletion) {
@@ -2080,9 +1883,14 @@ export const CreatePaymentForm = ({
                             console.log('🗑️ Marcando todos los pagos nuevos como eliminados:', allNewPaymentIndices);
                           }
                         }}
+                        size={"medium"}
                         style={{ 
                           backgroundColor: allMarkedForDeletion ? '#059669' : '#DC2626', 
-                          color: 'white' 
+                          color: 'white',
+                           
+                          fontSize: FONT_SYSTEM.small, 
+                          padding: '4px 8px', 
+                          height: '28px'
                         }}
                       >
                         {allMarkedForDeletion ? 'Desmarcar Todos (Nuevos)' : 'Eliminar Todos (Nuevos)'}
@@ -2137,7 +1945,7 @@ export const CreatePaymentForm = ({
                       textAlign: 'center',
                       fontWeight: 'bold',
                       color: isStrikethrough ? '#dc2626' : '#6B7280',
-                      fontSize: '14px',
+                      fontSize: FONT_SYSTEM.table,
                       textDecoration: isStrikethrough ? 'line-through' : 'none'
                     }}>
                       {index + 1}
@@ -2254,6 +2062,7 @@ export const CreatePaymentForm = ({
                           value={editedPayment.amount}
                           onChange={e => handleEditExistingPayment(payment.id, 'amount', e.target.value)}
                           disabled={isStrikethrough}
+                          style={{ height: HEIGHT_SYSTEM.small, fontSize: FONT_SYSTEM.small }}
                         />
                       ) : (
                         <span style={{
@@ -2278,6 +2087,7 @@ export const CreatePaymentForm = ({
                             value={editedPayment.comission}
                             onChange={e => handleEditExistingPayment(payment.id, 'comission', e.target.value)}
                             disabled={isStrikethrough}
+                            style={{ height: HEIGHT_SYSTEM.small, fontSize: FONT_SYSTEM.small }}
                           />
                           {payment.loan?.loantype?.loanPaymentComission && 
                            parseFloat(payment.loan.loantype.loanPaymentComission) > 0 && (
@@ -2336,6 +2146,9 @@ export const CreatePaymentForm = ({
                           value={paymentMethods.find(option => option.value === editedPayment.paymentMethod) || null}
                           onChange={(option) => handleEditExistingPayment(payment.id, 'paymentMethod', (option as Option).value)}
                           isDisabled={isStrikethrough}
+                          size="small"
+                          style={{ height: HEIGHT_SYSTEM.small, fontSize: FONT_SYSTEM.small }}
+                            
                         />
                       ) : (
                         <span style={{
@@ -2417,7 +2230,7 @@ export const CreatePaymentForm = ({
                     textAlign: 'center',
                     fontWeight: 'bold',
                     color: isDeceased ? '#6b7280' : (isStrikethrough ? '#dc2626' : '#059669'),
-                    fontSize: '14px',
+                    fontSize: FONT_SYSTEM.table,
                     textDecoration: isStrikethrough ? 'line-through' : 'none'
                   }}>
                     {existingPayments.filter(p => !strikethroughPaymentIds.includes(p.id)).length + index + 1}
@@ -2437,7 +2250,7 @@ export const CreatePaymentForm = ({
                       fontSize: '12px',
                       fontWeight: '500',
                     }}>
-                      {isDeceased ? 'Deceso' : 'Nuevo'}
+                      {isDeceased ? 'Deceso' : 'Abono'}
                     </span>
                   </td>
                   <td style={{
@@ -2445,20 +2258,27 @@ export const CreatePaymentForm = ({
                     color: isStrikethrough ? '#dc2626' : 'inherit',
                     fontWeight: isStrikethrough ? '500' : 'inherit'
                   }}>
-                    <Select
-                      options={loansData?.loans
-                        ?.filter(loan => loan.borrower && loan.borrower.personalData)
-                        ?.map(loan => ({
-                          value: loan.id,
-                          label: loan.borrower?.personalData?.fullName || 'Sin nombre'
-                        })) || []}
-                      value={loansData?.loans.find(loan => loan.id === payment.loanId) ? {
-                        value: payment.loanId,
-                        label: loansData.loans.find(loan => loan.id === payment.loanId)?.borrower?.personalData?.fullName || 'Sin nombre'
-                      } : null}
-                      onChange={(option) => handleChange(index, 'loanId', (option as Option).value)}
-                      isDisabled={isStrikethrough || isDeceased}
-                    />
+                    {payment.isUserAdded ? (
+                      // Pagos agregados por usuario: siempre mostrar dropdown
+                      <Select
+                        options={loansData?.loans
+                          ?.filter(loan => loan.borrower && loan.borrower.personalData)
+                          ?.map(loan => ({
+                            value: loan.id,
+                            label: loan.borrower?.personalData?.fullName || 'Sin nombre'
+                          })) || []}
+                        value={loansData?.loans.find(loan => loan.id === payment.loanId) ? {
+                          value: payment.loanId,
+                          label: loansData.loans.find(loan => loan.id === payment.loanId)?.borrower?.personalData?.fullName || 'Sin nombre'
+                        } : null}
+                        onChange={(option) => handleChange(index, 'loanId', (option as Option).value)}
+                        isDisabled={isStrikethrough || isDeceased}
+                        size="small"
+                      />
+                    ) : (
+                      // Pagos existentes: mostrar solo texto
+                      loansData?.loans.find(loan => loan.id === payment.loanId)?.borrower?.personalData?.fullName || 'Sin nombre'
+                    )}
                   </td>
                   <td style={{
                     textDecoration: isStrikethrough ? 'line-through' : 'none',
@@ -2489,6 +2309,7 @@ export const CreatePaymentForm = ({
                       value={Math.round(parseFloat(payment.amount || '0'))}
                       onChange={(e) => handleChange(index, 'amount', e.target.value)}
                       disabled={isStrikethrough || isDeceased}
+                      style={{ height: HEIGHT_SYSTEM.small, fontSize: FONT_SYSTEM.small }}
                     />
                   </td>
                   <td style={{
@@ -2501,6 +2322,7 @@ export const CreatePaymentForm = ({
                       value={Math.round(parseFloat(payment.comission?.toString() || '0'))}
                       onChange={(e) => handleChange(index, 'comission', e.target.value)}
                       disabled={isStrikethrough || isDeceased}
+                      style={{ height: HEIGHT_SYSTEM.small, fontSize: FONT_SYSTEM.small }}
                     />
                   </td>
                   <td style={{
@@ -2513,6 +2335,7 @@ export const CreatePaymentForm = ({
                       value={paymentMethods.find(option => option.value === payment.paymentMethod) || null}
                       onChange={(option) => handleChange(index, 'paymentMethod', (option as Option).value)}
                       isDisabled={isStrikethrough || isDeceased}
+                      size="small"
                     />
                   </td>
                   <td>
@@ -2611,21 +2434,7 @@ export const CreatePaymentForm = ({
         </Box>
       </Box>
 
-      {/* Solo mostrar el botón principal cuando NO se está editando */}
-      {!isEditing && (
-        <Box marginTop="large">
-          <Button 
-            isLoading={customLeadPaymentLoading || isSaving}
-            weight="bold"
-            tone="active"
-            onClick={() => updateState({ isModalOpen: true })}
-            style={{ marginLeft: '10px' }}
-            isDisabled={!payments.length || isSaving}
-          >
-            {isSaving ? 'Guardando...' : 'Registrar abonos'}
-          </Button>
-        </Box>
-      )}
+      
 
       {/* Modal para crear falco */}
       <AlertDialog 
@@ -3188,19 +2997,46 @@ export default function CustomPage() {
   );
 }
 
+// Sistema de alturas consistente
+const HEIGHT_SYSTEM = {
+  small: '32px',    // Botones pequeños, inputs pequeños
+  medium: '36px',   // Botones estándar, inputs estándar
+  large: '40px',    // Botones grandes, inputs grandes
+  xlarge: '44px'    // Botones principales, inputs principales
+};
+
+const PADDING_SYSTEM = {
+  small: '6px 12px',
+  medium: '8px 16px', 
+  large: '10px 20px',
+  xlarge: '12px 24px'
+};
+
+const FONT_SYSTEM = {
+  small: '11px',
+  medium: '12px',
+  large: '13px',
+  xlarge: '14px',
+  table: '11px',      // Para textos de tabla
+  tableHeader: '12px' // Para headers de tabla
+};
+
 const styles = {
   table: {
     width: '100%',
     borderCollapse: 'collapse' as const,
     marginTop: '16px',
+    fontSize: FONT_SYSTEM.table,
     '& th, & td': {
-      padding: '12px',
+      padding: '8px 12px',
       textAlign: 'left' as const,
-      borderBottom: '1px solid #e5e7eb'
+      borderBottom: '1px solid #e5e7eb',
+      fontSize: FONT_SYSTEM.table
     },
     '& th': {
       backgroundColor: '#f9fafb',
-      fontWeight: 600
+      fontWeight: 600,
+      fontSize: FONT_SYSTEM.tableHeader
     },
     '& td:nth-child(3), & td:nth-child(4)': {
       width: '100px',
