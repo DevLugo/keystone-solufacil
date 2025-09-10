@@ -3334,10 +3334,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
               const leadInfo = leadInfoMap.get(leadId) || leadInfoMap.get(leadId?.toString());
               if (leadInfo) {
                 leadName = leadInfo.fullName;
-                locality = leadInfo.locality;
+                  locality = leadInfo.locality;
                 localitySource = 'datos del líder';
+                }
               }
-            }
             
             // Si no tenemos información del lead, usar el nombre de la ruta como fallback
             if (locality === 'General' && routeName !== 'Sin ruta') {
@@ -4418,6 +4418,15 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 renewalMap.get(loan.previousLoanId).push(loan);
               }
             });
+            
+            // 🔍 DEBUG: Log del mapa de renovaciones
+            // console.log('\n🔍 MAPA DE RENOVACIONES:');
+            // renewalMap.forEach((renewals, previousLoanId) => {
+            //   console.log(`  - Préstamo ${previousLoanId} fue renovado por ${renewals.length} préstamos:`);
+            //   renewals.forEach((renewal: any, index: number) => {
+            //     console.log(`    ${index + 1}. ID: ${renewal.id}, Fecha: ${renewal.signDate}`);
+            //   });
+            // });
 
             // ✅ CRITERIOS ESTRICTOS: Determina si el préstamo se considera ACTIVO según los 3 puntos clave
             const isLoanConsideredOnDate = (loan: any, date: Date, debugForAtasta = false) => {
@@ -4554,8 +4563,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
               reportData[weekKey] = {};
 
               // 🔍 DEBUG: Log general para todas las semanas
-              console.log(`\n📅 PROCESANDO SEMANA: ${weekKey} - RouteId: ${routeId}`);
-              console.log(`  - Fechas: ${weekStart.toISOString()} - ${weekEnd.toISOString()}`);
+              // console.log(`\n📅 PROCESANDO SEMANA: ${weekKey} - RouteId: ${routeId}`);
+              // console.log(`  - Fechas: ${weekStart.toISOString()} - ${weekEnd.toISOString()}`);
 
               // Agrupar por localidad
               const localitiesData: { [locality: string]: any } = {};
@@ -4625,6 +4634,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                         grantedLoansRenewed: [],
                         grantedLoansReintegros: [],
                         finished: 0,
+                        finishedNotRenewed: 0,
+                        finishedForUI: 0,
                         finishedLoans: [],
                         cvClients: [],
                         cv: 0,
@@ -4632,6 +4643,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                         totalAmountAtEnd: 0,
                         grantedAmount: 0,
                         finishedAmount: 0,
+                        finishedNotRenewedAmount: 0,
                         cvAmount: 0
                       };
                     }
@@ -4656,6 +4668,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     grantedLoansRenewed: [],
                     grantedLoansReintegros: [],
                     finished: 0,
+                    finishedNotRenewed: 0,
+                    finishedForUI: 0,
                     finishedLoans: [],
                     cvClients: [],
                     cv: 0,
@@ -4663,6 +4677,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     totalAmountAtEnd: 0,
                     grantedAmount: 0,
                     finishedAmount: 0,
+                    finishedNotRenewedAmount: 0,
                     cvAmount: 0
                   };
                 }
@@ -4758,6 +4773,27 @@ export const extendGraphqlSchema = graphql.extend(base => {
                           console.log(`    - Semana actual: ${weekStart.toISOString()} - ${weekEnd.toISOString()}`);
                         }
                         
+                        // 🔍 DEBUG ESPECÍFICO: Para los 3 reintegros problemáticos en Atasta semana 1
+                        const isAtastaWeek1Debug = locality.toLowerCase().includes('atasta') && 
+                          weekStart.getTime() === new Date('2025-08-04T06:00:00.000Z').getTime();
+                        
+                        if (isAtastaWeek1Debug) {
+                          const isProblematicLoan = fullName.includes('LEYDI DEL CARMEN CRUZ DOMINGUEZ') || 
+                                                   fullName.includes('MELBA CHUINA POLANCO SARAO') || 
+                                                   fullName.includes('ALBA MARINA HERNANDEZ TACU');
+                          
+                          if (isProblematicLoan) {
+                            console.log(`\n🔍 ANÁLISIS REINTEGRO/RENOVADO PROBLEMÁTICO - ATASTA SEMANA 1:`);
+                            console.log(`  - Préstamo ID: ${loan.id}`);
+                            console.log(`  - Nombre: ${fullName}`);
+                            console.log(`  - Fecha firma nuevo préstamo: ${new Date(loan.signDate).toISOString()}`);
+                            console.log(`  - Fecha finalización préstamo anterior: ${previousLoan.finishedDate ? new Date(previousLoan.finishedDate).toISOString() : 'NO FINALIZADO'}`);
+                            console.log(`  - Semana actual: ${weekStart.toISOString()} - ${weekEnd.toISOString()}`);
+                            console.log(`  - previousLoanId: ${loan.previousLoanId}`);
+                            console.log(`  - amountGived: ${loan.amountGived}`);
+                          }
+                        }
+                        
                         // 🔍 LÓGICA CORREGIDA PARA REINTEGROS
                         // Un reintegro es cuando el préstamo anterior ya estaba finalizado ANTES del inicio de la semana
                         // Un renovado es cuando el préstamo anterior se finaliza DURANTE la misma semana que se firma el nuevo
@@ -4774,6 +4810,38 @@ export const extendGraphqlSchema = graphql.extend(base => {
                             if (isAtastaWeek3 && isAtastaLocality(locality)) {
                               console.log(`  ✅ REINTEGRO: Préstamo anterior finalizado ANTES del inicio de semana (${finishedDate.toISOString()} < ${weekStart.toISOString()})`);
                             }
+                            
+                            // 🔍 DEBUG ESPECÍFICO: Para los 3 reintegros problemáticos en Atasta semana 1
+                            if (isAtastaWeek1Debug) {
+                              const isProblematicLoan = fullName.includes('LEYDI DEL CARMEN CRUZ DOMINGUEZ') || 
+                                                       fullName.includes('MELBA CHUINA POLANCO SARAO') || 
+                                                       fullName.includes('ALBA MARINA HERNANDEZ TACU');
+                              
+                              if (isProblematicLoan) {
+                                console.log(`  ✅ REINTEGRO PROBLEMÁTICO: Préstamo anterior finalizado ANTES del inicio de semana (${finishedDate.toISOString()} < ${weekStart.toISOString()})`);
+                                console.log(`    - ✅ CLASIFICADO como REINTEGRO`);
+                                console.log(`    - 🔄 REINTEGRO de crédito que ya estaba cerrado`);
+                                console.log(`    - 📊 CONTADOR: Reintegros = ${data.grantedReintegros + 1}`);
+                                console.log(`    - 📊 BALANCE AJUSTADO: +1`);
+                              }
+                            }
+                            
+                            // 🔍 DEBUG ESPECÍFICO: Para los 3 reintegros problemáticos en Atasta semana 1
+                            if (isAtastaWeek1Debug) {
+                              const isProblematicLoan = fullName.includes('LEYDI DEL CARMEN CRUZ DOMINGUEZ') || 
+                                                       fullName.includes('MELBA CHUINA POLANCO SARAO') || 
+                                                       fullName.includes('ALBA MARINA HERNANDEZ TACU');
+                              
+                              if (isProblematicLoan) {
+                                console.log(`\n🔍 REINTEGRO PROBLEMÁTICO - ATASTA SEMANA 1:`);
+                                console.log(`  - Préstamo ID: ${loan.id}`);
+                                console.log(`  - Nombre: ${fullName}`);
+                                console.log(`  - Fecha finalización préstamo anterior: ${finishedDate.toISOString()}`);
+                                console.log(`  - Inicio de semana: ${weekStart.toISOString()}`);
+                                console.log(`  - ¿Es reintegro?: ${isReintegro}`);
+                                console.log(`  - ✅ CLASIFICADO como REINTEGRO`);
+                              }
+                            }
                           } else {
                             // Verificar si el préstamo anterior se finalizó en la misma semana que se firmó el nuevo
                             if (finishedDate >= weekStart && finishedDate <= weekEnd) {
@@ -4781,6 +4849,23 @@ export const extendGraphqlSchema = graphql.extend(base => {
                               isReintegro = false;
                               if (isAtastaWeek3 && isAtastaLocality(locality)) {
                                 console.log(`  ❌ RENOVADO: Préstamo anterior finalizado DURANTE la semana (${finishedDate.toISOString()} entre ${weekStart.toISOString()} y ${weekEnd.toISOString()})`);
+                              }
+                              
+                              // 🔍 DEBUG ESPECÍFICO: Para los 3 reintegros problemáticos en Atasta semana 1
+                              if (isAtastaWeek1Debug) {
+                                const isProblematicLoan = fullName.includes('LEYDI DEL CARMEN CRUZ DOMINGUEZ') || 
+                                                         fullName.includes('MELBA CHUINA POLANCO SARAO') || 
+                                                         fullName.includes('ALBA MARINA HERNANDEZ TACU');
+                                
+                                if (isProblematicLoan) {
+                                  console.log(`\n🔍 RENOVADO PROBLEMÁTICO - ATASTA SEMANA 1:`);
+                                  console.log(`  - Préstamo ID: ${loan.id}`);
+                                  console.log(`  - Nombre: ${fullName}`);
+                                  console.log(`  - Fecha finalización préstamo anterior: ${finishedDate.toISOString()}`);
+                                  console.log(`  - Semana: ${weekStart.toISOString()} - ${weekEnd.toISOString()}`);
+                                  console.log(`  - ¿Es renovado?: ${!isReintegro}`);
+                                  console.log(`  - ❌ CLASIFICADO como RENOVADO`);
+                                }
                               }
                             } else {
                               // Préstamo anterior finalizado después de la semana actual
@@ -4791,17 +4876,26 @@ export const extendGraphqlSchema = graphql.extend(base => {
                             }
                           }
                         } else {
-                          // Si no tiene finishedDate, verificar si estaba activo usando la función
-                          const wasActiveAtWeekStart = isLoanConsideredOnDate(previousLoan, weekStart, isAtastaWeek3 && isAtastaLocality(locality));
-                          if (!wasActiveAtWeekStart) {
-                            isReintegro = true;
-                            if (isAtastaWeek3 && isAtastaLocality(locality)) {
-                              console.log(`  ✅ REINTEGRO: Préstamo anterior no estaba activo al inicio de semana`);
-                            }
-                          } else {
-                            isReintegro = false;
-                            if (isAtastaWeek3 && isAtastaLocality(locality)) {
-                              console.log(`  ❌ RENOVADO: Préstamo anterior estaba activo al inicio de semana`);
+                          // Si no tiene finishedDate, es un RENOVADO (reemplaza un préstamo activo)
+                          isReintegro = false;
+                          
+                          if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                            console.log(`  ❌ RENOVADO: Préstamo anterior NO FINALIZADO (reemplaza préstamo activo)`);
+                          }
+                          
+                          // 🔍 DEBUG ESPECÍFICO: Para los 3 reintegros problemáticos en Atasta semana 1
+                          if (isAtastaWeek1Debug) {
+                            const isProblematicLoan = fullName.includes('LEYDI DEL CARMEN CRUZ DOMINGUEZ') || 
+                                                     fullName.includes('MELBA CHUINA POLANCO SARAO') || 
+                                                     fullName.includes('ALBA MARINA HERNANDEZ TACU');
+                            
+                            if (isProblematicLoan) {
+                              console.log(`\n🔍 RENOVADO PROBLEMÁTICO - ATASTA SEMANA 1:`);
+                              console.log(`  - Préstamo ID: ${loan.id}`);
+                              console.log(`  - Nombre: ${fullName}`);
+                              console.log(`  - Fecha finalización préstamo anterior: NO FINALIZADO`);
+                              console.log(`  - ¿Es renovado?: ${!isReintegro}`);
+                              console.log(`  - ❌ CLASIFICADO como RENOVADO (reemplaza préstamo activo)`);
                             }
                           }
                         }
@@ -4885,9 +4979,11 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     const finishedDate = new Date(loan.finishedDate);
                     const isWithinWeek = finishedDate >= weekStart && finishedDate <= weekEnd;
                     
+                    // Definir fullName aquí para uso en todo el bloque
+                    const fullName = loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A';
+                    
                       // 🔍 DEBUG: Log específico para semana 3 de Atasta - TODOS los préstamos con finishedDate
                       if (isAtastaWeek3 && isAtastaLocality(locality)) {
-                        const fullName = loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A';
                         console.log(`  - Préstamo con finishedDate: ${loan.id} (${fullName})`);
                         console.log(`    - Fecha finishedDate: ${finishedDate.toISOString()}`);
                         console.log(`    - ¿Dentro de semana?: ${isWithinWeek}`);
@@ -4909,10 +5005,123 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     
                     if (isWithinWeek) {
                       // Verificar si este préstamo fue renovado por otro préstamo
-                      const wasRenewed = renewalMap.has(loan.id);
+                      // CORRECCIÓN: Verificar si existe otro préstamo que tenga este como previousLoanId
+                      // Y que la renovación haya ocurrido en o antes de la fecha de finalización
+                      let wasRenewed = false;
                       
-                      // Definir fullName y locality para uso en logs
-                      const fullName = loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A';
+                      // 🔍 DEBUG ESPECÍFICO: Solo para préstamo cmfdfreqp3ugkpst2zrqiy2ko en Atasta semana 1
+                      const isTargetLoan = loan.id === 'cmfdfreqp3ugkpst2zrqiy2ko';
+                      const isAtastaWeek1 = locality.toLowerCase().includes('atasta') && 
+                        weekStart.getTime() === new Date('2025-08-04T06:00:00.000Z').getTime();
+                      
+                      if (isTargetLoan && isAtastaWeek1) {
+                        console.log(`\n🔍 PRÉSTAMO cmfdfreqp3ugkpst2zrqiy2ko - ATASTA SEMANA 1:`);
+                        console.log(`  - Préstamo ID: ${loan.id}`);
+                        console.log(`  - Nombre: ${loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A'}`);
+                        console.log(`  - Fecha finishedDate: ${finishedDate.toISOString()}`);
+                        console.log(`  - Fecha semana: ${weekStart.toISOString()} - ${weekEnd.toISOString()}`);
+                        console.log(`  - ¿Dentro de semana?: ${isWithinWeek}`);
+                        console.log(`  - ¿Tiene renovaciones en renewalMap?: ${renewalMap.has(loan.id)}`);
+                        console.log(`  - previousLoanId: ${loan.previousLoanId}`);
+                        console.log(`  - signDate: ${loan.signDate.toISOString()}`);
+                        console.log(`  - amountGived: ${loan.amountGived}`);
+                        console.log(`  - profitAmount: ${loan.profitAmount}`);
+                        console.log(`  - borrower ID: ${loan.borrower?.id}`);
+                        console.log(`  - lead ID: ${loan.lead?.id}`);
+                      }
+                      
+                      // 🔍 DEBUG ESPECÍFICO: Para los 3 reintegros problemáticos en Atasta semana 1
+                      const isAtastaWeek1Debug = locality.toLowerCase().includes('atasta') && 
+                        weekStart.getTime() === new Date('2025-08-04T06:00:00.000Z').getTime();
+                      
+                      if (isAtastaWeek1Debug) {
+                        const loanName = loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A';
+                        const isProblematicLoan = loanName.includes('LEYDI DEL CARMEN CRUZ DOMINGUEZ') || 
+                                                 loanName.includes('MELBA CHUINA POLANCO SARAO') || 
+                                                 loanName.includes('ALBA MARINA HERNANDEZ TACU');
+                        
+                        if (isProblematicLoan) {
+                          console.log(`\n🔍 REINTEGRO PROBLEMÁTICO - ATASTA SEMANA 1:`);
+                          console.log(`  - Préstamo ID: ${loan.id}`);
+                          console.log(`  - Nombre: ${loanName}`);
+                          console.log(`  - Fecha finishedDate: ${finishedDate.toISOString()}`);
+                          console.log(`  - Fecha semana: ${weekStart.toISOString()} - ${weekEnd.toISOString()}`);
+                          console.log(`  - ¿Dentro de semana?: ${isWithinWeek}`);
+                          console.log(`  - ¿Tiene renovaciones en renewalMap?: ${renewalMap.has(loan.id)}`);
+                          console.log(`  - previousLoanId: ${loan.previousLoanId}`);
+                          console.log(`  - signDate: ${loan.signDate.toISOString()}`);
+                          console.log(`  - amountGived: ${loan.amountGived}`);
+                          console.log(`  - profitAmount: ${loan.profitAmount}`);
+                          console.log(`  - borrower ID: ${loan.borrower?.id}`);
+                          console.log(`  - lead ID: ${loan.lead?.id}`);
+                        }
+                      }
+                      
+                      if (renewalMap.has(loan.id)) {
+                        const renewals = renewalMap.get(loan.id) || [];
+                        
+                        if (isTargetLoan && isAtastaWeek1) {
+                          console.log(`  - Renovaciones encontradas: ${renewals.length}`);
+                          renewals.forEach((renewal: any, index: number) => {
+                            console.log(`    - Renovación ${index + 1}: ID ${renewal.id}, Fecha: ${renewal.signDate}`);
+                            console.log(`    - Fecha renovación: ${new Date(renewal.signDate).toISOString()}`);
+                            console.log(`    - Fecha finishedDate: ${finishedDate.toISOString()}`);
+                            console.log(`    - ¿Renovación antes de finalización?: ${new Date(renewal.signDate) <= finishedDate}`);
+                          });
+                        }
+                        
+                        if (isAtastaWeek1Debug) {
+                          const loanName = loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A';
+                          const isProblematicLoan = loanName.includes('LEYDI DEL CARMEN CRUZ DOMINGUEZ') || 
+                                                   loanName.includes('MELBA CHUINA POLANCO SARAO') || 
+                                                   loanName.includes('ALBA MARINA HERNANDEZ TACU');
+                          
+                          if (isProblematicLoan) {
+                            console.log(`  - Renovaciones encontradas: ${renewals.length}`);
+                            renewals.forEach((renewal: any, index: number) => {
+                              console.log(`    - Renovación ${index + 1}: ID ${renewal.id}, Fecha: ${renewal.signDate}`);
+                              console.log(`    - Fecha renovación: ${new Date(renewal.signDate).toISOString()}`);
+                              console.log(`    - Fecha finishedDate: ${finishedDate.toISOString()}`);
+                              console.log(`    - ¿Renovación antes de finalización?: ${new Date(renewal.signDate) <= finishedDate}`);
+                            });
+                          }
+                        }
+                        
+                        // Verificar si alguna renovación ocurrió en o antes de la fecha de finalización
+                        wasRenewed = renewals.some((renewal: any) => {
+                          const renewalDate = new Date(renewal.signDate);
+                          const isRenewalBeforeFinish = renewalDate <= finishedDate;
+                          
+                          if (isTargetLoan && isAtastaWeek1) {
+                            console.log(`    - Renovación ${renewal.id}: Fecha ${renewal.signDate}, ¿Antes de finalización?: ${isRenewalBeforeFinish}`);
+                          }
+                          
+                          return isRenewalBeforeFinish;
+                        });
+                        
+                        if (isTargetLoan && isAtastaWeek1) {
+                          console.log(`  - ¿Fue renovado antes de finalizar?: ${wasRenewed}`);
+                          console.log(`  - RAZÓN: ${wasRenewed ? 'RENOVADO - Debería ser reingreso' : 'NO RENOVADO - Debería ser finalizado'}`);
+                        }
+                      }
+                      
+                      // 🔍 DEBUG: Log detallado para entender el problema
+                      if (renewalMap.has(loan.id)) {
+                        const renewals = renewalMap.get(loan.id) || [];
+                        console.log(`🔍 PRÉSTAMO CON RENOVACIONES:`);
+                        console.log(`  - Préstamo ID: ${loan.id}`);
+                        console.log(`  - Nombre: ${fullName}`);
+                        console.log(`  - Fecha finalización: ${finishedDate.toISOString()}`);
+                        console.log(`  - Renovaciones encontradas: ${renewals.length}`);
+                        renewals.forEach((renewal: any, index: number) => {
+                          const renewalDate = new Date(renewal.signDate);
+                          const isRenewalBeforeFinish = renewalDate <= finishedDate;
+                          console.log(`    - Renovación ${index + 1}: ID ${renewal.id}, Fecha: ${renewal.signDate}, ¿Antes de finalización?: ${isRenewalBeforeFinish}`);
+                        });
+                        console.log(`  - ¿Fue renovado antes de finalizar?: ${wasRenewed}`);
+                      }
+                      
+                      // Definir locality para uso en logs (fullName ya está definido arriba)
                       const loanLocality = loan.borrower?.personalData?.addresses?.[0]?.location?.name ||
                                       loan.lead?.personalData?.addresses?.[0]?.location?.name ||
                                       'Sin localidad';
@@ -4969,24 +5178,64 @@ export const extendGraphqlSchema = graphql.extend(base => {
                           console.log(`    - ¿Dentro de semana?: ${isWithinWeek}`);
                         }
                         
-                        // Solo marcar como finalizado si realmente no tiene deuda pendiente
-                        // ✅ NUEVA LÓGICA: Siempre contar como finalizado si tiene finishedDate
-                        if (true) {
-                          data.finished++;
-                          data.finishedAmount += loanAmount;
+                        // SOLUCIÓN HÍBRIDA: Dos contadores separados
+                        // 1. finishedInternal: Para cálculos internos (incluye renovados)
+                        // 2. finishedUI: Para mostrar en UI (excluye renovados)
+                        
+                        // Siempre contar para cálculos internos (balance de activos)
+                        data.finished++;
+                        data.finishedAmount += loanAmount;
+                        
+                        // Solo contar para UI si NO fue renovado
+                        if (!wasRenewed) {
+                          data.finishedNotRenewed++;
+                          data.finishedNotRenewedAmount += loanAmount;
+                        }
+                        
+                        if (isTargetLoan && isAtastaWeek1) {
+                          console.log(`\n🔍 cmfdfreqp3ugkpst2zrqiy2ko - PRÉSTAMO FINALIZADO:`);
+                          console.log(`  - ID: ${loan.id}`);
+                          console.log(`  - Nombre: ${loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A'}`);
+                          console.log(`  - Fecha finishedDate: ${finishedDate.toISOString()}`);
+                          console.log(`  - ¿Fue renovado?: ${wasRenewed}`);
+                          console.log(`  - Total deuda: ${totalDebt}`);
+                          console.log(`  - Total pagado: ${totalPaid}`);
+                          console.log(`  - Deuda pendiente: ${totalDebt - totalPaid}`);
+                          console.log(`  - ¿Deuda pendiente = 0?: ${totalDebt - totalPaid === 0}`);
+                          console.log(`  - CONTADOR ANTES: ${data.finished - 1}`);
+                          console.log(`  - CONTADOR DESPUÉS: ${data.finished}`);
+                          console.log(`  - LISTA ANTES: ${(data.finishedLoans as any[]).length}`);
+                        }
+                        
+                        // Solo agregar a la lista de UI si NO fue renovado
+                        if (!wasRenewed) {
+                          data.finishedNotRenewed++;
+                          data.finishedNotRenewedAmount += loanAmount;
+                          data.finishedForUI++;
+                          
                           (data.finishedLoans as any[]).push({
                             id: loan.id,
                             finishedDate,
                             startDate: loan.signDate,
                             amountGived: Number(loan.amountGived || 0),
                             fullName: loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A',
-                            reason: wasRenewed ? 'FINISHED_DATE_RENEWED' : 'FINISHED_DATE'
+                            reason: 'FINISHED_DATE'
                           });
+                        }
+                        
+                        if (isTargetLoan && isAtastaWeek1) {
+                          console.log(`  - LISTA DESPUÉS: ${(data.finishedLoans as any[]).length}`);
+                          console.log(`  - RAZÓN: ${wasRenewed ? 'FINISHED_DATE_RENEWED' : 'FINISHED_DATE'}`);
+                          console.log(`  - ✅ AGREGADO A LISTA`);
+                          console.log(`  - 📊 CONTADOR FINAL: ${data.finished}`);
+                          console.log(`  - 📊 MONTO FINAL: ${data.finishedAmount}`);
+                          console.log(`  - 📊 ¿ESTO DEBERÍA SER REINGRESO?: ${loan.previousLoanId ? 'SÍ, tiene previousLoanId' : 'NO, no tiene previousLoanId'}`);
+                        }
                           
                           // 🔍 DEBUG: Log específico para semana 3 de Atasta
                           if (isAtastaWeek3 && isAtastaLocality(locality)) {
                             atastaFinishedCount++;
-                            console.log(`    - ✅ CONTADO como finalizado${wasRenewed ? ' (RENOVADO)' : ''}`);
+                          console.log(`    - ✅ CONTADO como finalizado${wasRenewed ? ' (RENOVADO - marcado en UI)' : ' (NO RENOVADO - visible en UI)'}`);
                             console.log(`    - 📊 CONTADOR: Créditos finalizados = ${atastaFinishedCount}`);
                             console.log(`    - 📊 BALANCE ACTUAL: -${atastaFinishedCount}`);
                             
@@ -5001,23 +5250,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
                               console.log(`  - ¿Deuda pendiente = 0?: ${totalDebt - totalPaid === 0}`);
                             }
                           }
-                        } else {
-                          // 🔍 DEBUG: Log específico para semana 3 de Atasta
-                          if (isAtastaWeek3 && isAtastaLocality(locality)) {
-                            console.log(`    - ❌ NO contado como finalizado (tiene deuda pendiente)`);
-                            
-                            // 🔍 DEBUG ESPECÍFICO: Log adicional para oldid 7415 si NO se cuenta
-                            if (loan.id === '7415') {
-                              console.log(`\n🔍 OLDID 7415 - NO CONTADO COMO FINALIZADO:`);
-                              console.log(`  - ID: ${loan.id}`);
-                              console.log(`  - ¿Fue renovado?: ${wasRenewed}`);
-                              console.log(`  - Total deuda: ${totalDebt}`);
-                              console.log(`  - Total pagado: ${totalPaid}`);
-                              console.log(`  - Deuda pendiente: ${totalDebt - totalPaid}`);
-                              console.log(`  - ¿Deuda pendiente = 0?: ${totalDebt - totalPaid === 0}`);
-                              console.log(`  - RAZÓN: Tiene deuda pendiente`);
-                            }
-                          }
                           
                           // 🔍 DEBUG: Solo para CELENE DZUL CHABLE de Xbacab
                           if (locality.toLowerCase().includes('xbacab') && fullName.toLowerCase().includes('celene')) {
@@ -5028,12 +5260,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
                             console.log(`  - Total pagado: ${totalPaid}`);
                             console.log(`  - Deuda pendiente: ${realPendingAmount}`);
                             console.log(`  - ❌ NO se marca como finalizado (tiene deuda pendiente)`);
-                          }
-                        }
-                      } else {
-                        // 🔍 DEBUG: Log específico para semana 3 de Atasta
-                        if (isAtastaWeek3 && isAtastaLocality(locality)) {
-                          console.log(`  - Préstamo NO finalizado: ${loan.id} (${fullName}) - FUE RENOVADO`);
                         }
                       }
                     }
@@ -5055,14 +5281,23 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     if (isCleanupInWeek) {
                       data.finished++;
                       data.finishedAmount += loanAmount;
-                      (data.finishedLoans as any[]).push({
-                        id: loan.id,
-                        finishedDate: cleanupDate,
-                        startDate: loan.signDate,
-                        amountGived: Number(loan.amountGived || 0),
-                        fullName: loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A',
-                        reason: 'PORTFOLIO_CLEANUP'
-                      });
+                      
+                      // Verificar si fue renovado antes del cleanup
+                      const wasRenewed = renewalMap.has(loan.id);
+                      
+                      if (!wasRenewed) {
+                        data.finishedNotRenewed++;
+                        data.finishedNotRenewedAmount += loanAmount;
+                        data.finishedForUI++;
+                        (data.finishedLoans as any[]).push({
+                          id: loan.id,
+                          finishedDate: cleanupDate,
+                          startDate: loan.signDate,
+                          amountGived: Number(loan.amountGived || 0),
+                          fullName: loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A',
+                          reason: 'PORTFOLIO_CLEANUP'
+                        });
+                      }
                       
                       // 🔍 DEBUG: Log específico para semana 3 de Atasta
                       if (isAtastaWeek3 && isAtastaLocality(locality)) {
@@ -5205,6 +5440,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 data.activeAtEnd = data.activeAtStart + delta;
                 if (data.activeAtEnd < 0) data.activeAtEnd = 0;
                 data.totalAmountAtEnd = Math.max(0, data.totalAmountAtStart + (data.grantedAmount || 0) - (data.finishedAmount || 0));
+                
+                // Cambiar finished para la UI - solo mostrar los no renovados
+                data.finished = data.finishedForUI;
                 
                 // 🔍 DEBUG: Log específico para semana 3 de Atasta
                 if (isAtastaWeek3 && isAtastaLocality(locality)) {
@@ -5358,6 +5596,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 grantedRenewed: 0,
                 grantedReintegros: 0,
                 finished: 0,
+                finishedNotRenewed: 0,
+                finishedForUI: 0,
                 finishedLoans: [],
                 finishedByCleanup: 0,
                 cv: 0, // Créditos Vencidos
@@ -5366,6 +5606,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 totalAmountAtEnd: 0,
                 grantedAmount: 0,
                 finishedAmount: 0,
+                finishedNotRenewedAmount: 0,
                 cvAmount: 0, // Monto de créditos vencidos
                 netChange: 0,
                 localities: Object.keys(reportData[weekKey]).length
@@ -5378,7 +5619,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 weeklyTotals[weekKey].grantedNew += localityData.grantedNew;
                 weeklyTotals[weekKey].grantedRenewed += localityData.grantedRenewed;
                 weeklyTotals[weekKey].grantedReintegros += localityData.grantedReintegros;
-                weeklyTotals[weekKey].finished += localityData.finished;
+                weeklyTotals[weekKey].finished += (localityData.finishedLoans || []).length;
                 weeklyTotals[weekKey].finishedLoans.push(...(localityData.finishedLoans || []));
                 weeklyTotals[weekKey].finishedByCleanup += (localityData.finishedLoans || []).filter((f: any) => f.reason === 'PORTFOLIO_CLEANUP').length;
                 weeklyTotals[weekKey].cv += localityData.cv; // Sumar CV
