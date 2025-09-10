@@ -1373,13 +1373,18 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         }
         const msPerWeek = 7 * 24 * 60 * 60 * 1000;
         const weeksElapsedSinceBoundary = Math.max(0, Math.floor((getMonday(weekEnd).getTime() - getMonday(boundaryForCalc).getTime()) / msPerWeek));
-        // Semana 1 inicia en el lunes posterior a la semana de firma
+        
+        // Número de semana actual (para mostrar en el listado)
         const nSemanaValue = weeksElapsedSinceBoundary + 1;
-        // CORRECCIÓN: Calcular pago VDO solo para semanas anteriores (no incluir semana actual)
-        const weeksElapsedExcludingCurrent = Math.max(0, weeksElapsedSinceBoundary); // Sin +1
-        const expectedPaidUpToPreviousWeek = expectedWeeklyPayment * weeksElapsedExcludingCurrent;
+        
+        // CORRECCIÓN IMPORTANTE: Calcular VDO solo cuando hay atraso real
+        // Si se firma en semana 1, la semana 2 no tiene VDO porque no está atrasada
+        // Solo aparece VDO cuando hay semanas sin pagar
+        
+        // Calcular cuánto debería haber pagado hasta la semana anterior
+        const weeksElapsedExcludingCurrent = Math.max(0, weeksElapsedSinceBoundary);
 
-        // Calcular pagos recibidos hasta la semana anterior (no incluir semana actual)
+        // Calcular cuánto ha pagado realmente hasta la semana anterior
         const totalPaidUpToPreviousWeek = (loan.payments || []).reduce((sum: number, p: any) => {
           const d = new Date(p.receivedAt || p.createdAt);
           if (d >= boundaryForCalc && d < weekStart) { // Solo hasta la semana anterior
@@ -1388,11 +1393,22 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
           return sum;
         }, 0);
 
-        // Pago VDO = lo que debería haber pagado hasta la semana anterior - lo que pagó hasta la semana anterior
-        const arrearsAmount = Math.max(0, Math.min(
-          expectedPaidUpToPreviousWeek - totalPaidUpToPreviousWeek, 
-          pendingAmountStored
-        ));
+        // CORRECCIÓN: VDO solo si hay atraso real (debería haber pagado más de lo que pagó)
+        // Y solo si han pasado al menos 2 semanas desde el boundary (semana 2 o posterior)
+        let arrearsAmount = 0;
+        
+        if (weeksElapsedSinceBoundary >= 1) { // Solo si han pasado al menos 2 semanas (semana 2 o posterior)
+          const expectedAmount = expectedWeeklyPayment * weeksElapsedExcludingCurrent;
+          const actualAmount = totalPaidUpToPreviousWeek;
+          
+          // Solo hay VDO si debería haber pagado más de lo que pagó
+          if (expectedAmount > actualAmount) {
+            arrearsAmount = Math.max(0, Math.min(
+              expectedAmount - actualAmount, 
+              pendingAmountStored
+            ));
+          }
+        }
 
         // Para abono parcial, calcular solo pagos de la semana actual
         const totalPaidInCurrentWeek = (loan.payments || []).reduce((sum: number, p: any) => {
