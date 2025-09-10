@@ -1629,14 +1629,25 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
 
       // Dibujar filas con datos reales de la DB
       payments.forEach((payment, rowIndex) => {
-        // Calcular alto real del nombre con el ancho de columna para evitar texto encimado
+        // Calcular alto real considerando tanto el nombre como el aval
         doc.fontSize(5); // Reducido de 6 a 5
         const columnKeys = Object.keys(columnWidths);
+        
+        // Calcular altura del nombre
         const nameOffset = columnKeys.slice(0, columnKeys.indexOf('name')).reduce((sum, key) => sum + (columnWidths as any)[key], 0);
         const nameStartX = 30 + nameOffset + 2; // Reducido de 3 a 2
         const nameBlockWidth = columnWidths.name - 4; // Reducido de 6 a 4
         const nameTextHeight = doc.heightOfString(payment.name || '', { width: nameBlockWidth });
-        const rowHeight = Math.max(nameTextHeight + paddingBottom + 3, 14); // Reducido de 16 a 14
+        
+        // Calcular altura del aval (puede ser muy largo)
+        const avalOffset = columnKeys.slice(0, columnKeys.indexOf('aval')).reduce((sum, key) => sum + (columnWidths as any)[key], 0);
+        const avalStartX = 30 + avalOffset + 2;
+        const avalBlockWidth = columnWidths.aval - 4;
+        const avalTextHeight = doc.heightOfString(payment.aval || '', { width: avalBlockWidth });
+        
+        // Usar la altura máxima entre nombre y aval
+        const maxTextHeight = Math.max(nameTextHeight, avalTextHeight);
+        const rowHeight = Math.max(maxTextHeight + paddingBottom + 3, 14); // Reducido de 16 a 14
 
         if (currentY + rowHeight > pageHeight) {
           // Add page number to current page before creating new one
@@ -1671,8 +1682,8 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
             const verticalOffset = (rowHeight - textHeight) / 2;
 
             if (key === 'aval') {
-              // Padding especial para aval
-              doc.text(value, x + 2, currentY + verticalOffset, { width: width - 4, align: 'left' }); // Reducido de 3 a 2 y de 6 a 4
+              // Para aval, alinear al inicio (no centrar) para texto largo
+              doc.text(value, x + 2, currentY + 2, { width: width - 4, align: 'left' }); // Reducido de 3 a 2 y de 6 a 4
             } else {
               doc.text(value, x + paddingLeft, currentY + verticalOffset, { width, align: 'center' });
             }
