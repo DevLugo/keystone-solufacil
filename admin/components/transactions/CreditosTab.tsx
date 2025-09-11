@@ -21,7 +21,7 @@ import ClientDropdown from '../loans/ClientDropdown';
 // Import types
 import type { Loan } from '../../types/loan';
 import { calculateAmountToPay, calculatePendingAmountSimple, processLoansWithCalculations } from '../../utils/loanCalculations';
-import DateMover from './utils/DateMover';
+import KPIBar from './KPIBar';
 import { useBalanceRefresh } from '../../hooks/useBalanceRefresh';
 
 // Interfaz extendida para incluir información de collateral
@@ -999,29 +999,133 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     renewals: acc.renewals + (loan.previousLoan ? 1 : 0),
   }), { count: 0, amountGived: 0, amountToPay: 0, newLoans: 0, renewals: 0 });
   
-  if (loansLoading || loanTypesLoading || previousLoansLoading) return <Box paddingTop="xlarge" style={{ display: 'flex', justifyContent: 'center' }}><LoadingDots label="Cargando préstamos" size="large" /></Box>;
+  if (loansLoading || loanTypesLoading || previousLoansLoading) return (
+    <Box css={{ 
+      display: 'flex', 
+      flexDirection: 'column',
+      justifyContent: 'center', 
+      alignItems: 'center', 
+      height: '400px',
+      background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)',
+      borderRadius: '12px',
+      margin: '20px',
+      position: 'relative',
+      overflow: 'hidden'
+    }}>
+      {/* Efecto de ondas de fondo */}
+      <Box css={{
+        position: 'absolute',
+        top: '-50%',
+        left: '-50%',
+        width: '200%',
+        height: '200%',
+        background: 'radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%)',
+        animation: 'pulse 2s ease-in-out infinite'
+      }} />
+      
+      {/* Spinner moderno */}
+      <Box css={{
+        width: '60px',
+        height: '60px',
+        border: '4px solid #e2e8f0',
+        borderTop: '4px solid #3b82f6',
+        borderRadius: '50%',
+        animation: 'spin 1s linear infinite',
+        marginBottom: '20px',
+        position: 'relative',
+        zIndex: 1
+      }} />
+      
+      {/* Texto de carga */}
+      <Box css={{
+        fontSize: '18px',
+        fontWeight: '600',
+        color: '#374151',
+        marginBottom: '8px',
+        position: 'relative',
+        zIndex: 1
+      }}>
+        Cargando créditos...
+      </Box>
+      
+      {/* Subtítulo */}
+      <Box css={{
+        fontSize: '14px',
+        color: '#6b7280',
+        position: 'relative',
+        zIndex: 1
+      }}>
+        Preparando datos de préstamos
+      </Box>
+      
+      {/* CSS para animaciones */}
+      <style jsx>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 0.5; transform: scale(1); }
+          50% { opacity: 0.8; transform: scale(1.05); }
+        }
+      `}</style>
+    </Box>
+  );
   if (loansError) return <Box paddingTop="xlarge"><GraphQLErrorNotice errors={loansError?.graphQLErrors || []} networkError={loansError?.networkError} /></Box>;
   if (!selectedDate || !selectedLead) return <Box paddingTop="xlarge" style={{ textAlign: 'center', color: '#6B7280' }}>Selecciona una fecha y un líder para ver los préstamos</Box>;
   
   return (
     <>
       <Box paddingTop="medium">
-      {/* ... (Toda la sección de Stats Grid se mantiene igual) ... */}
-      <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start', marginBottom: '16px', background: 'white', padding: '16px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)', }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '1px', background: '#E2E8F0', borderRadius: '8px', overflow: 'hidden', flex: 1, boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)', }}>
-            {/* Total */}
-            <div style={{ display: 'flex', flexDirection: 'column', background: 'white', padding: '12px', position: 'relative', overflow: 'hidden', }}><div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: '#0052CC', opacity: 0.1, }} /><div style={{ fontSize: '12px', fontWeight: '500', color: '#6B7280', marginBottom: '4px', }}>TOTAL DE CRÉDITOS</div><div style={{ fontSize: '20px', fontWeight: '600', color: '#111827', letterSpacing: '-0.02em', lineHeight: '1', marginBottom: '2px', }}>{totals.count}</div><div style={{ fontSize: '12px', color: '#059669', display: 'flex', alignItems: 'center', gap: '4px', }}><span>Activos</span></div></div>
-            {/* Nuevos */}
-            <div style={{ display: 'flex', flexDirection: 'column', background: 'white', padding: '12px', position: 'relative', overflow: 'hidden', }}><div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: '#0052CC', opacity: 0.1, }} /><div style={{ fontSize: '12px', fontWeight: '500', color: '#6B7280', marginBottom: '4px', }}>CRÉDITOS NUEVOS</div><div style={{ fontSize: '20px', fontWeight: '600', color: '#111827', letterSpacing: '-0.02em', lineHeight: '1', marginBottom: '2px', }}>{totals.newLoans}</div><div style={{ fontSize: '12px', color: '#6B7280', display: 'flex', alignItems: 'center', gap: '4px', }}><span>Primera vez</span></div></div>
-            {/* Renovaciones */}
-            <div style={{ display: 'flex', flexDirection: 'column', background: 'white', padding: '12px', position: 'relative', overflow: 'hidden', }}><div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: '#0052CC', opacity: 0.1, }} /><div style={{ fontSize: '12px', fontWeight: '500', color: '#6B7280', marginBottom: '4px', }}>RENOVACIONES</div><div style={{ fontSize: '20px', fontWeight: '600', color: '#111827', letterSpacing: '-0.02em', lineHeight: '1', marginBottom: '2px', }}>{totals.renewals}</div><div style={{ fontSize: '12px', color: '#6B7280', display: 'flex', alignItems: 'center', gap: '4px', }}><span>Clientes recurrentes</span></div></div>
-            {/* Otorgado */}
-            <div style={{ display: 'flex', flexDirection: 'column', background: 'white', padding: '12px', position: 'relative', overflow: 'hidden', }}><div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: '#0052CC', opacity: 0.1, }} /><div style={{ fontSize: '12px', fontWeight: '500', color: '#6B7280', marginBottom: '4px', }}>TOTAL OTORGADO</div><div style={{ fontSize: '20px', fontWeight: '600', color: '#111827', letterSpacing: '-0.02em', lineHeight: '1', marginBottom: '2px', }}>${totals.amountGived.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div><div style={{ fontSize: '12px', color: '#6B7280', display: 'flex', alignItems: 'center', gap: '4px', }}><span>En {totals.count} préstamos</span></div></div>
-            {/* A Pagar */}
-            <div style={{ display: 'flex', flexDirection: 'column', background: 'white', padding: '12px', position: 'relative', overflow: 'hidden', }}><div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: '#0052CC', opacity: 0.1, }} /><div style={{ fontSize: '12px', fontWeight: '500', color: '#6B7280', marginBottom: '4px', }}>TOTAL A PAGAR</div><div style={{ fontSize: '20px', fontWeight: '600', color: '#111827', letterSpacing: '-0.02em', lineHeight: '1', marginBottom: '2px', }}>${totals.amountToPay.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div><div style={{ fontSize: '12px', color: '#6B7280', display: 'flex', alignItems: 'center', gap: '4px', }}><span>Retorno esperado</span></div></div>
-            <DateMover type="loans" selectedDate={selectedDate} selectedLead={selectedLead} onSuccess={handleDateMoveSuccess} itemCount={loans.length} label="préstamo(s)" />
-        </div>
-      </div>
+        {/* Barra de KPIs reutilizable */}
+        <KPIBar
+          chips={[
+            {
+              label: 'Créditos',
+              value: totals.count,
+              color: '#374151',
+              backgroundColor: '#F3F4F6',
+              borderColor: '#E5E7EB'
+            },
+            {
+              label: 'Nuevos',
+              value: totals.newLoans,
+              color: '#1E40AF',
+              backgroundColor: '#EFF6FF',
+              borderColor: '#BFDBFE'
+            },
+            {
+              label: 'Renovaciones',
+              value: totals.renewals,
+              color: '#92400E',
+              backgroundColor: '#FEF3C7',
+              borderColor: '#FDE68A'
+            },
+            {
+              label: 'Otorgado',
+              value: `$${totals.amountGived.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`,
+              color: '#BE185D',
+              backgroundColor: '#FDF2F8',
+              borderColor: '#FBCFE8'
+            },
+            {
+              label: 'A Pagar',
+              value: `$${totals.amountToPay.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`,
+              color: '#166534',
+              backgroundColor: '#F0FDF4',
+              borderColor: '#BBF7D0'
+            }
+          ]}
+          buttons={[]}
+          dateMover={{
+            type: 'loans',
+            selectedDate,
+            selectedLead,
+            onSuccess: handleDateMoveSuccess,
+            itemCount: loans.length,
+            label: 'préstamo(s)'
+          }}
+        />
 
         {/* Loans Table */}
         <Box style={{ backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)', position: 'relative' }}>
@@ -1225,7 +1329,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                     }}
                                     styles={{ 
                                         container: (base) => ({ ...base, flex: 1, width: '100%' }), 
-                                        control: (base) => ({ ...base, fontSize: '12px', minHeight: '32px' }), 
+                                    control: (base) => ({ ...base, fontSize: '11px', minHeight: '32px' }), 
                                         menuPortal: (base) => ({ ...base, zIndex: 9999 }),
                                         menu: (base) => ({ ...base, minWidth: '400px', maxWidth: '500px' })
                                     }}
@@ -1316,7 +1420,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                 }}
                                 styles={{ 
                                     container: (base) => ({ ...base, width: '100%' }), 
-                                    control: (base) => ({ ...base, fontSize: '12px', minHeight: '32px' }), 
+                                    control: (base) => ({ ...base, fontSize: '11px', minHeight: '32px' }), 
                                     menuPortal: (base) => ({ ...base, zIndex: 9999 }),
                                     menu: (base) => ({ ...base, minWidth: '300px', maxWidth: '400px' })
                                 }}
@@ -1361,11 +1465,12 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                 }}
                                 style={{ 
                                     width: '100%', 
-                                    fontSize: '12px',
+                                    fontSize: '11px',
                                     padding: '6px 8px',
                                     border: '1px solid #D1D5DB',
                                     borderRadius: '4px',
-                                    backgroundColor: '#FFFFFF'
+                                    backgroundColor: '#FFFFFF',
+                                    height: '32px'
                                 }} 
                                 type="number" step="0.01"
                             />
@@ -1477,11 +1582,12 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                 }}
                                 style={{ 
                                     width: '100%', 
-                                    fontSize: '12px',
+                                    fontSize: '11px',
                                     padding: '6px 8px',
                                     border: '1px solid #D1D5DB',
                                     borderRadius: '4px',
-                                    backgroundColor: '#FFFFFF'
+                                    backgroundColor: '#FFFFFF',
+                                    height: '32px'
                                 }} 
                                 type="number" step="0.01"
                             />
@@ -1503,10 +1609,10 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                         <Button
                           tone="negative" size="small"
                           onClick={() => setPendingLoans(prev => prev.filter((_, i) => i !== index))}
-                          style={{ padding: '6px', width: '32px', height: '32px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                          style={{ padding: '4px 8px', height: '28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                           title="Eliminar de la lista"
                         >
-                          <FaTrash size={14} />
+                          <FaTrash size={12} />
                         </Button>
                       )}
                     </td>
@@ -1525,10 +1631,10 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                 <span>{pendingLoans.length} préstamo{pendingLoans.length !== 1 && 's'} listo{pendingLoans.length !== 1 && 's'} para guardar</span>
             </div>
             <div style={{ display: 'flex', gap: '12px' }}>
-                <Button tone="negative" weight="bold" onClick={() => setPendingLoans([])} style={{ padding: '8px 24px', minWidth: '150px' }}>
+                <Button tone="negative" weight="bold" onClick={() => setPendingLoans([])} style={{ padding: '4px 8px', height: '28px', fontSize: '11px' }}>
                     Cancelar Todo
                 </Button>
-                <Button tone="active" weight="bold" onClick={handleSaveAllNewLoans} disabled={isCreating} style={{ padding: '8px 24px', minWidth: '200px', backgroundColor: '#0052CC', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Button tone="active" weight="bold" onClick={handleSaveAllNewLoans} disabled={isCreating} style={{ padding: '4px 8px', height: '28px', fontSize: '11px', backgroundColor: '#0052CC', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     {isCreating ? <><LoadingDots label="Guardando..." /><span>Guardando...</span></> : <><span role="img" aria-label="Save">💾</span><span>Crear {pendingLoans.length} Préstamo{pendingLoans.length !== 1 && 's'}</span></>}
                 </Button>
             </div>
@@ -1830,21 +1936,21 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
 
 // Styles
 const tableHeaderStyle = {
-  padding: '8px 6px',
+  padding: '8px 12px',
   textAlign: 'left' as const,
   fontWeight: '500',
   color: '#374151',
   whiteSpace: 'normal' as const,
-  fontSize: '13px',
+  fontSize: '12px',
   lineHeight: '1.2',
   minWidth: '80px',
   maxWidth: '120px',
 };
 
 const tableCellStyle = {
-  padding: '8px 6px',
+  padding: '8px 12px',
   color: '#1a1f36',
-  fontSize: '13px',
+  fontSize: '11px',
   verticalAlign: 'middle', // Usamos verticalAlign para celdas de tabla
   whiteSpace: 'nowrap' as const,
   overflow: 'hidden',

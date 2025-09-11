@@ -76,7 +76,78 @@ export const SummaryTab = ({ selectedDate, refreshKey }: SummaryTabProps) => {
   const [expandedLocality, setExpandedLocality] = useState<string | null>(null);
 
   if (!selectedDate) return <div>Seleccione una fecha</div>;
-  if (loading) return <div>Cargando...</div>;
+  if (loading) return (
+    <Box css={{ 
+      display: 'flex', 
+      flexDirection: 'column',
+      justifyContent: 'center', 
+      alignItems: 'center', 
+      height: '400px',
+      background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)',
+      borderRadius: '12px',
+      margin: '20px',
+      position: 'relative',
+      overflow: 'hidden'
+    }}>
+      {/* Efecto de ondas de fondo */}
+      <Box css={{
+        position: 'absolute',
+        top: '-50%',
+        left: '-50%',
+        width: '200%',
+        height: '200%',
+        background: 'radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%)',
+        animation: 'pulse 2s ease-in-out infinite'
+      }} />
+      
+      {/* Spinner moderno */}
+      <Box css={{
+        width: '60px',
+        height: '60px',
+        border: '4px solid #e2e8f0',
+        borderTop: '4px solid #3b82f6',
+        borderRadius: '50%',
+        animation: 'spin 1s linear infinite',
+        marginBottom: '20px',
+        position: 'relative',
+        zIndex: 1
+      }} />
+      
+      {/* Texto de carga */}
+      <Box css={{
+        fontSize: '18px',
+        fontWeight: '600',
+        color: '#374151',
+        marginBottom: '8px',
+        position: 'relative',
+        zIndex: 1
+      }}>
+        Cargando resumen...
+      </Box>
+      
+      {/* Subtítulo */}
+      <Box css={{
+        fontSize: '14px',
+        color: '#6b7280',
+        position: 'relative',
+        zIndex: 1
+      }}>
+        Preparando datos de transacciones
+      </Box>
+      
+      {/* CSS para animaciones */}
+      <style jsx>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 0.5; transform: scale(1); }
+          50% { opacity: 0.8; transform: scale(1.05); }
+        }
+      `}</style>
+    </Box>
+  );
   if (error) return <div>Error: {error.message}</div>;
 
   const summaryData = data?.getTransactionsSummary || [];

@@ -15,8 +15,8 @@ import type { Employee, Option } from '../../types/transaction';
 import { FaPlus, FaEllipsisV, FaInfoCircle, FaCalendarAlt } from 'react-icons/fa';
 
 // Import components
-import DateMover from './utils/DateMover';
 import RouteLeadSelector from '../routes/RouteLeadSelector';
+import KPIBar from './KPIBar';
 import { useBalanceRefresh } from '../../contexts/BalanceRefreshContext';
 
 const GET_LEADS = gql`
@@ -1501,38 +1501,26 @@ export const CreatePaymentForm = ({
         </div>
       )}
 
-      {/* Barra fija y compacta con KPIs + Botones (70% KPIs, 30% Botones) */}
-      <div style={{
-        position: 'sticky',
-        top: 0,
-        zIndex: 1000,
-        background: 'white',
-        border: '1px solid #E5E7EB',
-        borderRadius: '8px',
-        padding: '16px 20px',
-        margin: '0 24px 16px 24px',
-        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '16px'
-      }}>
-        {/* Sección de KPIs - 60% del ancho */}
-        <div style={{ 
-          display: 'flex', 
-          flexWrap: 'wrap', 
-          gap: '8px', 
-          alignItems: 'center',
-          flex: '0 0 60%',
-          minWidth: 0
-        }}>
-          <span style={{ fontSize: 12, color: '#111827', background: '#F3F4F6', border: '1px solid #E5E7EB', padding: '6px 12px', borderRadius: 999, fontWeight: '500' }}>
-            Clientes: {loansData?.loans?.length || 0}
-          </span>
-          <span style={{ fontSize: 12, color: '#0B5ED7', background: '#E7F1FF', border: '1px solid #CFE2FF', padding: '6px 12px', borderRadius: 999, fontWeight: '500' }}>
-            Abonos: {payments.length - strikethroughNewPaymentIndices.length}
-          </span>
-          <span style={{ fontSize: 12, color: '#B42318', background: '#FEE2E2', border: '1px solid #FECACA', padding: '6px 12px', borderRadius: 999, fontWeight: '500' }}>
-            Faltas: {(() => {
+      {/* Barra de KPIs reutilizable */}
+      <KPIBar
+        chips={[
+          {
+            label: 'Clientes',
+            value: loansData?.loans?.length || 0,
+            color: '#111827',
+            backgroundColor: '#F3F4F6',
+            borderColor: '#E5E7EB'
+          },
+          {
+            label: 'Abonos',
+            value: payments.length - strikethroughNewPaymentIndices.length,
+            color: '#0B5ED7',
+            backgroundColor: '#E7F1FF',
+            borderColor: '#CFE2FF'
+          },
+          {
+            label: 'Faltas',
+            value: (() => {
               let pendingFalcos = 0;
               if (falcosData?.leadPaymentReceiveds && falcosData.leadPaymentReceiveds.length > 0) {
                 pendingFalcos = falcosData.leadPaymentReceiveds.filter((falco: any) => {
@@ -1543,62 +1531,51 @@ export const CreatePaymentForm = ({
               }
               const tachadosCount = strikethroughPaymentIds.length + strikethroughNewPaymentIndices.length;
               return pendingFalcos + tachadosCount;
-            })()}
-          </span>
-          <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6D28D9', background: '#EDE9FE', border: '1px solid #DDD6FE', padding: '6px 12px', borderRadius: 999, fontWeight: '500' }}>
-            Comisiones: ${grandTotalComission.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            <span
-              onMouseEnter={() => setShowCommissionTooltip(true)}
-              onMouseLeave={() => setShowCommissionTooltip(false)}
-              style={{ cursor: 'help', width: 16, height: 16, borderRadius: 8, background: '#DDD6FE', color: '#6D28D9', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}
-            >
-              <FaInfoCircle size={10} />
-            </span>
-            {showCommissionTooltip && (
-              <div style={{
-                position: 'absolute',
-                top: '100%',
-                left: '0',
-                zIndex: 20,
-                backgroundColor: 'white',
-                border: '1px solid #E2E8F0',
-                borderRadius: '6px',
-                padding: '12px',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                minWidth: '200px',
-                marginTop: '4px'
-              }}>
-                <div style={{ fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-                  Desglose de Comisiones
-                </div>
-                {(() => {
-                  const breakdown: { [key: string]: { count: number, amount: number } } = {};
-                  existingPayments
-                    .filter((payment: any) => !strikethroughPaymentIds.includes(payment.id))
-                    .forEach((payment: any) => {
-                      const editedPayment = editedPayments[payment.id] || payment;
-                      const c = parseFloat(editedPayment.comission || '0');
-                      const k = c.toString();
-                      if (!breakdown[k]) breakdown[k] = { count: 0, amount: 0 };
-                      breakdown[k].count += 1;
-                      breakdown[k].amount += c;
-                    });
-                  payments
-                    .filter((_: any, idx: number) => !strikethroughNewPaymentIndices.includes(idx))
-                    .forEach((payment: any) => {
-                      const c = parseFloat(payment.comission?.toString() || '0');
-                      const k = c.toString();
-                      if (!breakdown[k]) breakdown[k] = { count: 0, amount: 0 };
-                      breakdown[k].count += 1;
-                      breakdown[k].amount += c;
-                    });
-                  const sorted = Object.entries(breakdown).sort(([,a], [,b]) => b.amount - a.amount).slice(0, 5);
-                  
-                  if (sorted.length === 0) {
-                    return <div style={{ fontSize: '11px', color: '#6B7280', fontStyle: 'italic' }}>Sin desglose</div>;
-                  }
-                  
-                  return sorted.map(([commission, data]) => {
+            })(),
+            color: '#B42318',
+            backgroundColor: '#FEE2E2',
+            borderColor: '#FECACA'
+          },
+          {
+            label: 'Comisiones',
+            value: `$${grandTotalComission.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            color: '#6D28D9',
+            backgroundColor: '#EDE9FE',
+            borderColor: '#DDD6FE',
+            showTooltip: true,
+            tooltipContent: (() => {
+              const breakdown: { [key: string]: { count: number, amount: number } } = {};
+              existingPayments
+                .filter((payment: any) => !strikethroughPaymentIds.includes(payment.id))
+                .forEach((payment: any) => {
+                  const editedPayment = editedPayments[payment.id] || payment;
+                  const c = parseFloat(editedPayment.comission || '0');
+                  const k = c.toString();
+                  if (!breakdown[k]) breakdown[k] = { count: 0, amount: 0 };
+                  breakdown[k].count += 1;
+                  breakdown[k].amount += c;
+                });
+              payments
+                .filter((_: any, idx: number) => !strikethroughNewPaymentIndices.includes(idx))
+                .forEach((payment: any) => {
+                  const c = parseFloat(payment.comission?.toString() || '0');
+                  const k = c.toString();
+                  if (!breakdown[k]) breakdown[k] = { count: 0, amount: 0 };
+                  breakdown[k].count += 1;
+                  breakdown[k].amount += c;
+                });
+              const sorted = Object.entries(breakdown).sort(([,a], [,b]) => b.amount - a.amount).slice(0, 5);
+              
+              if (sorted.length === 0) {
+                return <div style={{ fontSize: '11px', color: '#6B7280', fontStyle: 'italic' }}>Sin desglose</div>;
+              }
+              
+              return (
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+                    Desglose de Comisiones
+                  </div>
+                  {sorted.map(([commission, data]) => {
                     const isZeroCommission = parseFloat(commission) === 0;
                     return (
                       <div key={commission} style={{
@@ -1623,145 +1600,80 @@ export const CreatePaymentForm = ({
                         </span>
                       </div>
                     );
-                  });
-                })()}
-              </div>
-            )}
-          </div>
-          <span style={{ fontSize: 12, color: '#065F46', background: '#ECFDF5', border: '1px solid #D1FAE5', padding: '6px 12px', borderRadius: 999, fontWeight: '500' }}>
-            Total: ${grandTotalAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </span>
-          
-          {/* Comisión Masiva - Solo cuando hay pagos nuevos */}
-          {payments.length > 0 && (
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '6px', 
-              fontSize: 11, 
-              color: '#6B7280', 
-              background: '#F8FAFC', 
-              border: '1px solid #E2E8F0', 
-              padding: '6px 10px', 
-              borderRadius: 999,
-              fontWeight: '500'
-            }}>
-              <span>Comisión:</span>
-              <input
-                type="number"
-                value={massCommission}
-                onChange={(e) => setMassCommission(e.target.value)}
-                style={{
-                  width: '60px',
-                  height: HEIGHT_SYSTEM.small,
-                  padding: PADDING_SYSTEM.small,
-                  border: '1px solid #D1D5DB',
-                  borderRadius: '4px',
-                  fontSize: FONT_SYSTEM.small,
-                  textAlign: 'center'
-                }}
-                placeholder="0"
-              />
-              <Button
-                tone="active"
-                size="small"
-                onClick={() => {
-                  const commission = parseFloat(massCommission);
-                  if (isNaN(commission)) return;
-                  
-                  const newPayments = payments.map(payment => ({
-                    ...payment,
-                    comission: commission
-                  }));
-                  setState(prev => ({ ...prev, payments: newPayments }));
-                }}
-                style={{ 
-                  fontSize: FONT_SYSTEM.small, 
-                  padding: PADDING_SYSTEM.small, 
-                  height: HEIGHT_SYSTEM.small, 
-                  minWidth: 'auto',
-                  fontWeight: '500'
-                }}
-              >
-                Aplicar
-              </Button>
-            </div>
-          )}
-        </div>
-
-        {/* Sección de Botones - 40% del ancho */}
-        <div style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: '8px',
-          flex: '0 0 40%',
-          justifyContent: 'flex-end',
-          flexWrap: 'wrap'
-        }}>
-          <Button
-            tone="active"
-            size="small"
-            onClick={() => updateState({ isCreateFalcoModalOpen: true })}
-            style={{ fontSize: FONT_SYSTEM.small, padding: PADDING_SYSTEM.small, height: HEIGHT_SYSTEM.small, fontWeight: '500' }}
-          >
-            ⚠️ Reportar Falco
-          </Button>
-          
-          <Button 
-            tone="positive" 
-            weight="bold" 
-            size="small" 
-            onClick={() => updateState({ isModalOpen: true })} 
-            isLoading={updateLoading}
-            style={{ fontSize: FONT_SYSTEM.small, padding: PADDING_SYSTEM.small, height: HEIGHT_SYSTEM.small }}
-          >
-            Guardar Cambios
-          </Button>
-          
-          {existingPayments.filter(p => !strikethroughPaymentIds.includes(p.id)).length > 0 ? (
-            <DateMover
-              type="payments"
-              selectedDate={selectedDate}
-              selectedLead={selectedLead}
-              onSuccess={async () => {
-                setState(prev => ({ 
-                  ...prev,
-                  payments: [],
-                  editedPayments: {},
-                  isEditing: false,
-                  groupedPayments: undefined,
-                  existingPayments: []
-                }));
-                setStrikethroughPaymentIds([]);
-                setStrikethroughNewPaymentIndices([]);
-                try {
-                  await Promise.all([
-                    refetchPayments(),
-                    refetchMigratedPayments(),
-                    refetchFalcos()
-                  ]);
-                  if (onSaveComplete) {
-                    onSaveComplete();
-                  }
-                } catch (error) {
-                  console.error('Error al recargar datos después de mover pagos:', error);
-                }
-              }}
-              itemCount={existingPayments.filter(p => !strikethroughPaymentIds.includes(p.id)).length}
-              label={`📅 Mover (${existingPayments.filter(p => !strikethroughPaymentIds.includes(p.id)).length})`}
-            />
-          ) : (
-            <Button
-              tone="passive"
-              size="small"
-              disabled
-              style={{ opacity: 0.5, cursor: 'not-allowed', fontSize: FONT_SYSTEM.small, padding: PADDING_SYSTEM.small, height: HEIGHT_SYSTEM.small }}
-            >
-              📅 Mover (0)
-            </Button>
-          )}
-        </div>
-      </div>
+                  })}
+                </div>
+              );
+            })()
+          },
+          {
+            label: 'Total',
+            value: `$${grandTotalAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            color: '#065F46',
+            backgroundColor: '#ECFDF5',
+            borderColor: '#D1FAE5'
+          }
+        ]}
+        buttons={[
+          {
+            label: 'Reportar Falco',
+            onClick: () => updateState({ isCreateFalcoModalOpen: true }),
+            tone: 'active' as const,
+            icon: <span>⚠️</span>
+          },
+          {
+            label: 'Guardar Cambios',
+            onClick: () => updateState({ isModalOpen: true }),
+            tone: 'positive' as const,
+            loading: updateLoading
+          }
+        ]}
+        dateMover={{
+          type: 'payments',
+          selectedDate,
+          selectedLead,
+          onSuccess: async () => {
+            setState(prev => ({ 
+              ...prev,
+              payments: [],
+              editedPayments: {},
+              isEditing: false,
+              groupedPayments: undefined,
+              existingPayments: []
+            }));
+            setStrikethroughPaymentIds([]);
+            setStrikethroughNewPaymentIndices([]);
+            try {
+              await Promise.all([
+                refetchPayments(),
+                refetchMigratedPayments(),
+                refetchFalcos()
+              ]);
+              if (onSaveComplete) {
+                onSaveComplete();
+              }
+            } catch (error) {
+              console.error('Error al recargar datos después de mover pagos:', error);
+            }
+          },
+          itemCount: existingPayments.filter(p => !strikethroughPaymentIds.includes(p.id)).length,
+          label: `pago(s)`
+        }}
+        massCommission={payments.length > 0 ? {
+          value: massCommission,
+          onChange: setMassCommission,
+          onApply: () => {
+            const commission = parseFloat(massCommission);
+            if (isNaN(commission)) return;
+            
+            const newPayments = payments.map(payment => ({
+              ...payment,
+              comission: commission
+            }));
+            setState(prev => ({ ...prev, payments: newPayments }));
+          },
+          visible: true
+        } : undefined}
+      />
 
       {/* Eliminado: Stats duplicados de TOTAL CLIENTES y PAGOS NUEVOS */}
 

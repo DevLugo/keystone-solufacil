@@ -20,6 +20,7 @@ interface DateMoverProps {
   onSuccess?: () => void;
   itemCount?: number;
   label?: string;
+  compact?: boolean; // Nueva prop para modo compacto
 }
 
 export const DateMover: React.FC<DateMoverProps> = ({
@@ -29,7 +30,8 @@ export const DateMover: React.FC<DateMoverProps> = ({
   selectedRoute,
   onSuccess,
   itemCount = 0,
-  label = 'registros'
+  label = 'registros',
+  compact = false
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [targetDate, setTargetDate] = useState('');
@@ -97,11 +99,188 @@ export const DateMover: React.FC<DateMoverProps> = ({
   const canMove = type === 'expenses' ? 
     (selectedRoute || selectedLead) && itemCount > 0 :
     selectedLead && itemCount > 0;
+    
+  // Para el modo compacto, siempre mostrar el botón, pero deshabilitado si no se puede mover
+  const shouldShowButton = compact ? true : canMove;
 
   const typeLabel = type === 'loans' ? 'préstamos' :
                    type === 'payments' ? 'pagos' :
                    'gastos';
 
+  // Renderizado compacto para la barra de KPIs
+  if (compact) {
+    return (
+      <>
+        <button
+          onClick={() => canMove && setIsModalOpen(true)}
+          disabled={!canMove}
+          style={{
+            height: '32px',
+            padding: '6px 12px',
+            fontSize: '11px',
+            fontWeight: '600',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            borderRadius: '6px',
+            backgroundColor: canMove ? '#F3F4F6' : '#F9FAFB',
+            color: canMove ? '#374151' : '#9CA3AF',
+            border: canMove ? '1px solid #E5E7EB' : '1px solid #F3F4F6',
+            cursor: canMove ? 'pointer' : 'not-allowed',
+            transition: 'all 0.2s ease',
+            minWidth: '100px',
+            outline: 'none',
+            '&:hover': canMove ? {
+              backgroundColor: '#E5E7EB'
+            } : {},
+            '&:focus': {
+              boxShadow: '0 0 0 2px rgba(59, 130, 246, 0.5)'
+            }
+          }}
+          title={canMove ? `Mover ${itemCount} ${label} a otra fecha` : `No hay ${label} para mover`}
+        >
+          <FaCalendarAlt size={12} />
+          <span>Mover ({itemCount})</span>
+        </button>
+        
+        {/* Modal para modo compacto */}
+        {isModalOpen && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}>
+            <div style={{
+              backgroundColor: 'white',
+              padding: '24px',
+              borderRadius: '12px',
+              width: '400px',
+              maxWidth: '90%',
+              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.2)',
+            }}>
+              <h3 style={{
+                margin: '0 0 16px 0',
+                fontSize: '18px',
+                fontWeight: '600',
+                color: '#1F2937'
+              }}>
+                Mover {itemCount} {label} a otra fecha
+              </h3>
+              
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{
+                  display: 'block',
+                  marginBottom: '8px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: '#374151'
+                }}>
+                  Fecha actual: {selectedDate.toLocaleDateString('es-MX')}
+                </label>
+                
+                <label style={{
+                  display: 'block',
+                  marginBottom: '8px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: '#374151'
+                }}>
+                  Nueva fecha:
+                </label>
+                <input
+                  type="date"
+                  value={targetDate}
+                  onChange={(e) => setTargetDate(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    border: '1px solid #D1D5DB',
+                    borderRadius: '6px',
+                    fontSize: '14px'
+                  }}
+                />
+              </div>
+              
+              <div style={{
+                display: 'flex',
+                gap: '12px',
+                justifyContent: 'flex-end'
+              }}>
+                <Button
+                  tone="passive"
+                  onClick={() => {
+                    setIsModalOpen(false);
+                    setTargetDate('');
+                  }}
+                  style={{ padding: '8px 16px' }}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  tone="active"
+                  onClick={handleMove}
+                  disabled={loading || !targetDate}
+                  style={{ padding: '8px 16px' }}
+                >
+                  {loading ? <LoadingDots size="small" /> : 'Mover'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Modal de confirmación */}
+        {showConfirmation && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1001,
+          }}>
+            <div style={{
+              backgroundColor: 'white',
+              padding: '24px',
+              borderRadius: '12px',
+              textAlign: 'center',
+              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.2)',
+            }}>
+              <FaCheck size={48} style={{ color: '#10B981', marginBottom: '16px' }} />
+              <h3 style={{
+                margin: '0 0 8px 0',
+                fontSize: '18px',
+                fontWeight: '600',
+                color: '#1F2937'
+              }}>
+                ¡Movimiento exitoso!
+              </h3>
+              <p style={{
+                margin: 0,
+                color: '#6B7280',
+                fontSize: '14px'
+              }}>
+                Se movieron {itemCount} {label} correctamente.
+              </p>
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  // Renderizado original para tarjetas
   return (
     <>
       <div

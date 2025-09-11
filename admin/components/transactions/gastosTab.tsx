@@ -16,6 +16,7 @@ import { createPortal } from 'react-dom';
 // Import components
 import RouteLeadSelector from '../routes/RouteLeadSelector';
 import DateMover from './utils/DateMover';
+import KPIBar from './KPIBar';
 import { useBalanceRefresh } from '../../hooks/useBalanceRefresh';
 import { BalanceRefreshProvider } from '../../contexts/BalanceRefreshContext';
 
@@ -444,233 +445,129 @@ export const CreateExpensesForm = ({
     };
   };
 
-  if (expensesLoading) return <LoadingDots label="Loading expenses" size="large" />;
+  if (expensesLoading) return (
+    <Box css={{ 
+      display: 'flex', 
+      flexDirection: 'column',
+      justifyContent: 'center', 
+      alignItems: 'center', 
+      height: '400px',
+      background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)',
+      borderRadius: '12px',
+      margin: '20px',
+      position: 'relative',
+      overflow: 'hidden'
+    }}>
+      {/* Efecto de ondas de fondo */}
+      <Box css={{
+        position: 'absolute',
+        top: '-50%',
+        left: '-50%',
+        width: '200%',
+        height: '200%',
+        background: 'radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%)',
+        animation: 'pulse 2s ease-in-out infinite'
+      }} />
+      
+      {/* Spinner moderno */}
+      <Box css={{
+        width: '60px',
+        height: '60px',
+        border: '4px solid #e2e8f0',
+        borderTop: '4px solid #3b82f6',
+        borderRadius: '50%',
+        animation: 'spin 1s linear infinite',
+        marginBottom: '20px',
+        position: 'relative',
+        zIndex: 1
+      }} />
+      
+      {/* Texto de carga */}
+      <Box css={{
+        fontSize: '18px',
+        fontWeight: '600',
+        color: '#374151',
+        marginBottom: '8px',
+        position: 'relative',
+        zIndex: 1
+      }}>
+        Cargando gastos...
+      </Box>
+      
+      {/* Subtítulo */}
+      <Box css={{
+        fontSize: '14px',
+        color: '#6b7280',
+        position: 'relative',
+        zIndex: 1
+      }}>
+        Preparando datos de gastos
+      </Box>
+      
+      {/* CSS para animaciones */}
+      <style jsx>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 0.5; transform: scale(1); }
+          50% { opacity: 0.8; transform: scale(1.05); }
+        }
+      `}</style>
+    </Box>
+  );
 
   const totalAmount = transactions.reduce((sum, transaction) => sum + parseFloat(transaction.amount), 0) +
     newTransactions.reduce((sum, transaction) => sum + parseFloat(transaction.amount || '0'), 0);
 
   return (
     <Box paddingTop="medium">
-      <div style={{
-        display: 'flex',
-        gap: '16px',
-        alignItems: 'flex-start',
-        marginBottom: '16px',
-        background: 'white',
-        padding: '16px',
-        borderRadius: '8px',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
-      }}>
-        {/* Stats Grid */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(5, 1fr)',
-          gap: '1px',
-          background: '#E2E8F0',
-          borderRadius: '8px',
-          overflow: 'hidden',
-          flex: 1,
-          boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
-        }}>
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column' as const,
-            background: 'white',
-            padding: '12px',
-            position: 'relative',
-            overflow: 'hidden',
-          }}>
-            <div style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              height: '2px',
-              background: '#0052CC',
-              opacity: 0.1,
-            }} />
-            <div style={{
-              fontSize: '12px',
-              fontWeight: '500',
-              color: '#6B7280',
-              marginBottom: '4px',
-            }}>
-              TOTAL DE GASTOS
-            </div>
-            <div style={{
-              fontSize: '20px',
-              fontWeight: '600',
-              color: '#111827',
-              letterSpacing: '-0.02em',
-              lineHeight: '1',
-              marginBottom: '2px',
-            }}>
-              {transactions.length + newTransactions.length}
-            </div>
-            <div style={{
-              fontSize: '12px',
-              color: '#059669',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-            }}>
-              <span>{transactions.length} registrados + {newTransactions.length} nuevos</span>
-            </div>
-          </div>
-
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column' as const,
-            background: 'white',
-            padding: '12px',
-            position: 'relative',
-            overflow: 'hidden',
-          }}>
-            <div style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              height: '2px',
-              background: '#0052CC',
-              opacity: 0.1,
-            }} />
-            <div style={{
-              fontSize: '12px',
-              fontWeight: '500',
-              color: '#6B7280',
-              marginBottom: '4px',
-            }}>
-              GASTOS NUEVOS
-            </div>
-            <div style={{
-              fontSize: '20px',
-              fontWeight: '600',
-              color: '#111827',
-              letterSpacing: '-0.02em',
-              lineHeight: '1',
-              marginBottom: '2px',
-            }}>
-              {newTransactions.length}
-            </div>
-            <div style={{
-              fontSize: '12px',
-              color: '#6B7280',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-            }}>
-              <span>Por guardar</span>
-            </div>
-          </div>
-
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column' as const,
-            background: 'white',
-            padding: '12px',
-            position: 'relative',
-            overflow: 'hidden',
-          }}>
-            <div style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              height: '2px',
-              background: '#0052CC',
-              opacity: 0.1,
-            }} />
-            <div style={{
-              fontSize: '12px',
-              fontWeight: '500',
-              color: '#6B7280',
-              marginBottom: '4px',
-            }}>
-              TOTAL GASTADO
-            </div>
-            <div style={{
-              fontSize: '20px',
-              fontWeight: '600',
-              color: '#111827',
-              letterSpacing: '-0.02em',
-              lineHeight: '1',
-              marginBottom: '2px',
-            }}>
-              ${totalAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </div>
-            <div style={{
-              fontSize: '12px',
-              color: '#6B7280',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-            }}>
-              <span>${transactions.reduce((sum, t) => sum + parseFloat(t.amount), 0).toFixed(2)} registrados + ${newTransactions.reduce((sum, t) => sum + parseFloat(t.amount || '0'), 0).toFixed(2)} nuevos</span>
-            </div>
-          </div>
-
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column' as const,
-            background: 'white',
-            padding: '12px',
-            position: 'relative',
-            overflow: 'hidden',
-          }}>
-            <div style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              height: '2px',
-              background: '#0052CC',
-              opacity: 0.1,
-            }} />
-            <div style={{
-              fontSize: '12px',
-              fontWeight: '500',
-              color: '#6B7280',
-              marginBottom: '4px',
-            }}>
-              GASTOS MODIFICADOS
-            </div>
-            <div style={{
-              fontSize: '20px',
-              fontWeight: '600',
-              color: '#111827',
-              letterSpacing: '-0.02em',
-              lineHeight: '1',
-              marginBottom: '2px',
-            }}>
-              {Object.keys(editedTransactions).length}
-            </div>
-            <div style={{
-              fontSize: '12px',
-              color: '#6B7280',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-            }}>
-              <span>Por guardar</span>
-            </div>
-          </div>
-
-          {/* Quinta tarjeta - Cambiar Fecha */}
-          <DateMover
-            type="expenses"
-            selectedDate={selectedDate}
-            selectedRoute={selectedRoute}
-            selectedLead={selectedLead}
-            onSuccess={() => {
-              refetchExpenses();
-              // Aquí deberías llamar a refetchRoute si tienes acceso a esa query
-            }}
-            itemCount={transactions.length + newTransactions.length}
-            label="gasto(s)"
-          />
-        </div>
-      </div>
+      {/* Barra de KPIs reutilizable */}
+      <KPIBar
+        chips={[
+          {
+            label: 'Gastos',
+            value: transactions.length + newTransactions.length,
+            color: '#374151',
+            backgroundColor: '#F3F4F6',
+            borderColor: '#E5E7EB'
+          },
+          {
+            label: 'Nuevos',
+            value: newTransactions.length,
+            color: '#92400E',
+            backgroundColor: '#FEF3C7',
+            borderColor: '#FDE68A'
+          },
+          {
+            label: 'Modificados',
+            value: Object.keys(editedTransactions).length,
+            color: '#BE185D',
+            backgroundColor: '#FDF2F8',
+            borderColor: '#FBCFE8'
+          },
+          {
+            label: 'Total',
+            value: `$${totalAmount.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`,
+            color: '#DC2626',
+            backgroundColor: '#FEE2E2',
+            borderColor: '#FECACA'
+          }
+        ]}
+        buttons={[]}
+        dateMover={{
+          type: 'expenses',
+          selectedDate,
+          selectedRoute,
+          selectedLead,
+          onSuccess: () => {
+            refetchExpenses();
+          },
+          itemCount: transactions.length + newTransactions.length,
+          label: 'gasto(s)'
+        }}
+      />
 
       {/* Existing Expenses Table */}
       <Box
@@ -879,6 +776,7 @@ export const CreateExpensesForm = ({
                         menuPortalTarget={document.body}
                         menuPosition="fixed"
                         menuPlacement="auto"
+                        size="small"
                       />
                     </td>
                     <td style={tableCellStyle}>
@@ -887,6 +785,10 @@ export const CreateExpensesForm = ({
                         value={transaction.amount}
                         onChange={e => handleEditTransaction(index, 'amount', e.target.value)}
                         placeholder="0.00"
+                        style={{ 
+                          fontSize: '11px',
+                          height: '32px'
+                        }}
                       />
                     </td>
                     <td style={tableCellStyle}>
@@ -920,6 +822,7 @@ export const CreateExpensesForm = ({
                         menuPortalTarget={document.body}
                         menuPosition="fixed"
                         menuPlacement="auto"
+                        size="small"
                       />
                     </td>
                     <td style={{
@@ -932,16 +835,15 @@ export const CreateExpensesForm = ({
                           size="small"
                           onClick={() => handleCancelNew(index)}
                           style={{
-                            padding: '6px',
-                            width: '32px',
-                            height: '32px',
+                            padding: '4px 8px',
+                            height: '28px',
                             display: 'inline-flex',
                             alignItems: 'center',
                             justifyContent: 'center',
                           }}
                           title="Eliminar de la lista"
                         >
-                          <FaTrash size={14} />
+                          <FaTrash size={12} />
                         </Button>
                       </Box>
                     </td>
@@ -1069,7 +971,7 @@ export const CreateExpensesForm = ({
                   editedTransactions: {}
                 });
               }}
-              style={{ padding: '8px 24px', minWidth: '150px' }}
+              style={{ padding: '4px 8px', height: '28px', fontSize: '11px' }}
             >
               Cancelar Todo
             </Button>
@@ -1079,8 +981,9 @@ export const CreateExpensesForm = ({
               onClick={handleSaveAllChanges}
               disabled={isCreating}
               style={{
-                padding: '8px 24px',
-                minWidth: '200px',
+                padding: '4px 8px',
+                height: '28px',
+                fontSize: '11px',
                 backgroundColor: '#0052CC',
                 display: 'flex',
                 alignItems: 'center',
@@ -1362,21 +1265,21 @@ export default function ExpensesPage() {
 
 // Styles
 const tableHeaderStyle = {
-  padding: '8px 6px',
+  padding: '8px 12px',
   textAlign: 'left' as const,
   fontWeight: '500',
   color: '#374151',
   whiteSpace: 'normal' as const,
-  fontSize: '13px',
+  fontSize: '12px',
   lineHeight: '1.2',
   minWidth: '80px',
   maxWidth: '120px',
 };
 
 const tableCellStyle = {
-  padding: '8px 6px',
+  padding: '8px 12px',
   color: '#1a1f36',
-  fontSize: '13px',
+  fontSize: '11px',
   whiteSpace: 'nowrap' as const,
   overflow: 'hidden',
   textOverflow: 'ellipsis',
