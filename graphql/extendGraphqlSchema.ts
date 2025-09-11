@@ -4573,9 +4573,17 @@ export const extendGraphqlSchema = graphql.extend(base => {
               // 🔍 DEBUG: Log específico para semana 3 de Atasta
               const isAtastaWeek3 = weekKey === 'SEMANA 3';
               
+              // 🔍 DEBUG: Log específico para María Dolores en Isla Aguada semana 4
+              const isIslaAguadaWeek4 = weekKey === 'SEMANA 4';
+              
               // Helper function para verificar si una localidad es de Atasta
               const isAtastaLocality = (locality: string) => {
                 return locality && typeof locality === 'string' && locality.toLowerCase().includes('atasta');
+              };
+              
+              // Helper function para verificar si una localidad es de Isla Aguada
+              const isIslaAguadaLocality = (locality: string) => {
+                return locality && typeof locality === 'string' && locality.toLowerCase().includes('isla aguada');
               };
               
               // 🔍 DEBUG: Contadores para rastrear el flujo de Atasta
@@ -4712,6 +4720,48 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 // Procesar cada préstamo de esta localidad
                 loans.forEach((loan: any) => {
                   const loanAmount = Number(loan.amountGived || 0);
+                  
+                  // 🔍 DEBUG: Log específico para María Dolores en Isla Aguada semana 4
+                  if (isIslaAguadaWeek4 && isIslaAguadaLocality(locality)) {
+                    const fullName = loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A';
+                    if (fullName.toLowerCase().includes('maria dolores') || loan.id === 'cmfc9o0em3t0npszx4p5bwt01') {
+                      console.log(`\n🔍 MARÍA DOLORES DEBUG - ISLA AGUADA SEMANA 4:`);
+                      console.log(`  - Préstamo ID: ${loan.id}`);
+                      console.log(`  - Nombre: ${fullName}`);
+                      console.log(`  - Localidad: ${locality}`);
+                      console.log(`  - Fecha firma: ${loan.signDate}`);
+                      console.log(`  - Fecha finalización: ${loan.finishedDate || 'NO FINALIZADO'}`);
+                      console.log(`  - Monto otorgado: ${loanAmount}`);
+                      console.log(`  - Monto pendiente almacenado: ${loan.pendingAmountStored}`);
+                      console.log(`  - ¿Excluido por cleanup?: ${loan.excludedByCleanup ? 'SÍ' : 'NO'}`);
+                      console.log(`  - ¿Tiene préstamo anterior?: ${!!loan.previousLoanId}`);
+                      console.log(`  - Semana actual: ${weekStart.toISOString()} - ${weekEnd.toISOString()}`);
+                      
+                      // Calcular deuda pendiente real
+                      const totalDebt = loan._calculated?.totalDebt || (Number(loan.amountGived || 0) + Number(loan.profitAmount || 0));
+                      let totalPaid = 0;
+                      for (const payment of loan.payments || []) {
+                        const paymentDate = new Date(payment.receivedAt || payment.createdAt);
+                        if (paymentDate <= weekEnd) {
+                          totalPaid += parseFloat((payment.amount || 0).toString());
+                        }
+                      }
+                      const realPendingAmount = Math.max(0, totalDebt - totalPaid);
+                      
+                      console.log(`  - Total deuda: ${totalDebt}`);
+                      console.log(`  - Total pagado hasta fin de semana: ${totalPaid}`);
+                      console.log(`  - Deuda pendiente real: ${realPendingAmount}`);
+                      console.log(`  - ¿Está activo al inicio de semana?: ${isLoanConsideredOnDate(loan, new Date(weekStart.getTime() - 1))}`);
+                      console.log(`  - ¿Está activo al final de semana?: ${isLoanConsideredOnDate(loan, weekEnd)}`);
+                      
+                      // Mostrar pagos
+                      console.log(`  - Pagos del préstamo:`);
+                      (loan.payments || []).forEach((payment: any, index: number) => {
+                        const paymentDate = new Date(payment.receivedAt || payment.createdAt);
+                        console.log(`    ${index + 1}. ${payment.amount} - ${paymentDate.toISOString()}`);
+                      });
+                    }
+                  }
 
                   // ✅ SOLO PARA LA PRIMERA SEMANA: Calcular préstamos activos al inicio
                   if (isFirstWeek) {
@@ -5350,7 +5400,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   signWeekStart.setHours(0, 0, 0, 0);
                   
                   const weeksSinceSign = Math.floor((weekStart.getTime() - signWeekStart.getTime()) / (7 * 24 * 60 * 60 * 1000));
-                  const weeksElapsed = weeksSinceSign;
+                  // Usar semanas COMPLETADAS antes de la semana actual (alineado con cronología semanal)
+                  const weeksElapsed = Math.max(0, weeksSinceSign - 1);
 
                   const expectedBefore = weeksElapsed > 0 ? weeksElapsed * (expectedWeekly || 0) : 0;
                   const surplusBefore = paidBeforeWeek - expectedBefore;
@@ -5393,6 +5444,26 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     }
                   }
 
+                  // 🔍 DEBUG: CV específico para María Dolores en Isla Aguada semana 4
+                  try {
+                    const fullName = loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || '';
+                    if (typeof fullName === 'string' && fullName.toLowerCase().includes('maria dolores') &&
+                        typeof locality === 'string' && locality.toLowerCase().includes('isla aguada') &&
+                        weekKey === 'SEMANA 4') {
+                      console.log(`\n🔍 CV DEBUG - MARÍA DOLORES - ISLA AGUADA SEMANA 4:`);
+                      console.log(`  - Préstamo ID: ${loan.id}`);
+                      console.log(`  - weeklyPaid: ${weeklyPaid}`);
+                      console.log(`  - expectedWeekly: ${expectedWeekly}`);
+                      console.log(`  - paidBeforeWeek: ${paidBeforeWeek}`);
+                      console.log(`  - weeksElapsed: ${weeksElapsed}`);
+                      console.log(`  - expectedBefore: ${expectedBefore}`);
+                      console.log(`  - surplusBefore: ${surplusBefore}`);
+                      console.log(`  - cvContribution: ${cvContribution}`);
+                      console.log(`  - cvReason: ${cvReason}`);
+                      console.log(`  - ¿Se suma a CV en data.cv?: ${cvContribution > 0 ? 'SÍ' : 'NO'}`);
+                    }
+                  } catch (_) {}
+
                   // Guardar para hover: solo los que contribuyen al CV
                   if (cvContribution > 0) {
                     (data.cvClients as any[]).push({
@@ -5428,18 +5499,76 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 });
               }
 
-              // Calcular activos al final usando N-Y sobre el stock inicial
-              // ✅ SOLO NUEVOS Y REINTEGROS SUMAN A CLIENTES ACTIVOS
+              // Calcular activos al final usando verificación real de cada préstamo
               Object.keys(localitiesData).forEach(locality => {
                 const data = localitiesData[locality];
-                // Solo nuevos y reintegros suman a clientes activos (renovados ya estaban activos)
-                // ✅ AJUSTE: Los préstamos renovados que se cerraron en la misma semana no descuentan del balance
+                const loansInLocality = loansByLocality.get(locality) || [];
+                
+                // ✅ VERIFICACIÓN REAL: Contar préstamos realmente activos al final de la semana
+                let realActiveAtEnd = 0;
+                let realActiveAmount = 0;
+                
+                loansInLocality.forEach((loan: any) => {
+                  const isActiveAtEnd = isLoanConsideredOnDate(loan, weekEnd);
+                  if (isActiveAtEnd) {
+                    realActiveAtEnd++;
+                    realActiveAmount += Number(loan.amountGived || 0);
+                  }
+                });
+                
+                // Usar el conteo real en lugar de la fórmula matemática
+                data.activeAtEnd = realActiveAtEnd;
+                data.totalAmountAtEnd = realActiveAmount;
+                
+                // 🔍 DEBUG: Comparar con el cálculo anterior (fórmula matemática)
                 const finishedNotRenewed = (data.finished || 0) - (data.grantedRenewed || 0);
                 const delta = (data.grantedNew || 0) + (data.grantedReintegros || 0) - finishedNotRenewed;
-                const oldActiveAtEnd = data.activeAtEnd;
-                data.activeAtEnd = data.activeAtStart + delta;
-                if (data.activeAtEnd < 0) data.activeAtEnd = 0;
-                data.totalAmountAtEnd = Math.max(0, data.totalAmountAtStart + (data.grantedAmount || 0) - (data.finishedAmount || 0));
+                const formulaActiveAtEnd = data.activeAtStart + delta;
+                
+                if (realActiveAtEnd !== formulaActiveAtEnd) {
+                  console.log(`\n⚠️ DISCREPANCIA EN ${locality}:`);
+                  console.log(`  - Fórmula matemática: ${formulaActiveAtEnd}`);
+                  console.log(`  - Verificación real: ${realActiveAtEnd}`);
+                  console.log(`  - Diferencia: ${realActiveAtEnd - formulaActiveAtEnd}`);
+                }
+                
+                // 🔍 DEBUG: Log específico para María Dolores en Isla Aguada semana 4
+                if (isIslaAguadaWeek4 && isIslaAguadaLocality(locality)) {
+                  console.log(`\n🔍 CÁLCULO ACTIVEATEND - ISLA AGUADA SEMANA 4:`);
+                  console.log(`  - Localidad: ${locality}`);
+                  console.log(`  - activeAtStart: ${data.activeAtStart}`);
+                  console.log(`  - grantedNew: ${data.grantedNew || 0}`);
+                  console.log(`  - grantedReintegros: ${data.grantedReintegros || 0}`);
+                  console.log(`  - grantedRenewed: ${data.grantedRenewed || 0}`);
+                  console.log(`  - finished: ${data.finished || 0}`);
+                  console.log(`  - finishedNotRenewed: ${finishedNotRenewed}`);
+                  console.log(`  - delta (fórmula): ${delta}`);
+                  console.log(`  - activeAtEnd (fórmula): ${formulaActiveAtEnd}`);
+                  console.log(`  - activeAtEnd (real): ${realActiveAtEnd}`);
+                  console.log(`  - netChange: ${realActiveAtEnd - data.activeAtStart}`);
+                  console.log(`  - totalAmountAtEnd: ${realActiveAmount}`);
+                  
+                  // Buscar específicamente a María Dolores
+                  const mariaDoloresLoan = loansInLocality.find((loan: any) => {
+                    const fullName = loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A';
+                    return fullName.toLowerCase().includes('maria dolores') || loan.id === 'cmfc9o0em3t0npszx4p5bwt01';
+                  });
+                  
+                  if (mariaDoloresLoan) {
+                    const isMariaActive = isLoanConsideredOnDate(mariaDoloresLoan, weekEnd);
+                    console.log(`\n🔍 MARÍA DOLORES - VERIFICACIÓN FINAL:`);
+                    console.log(`  - ¿Está activa al final de semana?: ${isMariaActive}`);
+                    console.log(`  - ¿Aparece en conteo de activos?: ${isMariaActive ? 'SÍ' : 'NO'}`);
+                    
+                    if (!isMariaActive) {
+                      console.log(`  - ✅ CORRECTO: María Dolores NO está activa (tiene sobrepago)`);
+                    } else {
+                      console.log(`  - ❌ PROBLEMA: María Dolores SÍ está activa pero debería tener sobrepago`);
+                    }
+                  } else {
+                    console.log(`\n🔍 MARÍA DOLORES NO ENCONTRADA en esta localidad`);
+                  }
+                }
                 
                 // Cambiar finished para la UI - solo mostrar los no renovados
                 data.finished = data.finishedForUI;

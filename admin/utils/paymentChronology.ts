@@ -13,6 +13,13 @@ export interface PaymentChronologyItem {
   balanceAfter?: number;
   paymentNumber?: number;
   weekCount?: number;
+  // Enriquecimiento para colorear por semana
+  weekIndex?: number; // 1..N
+  weeklyExpected?: number;
+  weeklyPaid?: number;
+  surplusBefore?: number;
+  surplusAfter?: number;
+  coverageType?: 'FULL' | 'COVERED_BY_SURPLUS' | 'PARTIAL' | 'MISS';
 }
 
 export interface LoanData {
@@ -107,6 +114,13 @@ export const generatePaymentChronology = (loan: LoanData): PaymentChronologyItem
     new Date(a.receivedAt).getTime() - new Date(b.receivedAt).getTime()
   );
 
+  // Calcular cuota esperada semanal
+  const totalDue = (loan.totalAmountDue != null)
+    ? loan.totalAmountDue
+    : ((loan.amountGived || 0) + (loan.profitAmount || 0));
+  const durationWeeks = loan.weekDuration || 16;
+  const expectedWeekly = durationWeeks > 0 ? (totalDue / durationWeeks) : 0;
+
   // Generar cronología semana por semana
   for (let week = 1; week <= totalWeeks; week++) {
     // Calcular la fecha de pago de esta semana (signDate + week * 7 días)
@@ -120,24 +134,38 @@ export const generatePaymentChronology = (loan: LoanData): PaymentChronologyItem
     weekEndDate.setDate(weekEndDate.getDate() + daysToSunday);
     weekEndDate.setHours(23, 59, 59, 999); // Final del domingo
     
+    // Calcular lunes y domingo para la semana
+    const weekMonday = new Date(weekPaymentDate);
+    {
+      const dayOfWeekMonday = weekMonday.getDay();
+      const daysToMonday = dayOfWeekMonday === 0 ? -6 : 1 - dayOfWeekMonday; // Lunes = 1
+      weekMonday.setDate(weekMonday.getDate() + daysToMonday);
+      weekMonday.setHours(0, 0, 0, 0);
+    }
+    const weekSunday = new Date(weekMonday);
+    weekSunday.setDate(weekSunday.getDate() + 6);
+    weekSunday.setHours(23, 59, 59, 999);
+
     // Buscar TODOS los pagos en esta semana (lunes a domingo)
     const paymentsInWeek = sortedPayments.filter((payment: any) => {
       const paymentDate = new Date(payment.receivedAt);
-      
-      // Calcular el lunes de la semana de pago
-      const weekMonday = new Date(weekPaymentDate);
-      const dayOfWeek = weekMonday.getDay();
-      const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // Lunes = 1
-      weekMonday.setDate(weekMonday.getDate() + daysToMonday);
-      weekMonday.setHours(0, 0, 0, 0);
-      
-      // Calcular el domingo de la semana de pago
-      const weekSunday = new Date(weekMonday);
-      weekSunday.setDate(weekSunday.getDate() + 6);
-      weekSunday.setHours(23, 59, 59, 999);
-      
       return paymentDate >= weekMonday && paymentDate <= weekSunday;
     });
+
+    // Calcular pagado antes de la semana y en la semana
+    const paidBeforeWeek = (loan.payments || []).reduce((sum, p) => {
+      const d = new Date(p.receivedAt).getTime();
+      return d < weekMonday.getTime() ? sum + (p.amount || 0) : sum;
+    }, 0);
+    const weeklyPaid = paymentsInWeek.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+    const expectedBefore = (week - 1) * expectedWeekly;
+    const surplusBefore = paidBeforeWeek - expectedBefore;
+    const coversWithSurplus = (surplusBefore + weeklyPaid) >= expectedWeekly && expectedWeekly > 0;
+    let coverageType: 'FULL' | 'COVERED_BY_SURPLUS' | 'PARTIAL' | 'MISS' = 'MISS';
+    if (weeklyPaid >= expectedWeekly) coverageType = 'FULL';
+    else if (coversWithSurplus && weeklyPaid > 0) coverageType = 'COVERED_BY_SURPLUS';
+    else if (coversWithSurplus && weeklyPaid === 0) coverageType = 'COVERED_BY_SURPLUS';
+    else if (weeklyPaid > 0) coverageType = 'PARTIAL';
 
     // Agregar todos los pagos encontrados en esta semana
     if (paymentsInWeek.length > 0) {
@@ -154,7 +182,13 @@ export const generatePaymentChronology = (loan: LoanData): PaymentChronologyItem
           paymentMethod: payment.paymentMethod,
           balanceBefore: payment.balanceBeforePayment,
           balanceAfter: payment.balanceAfterPayment,
-          paymentNumber: payment.paymentNumber || index + 1
+          paymentNumber: payment.paymentNumber || index + 1,
+          weekIndex: week,
+          weeklyExpected: expectedWeekly,
+          weeklyPaid,
+          surplusBefore,
+          surplusAfter: surplusBefore + weeklyPaid - expectedWeekly,
+          coverageType
         });
       });
     } else {
@@ -177,13 +211,24 @@ export const generatePaymentChronology = (loan: LoanData): PaymentChronologyItem
         !isFullyPaid;
       
       if (shouldShowNoPayment) {
+        // Determinar si la falta está cubierta por sobrepago previo
+        const coverageForNoPayment: 'FULL' | 'COVERED_BY_SURPLUS' | 'PARTIAL' | 'MISS' = (surplusBefore >= expectedWeekly && expectedWeekly > 0)
+          ? 'COVERED_BY_SURPLUS'
+          : 'MISS';
+        const desc = coverageForNoPayment === 'COVERED_BY_SURPLUS' ? 'Sin pago (cubierto por sobrepago)' : 'Sin pago';
         chronology.push({
           id: `no-payment-${week}`,
           date: weekPaymentDate.toISOString(),
           dateFormatted: formatDate(weekPaymentDate.toISOString()),
           type: 'NO_PAYMENT',
-          description: 'Sin pago',
-          weekCount: 1
+          description: desc,
+          weekCount: 1,
+          weekIndex: week,
+          weeklyExpected: expectedWeekly,
+          weeklyPaid: 0,
+          surplusBefore,
+          surplusAfter: surplusBefore - expectedWeekly,
+          coverageType: coverageForNoPayment
         });
       }
     }

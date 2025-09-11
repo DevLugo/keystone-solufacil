@@ -1060,6 +1060,27 @@ const HistorialClientePage: React.FC = () => {
                   overflowX: 'auto',
                   fontSize: isMobile ? '12px' : 'inherit'
                 }}>
+                  {/* Leyenda de colores por semana */}
+                  <div style={{
+                    display: 'flex',
+                    gap: '12px',
+                    alignItems: 'center',
+                    marginBottom: '8px',
+                    flexWrap: 'wrap'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ display: 'inline-block', width: 14, height: 14, backgroundColor: '#E0F2FE', border: '1px solid #bae6fd', borderRadius: 3 }} />
+                      <span style={{ fontSize: 12, color: '#334155' }}>Cubierto por sobrepago</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ display: 'inline-block', width: 14, height: 14, backgroundColor: '#FEF9C3', border: '1px solid #fde68a', borderRadius: 3 }} />
+                      <span style={{ fontSize: 12, color: '#334155' }}>Pago parcial</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ display: 'inline-block', width: 14, height: 14, backgroundColor: '#FEE2E2', border: '1px solid #fecaca', borderRadius: 3 }} />
+                      <span style={{ fontSize: 12, color: '#334155' }}>Falta (sin pago)</span>
+                    </div>
+                  </div>
                   <table style={{ 
                     width: '100%', 
                     borderCollapse: 'collapse', 
@@ -1234,10 +1255,20 @@ const HistorialClientePage: React.FC = () => {
                                           </tr>
                                         </thead>
                                         <tbody>
-                                          {chronology.map((item, index) => (
+                                          {chronology.map((item, index) => {
+                                            const bgColor = (() => {
+                                              if (item.coverageType === 'COVERED_BY_SURPLUS') return '#E0F2FE'; // azul claro
+                                              if (item.coverageType === 'PARTIAL') return '#FEF9C3'; // amarillo claro
+                                              if (item.coverageType === 'MISS' && item.type === 'NO_PAYMENT') return '#FEE2E2'; // rojo claro
+                                              if (item.coverageType === 'FULL') return 'white';
+                                              // fallback previo
+                                              return item.type === 'NO_PAYMENT' ? '#fed7e2' : 'white';
+                                            })();
+                                            const textColor = item.coverageType === 'MISS' && item.type === 'NO_PAYMENT' ? '#b91c1c' : '#2d3748';
+                                            return (
                                             <tr key={item.id} style={{ 
                                               borderBottom: '1px solid #e2e8f0',
-                                              backgroundColor: item.type === 'NO_PAYMENT' ? '#fed7e2' : 'white'
+                                              backgroundColor: bgColor
                                             }}>
                                               <td style={{ padding: '6px' }}>
                                                 {item.type === 'PAYMENT' ? (item.paymentNumber || index + 1) : '-'}
@@ -1245,10 +1276,15 @@ const HistorialClientePage: React.FC = () => {
                                               <td style={{ padding: '6px' }}>{item.dateFormatted}</td>
                                               <td style={{ 
                                                 padding: '6px',
-                                                color: item.type === 'NO_PAYMENT' ? '#e53e3e' : '#2d3748',
+                                                color: textColor,
                                                 fontWeight: item.type === 'NO_PAYMENT' ? '600' : 'normal'
                                               }}>
-                                                {item.type === 'NO_PAYMENT' ? '⚠️ Sin pago' : item.description}
+                                                {item.type === 'NO_PAYMENT' ? (item.description || '⚠️ Sin pago') : item.description}
+                                                {item.weeklyExpected != null && (
+                                                  <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                                                    Esperado: {formatCurrency(item.weeklyExpected || 0)} | Pagado: {formatCurrency(item.weeklyPaid || 0)} | Excedente previo: {formatCurrency(item.surplusBefore || 0)}
+                                                  </div>
+                                                )}
                                               </td>
                                               <td style={{ 
                                                 padding: '6px', 
@@ -1275,7 +1311,7 @@ const HistorialClientePage: React.FC = () => {
                                                 {item.type === 'PAYMENT' ? formatCurrency(item.balanceAfter || 0) : '-'}
                                               </td>
                                             </tr>
-                                          ))}
+                                          )})}
                                         </tbody>
                                       </table>
                                     </div>
