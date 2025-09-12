@@ -1,4 +1,5 @@
-/** @jsxRuntime automatic */
+/** @jsxRuntime classic */
+/** @jsx jsx */
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { gql, useQuery, useMutation, useLazyQuery } from '@apollo/client';
@@ -296,6 +297,24 @@ const MARK_LOAN_AS_DECEASED = gql`
   }
 `;
 
+const UNMARK_LOAN_AS_DECEASED = gql`
+  mutation UnmarkLoanAsDeceased($loanId: ID!) {
+    updateLoan(
+      where: { id: $loanId }
+      data: {
+        isDeceased: false
+        finishedDate: null
+        badDebtDate: null
+      }
+    ) {
+      id
+      isDeceased
+      finishedDate
+      badDebtDate
+    }
+  }
+`;
+
 type Lead = {
   id: string;
   personalData: {
@@ -488,6 +507,9 @@ export const CreatePaymentForm = ({
   // Estado para trackear pagos nuevos tachados (por índice)
   const [strikethroughNewPaymentIndices, setStrikethroughNewPaymentIndices] = useState<number[]>([]);
 
+  // Estado para recordar valores previos por pago (para restaurar tras deshacer deceso)
+  const [previousValuesByPaymentId, setPreviousValuesByPaymentId] = useState<Record<string, { amount: number; comission: number }>>({});
+
   // Estados para el menú de 3 puntos y modal de deceso
   const [showMenuForPayment, setShowMenuForPayment] = useState<string | null>(null);
   const [deceasedModal, setDeceasedModal] = useState<{
@@ -506,6 +528,22 @@ export const CreatePaymentForm = ({
   const updateState = (updates: Partial<typeof state>) => {
     setState(prev => ({ ...prev, ...updates }));
   };
+
+  // Cerrar menú de 3 puntos al hacer click fuera o presionar ESC
+  useEffect(() => {
+    if (!showMenuForPayment) return;
+    const handleClickOutside = () => setShowMenuForPayment(null);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowMenuForPayment(null);
+    };
+    // Usar bubbling (no capture) para evitar cancelar clicks internos del menú
+    document.addEventListener('click', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('click', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showMenuForPayment]);
 
   const { data: paymentsData, loading: paymentsLoading, refetch: refetchPayments } = useQuery(GET_LEAD_PAYMENTS, {
     variables: {
@@ -603,6 +641,7 @@ export const CreatePaymentForm = ({
   const [updateLoanPayment, { loading: updateLoanPaymentLoading }] = useMutation(UPDATE_LOAN_PAYMENT);
   const [createFalcoPayment, { loading: falcoPaymentLoading }] = useMutation(CREATE_FALCO_PAYMENT);
   const [markLoanAsDeceased, { loading: markDeceasedLoading }] = useMutation(MARK_LOAN_AS_DECEASED);
+  const [unmarkLoanAsDeceased, { loading: unmarkDeceasedLoading }] = useMutation(UNMARK_LOAN_AS_DECEASED);
 
   // Estado para controlar loading general de guardado
   const [isSaving, setIsSaving] = useState(false);
@@ -616,10 +655,30 @@ export const CreatePaymentForm = ({
     const payment = existingPayments.find(p => p.id === paymentId);
     if (!payment) return;
 
-    const updatedPayment = {
+    // Utilidad para calcular comisión dinámica según monto vs esperado
+    const computeDynamicCommission = (loanId: string | undefined, amountNum: number): number => {
+      if (!loanId || !loansData?.loans) return 0;
+      const loan = loansData.loans.find(l => l.id === loanId);
+      if (!loan) return 0;
+      const expectedWeekly = parseFloat(loan.weeklyPaymentAmount || '0');
+      const baseCommission = Math.round(parseFloat(loan.loantype?.loanPaymentComission || '0')) || 0;
+      if (!expectedWeekly || !baseCommission) return 0;
+      if (!isFinite(amountNum) || amountNum <= 0) return 0;
+      const multiplier = Math.floor(amountNum / expectedWeekly);
+      return multiplier >= 1 ? baseCommission * multiplier : 0;
+    };
+
+    let updatedPayment: any = {
       ...payment,
       [field]: value
     };
+
+    // Si se actualiza el monto, recalcular la comisión dinámicamente
+    if (field === 'amount') {
+      const amountNum = parseFloat(String(value) || '0');
+      const loanId = (payment as any).loan?.id || (payment as any).loanId;
+      updatedPayment.comission = computeDynamicCommission(loanId, amountNum);
+    }
 
     setState(prev => ({
       ...prev,
@@ -737,12 +796,71 @@ export const CreatePaymentForm = ({
       
       // Marcar el préstamo como deceso en el estado local
       setDeceasedLoanIds(prev => new Set([...prev, deceasedModal.loanId!]));
+
+      // Guardar valores previos y poner amount/comisión = 0 en filas asociadas (vista actual)
+      setState(prev => {
+        const updatedEdited = { ...prev.editedPayments } as Record<string, any>;
+        const updatedPrev: Record<string, { amount: number; comission: number }> = { ...previousValuesByPaymentId };
+        (prev.existingPayments || []).forEach((p: any) => {
+          const loanId = p.loan?.id || p.loanId;
+          if (loanId === deceasedModal.loanId && p.id) {
+            const base = prev.editedPayments[p.id] || p;
+            // Guardar solo una vez
+            if (!updatedPrev[p.id]) {
+              updatedPrev[p.id] = { amount: parseFloat(base.amount), comission: parseFloat(base.comission) };
+            }
+            updatedEdited[p.id] = { ...base, amount: 0, comission: 0 };
+          }
+        });
+        setPreviousValuesByPaymentId(updatedPrev);
+        return { ...prev, editedPayments: updatedEdited } as any;
+      });
       
       setDeceasedModal({ isOpen: false, loanId: null, clientName: '' });
       alert('Préstamo marcado como deceso exitosamente');
     } catch (error) {
       console.error('Error marcando como deceso:', error);
       alert('Error al procesar el deceso');
+    }
+  };
+
+  const handleUnmarkAsDeceased = async (loanId: string) => {
+    try {
+      await unmarkLoanAsDeceased({ variables: { loanId } });
+      setDeceasedLoanIds(prev => {
+        const copy = new Set(prev);
+        copy.delete(loanId);
+        return copy;
+      });
+
+      // Restaurar valores previos amount/comission para pagos de este préstamo
+      setState(prev => {
+        const updatedEdited = { ...prev.editedPayments } as Record<string, any>;
+        (prev.existingPayments || []).forEach((p: any) => {
+          const id = p.id;
+          const loan = p.loan?.id || p.loanId;
+          if (loan === loanId && id && previousValuesByPaymentId[id]) {
+            const base = prev.editedPayments[id] || p;
+            const prevVals = previousValuesByPaymentId[id];
+            updatedEdited[id] = { ...base, amount: prevVals.amount, comission: prevVals.comission };
+          }
+        });
+        return { ...prev, editedPayments: updatedEdited } as any;
+      });
+      // Limpiar cache previo de sólo los pagos de este préstamo
+      setPreviousValuesByPaymentId(prev => {
+        const copy = { ...prev };
+        (state.existingPayments || []).forEach((p: any) => {
+          const id = p.id;
+          const loan = p.loan?.id || p.loanId;
+          if (loan === loanId && id && copy[id]) delete copy[id];
+        });
+        return copy;
+      });
+      alert('Marcación de deceso eliminada');
+    } catch (error) {
+      console.error('Error revirtiendo deceso:', error);
+      alert('No se pudo eliminar la marcación de deceso');
     }
   };
 
@@ -900,9 +1018,12 @@ export const CreatePaymentForm = ({
       const totalPaid = cashPaidAmount + bankPaidAmount;
       
       // Calcular el total esperado
-      const expectedAmount = payments.length > 0
-        ? payments
-            .filter((_, index) => !strikethroughNewPaymentIndices.includes(index))
+      const filteredNewPayments = payments
+        .filter((p, index) => !strikethroughNewPaymentIndices.includes(index))
+        .filter(p => (parseFloat(p.amount || '0') !== 0 || parseFloat(p.comission?.toString() || '0') !== 0));
+
+      const expectedAmount = filteredNewPayments.length > 0
+        ? filteredNewPayments
             .reduce((sum, payment) => sum + parseFloat(payment.amount || '0'), 0)
         : state.groupedPayments 
           ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0
@@ -914,7 +1035,7 @@ export const CreatePaymentForm = ({
       }
 
       // Si hay pagos nuevos, crear un nuevo LeadPaymentReceived
-      if (payments.length > 0) {
+      if (filteredNewPayments.length > 0) {
         await createCustomLeadPaymentReceived({
           variables: {
             expectedAmount,
@@ -923,8 +1044,7 @@ export const CreatePaymentForm = ({
             agentId: selectedLead.id,
             leadId: selectedLead.id,
             paymentDate: selectedDate.toISOString(),
-            payments: payments
-              .filter((_, index) => !strikethroughNewPaymentIndices.includes(index))
+            payments: filteredNewPayments
               .map(payment => ({
                 amount: parseFloat(payment.amount),
                 comission: parseFloat(payment.comission.toString()),
@@ -941,16 +1061,23 @@ export const CreatePaymentForm = ({
         for (const [leadPaymentId, data] of Object.entries(state.groupedPayments)) {
           const { payments, paymentDate } = data;
           const { cashPaidAmount, bankPaidAmount, falcoAmount } = loadPaymentDistribution;
+          // Limpiar pagos 0/0 antes de enviar actualización
+          const cleanedPayments = (payments as any[]).filter((p: any) => {
+            const amt = parseFloat(p.amount || '0');
+            const com = parseFloat(p.comission?.toString() || '0');
+            return !(amt === 0 && com === 0);
+          });
+          const cleanedExpected = cleanedPayments.reduce((sum: number, p: any) => sum + parseFloat(p.amount || '0'), 0);
 
           await updateCustomLeadPaymentReceived({
             variables: {
               id: leadPaymentId,
-              expectedAmount: data.expectedAmount,
+              expectedAmount: cleanedExpected,
               cashPaidAmount,
               bankPaidAmount,
               falcoAmount,
               paymentDate,
-              payments
+              payments: cleanedPayments
             }
           });
         }
@@ -1103,6 +1230,24 @@ export const CreatePaymentForm = ({
       (newPayments[index][field] as unknown as string) = value;
     } else {
       (newPayments[index][field] as any) = value;
+      // Reglas de comisión dinámica según monto vs pago esperado
+      if (field === 'amount') {
+        const amt = parseFloat(String(value) || '0');
+        const loanId = newPayments[index].loanId;
+        if (loanId && loansData?.loans) {
+          const loan = loansData.loans.find(l => l.id === loanId);
+          const expectedWeekly = loan ? parseFloat(loan.weeklyPaymentAmount || '0') : 0;
+          const baseCommission = loan ? Math.round(parseFloat(loan.loantype?.loanPaymentComission || '0')) || 0 : 0;
+          if (!expectedWeekly || !baseCommission || !isFinite(amt) || amt <= 0) {
+            (newPayments[index].comission as any) = 0;
+          } else {
+            const multiplier = Math.floor(amt / expectedWeekly);
+            (newPayments[index].comission as any) = multiplier >= 1 ? baseCommission * multiplier : 0;
+          }
+        } else {
+          (newPayments[index].comission as any) = 0;
+        }
+      }
     }
     updateState({ payments: newPayments });
   };
@@ -1613,50 +1758,12 @@ export const CreatePaymentForm = ({
             borderColor: '#D1FAE5'
           }
         ]}
-        buttons={[
-          {
-            label: 'Reportar Falco',
-            onClick: () => updateState({ isCreateFalcoModalOpen: true }),
-            tone: 'active' as const,
-            icon: <span>⚠️</span>
-          },
-          {
-            label: 'Guardar Cambios',
-            onClick: () => updateState({ isModalOpen: true }),
-            tone: 'positive' as const,
-            loading: updateLoading
-          }
-        ]}
-        dateMover={{
-          type: 'payments',
-          selectedDate,
-          selectedLead,
-          onSuccess: async () => {
-            setState(prev => ({ 
-              ...prev,
-              payments: [],
-              editedPayments: {},
-              isEditing: false,
-              groupedPayments: undefined,
-              existingPayments: []
-            }));
-            setStrikethroughPaymentIds([]);
-            setStrikethroughNewPaymentIndices([]);
-            try {
-              await Promise.all([
-                refetchPayments(),
-                refetchMigratedPayments(),
-                refetchFalcos()
-              ]);
-              if (onSaveComplete) {
-                onSaveComplete();
-              }
-            } catch (error) {
-              console.error('Error al recargar datos después de mover pagos:', error);
-            }
-          },
-          itemCount: existingPayments.filter(p => !strikethroughPaymentIds.includes(p.id)).length,
-          label: `pago(s)`
+        primaryMenu={{
+          onSave: () => updateState({ isModalOpen: true }),
+          onReportFalco: () => updateState({ isCreateFalcoModalOpen: true }),
+          onMove: () => updateState({ isModalOpen: true }),
+          saving: updateLoading,
+          disabled: false
         }}
         massCommission={payments.length > 0 ? {
           value: massCommission,
@@ -2257,7 +2364,7 @@ export const CreatePaymentForm = ({
                         <Button
                           tone="passive"
                           size="small"
-                          onClick={() => setShowMenuForPayment(`new-${index}`)}
+                          onClick={(e) => { e.stopPropagation(); setShowMenuForPayment(`new-${index}`); }}
                           style={{ padding: '4px' }}
                           isDisabled={isDeceased}
                         >
@@ -2276,34 +2383,64 @@ export const CreatePaymentForm = ({
                             zIndex: 1000,
                             minWidth: '180px'
                           }}>
-                            <button
-                              onClick={() => {
-                                const selectedLoan = loansData?.loans?.find(loan => loan.id === payment.loanId);
-                                setDeceasedModal({
-                                  isOpen: true,
-                                  loanId: payment.loanId || '',
-                                  clientName: selectedLoan?.borrower?.personalData?.fullName || 'Cliente'
-                                });
-                                setShowMenuForPayment(null);
-                              }}
-                              style={{
-                                width: '100%',
-                                padding: '10px 12px',
-                                border: 'none',
-                                backgroundColor: 'transparent',
-                                textAlign: 'left',
-                                cursor: 'pointer',
-                                fontSize: '14px',
-                                color: '#dc2626',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px'
-                              }}
-                              onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#fef2f2'}
-                              onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
-                            >
-                              💀 Registrar deceso
-                            </button>
+                            {!isDeceased ? (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const selectedLoan = loansData?.loans?.find(loan => loan.id === (payment.loanId || payment.loan?.id));
+                                  setDeceasedModal({
+                                    isOpen: true,
+                                    loanId: (payment.loanId || payment.loan?.id || ''),
+                                    clientName: selectedLoan?.borrower?.personalData?.fullName || 'Cliente'
+                                  });
+                                  setShowMenuForPayment(null);
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '10px 12px',
+                                  border: 'none',
+                                  backgroundColor: 'transparent',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  color: '#dc2626',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px'
+                                }}
+                                onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#fef2f2'}
+                                onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
+                              >
+                                💀 Registrar deceso
+                              </button>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const loanId = (payment.loanId || payment.loan?.id || '');
+                                  if (!loanId) return;
+                                  handleUnmarkAsDeceased(loanId);
+                                  setShowMenuForPayment(null);
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '10px 12px',
+                                  border: 'none',
+                                  backgroundColor: 'transparent',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  color: '#2563eb',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px'
+                                }}
+                                onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#eff6ff'}
+                                onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
+                              >
+                                ↩️ Deshacer deceso
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
