@@ -85,7 +85,12 @@ export default withAuth(
         origin: ['http://localhost:3000'],
         credentials: true,
       },
-      extendExpressApp: extendExpressApp,
+      extendExpressApp: (app) => {
+        // Servir archivos estáticos desde la carpeta public
+        app.use(express.static('public'));
+        // Llamar a la función extendExpressApp original
+        extendExpressApp(app);
+      },
     },
 
   })
