@@ -1183,7 +1183,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
             // Manejo específico para error de Prisma P2028
             if (error instanceof Error && 'code' in error && error.code === 'P2028') {
               throw new Error(
-                'Timeout de transacción: La operación excedió el tiempo límite de 30 segundos. ' +
+                'Timeout de transacción: La operación excedió el tiempo límite de 45 segundos. ' +
                 'Esto puede deberse a la latencia de red con el servidor de base de datos.'
               );
             }
@@ -1204,8 +1204,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
           payments: graphql.arg({ type: graphql.nonNull(graphql.list(graphql.nonNull(PaymentInputType))) }),
         },
         resolve: async (root, { id, expectedAmount, cashPaidAmount = 0, bankPaidAmount = 0, paymentDate, payments }, context: Context): Promise<LeadPaymentReceivedResponse> => {
-          // Usar transacción para garantizar atomicidad y optimizar performance
-          return await context.prisma.$transaction(async (tx) => {
+          try {
+            // Usar transacción para garantizar atomicidad y optimizar performance
+            return await context.prisma.$transaction(async (tx) => {
             cashPaidAmount = cashPaidAmount ?? 0;
             bankPaidAmount = bankPaidAmount ?? 0;
             const totalPaidAmount = cashPaidAmount + bankPaidAmount;
@@ -1389,7 +1390,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
             let newBankAmountChange = 0;
 
             if (payments.length > 0) {
-              // Crear pagos en lote
               const paymentData = payments.map(payment => ({
                 amount: payment.amount.toFixed(2),
                 comission: payment.comission.toFixed(2),
@@ -1407,6 +1407,14 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 where: { leadPaymentReceivedId: leadPaymentReceived.id }
               });
 
+              // OPTIMIZADO: Obtener todos los datos necesarios en una sola consulta
+              const loanIds = createdPaymentRecords.map(p => p.loanId);
+              const loans = await tx.loan.findMany({
+                where: { id: { in: loanIds } },
+                include: { loantype: true }
+              });
+              const loanMap = new Map(loans.map(loan => [loan.id, loan]));
+
               // Crear las transacciones manualmente en lote
               const transactionData = [];
 
@@ -1415,17 +1423,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 const commissionAmount = parseFloat((payment.comission || 0).toString());
                 const totalAmount = paymentAmount + commissionAmount; // ✅ INCLUIR comisión
 
-                // Obtener datos del préstamo para calcular returnToCapital y profitAmount
-                const loan = await tx.loan.findUnique({
-                  where: { id: payment.loanId },
-                  include: { loantype: true }
-                });
-
-                // Obtener el líder para obtener su routeId
-                const lead = await tx.employee.findUnique({
-                  where: { id: leadId },
-                  include: { routes: true }
-                });
+                // Usar el mapa en lugar de consulta individual
+                const loan = loanMap.get(payment.loanId);
 
                 let returnToCapital = 0;
                 let profitAmount = 0;
@@ -1715,8 +1714,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
             const finalPayments = await tx.loanPayment.findMany({
               where: { leadPaymentReceivedId: id }
             });
-            console.log('🔍 UPDATE: Estado final - Pagos restantes:', finalPayments.length);
-            console.log('🔍 UPDATE: Estado final - IDs de pagos:', finalPayments.map(p => p.id));
+            console.log('🔍 UPDATE: Estado final - Pagos restantes:', Array.isArray(finalPayments) ? finalPayments.length : 'No es array');
+            console.log('🔍 UPDATE: Estado final - IDs de pagos:', Array.isArray(finalPayments) ? finalPayments.map(p => p.id) : 'No es array');
 
             return {
               id: leadPaymentReceived.id,
@@ -1738,7 +1737,37 @@ export const extendGraphqlSchema = graphql.extend(base => {
               agentId,
               leadId,
             };
+          }, {
+            timeout: 45000 // 45 segundos de timeout de transacción (fallback generoso)
           });
+          } catch (error) {
+            console.error('❌ ERROR en updateCustomLeadPaymentReceived:', {
+              error: error instanceof Error ? error.message : error,
+              stack: error instanceof Error ? error.stack : undefined,
+              id,
+              expectedAmount,
+              paymentDate,
+              paymentsCount: payments?.length || 0
+            });
+            
+            // Manejo específico para error de timeout de transacción
+            if (error instanceof Error && error.message.includes('Transaction already closed')) {
+              throw new Error(
+                'La operación tardó demasiado tiempo debido a la latencia del servidor. ' +
+                'Por favor, intente procesar menos pagos a la vez o contacte al administrador.'
+              );
+            }
+            
+            // Manejo específico para error de Prisma P2028
+            if (error instanceof Error && 'code' in error && error.code === 'P2028') {
+              throw new Error(
+                'Timeout de transacción: La operación excedió el tiempo límite de 45 segundos. ' +
+                'Esto puede deberse a la latencia de red con el servidor de base de datos.'
+              );
+            }
+            
+            throw error;
+          }
         },
       }),
       createPortfolioCleanupAndExcludeLoans: graphql.field({

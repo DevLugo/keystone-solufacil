@@ -1885,7 +1885,15 @@ export const CreatePaymentForm = ({
           }
         ]}
         primaryMenu={{
-          onSave: () => updateState({ isModalOpen: true }),
+          onSave: () => {
+            // Adaptativo: Si hay pagos existentes (modo edición), guardar directamente
+            // Si no hay pagos existentes (modo creación), abrir modal
+            if (existingPayments.length > 0) {
+              handleSaveAllChanges();
+            } else {
+              updateState({ isModalOpen: true });
+            }
+          },
           onReportFalco: () => updateState({ isCreateFalcoModalOpen: true }),
           onMove: () => updateState({ isModalOpen: true }),
           saving: updateLoading,
@@ -1921,48 +1929,88 @@ export const CreatePaymentForm = ({
         <Box padding="large">
           {/* Eliminado: Panel de comisión masiva - ahora integrado en la barra de KPIs */}
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 style={{ margin: 0, fontSize: '18px', color: '#333' }}>Todos los Abonos</h3>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              {isEditing ? (
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <Button
-                    tone="negative"
-                    weight="bold"
-                    onClick={() => {
-                      setState(prev => ({ ...prev, editedPayments: {}, isEditing: false }));
-                      setStrikethroughPaymentIds([]); // Resetear tachados al cancelar
-                      setStrikethroughNewPaymentIndices([]); // Resetear tachados nuevos al cancelar
-                    }}
-                  >
-                    Cancelar
-                  </Button>
-                  <Button
-                    tone="negative"
-                    weight="bold"
-                    onClick={() => {
-                      // Marcar TODOS los pagos existentes como eliminados
-                      const allExistingPaymentIds = existingPayments
-                        .filter((payment: any) => !payment.isMigrated)
-                        .map((payment: any) => payment.id);
-                      setStrikethroughPaymentIds(allExistingPaymentIds);
-                      console.log('🗑️ Marcando todos los pagos existentes como eliminados:', allExistingPaymentIds);
-                    }}
-                    style={{ backgroundColor: '#DC2626', color: 'white', fontSize: FONT_SYSTEM.small, padding: '4px 8px', height: '28px' }}
-                  >
-                    Eliminar Todos (Existentes)
-                  </Button>
-                  <Button
-                    tone="positive"
-                    weight="bold"
-                    onClick={handleSaveAllChanges}
-                    isLoading={updateLoading}
-                    style={{ fontSize: FONT_SYSTEM.small, padding: PADDING_SYSTEM.small, height: HEIGHT_SYSTEM.small }}
-                  >
-                    Guardar Cambios
-                  </Button>
-                </div>
-              ) : (
+          {/* Contenedor principal con indicador de modo de edición */}
+          <div style={{
+            backgroundColor: isEditing ? '#FEF3C7' : 'transparent',
+            border: isEditing ? '2px solid #F59E0B' : 'none',
+            borderRadius: isEditing ? '12px' : '0',
+            padding: isEditing ? '16px' : '0',
+            marginBottom: '16px',
+            transition: 'all 0.3s ease'
+          }}>
+            {/* Header con indicador de modo de edición */}
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              marginBottom: '16px' 
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <h3 style={{ margin: 0, fontSize: '18px', color: '#333' }}>Todos los Abonos</h3>
+                {isEditing && (
+                  <span style={{ 
+                    fontSize: '14px', 
+                    fontWeight: '600', 
+                    color: '#92400E',
+                    backgroundColor: '#F59E0B',
+                    color: 'white',
+                    padding: '4px 12px',
+                    borderRadius: '20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}>
+                    ✏️ Modo Edición
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {isEditing ? (
+                  <>
+                    <Button
+                      tone="passive"
+                      weight="bold"
+                      onClick={() => {
+                        setState(prev => ({ ...prev, editedPayments: {}, isEditing: false }));
+                        setStrikethroughPaymentIds([]); // Resetear tachados al cancelar
+                        setStrikethroughNewPaymentIndices([]); // Resetear tachados nuevos al cancelar
+                      }}
+                      style={{ 
+                        fontSize: FONT_SYSTEM.small, 
+                        padding: PADDING_SYSTEM.small, 
+                        height: HEIGHT_SYSTEM.small,
+                        fontWeight: '700',
+                        backgroundColor: '#6B7280',
+                        color: 'white',
+                        border: 'none'
+                      }}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button
+                      tone="negative"
+                      weight="bold"
+                      onClick={() => {
+                        // Marcar TODOS los pagos existentes como eliminados
+                        const allExistingPaymentIds = existingPayments
+                          .filter((payment: any) => !payment.isMigrated)
+                          .map((payment: any) => payment.id);
+                        setStrikethroughPaymentIds(allExistingPaymentIds);
+                        console.log('🗑️ Marcando todos los pagos existentes como eliminados:', allExistingPaymentIds);
+                      }}
+                      style={{ 
+                        backgroundColor: '#DC2626', 
+                        color: 'white', 
+                        fontSize: FONT_SYSTEM.small, 
+                        padding: PADDING_SYSTEM.small, 
+                        height: HEIGHT_SYSTEM.small,
+                        fontWeight: '700'
+                      }}
+                    >
+                      Eliminar Todos
+                    </Button>
+                  </>
+                ) : (
                 <>
                   {/* Solo mostrar botones si hay pagos existentes */}
                   {existingPayments.length > 0 && (
@@ -1971,6 +2019,12 @@ export const CreatePaymentForm = ({
                         tone="active"
                         weight="bold"
                         onClick={() => setState(prev => ({ ...prev, isEditing: true }))}
+                        style={{ 
+                          fontSize: FONT_SYSTEM.small, 
+                          padding: PADDING_SYSTEM.small, 
+                          height: HEIGHT_SYSTEM.small, 
+                          fontWeight: '700'
+                        }}
                       >
                         Editar Abonos
                       </Button>
@@ -1987,7 +2041,14 @@ export const CreatePaymentForm = ({
                             setStrikethroughPaymentIds(allExistingPaymentIds);
                             console.log('🗑️ Marcando todos los pagos existentes como eliminados:', allExistingPaymentIds);
                           }}
-                          style={{ backgroundColor: '#DC2626', color: 'white', fontSize: FONT_SYSTEM.small, padding: '4px 8px', height: '28px' }}
+                          style={{ 
+                            backgroundColor: '#DC2626', 
+                            color: 'white', 
+                            fontSize: FONT_SYSTEM.small, 
+                            padding: PADDING_SYSTEM.small, 
+                            height: HEIGHT_SYSTEM.small,
+                            fontWeight: '700'
+                          }}
                         >
                           Eliminar Todos (Existentes)
                         </Button>
@@ -1999,7 +2060,12 @@ export const CreatePaymentForm = ({
                     size="medium"
                     weight="bold"
                     onClick={handleAddPayment}
-                    style={{ fontSize: FONT_SYSTEM.small, padding: '4px 8px', height: '28px' }}
+                    style={{ 
+                      fontSize: FONT_SYSTEM.small, 
+                      padding: PADDING_SYSTEM.small, 
+                      height: HEIGHT_SYSTEM.small,
+                      fontWeight: '700'
+                    }}
                   >
                     <FaPlus size={12} style={{ marginRight: '8px' }} />
                     Agregar Pago
@@ -2032,10 +2098,10 @@ export const CreatePaymentForm = ({
                         style={{ 
                           backgroundColor: allMarkedForDeletion ? '#059669' : '#DC2626', 
                           color: 'white',
-                           
                           fontSize: FONT_SYSTEM.small, 
-                          padding: '4px 8px', 
-                          height: '28px'
+                          padding: PADDING_SYSTEM.small, 
+                          height: HEIGHT_SYSTEM.small,
+                          fontWeight: '700'
                         }}
                       >
                         {allMarkedForDeletion ? 'Desmarcar Todos (Nuevos)' : 'Eliminar Todos (Nuevos)'}
@@ -2606,6 +2672,7 @@ export const CreatePaymentForm = ({
               })}
             </tbody>
           </table>
+          </div> {/* Cierre del contenedor del modo de edición */}
         </Box>
       </Box>
 
