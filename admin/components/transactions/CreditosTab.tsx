@@ -24,6 +24,43 @@ import { calculateAmountToPay, calculatePendingAmountSimple, processLoansWithCal
 import KPIBar from './KPIBar';
 import { useBalanceRefresh } from '../../hooks/useBalanceRefresh';
 
+// Estilos unificados para inputs
+const UNIFIED_INPUT_STYLES = {
+  height: '32px',
+  fontSize: '12px',
+  padding: '6px 8px',
+  border: '1px solid #D1D5DB',
+  borderRadius: '4px',
+  backgroundColor: '#FFFFFF',
+  transition: 'all 0.3s ease',
+  width: '100%',
+  boxSizing: 'border-box',
+  lineHeight: '1.2'
+};
+
+const UNIFIED_SELECT_STYLES = {
+  control: (base: any) => ({ 
+    ...base, 
+    fontSize: '12px', 
+    minHeight: '32px',
+    height: '32px',
+    border: '1px solid #D1D5DB',
+    borderRadius: '4px',
+    backgroundColor: '#FFFFFF',
+    transition: 'all 0.3s ease',
+    boxSizing: 'border-box'
+  }),
+  container: (base: any) => ({ ...base, width: '100%' }),
+  menuPortal: (base: any) => ({ ...base, zIndex: 9999 })
+};
+
+const UNIFIED_CONTAINER_STYLES = {
+  height: '40px',
+  display: 'flex',
+  alignItems: 'flex-end',
+  transition: 'all 0.3s ease'
+};
+
 // Interfaz extendida para incluir información de collateral
 interface ExtendedLoan extends Partial<Loan> {
   selectedCollateralId?: string;
@@ -1326,7 +1363,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                 return (
                   <tr key={loan.id} style={{ backgroundColor: isNewRow ? 'white' : '#ECFDF5' }}>
                     <td style={tableCellStyle}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', height: '40px', justifyContent: 'flex-end' }}>
                             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#6B7280' }}>
                                 <input
                                     type="checkbox"
@@ -1356,11 +1393,10 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                             <div style={{
                                 minWidth: isPreviousLoanFocused[loan.id] ? '250px' : '150px',
                                 maxWidth: isPreviousLoanFocused[loan.id] ? '350px' : '250px',
-                                transition: 'all 0.3s ease',
-                                height: '40px',
+                                height: '32px',
                                 display: 'flex',
-                                flexDirection: 'column',
-                                justifyContent: 'flex-end'
+                                alignItems: 'center',
+                                transition: 'all 0.3s ease'
                             }}>
                         <Select
                                     placeholder={(searchAllLeadersByRow[loan.id] || false) ? "Escribe para buscar en todos los líderes..." : "Renovación..."}
@@ -1453,9 +1489,13 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                         }
                                     }}
                                     styles={{ 
-                                        container: (base) => ({ ...base, flex: 1, width: '100%' }), 
-                                    control: (base) => ({ ...base, fontSize: '11px', minHeight: '32px' }), 
-                                        menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                                        ...UNIFIED_SELECT_STYLES,
+                                        control: (base) => ({ 
+                                            ...base, 
+                                            ...UNIFIED_SELECT_STYLES.control(base),
+                                            height: '32px !important',
+                                            minHeight: '32px !important'
+                                        }),
                                         menu: (base) => ({ ...base, minWidth: '400px', maxWidth: '500px' })
                                     }}
                                 />
@@ -1466,10 +1506,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                         <div style={{
                             minWidth: isLoanTypeFocused[loan.id] ? '250px' : '150px',
                             maxWidth: isLoanTypeFocused[loan.id] ? '350px' : '250px',
-                            transition: 'all 0.3s ease',
-                            height: '40px',
-                            display: 'flex',
-                            alignItems: 'flex-end'
+                            ...UNIFIED_CONTAINER_STYLES
                         }}>
                         <Select
                             placeholder="Tipo..."
@@ -1544,15 +1581,19 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                     }
                                 }}
                                 styles={{ 
-                                    container: (base) => ({ ...base, width: '100%' }), 
-                                    control: (base) => ({ ...base, fontSize: '11px', minHeight: '32px' }), 
-                                    menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                                    ...UNIFIED_SELECT_STYLES,
+                                    control: (base) => ({ 
+                                        ...base, 
+                                        ...UNIFIED_SELECT_STYLES.control(base),
+                                        height: '32px !important',
+                                        minHeight: '32px !important'
+                                    }),
                                     menu: (base) => ({ ...base, minWidth: '300px', maxWidth: '400px' })
                                 }}
                             />
                         </div>
                     </td>
-                    <td style={{...tableCellStyle, minWidth: '200px', maxWidth: '300px', height: '50px', display: 'flex', alignItems: 'flex-end', padding: '0px'}}>
+                    <td style={{...tableCellStyle, minWidth: '200px', maxWidth: '300px', height: '60px', display: 'flex', alignItems: 'flex-end', padding: '0px'}}>
                          <ClientDropdown
                             key={loan.id} loanId={loan.id}
                             currentClientName={loan.borrower?.personalData?.fullName || ''}
@@ -1568,10 +1609,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                         <div style={{
                             minWidth: isRequestedAmountFocused[loan.id] ? '120px' : '100px',
                             maxWidth: isRequestedAmountFocused[loan.id] ? '180px' : '150px',
-                            transition: 'all 0.3s ease',
-                            height: '40px',
-                            display: 'flex',
-                            alignItems: 'flex-end'
+                            ...UNIFIED_CONTAINER_STYLES
                         }}>
                         <TextInput
                             placeholder="0.00" value={loan.requestedAmount || ''}
@@ -1588,15 +1626,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                         [loan.id]: false
                                     }));
                                 }}
-                                style={{ 
-                                    width: '100%', 
-                                    fontSize: '11px',
-                                    padding: '6px 8px',
-                                    border: '1px solid #D1D5DB',
-                                    borderRadius: '4px',
-                                    backgroundColor: '#FFFFFF',
-                                    height: '32px'
-                                }} 
+                                style={UNIFIED_INPUT_STYLES} 
                                 type="number" step="0.01"
                             />
                         </div>
@@ -1605,20 +1635,14 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                         <div style={{
                             minWidth: '120px',
                             maxWidth: '180px',
-                            transition: 'all 0.3s ease',
-                            height: '40px',
-                            display: 'flex',
-                            alignItems: 'flex-end',
+                            ...UNIFIED_CONTAINER_STYLES,
                             position: 'relative'
                         }}>
                         <TextInput
                             placeholder="0.00" value={loan.amountGived || ''} readOnly
                                 style={{ 
-                                    width: '100%',
-                                    fontSize: '12px',
+                                    ...UNIFIED_INPUT_STYLES,
                                     padding: '6px 30px 6px 8px',
-                                    border: '1px solid #D1D5DB',
-                                    borderRadius: '4px',
                                     backgroundColor: '#F3F4F6', 
                                     cursor: 'not-allowed',
                                     color: '#6B7280'
@@ -1685,10 +1709,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                         <div style={{
                             minWidth: isCommissionFocused[loan.id] ? '120px' : '100px',
                             maxWidth: isCommissionFocused[loan.id] ? '180px' : '150px',
-                            transition: 'all 0.3s ease',
-                            height: '40px',
-                            display: 'flex',
-                            alignItems: 'flex-end'
+                            ...UNIFIED_CONTAINER_STYLES
                         }}>
                         <TextInput
                             placeholder="0.00" value={loan.comissionAmount || ''}
@@ -1705,20 +1726,12 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                         [loan.id]: false
                                     }));
                                 }}
-                                style={{ 
-                                    width: '100%', 
-                                    fontSize: '11px',
-                                    padding: '6px 8px',
-                                    border: '1px solid #D1D5DB',
-                                    borderRadius: '4px',
-                                    backgroundColor: '#FFFFFF',
-                                    height: '32px'
-                                }} 
+                                style={UNIFIED_INPUT_STYLES} 
                                 type="number" step="0.01"
                             />
                         </div>
                     </td>
-                    <td style={{...tableCellStyle, minWidth: '300px', maxWidth: '400px', height: '50px', display: 'flex', alignItems: 'flex-end'}}>
+                    <td style={{...tableCellStyle, minWidth: '300px', maxWidth: '400px', height: '60px', display: 'flex', alignItems: 'flex-end'}}>
                         <AvalDropdown
                            loanId={loan.id}
                            currentAvalName={loan.avalName || ''}
@@ -2078,6 +2091,7 @@ const tableCellStyle = {
   fontSize: '11px',
   verticalAlign: 'middle', // Usamos verticalAlign para celdas de tabla
   whiteSpace: 'nowrap' as const,
+  height: '60px',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   position: 'relative' as const,
