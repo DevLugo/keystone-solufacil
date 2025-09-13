@@ -976,7 +976,7 @@ export const CreatePaymentForm = ({
 
   const handleSaveAllChanges = async () => {
     try {
-      // Agrupar los pagos por leadPaymentReceived (excluyendo los tachados y migrados)
+      // Agrupar los pagos por leadPaymentReceived (excluyendo los tachados y migrados, incluyendo los marcados como pagados)
       const paymentsByLeadPayment = existingPayments
         .filter((payment: any) => !strikethroughPaymentIds.includes(payment.id) && !payment.isMigrated)
         .reduce((acc: Record<string, {
@@ -994,7 +994,42 @@ export const CreatePaymentForm = ({
           paymentDate: string;
         }>, payment: any) => {
         const leadPaymentId = payment.leadPaymentReceived?.id;
-        if (!leadPaymentId) return acc;
+        if (!leadPaymentId) {
+          // Para pagos marcados como pagados (isMissingPayment), usar el primer leadPaymentId disponible
+          if (payment.isMissingPayment) {
+            const firstExistingPayment = existingPayments.find((p: any) => p.leadPaymentReceived?.id && !p.isMissingPayment);
+            if (firstExistingPayment?.leadPaymentReceived?.id) {
+              const fallbackLeadPaymentId = firstExistingPayment.leadPaymentReceived.id;
+              if (!acc[fallbackLeadPaymentId]) {
+                acc[fallbackLeadPaymentId] = {
+                  payments: [],
+                  expectedAmount: 0,
+                  cashPaidAmount: 0,
+                  bankPaidAmount: 0,
+                  falcoAmount: 0,
+                  paymentDate: firstExistingPayment.leadPaymentReceived?.createdAt
+                };
+              }
+              
+              const editedPayment = state.editedPayments[payment.id] || payment;
+              acc[fallbackLeadPaymentId].payments.push({
+                amount: parseFloat(editedPayment.amount),
+                comission: parseFloat(editedPayment.comission),
+                loanId: editedPayment.loanId || editedPayment.loan?.id,
+                type: editedPayment.type,
+                paymentMethod: editedPayment.paymentMethod
+              });
+
+              acc[fallbackLeadPaymentId].expectedAmount += parseFloat(editedPayment.amount);
+              if (editedPayment.paymentMethod === 'CASH') {
+                acc[fallbackLeadPaymentId].cashPaidAmount += parseFloat(editedPayment.amount);
+              } else {
+                acc[fallbackLeadPaymentId].bankPaidAmount += parseFloat(editedPayment.amount);
+              }
+            }
+          }
+          return acc;
+        }
 
         if (!acc[leadPaymentId]) {
           acc[leadPaymentId] = {
@@ -1454,6 +1489,39 @@ export const CreatePaymentForm = ({
     );
   }
 
+  // Calcular créditos que debían pagar pero no aparecen registrados
+  const calculateMissingPayments = () => {
+    // Solo mostrar si ya hay pagos registrados para esta fecha
+    if (!loansData?.loans || !selectedDate || existingPayments.length === 0) return [];
+    
+    const selectedDateObj = new Date(selectedDate);
+    
+    // Obtener IDs de préstamos que SÍ tienen pagos registrados (excluyendo los marcados como pagados temporalmente)
+    const paidLoanIds = new Set(
+      existingPayments
+        .filter((payment: any) => !payment.isMissingPayment) // Excluir los marcados como pagados temporalmente
+        .map((payment: any) => payment.loanId || payment.loan?.id)
+        .filter(Boolean)
+    );
+    
+    // Filtrar préstamos que debían pagar en esta fecha pero no tienen pago registrado
+    const missingPayments = loansData.loans.filter((loan: any) => {
+      // Verificar que el préstamo está activo (no terminado)
+      if (loan.finishedDate) return false;
+      
+      // Verificar que el préstamo ya había comenzado antes de la fecha seleccionada
+      const signDate = new Date(loan.signDate);
+      if (signDate >= selectedDateObj) return false;
+      
+      // Verificar que no tiene pago registrado para esta fecha
+      return !paidLoanIds.has(loan.id);
+    });
+    
+    return missingPayments;
+  };
+
+  const missingPayments = calculateMissingPayments();
+
   if (loansLoading || paymentsLoading || migratedPaymentsLoading || falcosLoading) return <LoadingDots label="Loading data" size="large" />;
   if (loansError) return <GraphQLErrorNotice errors={loansError?.graphQLErrors || []} networkError={loansError?.networkError} />;
 
@@ -1518,6 +1586,7 @@ export const CreatePaymentForm = ({
           <span>Cambios guardados exitosamente</span>
         </div>
       )}
+
 
       {/* Banner de falcos pendientes y historial mejorado */}
       {(() => {
@@ -1899,18 +1968,39 @@ export const CreatePaymentForm = ({
           saving: updateLoading,
           disabled: false
         }}
-        massCommission={payments.length > 0 ? {
+        massCommission={(payments.length > 0 || (isEditing && existingPayments.length > 0)) ? {
           value: massCommission,
           onChange: setMassCommission,
           onApply: () => {
             const commission = parseFloat(massCommission);
             if (isNaN(commission)) return;
             
+            // Aplicar comisión masiva a pagos nuevos
             const newPayments = payments.map(payment => ({
               ...payment,
               comission: commission
             }));
-            setState(prev => ({ ...prev, payments: newPayments }));
+            
+            // Aplicar comisión masiva a pagos existentes en modo edición
+            if (isEditing && existingPayments.length > 0) {
+              const updatedEditedPayments = { ...editedPayments };
+              existingPayments.forEach((payment: any) => {
+                if (!payment.isMigrated && !strikethroughPaymentIds.includes(payment.id)) {
+                  updatedEditedPayments[payment.id] = {
+                    ...updatedEditedPayments[payment.id],
+                    ...payment,
+                    comission: commission
+                  };
+                }
+              });
+              setState(prev => ({ 
+                ...prev, 
+                payments: newPayments,
+                editedPayments: updatedEditedPayments
+              }));
+            } else {
+              setState(prev => ({ ...prev, payments: newPayments }));
+            }
           },
           visible: true
         } : undefined}
@@ -2138,8 +2228,111 @@ export const CreatePaymentForm = ({
               </tr>
             </thead>
             <tbody>
+              {/* Créditos Sin Pago (siempre que haya pagos existentes) */}
+              {missingPayments.map((loan: any, index: number) => (
+                <tr key={`missing-${loan.id}`} style={{ 
+                  backgroundColor: '#FEF2F2',
+                  borderLeft: '4px solid #FCA5A5'
+                }}>
+                  <td style={{ 
+                    textAlign: 'center',
+                    fontWeight: 'bold',
+                    color: '#DC2626',
+                    fontSize: FONT_SYSTEM.table
+                  }}>
+                    {existingPayments.length + index + 1}
+                  </td>
+                  <td>
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      padding: '4px 8px',
+                      backgroundColor: '#FEE2E2',
+                      color: '#DC2626',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      border: '1px solid #FCA5A5',
+                    }}>
+                      ⚠️ SIN PAGO
+                    </span>
+                  </td>
+                  <td style={{ color: '#DC2626', fontWeight: '500' }}>
+                    {loan.borrower?.personalData?.fullName || 'Sin nombre'}
+                  </td>
+                  <td style={{ color: '#DC2626', fontWeight: '500' }}>
+                    {loan.signDate ? 
+                      new Date(loan.signDate).toLocaleDateString('es-MX', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit'
+                      }) : 
+                      '-'
+                    }
+                  </td>
+                  <td style={{ color: '#DC2626', fontWeight: '500' }}>
+                    ${Math.round(parseFloat(loan.weeklyPaymentAmount || '0'))}
+                  </td>
+                  <td style={{ color: '#DC2626', fontWeight: '500' }}>
+                    ${Math.round(parseFloat(loan.loantype?.loanPaymentComission || '0'))}
+                  </td>
+                  <td style={{ color: '#DC2626', fontWeight: '500' }}>
+                    -
+                  </td>
+                  <td>
+                    {isEditing ? (
+                      <Button
+                        tone="positive"
+                        weight="bold"
+                        onClick={() => {
+                          // Crear un pago temporal para este crédito sin pago
+                          const newPayment = {
+                            amount: loan.weeklyPaymentAmount,
+                            comission: loan.loantype?.loanPaymentComission ? Math.round(parseFloat(loan.loantype.loanPaymentComission)) : Math.round(comission),
+                            loanId: loan.id,
+                            type: 'PAYMENT',
+                            paymentMethod: 'CASH',
+                            isUserAdded: true,
+                            isMissingPayment: true, // Marcar como pago de crédito sin pago
+                            loan: loan
+                          };
+                          
+                          // Agregar a los pagos existentes para que aparezca como pagado
+                          setState(prev => ({
+                            ...prev,
+                            existingPayments: [...prev.existingPayments, newPayment]
+                          }));
+                        }}
+                        style={{ 
+                          fontSize: FONT_SYSTEM.small, 
+                          padding: PADDING_SYSTEM.small, 
+                          height: HEIGHT_SYSTEM.small,
+                          fontWeight: '700'
+                        }}
+                      >
+                        Marcar como Pago
+                      </Button>
+                    ) : (
+                      <span style={{
+                        color: '#6B7280',
+                        fontSize: '12px',
+                        fontStyle: 'italic'
+                      }}>
+                        Sin pago registrado
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+
               {/* Abonos Registrados */}
               {existingPayments
+                .sort((a: any, b: any) => {
+                  // Ordenar: primero los marcados como pagados (isMissingPayment), luego los demás
+                  if (a.isMissingPayment && !b.isMissingPayment) return -1;
+                  if (!a.isMissingPayment && b.isMissingPayment) return 1;
+                  return 0;
+                })
                 .map((payment, index) => {
                 const editedPayment = editedPayments[payment.id] || payment;
                 const isStrikethrough = strikethroughPaymentIds.includes(payment.id);
@@ -2191,6 +2384,20 @@ export const CreatePaymentForm = ({
                               Solo lectura - No editable
                             </span>
                           </>
+                        ) : payment.isMissingPayment ? (
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '4px 8px',
+                            backgroundColor: '#DCFCE7',
+                            color: '#166534',
+                            borderRadius: '4px',
+                            fontSize: '12px',
+                            fontWeight: '500',
+                            border: '1px solid #BBF7D0',
+                          }}>
+                            ✅ Marcado como Pago
+                          </span>
                         ) : (
                           <span style={{
                             display: 'inline-flex',

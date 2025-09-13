@@ -2137,7 +2137,6 @@ export const LeadPaymentReceived = list({
       options: [
         { label: 'COMPLETO', value: 'COMPLETE' },
         { label: 'PARCIAL', value: 'PARTIAL' },
-        { label: 'FALCO', value: 'FALCO' },
       ],
     }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
