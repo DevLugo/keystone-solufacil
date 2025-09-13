@@ -273,6 +273,7 @@ function TransaccionesPageContent() {
         return (
           <SummaryTab
             selectedDate={selectedDate}
+            selectedRoute={toRoute(selectedRoute)}
             refreshKey={refreshKey}
           />
         );

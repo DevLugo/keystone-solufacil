@@ -120,6 +120,116 @@ interface FormState {
   editingTransaction: Transaction | null;
 }
 
+// Componente reutilizable para mensaje de selección
+const SelectionMessage = ({ 
+  icon, 
+  title, 
+  description, 
+  requirements 
+}: { 
+  icon: string; 
+  title: string; 
+  description: string; 
+  requirements: string[] 
+}) => (
+  <Box css={{ 
+    display: 'flex', 
+    flexDirection: 'column',
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    height: '400px',
+    background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)',
+    borderRadius: '12px',
+    margin: '20px',
+    position: 'relative',
+    overflow: 'hidden'
+  }}>
+    {/* Efecto de ondas de fondo */}
+    <Box css={{
+      position: 'absolute',
+      top: '-50%',
+      left: '-50%',
+      width: '200%',
+      height: '200%',
+      background: 'radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%)',
+      animation: 'pulse 2s ease-in-out infinite'
+    }} />
+    
+    {/* Icono */}
+    <Box css={{
+      width: '60px',
+      height: '60px',
+      background: 'rgba(59, 130, 246, 0.1)',
+      borderRadius: '50%',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: '20px',
+      position: 'relative',
+      zIndex: 1
+    }}>
+      <Box css={{ fontSize: '28px' }}>{icon}</Box>
+    </Box>
+    
+    {/* Título */}
+    <Box css={{
+      fontSize: '18px',
+      fontWeight: '600',
+      color: '#374151',
+      marginBottom: '8px',
+      position: 'relative',
+      zIndex: 1
+    }}>
+      {title}
+    </Box>
+    
+    {/* Descripción */}
+    <Box css={{
+      fontSize: '14px',
+      color: '#6b7280',
+      marginBottom: '16px',
+      textAlign: 'center',
+      position: 'relative',
+      zIndex: 1
+    }}>
+      {description}
+    </Box>
+    
+    {/* Requisitos */}
+    <Box css={{
+      position: 'relative',
+      zIndex: 1
+    }}>
+      {requirements.map((req, index) => (
+        <Box key={index} css={{
+          display: 'flex',
+          alignItems: 'center',
+          marginBottom: '8px',
+          fontSize: '13px',
+          color: '#6b7280'
+        }}>
+          <Box css={{
+            width: '4px',
+            height: '4px',
+            borderRadius: '50%',
+            backgroundColor: '#9ca3af',
+            marginRight: '8px'
+          }} />
+          {req}
+        </Box>
+      ))}
+    </Box>
+    
+    {/* CSS para animaciones */}
+    <style jsx>{`
+      @keyframes pulse {
+        0%, 100% { opacity: 0.5; transform: scale(1); }
+        50% { opacity: 0.8; transform: scale(1.05); }
+      }
+    `}</style>
+  </Box>
+);
+
 export const CreateExpensesForm = ({ 
   selectedDate, 
   selectedRoute, 
@@ -445,6 +555,22 @@ export const CreateExpensesForm = ({
     };
   };
 
+  // Validar que se haya seleccionado una ruta
+  if (!selectedRoute) {
+    return (
+      <SelectionMessage
+        icon="💸"
+        title="Selecciona una Ruta"
+        description="Para gestionar los gastos, necesitas seleccionar una ruta específica."
+        requirements={[
+          "Selecciona una ruta desde el selector superior",
+          "Los gastos se cargarán automáticamente",
+          "Podrás registrar nuevos gastos para la ruta seleccionada"
+        ]}
+      />
+    );
+  }
+
   if (expensesLoading) return (
     <Box css={{ 
       display: 'flex', 
@@ -648,12 +774,12 @@ export const CreateExpensesForm = ({
                   <td style={tableCellStyle}>
                     {Object.keys(editedTransactions).includes(transaction.id) ? (
                       <TextInput
-                        type="number"
+                        type="number" step="1" step="1"
                         value={editedTransactions[transaction.id].amount}
                         onChange={e => handleEditExistingTransaction(transaction.id, 'amount', e.target.value)}
                       />
                     ) : (
-                      `$${parseFloat(transaction.amount).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      `$${parseFloat(transaction.amount).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
                     )}
                   </td>
                   <td style={tableCellStyle}>
@@ -781,10 +907,10 @@ export const CreateExpensesForm = ({
                     </td>
                     <td style={tableCellStyle}>
                       <TextInput
-                        type="number"
+                        type="number" step="1" step="1"
                         value={transaction.amount}
                         onChange={e => handleEditTransaction(index, 'amount', e.target.value)}
-                        placeholder="0.00"
+                        placeholder="0"
                         style={{ 
                           fontSize: '11px',
                           height: '32px'
@@ -1116,7 +1242,7 @@ export const CreateExpensesForm = ({
                 Monto
               </label>
               <TextInput
-                type="number"
+                type="number" step="1"
                 value={editingTransaction.amount}
                 onChange={e => updateState({
                   editingTransaction: {
@@ -1124,7 +1250,7 @@ export const CreateExpensesForm = ({
                     amount: e.target.value
                   }
                 })}
-                placeholder="0.00"
+                placeholder="0"
               />
             </div>
             <div style={{

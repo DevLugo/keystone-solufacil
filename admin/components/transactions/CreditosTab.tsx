@@ -499,6 +499,116 @@ const DropdownPortal = ({ children, isOpen }: DropdownPortalProps) => {
   );
 };
 
+// Componente reutilizable para mensaje de selección
+const SelectionMessage = ({ 
+  icon, 
+  title, 
+  description, 
+  requirements 
+}: { 
+  icon: string; 
+  title: string; 
+  description: string; 
+  requirements: string[] 
+}) => (
+  <Box css={{ 
+    display: 'flex', 
+    flexDirection: 'column',
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    height: '400px',
+    background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)',
+    borderRadius: '12px',
+    margin: '20px',
+    position: 'relative',
+    overflow: 'hidden'
+  }}>
+    {/* Efecto de ondas de fondo */}
+    <Box css={{
+      position: 'absolute',
+      top: '-50%',
+      left: '-50%',
+      width: '200%',
+      height: '200%',
+      background: 'radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%)',
+      animation: 'pulse 2s ease-in-out infinite'
+    }} />
+    
+    {/* Icono */}
+    <Box css={{
+      width: '60px',
+      height: '60px',
+      background: 'rgba(59, 130, 246, 0.1)',
+      borderRadius: '50%',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: '20px',
+      position: 'relative',
+      zIndex: 1
+    }}>
+      <Box css={{ fontSize: '28px' }}>{icon}</Box>
+    </Box>
+    
+    {/* Título */}
+    <Box css={{
+      fontSize: '18px',
+      fontWeight: '600',
+      color: '#374151',
+      marginBottom: '8px',
+      position: 'relative',
+      zIndex: 1
+    }}>
+      {title}
+    </Box>
+    
+    {/* Descripción */}
+    <Box css={{
+      fontSize: '14px',
+      color: '#6b7280',
+      marginBottom: '16px',
+      textAlign: 'center',
+      position: 'relative',
+      zIndex: 1
+    }}>
+      {description}
+    </Box>
+    
+    {/* Requisitos */}
+    <Box css={{
+      position: 'relative',
+      zIndex: 1
+    }}>
+      {requirements.map((req, index) => (
+        <Box key={index} css={{
+          display: 'flex',
+          alignItems: 'center',
+          marginBottom: '8px',
+          fontSize: '13px',
+          color: '#6b7280'
+        }}>
+          <Box css={{
+            width: '4px',
+            height: '4px',
+            borderRadius: '50%',
+            backgroundColor: '#9ca3af',
+            marginRight: '8px'
+          }} />
+          {req}
+        </Box>
+      ))}
+    </Box>
+    
+    {/* CSS para animaciones */}
+    <style jsx>{`
+      @keyframes pulse {
+        0%, 100% { opacity: 0.5; transform: scale(1); }
+        50% { opacity: 0.8; transform: scale(1.05); }
+      }
+    `}</style>
+  </Box>
+);
+
 export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalanceUpdate }: CreditosTabProps) => {
   const { triggerRefresh } = useBalanceRefresh();
  
@@ -1072,7 +1182,22 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     </Box>
   );
   if (loansError) return <Box paddingTop="xlarge"><GraphQLErrorNotice errors={loansError?.graphQLErrors || []} networkError={loansError?.networkError} /></Box>;
-  if (!selectedDate || !selectedLead) return <Box paddingTop="xlarge" style={{ textAlign: 'center', color: '#6B7280' }}>Selecciona una fecha y un líder para ver los préstamos</Box>;
+  
+  // Validar que se hayan seleccionado ruta y localidad
+  if (!selectedDate || !selectedRoute || !selectedLead) {
+    return (
+      <SelectionMessage
+        icon="💰"
+        title="Selecciona Ruta y Localidad"
+        description="Para gestionar los créditos, necesitas seleccionar una ruta y una localidad específica."
+        requirements={[
+          "Selecciona una ruta desde el selector superior",
+          "Elige una localidad de la ruta seleccionada",
+          "Los créditos se cargarán automáticamente"
+        ]}
+      />
+    );
+  }
   
   return (
     <>
