@@ -1340,6 +1340,17 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         return activeWeeksCurrentMonth.filter(w => w.end <= now && (!signWeek || w.start > signWeek.end)).length;
       };
 
+      // Calcular número de semana del mes actual ANTES del loop de payments
+      // Primera semana de agosto, segunda semana de agosto, etc.
+      const currentMonth = weekStart.getMonth();
+      const currentYear = weekStart.getFullYear();
+      const firstDayOfMonth = new Date(currentYear, currentMonth, 1);
+      
+      // Calcular qué semana del mes es la semana actual
+      // Usar el día del mes para calcular la semana
+      const dayOfMonth = weekStart.getDate();
+      const weekNumberInMonth = Math.ceil(dayOfMonth / 7);
+
       // Generar registros de pago
       const payments = filteredActiveLoans.map((loan: any) => {
         const phone = loan.borrower?.personalData?.phones?.[0]?.number || '';
@@ -1371,42 +1382,59 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         if (weekMode === 'next') {
           boundaryForCalc.setDate(boundaryForCalc.getDate() + 7);
         }
+        // Número de semana actual (para mostrar en el listado)
+        // Calcular semanas desde la firma del préstamo
         const msPerWeek = 7 * 24 * 60 * 60 * 1000;
         const weeksElapsedSinceBoundary = Math.max(0, Math.floor((getMonday(weekEnd).getTime() - getMonday(boundaryForCalc).getTime()) / msPerWeek));
-        
-        // Número de semana actual (para mostrar en el listado)
         const nSemanaValue = weeksElapsedSinceBoundary + 1;
         
-        // CORRECCIÓN IMPORTANTE: Calcular VDO solo cuando hay atraso real
-        // Si se firma en semana 1, la semana 2 no tiene VDO porque no está atrasada
-        // Solo aparece VDO cuando hay semanas sin pagar
+        // LÓGICA CORREGIDA PARA VDO BASADA EN LA SEMANA SOLICITADA:
+        // - Semana 0: Se entrega el crédito
+        // - Semana 1: Aparece en listados SIN VDO
+        // - Semana 2+: Solo los que NO pagaron la semana anterior tienen VDO
         
-        // Calcular cuánto debería haber pagado hasta la semana anterior
-        const weeksElapsedExcludingCurrent = Math.max(0, weeksElapsedSinceBoundary);
-
-        // Calcular cuánto ha pagado realmente hasta la semana anterior
-        const totalPaidUpToPreviousWeek = (loan.payments || []).reduce((sum: number, p: any) => {
-          const d = new Date(p.receivedAt || p.createdAt);
-          if (d >= boundaryForCalc && d < weekStart) { // Solo hasta la semana anterior
-            return sum + parseFloat((p.amount || 0).toString());
-          }
-          return sum;
-        }, 0);
-
-        // CORRECCIÓN: VDO solo si hay atraso real (debería haber pagado más de lo que pagó)
-        // Y solo si han pasado al menos 2 semanas desde el boundary (semana 2 o posterior)
         let arrearsAmount = 0;
         
-        if (weeksElapsedSinceBoundary >= 1) { // Solo si han pasado al menos 2 semanas (semana 2 o posterior)
-          const expectedAmount = expectedWeeklyPayment * weeksElapsedExcludingCurrent;
-          const actualAmount = totalPaidUpToPreviousWeek;
+        // Calcular VDO basado en la semana específica solicitada (current/next)
+        // Para semana actual: VDO = atrasos hasta la semana anterior
+        // Para semana siguiente: VDO = atrasos hasta la semana actual
+        
+        const isNextWeek = weekMode === 'next';
+        const weeksForVDO = isNextWeek ? weeksElapsedSinceBoundary + 1 : weeksElapsedSinceBoundary;
+        
+        // Solo calcular VDO si estamos en semana 2 o posterior
+        if (weeksForVDO >= 1) {
+          // Calcular cuánto debería haber pagado hasta la semana de referencia
+          const expectedAmount = expectedWeeklyPayment * weeksForVDO;
           
-          // Solo hay VDO si debería haber pagado más de lo que pagó
-          if (expectedAmount > actualAmount) {
+          // Calcular cuánto ha pagado realmente hasta la semana de referencia
+          const endDateForVDO = isNextWeek ? weekEnd : new Date(weekStart.getTime() - 1);
+          const totalPaidUpToReferenceWeek = (loan.payments || []).reduce((sum: number, p: any) => {
+            const d = new Date(p.receivedAt || p.createdAt);
+            if (d >= boundaryForCalc && d <= endDateForVDO) {
+              return sum + parseFloat((p.amount || 0).toString());
+            }
+            return sum;
+          }, 0);
+          
+          // VDO = lo que debería haber pagado - lo que realmente pagó
+          // Pero limitado al monto pendiente almacenado
+          if (expectedAmount > totalPaidUpToReferenceWeek) {
             arrearsAmount = Math.max(0, Math.min(
-              expectedAmount - actualAmount, 
+              expectedAmount - totalPaidUpToReferenceWeek, 
               pendingAmountStored
             ));
+          }
+          
+          // Debug para verificar cálculos
+          if (loan.borrower?.personalData?.fullName?.includes('Test') || arrearsAmount > 0) {
+            console.log(`🔍 VDO Debug - ${loan.borrower?.personalData?.fullName}:`);
+            console.log(`   - Modo: ${weekMode} (${isNextWeek ? 'siguiente' : 'actual'})`);
+            console.log(`   - Semana de referencia: ${weeksForVDO}`);
+            console.log(`   - Pago semanal esperado: ${expectedWeeklyPayment}`);
+            console.log(`   - Debería haber pagado: ${expectedAmount}`);
+            console.log(`   - Realmente pagó hasta ${endDateForVDO.toLocaleDateString()}: ${totalPaidUpToReferenceWeek}`);
+            console.log(`   - VDO calculado: ${arrearsAmount}`);
           }
         }
 
@@ -1419,7 +1447,18 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
           return sum;
         }, 0);
 
+        // Abono parcial = sobrepago en la semana actual
+        // Si pagó más del pago semanal esperado, la diferencia es el abono parcial
         const abonoParcialAmount = Math.max(0, totalPaidInCurrentWeek - expectedWeeklyPayment);
+        
+        // Debug para verificar cálculos de abono parcial
+        if (loan.borrower?.personalData?.fullName?.includes('Test') || abonoParcialAmount > 0) {
+          console.log(`💰 Abono Parcial Debug - ${loan.borrower?.personalData?.fullName}:`);
+          console.log(`   - Pago semanal esperado: ${expectedWeeklyPayment}`);
+          console.log(`   - Pagado en semana actual: ${totalPaidInCurrentWeek}`);
+          console.log(`   - Abono parcial (sobrepago): ${abonoParcialAmount}`);
+          console.log(`   - Rango de semana: ${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}`);
+        }
 
         // Pago VDO (monto total no pagado hasta la semana actual)
 
@@ -1485,9 +1524,19 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
       console.log(`   - Préstamos con comisión > 0: ${loansWithCommission.length}`);
       console.log(`   - Comisión total esperada: ${totalComisionEsperada}`);
 
+      // weeksElapsedSinceBoundary ya calculado antes del loop
+
       // Crear PDF con diseño de keystone2.ts
       const doc = new PDFDocument({ margin: 30 });
-      const filename = `listado_cobranza_${(localityName as string).replace(/\s+/g, '_')}.pdf`;
+      
+      // Generar nombre de archivo con formato: localidad-semana-fecha
+      const localitySlug = (localityName as string).replace(/\s+/g, '_').toLowerCase();
+      const currentDate = new Date().toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' });
+      const currentMonthName = new Date().toLocaleDateString('es-MX', { month: 'long' });
+      
+      // Usar el número de semana del mes calculado anteriormente
+      const weekNumber = weekMode === 'next' ? weekNumberInMonth + 1 : weekNumberInMonth;
+      const filename = `listado_${localitySlug}_semana_${weekNumber}_${currentMonthName}_${currentDate}.pdf`;
 
       res.setHeader('Content-disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
       res.setHeader('Content-type', 'application/pdf');
