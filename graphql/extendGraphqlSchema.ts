@@ -4459,9 +4459,20 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
             // ✅ CRITERIOS ESTRICTOS: Determina si el préstamo se considera ACTIVO según los 3 puntos clave
             const isLoanConsideredOnDate = (loan: any, date: Date, debugForAtasta = false) => {
+              // 🔍 DEBUG: Log específico para crédito cmfdjecea3u1bpsjv0xf8p1wp
+              const isDebugLoan = loan.id === 'cmfdjecea3u1bpsjv0xf8p1wp';
+              
+              if (isDebugLoan) {
+                console.log(`\n🔍 DEBUG isLoanConsideredOnDate - CRÉDITO ${loan.id}:`);
+                console.log(`  - Fecha de evaluación: ${date.toISOString()}`);
+                console.log(`  - Fecha de firma: ${loan.signDate}`);
+                console.log(`  - Fecha de finalización: ${loan.finishedDate || 'No finalizado'}`);
+                console.log(`  - Excluido por cleanup: ${loan.excludedByCleanup ? 'Sí' : 'No'}`);
+              }
+              
               // Si no hay signDate, el préstamo no puede estar activo
               if (!loan.signDate) {
-                if (debugForAtasta) {
+                if (debugForAtasta || isDebugLoan) {
                   console.log(`    ❌ PUNTO 0: Préstamo ${loan.id} no tiene signDate`);
                 }
                 return false;
@@ -4469,7 +4480,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               
               const signDate = new Date(loan.signDate);
               if (signDate > date) {
-                if (debugForAtasta) {
+                if (debugForAtasta || isDebugLoan) {
                   console.log(`    ❌ PUNTO 0: Préstamo ${loan.id} firmado después de la fecha (${signDate.toISOString()} > ${date.toISOString()})`);
                 }
                 return false;
@@ -5399,7 +5410,20 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
                   // Excluir préstamos firmados en esta semana
                   const signDate = new Date(loan.signDate);
-                  if (signDate >= weekStart && signDate <= weekEnd) return;
+                  if (signDate >= weekStart && signDate <= weekEnd) {
+                    // 🔍 DEBUG: Log específico para crédito cmfdjecea3u1bpsjv0xf8p1wp
+                    if (loan.id === 'cmfdjecea3u1bpsjv0xf8p1wp' && 
+                        typeof locality === 'string' && locality.toLowerCase().includes('chekubul')) {
+                      console.log(`\n🔍 EXCLUSIÓN CV - CRÉDITO ${loan.id} - CHEKUBUL ${weekKey}:`);
+                      console.log(`  - Fecha de firma: ${loan.signDate}`);
+                      console.log(`  - Fecha inicio semana: ${weekStart.toISOString()}`);
+                      console.log(`  - Fecha fin semana: ${weekEnd.toISOString()}`);
+                      console.log(`  - ¿Fue otorgado en esta semana?: SÍ`);
+                      console.log(`  - RAZÓN: Los créditos otorgados en la semana actual no se evalúan para CV`);
+                      console.log(`  - RESULTADO: NO se marca como CV`);
+                    }
+                    return;
+                  }
 
                   // ✅ OPTIMIZACIÓN: Usar datos pre-calculados
                   const expectedWeekly = loan._calculated?.expectedWeekly || (Number(loan.amountGived || 0) + Number(loan.profitAmount || 0)) / (loan.weekDuration || 16);
@@ -5441,8 +5465,18 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   
                   if (weeklyPaid === 0) {
                     if (weeksElapsed === 0) {
-                      cvContribution = 0;
-                      cvReason = 'Semana 0 (no se espera pago)';
+                      // ✅ CORRECCIÓN PRECISA: Distinguir entre semana de otorgamiento y primera semana de pago
+                      if (weeksSinceSign === 0) {
+                        // Semana de otorgamiento: no se espera pago
+                        cvContribution = 0;
+                        cvReason = 'Semana de otorgamiento (no se espera pago)';
+                      } else {
+                        // Primera semana de pago: SÍ se espera pago
+                        cvContribution = 1;
+                        cvReason = 'Sin pago en primera semana';
+                        data.cv += 1;
+                        data.cvAmount += Number(loan.amountGived || 0);
+                      }
                     } else {
                       if (surplusBefore >= (expectedWeekly || 0)) {
                         cvContribution = 0;
@@ -5481,6 +5515,33 @@ export const extendGraphqlSchema = graphql.extend(base => {
                         weekKey === 'SEMANA 4') {
                       console.log(`\n🔍 CV DEBUG - MARÍA DOLORES - ISLA AGUADA SEMANA 4:`);
                       console.log(`  - Préstamo ID: ${loan.id}`);
+                      console.log(`  - weeklyPaid: ${weeklyPaid}`);
+                      console.log(`  - expectedWeekly: ${expectedWeekly}`);
+                      console.log(`  - paidBeforeWeek: ${paidBeforeWeek}`);
+                      console.log(`  - weeksElapsed: ${weeksElapsed}`);
+                      console.log(`  - expectedBefore: ${expectedBefore}`);
+                      console.log(`  - surplusBefore: ${surplusBefore}`);
+                      console.log(`  - cvContribution: ${cvContribution}`);
+                      console.log(`  - cvReason: ${cvReason}`);
+                      console.log(`  - ¿Se suma a CV en data.cv?: ${cvContribution > 0 ? 'SÍ' : 'NO'}`);
+                    }
+                  } catch (_) {}
+
+                  // 🔍 DEBUG: CV específico para crédito cmfdjecea3u1bpsjv0xf8p1wp en Chekubul
+                  try {
+                    if (loan.id === 'cmfdjecea3u1bpsjv0xf8p1wp' && 
+                        typeof locality === 'string' && locality.toLowerCase().includes('chekubul')) {
+                      console.log(`\n🔍 CV DEBUG - CRÉDITO cmfdjecea3u1bpsjv0xf8p1wp - CHEKUBUL ${weekKey}:`);
+                      console.log(`  - Préstamo ID: ${loan.id}`);
+                      console.log(`  - Fecha de firma: ${loan.signDate}`);
+                      console.log(`  - Fecha de finalización: ${loan.finishedDate || 'No finalizado'}`);
+                      console.log(`  - Localidad: ${locality}`);
+                      console.log(`  - Semana: ${weekKey}`);
+                      console.log(`  - Fecha inicio semana: ${weekStart.toISOString()}`);
+                      console.log(`  - Fecha fin semana: ${weekEnd.toISOString()}`);
+                      console.log(`  - ¿Firmado antes del fin de semana?: ${new Date(loan.signDate) <= weekEnd ? 'SÍ' : 'NO'}`);
+                      console.log(`  - ¿No finalizado antes del fin de semana?: ${!loan.finishedDate || new Date(loan.finishedDate) > weekEnd ? 'SÍ' : 'NO'}`);
+                      console.log(`  - ¿No excluido por cleanup?: ${!loan.excludedByCleanup || new Date(loan.excludedByCleanup.cleanupDate) > weekEnd ? 'SÍ' : 'NO'}`);
                       console.log(`  - weeklyPaid: ${weeklyPaid}`);
                       console.log(`  - expectedWeekly: ${expectedWeekly}`);
                       console.log(`  - paidBeforeWeek: ${paidBeforeWeek}`);
