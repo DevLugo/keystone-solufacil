@@ -287,7 +287,7 @@ export const TransferForm: React.FC<TransferFormProps> = ({
             placeholder={isCapitalInvestment ? 'Ingresa el monto a invertir' : 'Ingresa el monto'}
             disabled={(!sourceAccount && !isCapitalInvestment) || !destinationAccount || isSubmitting}
             min="0"
-            step="0.01"
+            step="1"
             invalid={amount !== '' && !isAmountValid}
             data-testid="amount-input"
           />

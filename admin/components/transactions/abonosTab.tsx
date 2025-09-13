@@ -426,6 +426,116 @@ export interface AbonosProps {
   refreshKey: number;
 }
 
+// Componente reutilizable para mensaje de selección
+const SelectionMessage = ({ 
+  icon, 
+  title, 
+  description, 
+  requirements 
+}: { 
+  icon: string; 
+  title: string; 
+  description: string; 
+  requirements: string[] 
+}) => (
+  <Box css={{ 
+    display: 'flex', 
+    flexDirection: 'column',
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    height: '400px',
+    background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)',
+    borderRadius: '12px',
+    margin: '20px',
+    position: 'relative',
+    overflow: 'hidden'
+  }}>
+    {/* Efecto de ondas de fondo */}
+    <Box css={{
+      position: 'absolute',
+      top: '-50%',
+      left: '-50%',
+      width: '200%',
+      height: '200%',
+      background: 'radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%)',
+      animation: 'pulse 2s ease-in-out infinite'
+    }} />
+    
+    {/* Icono */}
+    <Box css={{
+      width: '60px',
+      height: '60px',
+      background: 'rgba(59, 130, 246, 0.1)',
+      borderRadius: '50%',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: '20px',
+      position: 'relative',
+      zIndex: 1
+    }}>
+      <Box css={{ fontSize: '28px' }}>{icon}</Box>
+    </Box>
+    
+    {/* Título */}
+    <Box css={{
+      fontSize: '18px',
+      fontWeight: '600',
+      color: '#374151',
+      marginBottom: '8px',
+      position: 'relative',
+      zIndex: 1
+    }}>
+      {title}
+    </Box>
+    
+    {/* Descripción */}
+    <Box css={{
+      fontSize: '14px',
+      color: '#6b7280',
+      marginBottom: '16px',
+      textAlign: 'center',
+      position: 'relative',
+      zIndex: 1
+    }}>
+      {description}
+    </Box>
+    
+    {/* Requisitos */}
+    <Box css={{
+      position: 'relative',
+      zIndex: 1
+    }}>
+      {requirements.map((req, index) => (
+        <Box key={index} css={{
+          display: 'flex',
+          alignItems: 'center',
+          marginBottom: '8px',
+          fontSize: '13px',
+          color: '#6b7280'
+        }}>
+          <Box css={{
+            width: '4px',
+            height: '4px',
+            borderRadius: '50%',
+            backgroundColor: '#9ca3af',
+            marginRight: '8px'
+          }} />
+          {req}
+        </Box>
+      ))}
+    </Box>
+    
+    {/* CSS para animaciones */}
+    <style jsx>{`
+      @keyframes pulse {
+        0%, 100% { opacity: 0.5; transform: scale(1); }
+        50% { opacity: 0.8; transform: scale(1.05); }
+      }
+    `}</style>
+  </Box>
+);
+
 export const CreatePaymentForm = ({ 
   selectedDate, 
   selectedRoute, 
@@ -1328,6 +1438,22 @@ export const CreatePaymentForm = ({
     refetchFalcos();
   }, [refreshKey, refetchPayments, refetchMigratedPayments, refetchFalcos]);
 
+  // Validar que se hayan seleccionado ruta y localidad
+  if (!selectedRoute || !selectedLead) {
+    return (
+      <SelectionMessage
+        icon="👥"
+        title="Selecciona Ruta y Localidad"
+        description="Para gestionar los abonos, necesitas seleccionar una ruta y una localidad específica."
+        requirements={[
+          "Selecciona una ruta desde el selector superior",
+          "Elige una localidad de la ruta seleccionada",
+          "Los abonos se cargarán automáticamente"
+        ]}
+      />
+    );
+  }
+
   if (loansLoading || paymentsLoading || migratedPaymentsLoading || falcosLoading) return <LoadingDots label="Loading data" size="large" />;
   if (loansError) return <GraphQLErrorNotice errors={loansError?.graphQLErrors || []} networkError={loansError?.networkError} />;
 
@@ -1449,7 +1575,7 @@ export const CreatePaymentForm = ({
                     lineHeight: '1.4',
                   }}>
                     {completedFalcos.length} falta(s) completamente compensada(s). 
-                    Total compensado histórico: ${totalCompensatedAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    Total compensado histórico: ${totalCompensatedAmount.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </div>
                 </div>
               </div>
@@ -1561,8 +1687,8 @@ export const CreatePaymentForm = ({
                   }}>
                     {pendingFalcos.length} falta(s) pendiente(s)
                     {completedFalcos.length > 0 && `, ${completedFalcos.length} completados en historial`}
-                    <br />Total pendiente: ${totalPendingAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    {completedFalcos.length > 0 && ` | Histórico compensado: $${totalCompensatedAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                    <br />Total pendiente: ${totalPendingAmount.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    {completedFalcos.length > 0 && ` | Histórico compensado: $${totalCompensatedAmount.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
                   </div>
                 </div>
               </div>
@@ -1683,7 +1809,7 @@ export const CreatePaymentForm = ({
           },
           {
             label: 'Comisiones',
-            value: `$${grandTotalComission.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            value: `$${grandTotalComission.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`,
             color: '#6D28D9',
             backgroundColor: '#EDE9FE',
             borderColor: '#DDD6FE',
@@ -1752,7 +1878,7 @@ export const CreatePaymentForm = ({
           },
           {
             label: 'Total',
-            value: `$${grandTotalAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            value: `$${grandTotalAmount.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`,
             color: '#065F46',
             backgroundColor: '#ECFDF5',
             borderColor: '#D1FAE5'
@@ -2077,7 +2203,7 @@ export const CreatePaymentForm = ({
                     }}>
                       {isEditing && !payment.isMigrated ? (
                         <TextInput
-                          type="number"
+                          type="number" step="1" step="1"
                           value={editedPayment.amount}
                           onChange={e => handleEditExistingPayment(payment.id, 'amount', e.target.value)}
                           disabled={isStrikethrough}
@@ -2102,7 +2228,7 @@ export const CreatePaymentForm = ({
                       {isEditing && !payment.isMigrated ? (
                         <div style={{ position: 'relative' }}>
                           <TextInput
-                            type="number"
+                            type="number" step="1" step="1" step="1"
                             value={editedPayment.comission}
                             onChange={e => handleEditExistingPayment(payment.id, 'comission', e.target.value)}
                             disabled={isStrikethrough}
@@ -2324,7 +2450,7 @@ export const CreatePaymentForm = ({
                     fontWeight: isStrikethrough ? '500' : 'inherit'
                   }}>
                     <TextInput
-                      type="number"
+                      type="number" step="1"
                       value={Math.round(parseFloat(payment.amount || '0'))}
                       onChange={(e) => handleChange(index, 'amount', e.target.value)}
                       disabled={isStrikethrough || isDeceased}
@@ -2337,7 +2463,7 @@ export const CreatePaymentForm = ({
                     fontWeight: isStrikethrough ? '500' : 'inherit'
                   }}>
                     <TextInput
-                      type="number"
+                      type="number" step="1"
                       value={Math.round(parseFloat(payment.comission?.toString() || '0'))}
                       onChange={(e) => handleChange(index, 'comission', e.target.value)}
                       disabled={isStrikethrough || isDeceased}
@@ -2521,7 +2647,7 @@ export const CreatePaymentForm = ({
               type="number"
               value={createFalcoAmount}
               onChange={(e) => updateState({ createFalcoAmount: parseFloat(e.target.value) || 0 })}
-              placeholder="0.00"
+              placeholder="0"
             />
           </Box>
           
@@ -2827,7 +2953,7 @@ export const CreatePaymentForm = ({
                 const numValue = value === '' ? 0 : parseFloat(value);
                 updateState({ falcoPaymentAmount: isNaN(numValue) ? 0 : numValue });
               }}
-              placeholder="0.00"
+              placeholder="0"
             />
           </Box>
           
@@ -2870,7 +2996,7 @@ export const CreatePaymentForm = ({
       >
         <Box padding="large">
           <Box marginBottom="large">
-            <h4><strong>Total:</strong> ${(payments.length > 0 ? totalAmount : state.groupedPayments ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0 : 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h4>
+            <h4><strong>Total:</strong> ${(payments.length > 0 ? totalAmount : state.groupedPayments ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0 : 0).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</h4>
           </Box>
           
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', alignItems: 'start' }}>
@@ -2885,7 +3011,7 @@ export const CreatePaymentForm = ({
                 fontWeight: '500',
                 marginTop: '0.5rem'
               }}>
-                ${(loadPaymentDistribution.totalPaidAmount - loadPaymentDistribution.bankPaidAmount).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ${(loadPaymentDistribution.totalPaidAmount - loadPaymentDistribution.bankPaidAmount).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
               </div>
             </Box>
             
