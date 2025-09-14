@@ -1975,21 +1975,25 @@ export const CreatePaymentForm = ({
             const commission = parseFloat(massCommission);
             if (isNaN(commission)) return;
             
-            // Aplicar comisión masiva a pagos nuevos
-            const newPayments = payments.map(payment => ({
-              ...payment,
-              comission: commission
-            }));
+            // Aplicar comisión masiva SOLO a pagos nuevos que tienen comisión > 0
+            const newPayments = payments.map(payment => {
+              const currentCommission = parseFloat(payment.comission?.toString() || '0');
+              return {
+                ...payment,
+                comission: currentCommission > 0 ? commission : payment.comission
+              };
+            });
             
-            // Aplicar comisión masiva a pagos existentes en modo edición
+            // Aplicar comisión masiva SOLO a pagos existentes que tienen comisión > 0 en modo edición
             if (isEditing && existingPayments.length > 0) {
               const updatedEditedPayments = { ...editedPayments };
               existingPayments.forEach((payment: any) => {
                 if (!payment.isMigrated && !strikethroughPaymentIds.includes(payment.id)) {
+                  const currentCommission = parseFloat(payment.comission?.toString() || '0');
                   updatedEditedPayments[payment.id] = {
                     ...updatedEditedPayments[payment.id],
                     ...payment,
-                    comission: commission
+                    comission: currentCommission > 0 ? commission : payment.comission
                   };
                 }
               });
