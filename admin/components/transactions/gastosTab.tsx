@@ -285,6 +285,7 @@ export const CreateExpensesForm = ({
     }
   });
 
+
   const [createTransaction, { loading: createLoading }] = useMutation(CREATE_TRANSACTION);
   const [updateTransaction, { loading: updateLoading }] = useMutation(UPDATE_TRANSACTION);
   const [deleteTransaction] = useMutation(DELETE_TRANSACTION);
@@ -679,6 +680,14 @@ export const CreateExpensesForm = ({
             color: '#DC2626',
             backgroundColor: '#FEE2E2',
             borderColor: '#FECACA'
+          },
+          {
+            label: 'Créditos a Otorgar',
+            value: '$0',
+            color: '#059669',
+            backgroundColor: '#ECFDF5',
+            borderColor: '#D1FAE5',
+            tooltipContent: 'Preview de créditos que se van a otorgar hoy'
           }
         ]}
         buttons={[]}

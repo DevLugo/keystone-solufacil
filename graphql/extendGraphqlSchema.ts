@@ -830,7 +830,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
             console.log('✅ LeadPaymentReceived creado:', leadPaymentReceived.id);
 
             // Crear todos los pagos usando createMany para performance
-            const createdPayments: any[] = [];
             if (payments.length > 0) {
               const paymentData = payments.map(payment => ({
                 amount: payment.amount.toFixed(2),
@@ -1286,19 +1285,24 @@ export const extendGraphqlSchema = graphql.extend(base => {
               throw new Error('Cuentas del agente no encontradas en su ruta');
             }
 
-            // Calcular cambios en balances de pagos existentes (para revertir)
-            let oldCashAmountChange = 0;
-            let oldBankAmountChange = 0;
+            // ✅ CORREGIDO: Solo calcular cambios de comisiones, no de pagos
+            let oldCommissionChange = 0;
+            let newCommissionChange = 0;
 
+            // Calcular comisiones existentes
             for (const payment of existingPayment.payments) {
-              const paymentAmount = parseFloat((payment.amount || 0).toString());
               const commissionAmount = parseFloat((payment.comission || 0).toString());
-              const totalAmount = paymentAmount + commissionAmount; // ✅ INCLUIR comisión
-              
-              // 🆕 MODIFICADO: Revertir TODO como efectivo (tanto CASH como BANK)
-              // Esto es consistente con la nueva lógica de registro
-              oldCashAmountChange += totalAmount;
+              oldCommissionChange += commissionAmount; // Sumar comisiones existentes
             }
+
+            // Calcular comisiones nuevas
+            for (const payment of payments) {
+              const commissionAmount = payment.comission || 0;
+              newCommissionChange += commissionAmount; // Sumar comisiones nuevas
+            }
+
+            // Calcular el cambio neto de comisiones
+            const commissionChange = newCommissionChange - oldCommissionChange;
 
             // 🆕 LÓGICA CORREGIDA: Eliminar pagos existentes SIEMPRE que existan
             // Esto se ejecuta independientemente de si se van a crear nuevos pagos
@@ -1321,29 +1325,14 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 console.log('✅ UPDATE: Transacciones eliminadas:', deleteResult.count);
               }
 
-              // 🆕 NUEVA LÓGICA: Revertir efectos en cuentas antes de eliminar pagos
-              // Calcular el total que se debe revertir de las cuentas
-              let totalCashToRevert = 0;
-
-              for (const payment of existingPayment.payments) {
-                const paymentAmount = parseFloat((payment.amount || 0).toString());
-                const commissionAmount = parseFloat((payment.comission || 0).toString());
-                const totalAmount = paymentAmount + commissionAmount;
-                
-                // Como ahora todo se registra como efectivo, revertir todo de efectivo
-                totalCashToRevert += totalAmount;
-              }
-
-              console.log('🔄 UPDATE: Total a revertir de efectivo:', totalCashToRevert);
-
-              // Revertir el efecto en la cuenta de efectivo
-              if (totalCashToRevert > 0) {
+              // ✅ CORREGIDO: Solo revertir comisiones, no pagos
+              if (oldCommissionChange !== 0) {
                 const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
-                const newCashAmount = currentCashAmount - totalCashToRevert;
+                const newCashAmount = currentCashAmount + oldCommissionChange; // Revertir comisiones (sumar porque se habían restado)
                 
-                console.log('🔄 UPDATE: Revirtiendo efectivo por eliminación de pagos:', {
+                console.log('🔄 UPDATE: Revirtiendo comisiones existentes:', {
                   currentAmount: currentCashAmount,
-                  amountToRevert: totalCashToRevert,
+                  commissionToRevert: oldCommissionChange,
                   newAmount: newCashAmount
                 });
                 
@@ -1351,7 +1340,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   where: { id: cashAccount.id },
                   data: { amount: newCashAmount.toString() }
                 });
-                console.log('✅ UPDATE: Balance de efectivo revertido');
+                console.log('✅ UPDATE: Comisiones existentes revertidas');
               }
 
               // Eliminar pagos existentes en lote
@@ -1385,9 +1374,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               },
             });
 
-            // Crear nuevos pagos y transacciones en lote
-            let newCashAmountChange = 0;
-            let newBankAmountChange = 0;
+            // ✅ SIMPLIFICADO: Solo manejar comisiones nuevas
 
             if (payments.length > 0) {
               const paymentData = payments.map(payment => ({
@@ -1481,26 +1468,21 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   });
                 }
 
-                // 🆕 MODIFICADO: Registrar TODO como efectivo (tanto CASH como BANK)
-                // Esto permite que después se haga la transferencia automática del monto bancario
-                newCashAmountChange += totalAmount;
+                // ✅ SIMPLIFICADO: Solo procesar transacciones, no calcular balances aquí
               }
 
               // Crear todas las transacciones de una vez
               if (transactionData.length > 0) {
                 await tx.transaction.createMany({ data: transactionData });
                 
-                // ✅ CORREGIR: Actualizar cuentas manualmente ya que createMany no dispara hooks
-                // Usar el newCashAmountChange que ya se calculó correctamente arriba
-                // (incluye todos los pagos menos las comisiones)
-                
-                if (newCashAmountChange !== 0) {
+                // ✅ CORREGIDO: Solo aplicar el cambio neto de comisiones
+                if (commissionChange !== 0) {
                   const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
-                  const newCashAmount = currentCashAmount + newCashAmountChange;
+                  const newCashAmount = currentCashAmount - commissionChange; // Restar comisiones (aumento = resta, disminución = suma)
                   
-                  console.log('🔧 Actualizando cuenta de efectivo con newCashAmountChange:', {
+                  console.log('🔧 Aplicando cambio neto de comisiones:', {
                     currentAmount: currentCashAmount,
-                    newCashAmountChange,
+                    commissionChange,
                     newAmount: newCashAmount
                   });
                   
@@ -1512,53 +1494,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
             }
 
-            // ✅ AGREGAR: Logs de debugging para verificar cálculos
-            console.log('🔍 UPDATE LEAD PAYMENT - Cálculo de balances:', {
-              oldCashAmountChange,
-              oldBankAmountChange,
-              newCashAmountChange,
-              newBankAmountChange,
-              cashBalanceChange: newCashAmountChange - oldCashAmountChange,
-              bankBalanceChange: newBankAmountChange - oldBankAmountChange,
-              currentCashAmount: parseFloat((cashAccount.amount || 0).toString()),
-              currentBankAmount: parseFloat((bankAccount.amount || 0).toString())
-            });
-
-            // Actualizar balances de cuentas (revertir antiguos y aplicar nuevos)
-            const cashBalanceChange = newCashAmountChange - oldCashAmountChange;
-            const bankBalanceChange = newBankAmountChange - oldBankAmountChange;
-
-            if (cashBalanceChange !== 0) {
-              const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
-              const newCashBalance = currentCashAmount + cashBalanceChange;
-              
-              console.log('💰 Actualizando balance CASH:', {
-                currentAmount: currentCashAmount,
-                change: cashBalanceChange,
-                newAmount: newCashBalance
-              });
-              
-              await tx.account.update({
-                where: { id: cashAccount.id },
-                data: { amount: newCashBalance.toString() }
-              });
-            }
-
-            if (bankBalanceChange !== 0) {
-              const currentBankAmount = parseFloat((bankAccount.amount || 0).toString());
-              const newBankBalance = currentBankAmount + bankBalanceChange;
-              
-              console.log('🏦 Actualizando balance BANK:', {
-                currentAmount: currentBankAmount,
-                change: bankBalanceChange,
-                newAmount: newBankBalance
-              });
-              
-              await tx.account.update({
-                where: { id: bankAccount.id },
-                data: { amount: newBankBalance.toString() }
-              });
-            }
+            // ✅ SIMPLIFICADO: Los balances ya se actualizaron arriba, no duplicar
 
             // 🆕 NUEVA LÓGICA: Manejar transferencias automáticas (crear/actualizar/eliminar)
             const oldBankPaidAmount = parseFloat(existingPayment.bankPaidAmount?.toString() || '0');
