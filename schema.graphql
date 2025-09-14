@@ -2809,6 +2809,7 @@ type Mutation {
   updateLoanWithAval(where: ID!, data: UpdateLoanWithAvalInput): JSON!
   sendTestTelegramMessage(chatId: String!, message: String!): String!
   sendReportWithPDF(chatId: String!, reportType: String!): String!
+  markLoansDeadDebt(loanIds: [ID!]!, deadDebtDate: String!): String!
 }
 
 input TokaAssignmentInput {
@@ -2998,6 +2999,8 @@ type Query {
   previewBulkPortfolioCleanup(routeId: String!, fromDate: String!, toDate: String!, weeksWithoutPaymentThreshold: Int): JSON!
   debugTelegram: String!
   telegramStatus: String!
+  loansForDeadDebt(weeksSinceLoan: Int!, weeksWithoutPayment: Int!): String!
+  deadDebtSummary(weeksSinceLoan: Int!, weeksWithoutPayment: Int!): String!
 }
 
 type LeaderBirthday {
