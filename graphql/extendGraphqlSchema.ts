@@ -2970,6 +2970,40 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         }
       }),
+      
+      // ✅ FUNCIONALIDAD SIMPLIFICADA: Marcar créditos como cartera muerta
+      markLoansDeadDebt: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        args: {
+          loanIds: graphql.arg({ type: graphql.nonNull(graphql.list(graphql.nonNull(graphql.ID))) }),
+          deadDebtDate: graphql.arg({ type: graphql.nonNull(graphql.String) })
+        },
+        resolve: async (source, { loanIds, deadDebtDate }, context: Context) => {
+          try {
+            const result = await context.prisma.loan.updateMany({
+              where: {
+                id: { in: loanIds },
+                badDebtDate: null
+              },
+              data: {
+                badDebtDate: new Date(deadDebtDate)
+              }
+            });
+            
+            return JSON.stringify({
+              success: true,
+              message: `${result.count} créditos marcados como cartera muerta exitosamente`,
+              updatedCount: result.count
+            });
+          } catch (error) {
+            return JSON.stringify({
+              success: false,
+              message: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              updatedCount: 0
+            });
+          }
+        }
+      }),
     },
     query: {
       // ✅ NUEVA FUNCIONALIDAD: Obtener cumpleaños de líderes por mes
@@ -8247,6 +8281,294 @@ export const extendGraphqlSchema = graphql.extend(base => {
           return 'Estado de Telegram verificado - Revisa la consola del servidor';
         }
       }),
+
+      // ✅ FUNCIONALIDAD SIMPLIFICADA: Cartera muerta
+      loansForDeadDebt: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        args: {
+          weeksSinceLoan: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
+          weeksWithoutPayment: graphql.arg({ type: graphql.nonNull(graphql.Int) })
+        },
+        resolve: async (source, { weeksSinceLoan, weeksWithoutPayment }, context: Context) => {
+          try {
+            console.log('🔍 Buscando créditos para cartera muerta:', { weeksSinceLoan, weeksWithoutPayment });
+            
+            // Calcular fechas límite
+            const now = new Date();
+            const weeksSinceLoanDate = new Date(now.getTime() - (weeksSinceLoan * 7 * 24 * 60 * 60 * 1000));
+            const weeksWithoutPaymentDate = new Date(now.getTime() - (weeksWithoutPayment * 7 * 24 * 60 * 60 * 1000));
+            
+            // Consulta real a la base de datos
+            const loans = await context.prisma.loan.findMany({
+              where: {
+                AND: [
+                  {
+                    signDate: {
+                      lte: weeksSinceLoanDate
+                    }
+                  },
+                  {
+                    // Solo créditos que NO están marcados como cartera muerta
+                    badDebtDate: null
+                  },
+                  {
+                    // Solo créditos que NO están terminados
+                    finishedDate: null
+                  },
+                  {
+                    // Solo créditos con deuda pendiente mayor a 0
+                    pendingAmountStored: {
+                      gt: 0
+                    }
+                  },
+                  {
+                    OR: [
+                      {
+                        // Créditos que no tienen pagos recientes
+                        payments: {
+                          none: {
+                            receivedAt: {
+                              gte: weeksWithoutPaymentDate
+                            }
+                          }
+                        }
+                      },
+                      {
+                        // Créditos que no tienen ningún pago
+                        payments: {
+                          none: {}
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              include: {
+                borrower: {
+                  select: {
+                    personalData: {
+                      select: {
+                        fullName: true,
+                        clientCode: true
+                      }
+                    }
+                  }
+                },
+                lead: {
+                  select: {
+                    personalData: {
+                      select: {
+                        fullName: true
+                      }
+                    },
+                    routes: {
+                      select: {
+                        name: true,
+                        localities: {
+                          select: {
+                            name: true
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                payments: {
+                  select: {
+                    receivedAt: true,
+                    amount: true
+                  },
+                  orderBy: {
+                    receivedAt: 'desc'
+                  }
+                }
+              },
+              orderBy: {
+                signDate: 'asc'
+              }
+            });
+
+            console.log('🔍 Datos brutos de la consulta:', loans.length, 'créditos');
+            console.log('🔍 Primer crédito (ejemplo):', loans[0] ? {
+              id: loans[0].id,
+              leadName: loans[0].lead?.personalData?.fullName,
+              routeName: loans[0].lead?.routes?.name,
+              localities: loans[0].lead?.routes?.localities?.map(l => l.name),
+              pendingAmount: loans[0].pendingAmountStored
+            } : 'No hay créditos');
+
+            // Procesar los datos para calcular semanas
+            const processedLoans = loans.map(loan => {
+              const weeksSinceLoanCalculated = Math.floor((now.getTime() - loan.signDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
+              
+              // Calcular semanas sin pago
+              let weeksWithoutPaymentCalculated = 0;
+              if (loan.payments.length > 0) {
+                const lastPaymentDate = loan.payments[0].receivedAt;
+                if (lastPaymentDate) {
+                  weeksWithoutPaymentCalculated = Math.floor((now.getTime() - lastPaymentDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
+                }
+              } else {
+                // Si no tiene pagos, las semanas sin pago son las mismas que las semanas desde el crédito
+                weeksWithoutPaymentCalculated = weeksSinceLoanCalculated;
+              }
+
+              return {
+                id: loan.id,
+                requestedAmount: Number(loan.requestedAmount),
+                amountGived: Number(loan.amountGived),
+                signDate: loan.signDate.toISOString(),
+                pendingAmountStored: Number(loan.pendingAmountStored || 0),
+                borrower: {
+                  fullName: loan.borrower?.personalData?.fullName || 'Sin nombre',
+                  clientCode: loan.borrower?.personalData?.clientCode || 'Sin código'
+                },
+                lead: {
+                  fullName: loan.lead?.personalData?.fullName || 'Sin líder',
+                  locality: {
+                    name: loan.lead?.routes?.localities?.[0]?.name || 'Sin localidad'
+                  }
+                },
+                weeksSinceLoan: weeksSinceLoanCalculated,
+                weeksWithoutPayment: weeksWithoutPaymentCalculated
+              };
+            });
+
+            console.log('✅ Créditos encontrados para cartera muerta:', processedLoans.length);
+            
+            // Debug: verificar localidades
+            const localities = [...new Set(processedLoans.map(loan => loan.lead.locality.name))];
+            console.log('📍 Localidades encontradas:', localities);
+
+            return JSON.stringify(processedLoans);
+          } catch (error) {
+            console.error('Error al obtener créditos para cartera muerta:', error);
+            return JSON.stringify([]);
+          }
+        }
+      }),
+
+      deadDebtSummary: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        args: {
+          weeksSinceLoan: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
+          weeksWithoutPayment: graphql.arg({ type: graphql.nonNull(graphql.Int) })
+        },
+        resolve: async (source, { weeksSinceLoan, weeksWithoutPayment }, context: Context) => {
+          try {
+            console.log('🔍 Generando resumen de cartera muerta:', { weeksSinceLoan, weeksWithoutPayment });
+            
+            // Calcular fechas límite (misma lógica que loansForDeadDebt)
+            const now = new Date();
+            const weeksSinceLoanDate = new Date(now.getTime() - (weeksSinceLoan * 7 * 24 * 60 * 60 * 1000));
+            const weeksWithoutPaymentDate = new Date(now.getTime() - (weeksWithoutPayment * 7 * 24 * 60 * 60 * 1000));
+            
+            // Consulta real a la base de datos (misma lógica que loansForDeadDebt)
+            const loans = await context.prisma.loan.findMany({
+              where: {
+                AND: [
+                  {
+                    signDate: {
+                      lte: weeksSinceLoanDate
+                    }
+                  },
+                  {
+                    // Solo créditos que NO están marcados como cartera muerta
+                    badDebtDate: null
+                  },
+                  {
+                    // Solo créditos que NO están terminados
+                    finishedDate: null
+                  },
+                  {
+                    // Solo créditos con deuda pendiente mayor a 0
+                    pendingAmountStored: {
+                      gt: 0
+                    }
+                  },
+                  {
+                    OR: [
+                      {
+                        // Créditos que no tienen pagos recientes
+                        payments: {
+                          none: {
+                            receivedAt: {
+                              gte: weeksWithoutPaymentDate
+                            }
+                          }
+                        }
+                      },
+                      {
+                        // Créditos que no tienen ningún pago
+                        payments: {
+                          none: {}
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              include: {
+                lead: {
+                  select: {
+                    routes: {
+                      select: {
+                        localities: {
+                          select: {
+                            name: true
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                payments: {
+                  select: {
+                    receivedAt: true
+                  },
+                  orderBy: {
+                    receivedAt: 'desc'
+                  }
+                }
+              }
+            });
+
+            // Procesar los datos y agrupar por localidad
+            const summaryMap = new Map<string, { loanCount: number; totalAmount: number }>();
+            
+            loans.forEach(loan => {
+              const localityName = loan.lead?.routes?.localities?.[0]?.name || 'Sin localidad';
+              const pendingAmount = Number(loan.pendingAmountStored || 0);
+              
+              if (summaryMap.has(localityName)) {
+                const current = summaryMap.get(localityName)!;
+                summaryMap.set(localityName, {
+                  loanCount: current.loanCount + 1,
+                  totalAmount: current.totalAmount + pendingAmount
+                });
+              } else {
+                summaryMap.set(localityName, {
+                  loanCount: 1,
+                  totalAmount: pendingAmount
+                });
+              }
+            });
+
+            const summary = Array.from(summaryMap.entries()).map(([locality, data]) => ({
+              locality,
+              loanCount: data.loanCount,
+              totalAmount: data.totalAmount
+            }));
+
+            console.log('✅ Resumen generado:', summary.length, 'localidades');
+
+            return JSON.stringify(summary);
+          } catch (error) {
+            console.error('Error al generar resumen de cartera muerta:', error);
+            return JSON.stringify([]);
+          }
+        }
+      })
     },
 
     Mutation: {
@@ -8612,7 +8934,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         }
       }),
-    },
+    }
   };
 });
 
@@ -9967,4 +10289,18 @@ async function sendTelegramFile(chatId: string, fileBuffer: Buffer, filename: st
     console.error('❌ Error al enviar archivo a Telegram:', error);
     return false;
   }
+}
+
+// Helper function to calculate weeks between dates
+function calculateWeeksBetween(date1: Date, date2: Date): number {
+  const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+  return Math.floor((date2.getTime() - date1.getTime()) / msPerWeek);
+}
+
+// Helper function to get Monday of a week
+function getMonday(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is Sunday
+  return new Date(d.setDate(diff));
 }
