@@ -2359,6 +2359,10 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
                 id: loan.id,
                 signDate: loan.signDate,
                 weekDuration: loan.weekDuration || 16,
+                status: loan.status,
+                finishedDate: loan.finishedDate,
+                totalAmountDue: loan.totalAmountDue,
+                amountRequested: loan.amountRequested,
                 payments: loan.payments?.map((payment: any) => ({
                   id: payment.id,
                   receivedAt: payment.receivedAt,
@@ -2373,14 +2377,19 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
               
               const chronology = generatePaymentChronology(loanData);
               
-              // Convertir a formato del PDF
+              // Convertir a formato del PDF con información de sobrepagos
               const chronologicalEvents = chronology.map((item: PaymentChronologyItem) => ({
                 date: new Date(item.date),
                 type: item.type === 'PAYMENT' ? 'payment' : 'no_payment',
                 amount: item.amount || 0,
                 paymentNumber: item.paymentNumber || null,
                 description: item.description,
-                week: 1 // Se puede calcular si es necesario
+                week: item.weekIndex || 1,
+                coverageType: item.coverageType || 'MISS',
+                weeklyExpected: item.weeklyExpected || 0,
+                weeklyPaid: item.weeklyPaid || 0,
+                surplusBefore: item.surplusBefore || 0,
+                surplusAfter: item.surplusAfter || 0
               }));
               
               // Si fue renovado, agregar nota informativa
@@ -2444,22 +2453,52 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
                     y += 20;
                   }
 
-                  // Dibujar fila de la tabla
-                  const eventRowColor = eventIndex % 2 === 0 ? '#f0f9ff' : '#ffffff';
+                  // Dibujar fila de la tabla con colores según sobrepagos
+                  let eventRowColor = eventIndex % 2 === 0 ? '#f0f9ff' : '#ffffff';
+                  
+                  // Aplicar colores según el tipo de cobertura (igual que en el frontend)
+                  if (event.coverageType === 'COVERED_BY_SURPLUS') {
+                    eventRowColor = '#E0F2FE'; // Azul claro - cubierto por sobrepago
+                  } else if (event.coverageType === 'PARTIAL') {
+                    eventRowColor = '#FEF9C3'; // Amarillo claro - pago parcial
+                  } else if (event.coverageType === 'MISS' && event.type === 'no_payment') {
+                    eventRowColor = '#FEE2E2'; // Rojo claro - falta sin pago
+                  }
+                  
                   doc.rect(eventTableX, y - 2, totalEventWidth, rowHeight).fill(eventRowColor);
+
+                  // Mejorar descripción para mostrar información de sobrepagos
+                  let enhancedDescription = event.description;
+                  if (event.coverageType === 'COVERED_BY_SURPLUS' && event.type === 'no_payment') {
+                    enhancedDescription = 'Sin pago (cubierto por sobrepago previo)';
+                  } else if (event.coverageType === 'COVERED_BY_SURPLUS' && event.type === 'payment') {
+                    enhancedDescription = `${event.description} (con sobrepago)`;
+                  } else if (event.coverageType === 'PARTIAL') {
+                    enhancedDescription = `${event.description} (pago parcial)`;
+                  }
 
                   const eventData = [
                     formatDate(event.date.toISOString().split('T')[0]),
                     event.type === 'payment' ? 'PAGO' : event.type === 'renewal' ? 'RENOVADO' : 'SIN PAGO',
                     event.type === 'payment' ? formatCurrency(event.amount) : '-',
-                    event.description
+                    enhancedDescription
                   ];
 
                   eventData.forEach((cell, cellIndex) => {
                     const cellX = eventTableX + eventColumnWidths.slice(0, cellIndex).reduce((a, b) => a + b, 0);
                     let cellColor = '#2d3748'; // Color por defecto
-                    if (event.type === 'no_payment') cellColor = '#dc2626';
-                    else if (event.type === 'renewal') cellColor = '#f59e0b';
+                    
+                    // Aplicar colores de texto según el tipo de cobertura
+                    if (event.coverageType === 'MISS' && event.type === 'no_payment') {
+                      cellColor = '#b91c1c'; // Rojo para faltas reales
+                    } else if (event.coverageType === 'COVERED_BY_SURPLUS') {
+                      cellColor = '#1e40af'; // Azul para sobrepagos
+                    } else if (event.coverageType === 'PARTIAL') {
+                      cellColor = '#d97706'; // Naranja para pagos parciales
+                    } else if (event.type === 'renewal') {
+                      cellColor = '#f59e0b';
+                    }
+                    
                     doc.fontSize(7).fillColor(cellColor).text(cell, cellX + 5, y + 4, { width: eventColumnWidths[cellIndex] - 10, align: 'center' });
                   });
                   y += rowHeight;
@@ -2565,14 +2604,19 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
               
               const chronology = generatePaymentChronology(loanData);
               
-              // Convertir a formato del PDF
+              // Convertir a formato del PDF con información de sobrepagos
               const chronologicalEvents = chronology.map((item: PaymentChronologyItem) => ({
                 date: new Date(item.date),
                 type: item.type === 'PAYMENT' ? 'payment' : 'no_payment',
                 amount: item.amount || 0,
                 paymentNumber: item.paymentNumber || null,
                 description: item.description,
-                week: 1 // Se puede calcular si es necesario
+                week: item.weekIndex || 1,
+                coverageType: item.coverageType || 'MISS',
+                weeklyExpected: item.weeklyExpected || 0,
+                weeklyPaid: item.weeklyPaid || 0,
+                surplusBefore: item.surplusBefore || 0,
+                surplusAfter: item.surplusAfter || 0
               }));
               
               // Si fue renovado, agregar nota informativa

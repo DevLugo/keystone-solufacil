@@ -81,7 +81,7 @@ export const KPIBar: React.FC<KPIBarProps> = ({
   massCommission,
   primaryMenu
 }) => {
-  const [showCommissionTooltip, setShowCommissionTooltip] = useState(false);
+  const [showTooltips, setShowTooltips] = useState<{ [key: string]: boolean }>({});
   const [openPrimary, setOpenPrimary] = useState(false);
 
   // Cerrar menú al hacer click fuera o ESC
@@ -138,8 +138,8 @@ export const KPIBar: React.FC<KPIBarProps> = ({
             {chip.showTooltip && (
               <>
                 <span
-                  onMouseEnter={() => setShowCommissionTooltip(true)}
-                  onMouseLeave={() => setShowCommissionTooltip(false)}
+                  onMouseEnter={() => setShowTooltips(prev => ({ ...prev, [chip.label]: true }))}
+                  onMouseLeave={() => setShowTooltips(prev => ({ ...prev, [chip.label]: false }))}
                   style={{ 
                     cursor: 'help', 
                     width: 16, 
@@ -155,7 +155,7 @@ export const KPIBar: React.FC<KPIBarProps> = ({
                 >
                   <FaInfoCircle size={10} />
                 </span>
-                {showCommissionTooltip && chip.tooltipContent && (
+                {showTooltips[chip.label] && chip.tooltipContent && (
                   <div style={{
                     position: 'absolute',
                     top: '100%',
