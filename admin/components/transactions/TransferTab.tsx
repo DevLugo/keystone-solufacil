@@ -16,7 +16,7 @@ import { formatCurrency } from '../../utils/formatters';
 // GraphQL para obtener las cuentas disponibles
 const GET_ACCOUNTS = gql`
   query GetAccounts($routeId: ID) {
-    accounts(where: { route: { id: { equals: $routeId } } }) {
+    accounts(where: { routes: { some: { id: { equals: $routeId } } } }) {
       id
       name
       type
@@ -358,4 +358,4 @@ export const TransferForm: React.FC<TransferFormProps> = ({
   );
 };
 
-export default TransferForm; 
+export default TransferForm;
