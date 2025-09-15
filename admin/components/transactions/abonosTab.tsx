@@ -1403,6 +1403,39 @@ export const CreatePaymentForm = ({
       .reduce((sum, payment) => sum + parseFloat(payment.amount || '0'), 0);
   }, [payments, strikethroughNewPaymentIndices]);
 
+  // Calcular desglose por método de pago para el KPI Total
+  const totalByPaymentMethod = useMemo(() => {
+    let cashTotal = 0;
+    let transferTotal = 0;
+
+    // Pagos nuevos
+    payments
+      .filter((_: any, idx: number) => !strikethroughNewPaymentIndices.includes(idx))
+      .forEach((payment: any) => {
+        const amount = parseFloat(payment.amount || '0');
+        if (payment.paymentMethod === 'CASH') {
+          cashTotal += amount;
+        } else if (payment.paymentMethod === 'MONEY_TRANSFER') {
+          transferTotal += amount;
+        }
+      });
+
+    // Pagos existentes
+    existingPayments
+      .filter((payment: any) => !strikethroughPaymentIds.includes(payment.id))
+      .forEach((payment: any) => {
+        const editedPayment = editedPayments[payment.id] || payment;
+        const amount = parseFloat(editedPayment.amount || '0');
+        if (editedPayment.paymentMethod === 'CASH') {
+          cashTotal += amount;
+        } else if (editedPayment.paymentMethod === 'MONEY_TRANSFER') {
+          transferTotal += amount;
+        }
+      });
+
+    return { cashTotal, transferTotal };
+  }, [payments, existingPayments, editedPayments, strikethroughNewPaymentIndices, strikethroughPaymentIds]);
+
   useEffect(() => {
     updateState({
       loadPaymentDistribution: {
@@ -1950,9 +1983,51 @@ export const CreatePaymentForm = ({
             value: `$${grandTotalAmount.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`,
             color: '#065F46',
             backgroundColor: '#ECFDF5',
-            borderColor: '#D1FAE5'
+            borderColor: '#D1FAE5',
+            showTooltip: true,
+            tooltipContent: (() => {
+              const { cashTotal, transferTotal } = totalByPaymentMethod;
+              
+              return (
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+                    Desglose por Método de Pago
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '4px 0',
+                    borderBottom: '1px solid #F3F4F6',
+                    fontSize: '11px'
+                  }}>
+                    <span style={{ color: '#374151' }}>
+                      💵 Efectivo
+                    </span>
+                    <span style={{ fontWeight: '600', color: '#065F46' }}>
+                      ${cashTotal.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '4px 0',
+                    fontSize: '11px'
+                  }}>
+                    <span style={{ color: '#374151' }}>
+                      🏦 Transferencia
+                    </span>
+                    <span style={{ fontWeight: '600', color: '#065F46' }}>
+                      ${transferTotal.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()
           }
         ]}
+        buttons={[]}
         primaryMenu={{
           onSave: () => {
             // Adaptativo: Si hay pagos existentes (modo edición), guardar directamente
@@ -3277,19 +3352,78 @@ export const CreatePaymentForm = ({
             <h4><strong>Total:</strong> ${(payments.length > 0 ? totalAmount : state.groupedPayments ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0 : 0).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</h4>
           </Box>
           
+          {/* Desglose por método de pago */}
+          <Box marginBottom="large" style={{ 
+            backgroundColor: '#F8FAFC', 
+            border: '1px solid #E2E8F0', 
+            borderRadius: '8px', 
+            padding: '1rem' 
+          }}>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px' }}>
+              Desglose por Método de Pago
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                padding: '8px 12px', 
+                backgroundColor: '#ECFDF5', 
+                border: '1px solid #D1FAE5', 
+                borderRadius: '6px' 
+              }}>
+                <span style={{ marginRight: '8px', fontSize: '16px' }}>💵</span>
+                <div>
+                  <div style={{ fontSize: '12px', color: '#065F46', fontWeight: '500' }}>Efectivo</div>
+                  <div style={{ fontSize: '16px', color: '#065F46', fontWeight: '600' }}>
+                    ${totalByPaymentMethod.cashTotal.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  </div>
+                </div>
+              </div>
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                padding: '8px 12px', 
+                backgroundColor: '#EFF6FF', 
+                border: '1px solid #BFDBFE', 
+                borderRadius: '6px' 
+              }}>
+                <span style={{ marginRight: '8px', fontSize: '16px' }}>🏦</span>
+                <div>
+                  <div style={{ fontSize: '12px', color: '#1D4ED8', fontWeight: '500' }}>Transferencia</div>
+                  <div style={{ fontSize: '16px', color: '#1D4ED8', fontWeight: '600' }}>
+                    ${totalByPaymentMethod.transferTotal.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Box>
+          
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', alignItems: 'start' }}>
             <Box marginBottom="large">
-              <label>Efectivo:</label>
+              <label>Distribución de Efectivo:</label>
               <div style={{ 
-                padding: '0.75rem', 
-                backgroundColor: '#f5f5f5', 
-                border: '1px solid #ddd',
+                padding: '8px 12px', 
+                backgroundColor: '#ffffff', 
+                border: '1px solid #ccc',
                 borderRadius: '4px',
                 color: '#333',
                 fontWeight: '500',
+                marginTop: '0.5rem',
+                height: '40px',
+                display: 'flex',
+                alignItems: 'center',
+                fontSize: '14px',
+                boxSizing: 'border-box'
+              }}>
+                ${totalByPaymentMethod.cashTotal.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              </div>
+              <div style={{ 
+                fontSize: '12px', 
+                color: '#6B7280', 
+                fontStyle: 'italic',
                 marginTop: '0.5rem'
               }}>
-                ${(loadPaymentDistribution.totalPaidAmount - loadPaymentDistribution.bankPaidAmount).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                Solo puedes distribuir: ${totalByPaymentMethod.cashTotal.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} (efectivo real)
               </div>
             </Box>
             
@@ -3298,10 +3432,10 @@ export const CreatePaymentForm = ({
               <TextInput
                 type="number"
                 min="0"
-                max={payments.length > 0 ? totalAmount : state.groupedPayments ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0 : 0}
+                max={totalByPaymentMethod.cashTotal} // Limitar solo al efectivo real
                 value={loadPaymentDistribution.bankPaidAmount}
                 onChange={(e) => {
-                  const transferAmount = Math.max(0, Math.min(parseFloat(e.target.value) || 0, payments.length > 0 ? totalAmount : state.groupedPayments ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0 : 0));
+                  const transferAmount = Math.max(0, Math.min(parseFloat(e.target.value) || 0, totalByPaymentMethod.cashTotal));
                   const totalAmountValue = payments.length > 0 ? totalAmount : state.groupedPayments ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0 : 0;
                   const cashAmount = totalAmountValue - transferAmount;
                   
@@ -3315,14 +3449,26 @@ export const CreatePaymentForm = ({
                   });
                 }}
                 style={{ 
-                  border: loadPaymentDistribution.bankPaidAmount > (payments.length > 0 ? totalAmount : state.groupedPayments ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0 : 0) ? '2px solid #e74c3c' : '1px solid #ccc',
-                  marginTop: '0.5rem'
+                  border: loadPaymentDistribution.bankPaidAmount > totalByPaymentMethod.cashTotal ? '2px solid #e74c3c' : '1px solid #ccc',
+                  marginTop: '0.5rem',
+                  height: '40px',
+                  fontSize: '14px',
+                  padding: '8px 12px',
+                  boxSizing: 'border-box'
                 }}
               />
+              <div style={{ 
+                fontSize: '12px', 
+                color: '#6B7280', 
+                fontStyle: 'italic',
+                marginTop: '0.5rem'
+              }}>
+                Máximo: ${totalByPaymentMethod.cashTotal.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              </div>
             </Box>
           </div>
           
-          {loadPaymentDistribution.bankPaidAmount > (payments.length > 0 ? totalAmount : state.groupedPayments ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0 : 0) && (
+          {loadPaymentDistribution.bankPaidAmount > totalByPaymentMethod.cashTotal && (
             <div style={{ 
               color: '#e74c3c', 
               fontSize: '0.9em', 
@@ -3333,7 +3479,7 @@ export const CreatePaymentForm = ({
               borderRadius: '4px',
               marginTop: '1rem'
             }}>
-              El monto de transferencia no puede ser mayor al total de cobranza
+              El monto de transferencia no puede ser mayor al efectivo real disponible (${totalByPaymentMethod.cashTotal.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })})
             </div>
           )}
         </Box>

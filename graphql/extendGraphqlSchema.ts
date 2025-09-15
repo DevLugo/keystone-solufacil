@@ -960,19 +960,30 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   });
                 }
 
-                // 🆕 MODIFICADO: Registrar TODO como efectivo (tanto CASH como BANK)
-                // Esto permite que después se haga la transferencia automática del monto bancario
-                cashAmountChange += paymentAmount; // Sumar el pago (aumenta efectivo)
-
-                // ✅ AGREGAR: Descontar comisiones de los balances (siempre de efectivo)
-                if (comissionAmount > 0) {
-                  cashAmountChange -= comissionAmount; // Restar comisión (disminuye efectivo)
+                // 🆕 MODIFICADO: Registrar según el método de pago
+                if (payment.paymentMethod === 'CASH') {
+                  // Pagos en efectivo van a la cuenta de efectivo
+                  cashAmountChange += paymentAmount; // Sumar el pago (aumenta efectivo)
+                  
+                  // Descontar comisiones de efectivo
+                  if (comissionAmount > 0) {
+                    cashAmountChange -= comissionAmount; // Restar comisión (disminuye efectivo)
+                  }
+                } else if (payment.paymentMethod === 'MONEY_TRANSFER') {
+                  // Pagos por transferencia van directamente a la cuenta bancaria
+                  bankAmountChange += paymentAmount; // Sumar el pago (aumenta banco)
+                  
+                  // Descontar comisiones de efectivo (las comisiones siempre se descuentan de efectivo)
+                  if (comissionAmount > 0) {
+                    cashAmountChange -= comissionAmount; // Restar comisión (disminuye efectivo)
+                  }
                 }
               }
 
               console.log('🔍 DEBUG - Total transacciones a crear:', transactionData.length);
               console.log('🔍 DEBUG - Transacciones de comisiones:', transactionData.filter(t => t.type === 'EXPENSE' && t.expenseSource === 'LOAN_PAYMENT_COMISSION').length);
               console.log('🔍 DEBUG - cashAmountChange calculado:', cashAmountChange);
+              console.log('🔍 DEBUG - bankAmountChange calculado:', bankAmountChange);
 
               // Crear todas las transacciones de una vez
               if (transactionData.length > 0) {
@@ -986,20 +997,27 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   
                   // Calcular el cambio neto total (incluyendo transferencias)
                   let netCashChange = cashAmountChange;
+                  let netBankChange = bankAmountChange;
+                  
                   console.log('🔍 DEBUG - Valores antes del cálculo neto:', {
                     cashAmountChange,
+                    bankAmountChange,
                     bankPaidAmount,
-                    netCashChange
+                    netCashChange,
+                    netBankChange
                   });
                   
                   if (bankPaidAmount > 0) {
                     netCashChange -= bankPaidAmount; // Restar la parte que se transfiere al banco
-                    console.log('🔍 DEBUG - Después de restar bankPaidAmount:', {
+                    netBankChange += bankPaidAmount; // Sumar la parte que se transfiere al banco
+                    console.log('🔍 DEBUG - Después de restar/sumar bankPaidAmount:', {
                       bankPaidAmount,
-                      netCashChange
+                      netCashChange,
+                      netBankChange
                     });
                   }
                   
+                  // Actualizar cuenta de efectivo
                   if (netCashChange !== 0) {
                     const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
                     const newCashAmount = currentCashAmount + netCashChange;
@@ -1015,6 +1033,25 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     await tx.account.update({
                       where: { id: cashAccount.id },
                       data: { amount: newCashAmount.toString() }
+                    });
+                  }
+                  
+                  // Actualizar cuenta bancaria
+                  if (netBankChange !== 0) {
+                    const currentBankAmount = parseFloat((bankAccount.amount || 0).toString());
+                    const newBankAmount = currentBankAmount + netBankChange;
+                    
+                    console.log('🔧 Actualizando cuenta bancaria con cambio neto:', {
+                      currentAmount: currentBankAmount,
+                      bankAmountChange,
+                      bankPaidAmount,
+                      netBankChange,
+                      newAmount: newBankAmount
+                    });
+                    
+                    await tx.account.update({
+                      where: { id: bankAccount.id },
+                      data: { amount: newBankAmount.toString() }
                     });
                   }
                 } catch (error) {
@@ -1072,7 +1109,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
               // con el cálculo del cambio neto que incluye las transferencias
 
               // 🆕 NUEVA LÓGICA: Si hay monto bancario, crear transferencia automática
-              if (bankPaidAmount > 0) {
+              // Solo si NO hay pagos individuales MONEY_TRANSFER (para evitar doble actualización)
+              const hasMoneyTransferPayments = createdPaymentRecords.some(p => p.paymentMethod === 'MONEY_TRANSFER');
+              
+              if (bankPaidAmount > 0 && !hasMoneyTransferPayments) {
                 console.log('🔄 Creando transferencia automática por pago mixto:', {
                   amount: bankPaidAmount,
                   from: 'EMPLOYEE_CASH_FUND',
