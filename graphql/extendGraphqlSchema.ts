@@ -6826,7 +6826,11 @@ export const extendGraphqlSchema = graphql.extend(base => {
             balanceWithReinvest: 0,
             carteraMuerta: 0,
             uiExpensesTotal: 0,
-            uiGainsTotal: 0
+            uiGainsTotal: 0,
+            // Campos de desglose de nómina
+            nominaInterna: 0,
+            salarioExterno: 0,
+            viaticos: 0
           };
         }
   
@@ -6854,7 +6858,17 @@ export const extendGraphqlSchema = graphql.extend(base => {
               // Otros gastos
               switch (transaction.expenseSource) {
                 case 'NOMINA_SALARY':
+                  monthData.nominaInterna += amount;
+                  monthData.nomina += amount;
+                  monthData.operationalExpenses += amount;
+                  break;
                 case 'EXTERNAL_SALARY':
+                  monthData.salarioExterno += amount;
+                  monthData.nomina += amount;
+                  monthData.operationalExpenses += amount;
+                  break;
+                case 'VIATIC':
+                  monthData.viaticos += amount;
                   monthData.nomina += amount;
                   monthData.operationalExpenses += amount;
                   break;
