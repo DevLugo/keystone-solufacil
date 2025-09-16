@@ -23,6 +23,7 @@ import type { Option, Route, Employee } from '../types/transaction';
 
 // Import components
 import { LoanListView } from '../components/loans/LoanListView';
+import { useBalanceRefresh } from '../contexts/BalanceRefreshContext';
 
 // Import GraphQL queries and mutations
 import { GET_LOAN_TYPES } from '../graphql/queries/loantypes';
@@ -68,7 +69,6 @@ interface FormState {
   loans: Loan[];
   comission: string;
   focusedInput: string | null;
-  editedLoans: { [key: string]: Loan };
   expandedSection: 'existing' | 'new';
   successMessage: string | null;
   error: Error | null;
@@ -201,7 +201,6 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
     loans: [],
     comission: '',
     focusedInput: null,
-    editedLoans: {},
     expandedSection: 'existing',
     successMessage: null,
     error: null,
@@ -217,7 +216,6 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
     loans, 
     comission, 
     focusedInput, 
-    editedLoans, 
     expandedSection, 
     successMessage, 
     error, 
@@ -236,9 +234,6 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
     updateState({ successMessage: message });
   }, [updateState]);
 
-  const setEditedLoans = useCallback((updater: (prev: { [key: string]: Loan }) => { [key: string]: Loan }) => {
-    updateState({ editedLoans: updater(editedLoans) });
-  }, [updateState, editedLoans]);
 
   const toggleSection = (section: 'existing' | 'new') => {
     updateState({
@@ -305,6 +300,7 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
   const [createLoan, { error: loanError, loading: loanLoading }] = useMutation(CREATE_LOAN_MUTATION);
   const [createLoansBulk, { error: bulkLoanError, loading: bulkLoanLoading }] = useMutation(CREATE_LOANS_BULK);
   const [updateLoan, { loading: updateLoading }] = useMutation(UPDATE_LOAN_MUTATION);
+  const { triggerBalanceRefresh } = useBalanceRefresh();
   const router = useRouter();
 
   const handleAddLoan = () => {
@@ -348,6 +344,10 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
   const handleRemoveLoan = (index: number) => {
     const updatedLoans = newLoans.filter((_, i) => i !== index);
     updateState({ newLoans: updatedLoans });
+    
+    // Triggear refresh del balance en el RouteLeadSelector
+    console.log('🔄 Triggeando refresh del balance después de eliminar préstamo');
+    triggerBalanceRefresh();
   };
 
   const handleEditLoan = (index: number, field: string, value: string) => {
@@ -446,90 +446,6 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
     updateState({ newLoans: updatedLoans });
   };
 
-  const handleEditExistingLoan = useCallback(async (loanId: string, field: string, value: string) => {
-    try {
-      setIsLoading(true);
-      const loan = editedLoans[loanId] || loans.find(l => l.id === loanId);
-      if (!loan) return;
-
-      // Primero actualizamos el estado local
-      const updatedLoan = {
-        ...loan,
-        [field]: value
-      };
-
-      setEditedLoans(prev => ({
-        ...prev,
-        [loanId]: updatedLoan
-      }));
-
-      let updateData: any = {};
-
-      if (field === 'borrowerName' || field === 'borrowerPhone') {
-        // Actualizar datos personales del prestatario
-        const phone = loan.borrower?.personalData?.phones?.[0];
-        if (!phone || !('id' in phone)) {
-          throw new Error('No se encontró el ID del teléfono');
-        }
-        const phoneId = phone.id;
-
-        updateData = {
-          borrower: {
-            connect: {
-              id: loan.borrower.id
-            }
-          }
-        };
-
-        // Actualizar los datos personales
-        await updatePersonalData({
-          variables: {
-            where: { id: loan.borrower.personalData.id },
-            data: {
-              fullName: field === 'borrowerName' ? value : loan.borrower.personalData.fullName,
-              phones: {
-                update: {
-                  where: { id: phoneId },
-                  data: { number: field === 'borrowerPhone' ? value : phone.number }
-                }
-              }
-            }
-          }
-        });
-      } else {
-        // Actualizar campos normales del préstamo
-        updateData = {
-          [field]: value
-        };
-      }
-
-      // Asegurarnos de que comissionAmount sea un número válido
-      if (field === 'comissionAmount') {
-        updateData.comissionAmount = value ? parseFloat(value) : 0;
-      }
-
-      const { data } = await updateLoan({
-        variables: {
-          id: loanId,
-          data: updateData
-        }
-      });
-
-      if (data?.updateLoan) {
-        setEditedLoans(prev => ({
-          ...prev,
-          [loanId]: data.updateLoan
-        }));
-        setSuccessMessage('Préstamo actualizado exitosamente');
-        setTimeout(() => setSuccessMessage(''), 2000);
-      }
-    } catch (err: unknown) {
-      console.error('Error al actualizar el préstamo:', err);
-      setError(err instanceof Error ? err.message : 'Error al actualizar el préstamo');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [editedLoans, loans, updateLoan, updatePersonalData, setIsLoading, setError, setSuccessMessage, setEditedLoans]);
 
   const handleSubmit = async () => {
     if (!selectedDate) {
@@ -543,11 +459,10 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
     }
 
     // Confirmar si hay muchos préstamos para evitar guardados accidentales
-    const totalChanges = newLoans.length + Object.keys(editedLoans).length;
+    const totalChanges = newLoans.length;
     if (totalChanges > 5) {
       const confirmed = confirm(
-        `¿Estás seguro de que quieres guardar ${totalChanges} cambios? ` +
-        `Esto incluye ${newLoans.length} préstamos nuevos y ${Object.keys(editedLoans).length} préstamos actualizados.`
+        `¿Estás seguro de que quieres guardar ${totalChanges} préstamos nuevos?`
       );
       if (!confirmed) return;
     }
@@ -568,8 +483,8 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
           amountGived: loan.amountGived,
           loantype: { connect: { id: loan.loantype.id } },
           signDate: selectedDate,
-          avalName: loan.avalName,
-          avalPhone: loan.avalPhone,
+          avalName: loan.avalName || '',
+          avalPhone: loan.avalPhone || '',
           lead: { connect: { id: selectedLead.id }},
           borrower: loan.previousLoan?.id
             ? { connect: { id: loan.borrower.id } }
@@ -643,38 +558,13 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
         }
       }
 
-      // Actualizar préstamos existentes
-      for (const [id, loan] of Object.entries(editedLoans)) {
-        await updateLoan({
-          variables: {
-            id,
-            data: {
-              requestedAmount: loan.requestedAmount,
-              amountGived: loan.amountGived,
-              avalName: loan.avalName,
-              avalPhone: loan.avalPhone,
-              comissionAmount: comission ? parseFloat(comission).toFixed(2) : "0.00",
-              borrower: {
-                connect: {
-                  id: loan.borrower.id
-                }
-              }
-            }
-          }
-        });
-      }
 
       // Mostrar mensaje de éxito con detalles
       const newLoansCount = loansToCreate.length;
-      const updatedLoansCount = Object.keys(editedLoans).length;
       
       let successMessage = '';
-      if (newLoansCount > 0 && updatedLoansCount > 0) {
-        successMessage = `🚀 ${newLoansCount} préstamos creados y ${updatedLoansCount} actualizados exitosamente en una sola operación`;
-      } else if (newLoansCount > 0) {
+      if (newLoansCount > 0) {
         successMessage = `🚀 ${newLoansCount} préstamos creados exitosamente en una sola operación`;
-      } else if (updatedLoansCount > 0) {
-        successMessage = `✏️ ${updatedLoansCount} préstamos actualizados exitosamente`;
       } else {
         successMessage = '✅ Cambios guardados exitosamente';
       }
@@ -682,8 +572,12 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
       updateState({ successMessage });
       setTimeout(() => updateState({ successMessage: null }), 7000);
 
+      // Triggear refresh del balance después de crear préstamos
+      console.log('🔄 Triggeando refresh del balance después de crear préstamos');
+      triggerBalanceRefresh();
+
       // Limpiar el estado
-      updateState({ newLoans: [], editedLoans: {} });
+      updateState({ newLoans: [] });
     } catch (error) {
       console.error('Error saving loans:', error);
       alert('Error saving loans. Please check the console for details.');
@@ -800,23 +694,6 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
               <span>{newLoans.length} préstamo{newLoans.length !== 1 ? 's' : ''} pendiente{newLoans.length !== 1 ? 's' : ''} de guardar</span>
             </div>
           )}
-          {Object.keys(editedLoans).length > 0 && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '6px 12px',
-              backgroundColor: '#FFF3E0',
-              color: '#E65100',
-              borderRadius: '16px',
-              fontSize: '12px',
-              fontWeight: '500',
-              border: '1px solid #FFCC02'
-            }}>
-              <span>✏️</span>
-              <span>{Object.keys(editedLoans).length} préstamo{Object.keys(editedLoans).length !== 1 ? 's' : ''} con cambios pendientes</span>
-            </div>
-          )}
         </Box>
         <Box style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold' }}>Total: ${totalAmount.toFixed(2)}</h3>
@@ -870,7 +747,6 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
                   error={loansError || loanTypesError || null}
                   onRemoveLoan={handleRemoveLoan}
                   onEditLoan={handleEditLoan}
-                  onEditExistingLoan={handleEditExistingLoan}
                   focusedInput={focusedInput}
                 />
               </Box>
@@ -908,7 +784,6 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
                   error={loansError || loanTypesError || null}
                   onRemoveLoan={handleRemoveLoan}
                   onEditLoan={handleEditLoan}
-                  onEditExistingLoan={handleEditExistingLoan}
                   focusedInput={focusedInput}
                 />
               </Box>
@@ -917,7 +792,7 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
         )}
       </Box>
 
-      {(newLoans.length > 0 || Object.keys(editedLoans).length > 0) && (
+      {newLoans.length > 0 && (
         <Box
           style={{
             display: 'flex',
@@ -933,7 +808,7 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
           <Button
             tone="active"
             weight="bold"
-            onClick={() => updateState({ newLoans: [], editedLoans: {} })}
+            onClick={() => updateState({ newLoans: [] })}
             style={{ padding: '8px 24px', minWidth: '150px' }}
             isLoading={loanLoading}
           >
@@ -958,13 +833,13 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
                   fontSize: '12px',
                   fontWeight: '500'
                 }}>
-                  {newLoans.length + Object.keys(editedLoans).length}
+                  {newLoans.length}
                 </span>
               </>
             ) : (
               <>
                 Guardar Cambios1111
-                {(newLoans.length > 0 || Object.keys(editedLoans).length > 0) && (
+                {newLoans.length > 0 && (
                   <span style={{
                     marginLeft: '8px',
                     backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -973,7 +848,7 @@ const CreateLoanForm = ({ selectedDate, selectedRoute, selectedLead }: CreditosP
                     fontSize: '12px',
                     fontWeight: '500'
                   }}>
-                    {newLoans.length + Object.keys(editedLoans).length}
+                    {newLoans.length}
                   </span>
                 )}
               </>

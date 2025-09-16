@@ -62,6 +62,8 @@ export type Loan = BaseLoan & {
   amountToPay: string;
   pendingAmount: string;
   comissionAmount: string;
+  avalName: string;
+  avalPhone: string;
 };
 
 export type LoanType = {

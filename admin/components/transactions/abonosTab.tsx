@@ -821,6 +821,14 @@ export const CreatePaymentForm = ({
         refetchMigratedPayments()
       ]);
 
+      // Llamar al callback para actualizar balances
+      if (onSaveComplete) {
+        console.log('🔄 abonosTab: Llamando callback onSaveComplete para actualizar balances (falco payment)');
+        onSaveComplete();
+      } else {
+        console.warn('⚠️ abonosTab: onSaveComplete callback no está definido (falco payment)');
+      }
+
       // Reset state
       updateState({
         isFalcoModalOpen: false,
@@ -870,6 +878,14 @@ export const CreatePaymentForm = ({
         refetchPayments(),
         refetchMigratedPayments()
       ]);
+
+      // Llamar al callback para actualizar balances
+      if (onSaveComplete) {
+        console.log('🔄 abonosTab: Llamando callback onSaveComplete para actualizar balances (create falco)');
+        onSaveComplete();
+      } else {
+        console.warn('⚠️ abonosTab: onSaveComplete callback no está definido (create falco)');
+      }
 
       // Reset state
       updateState({
@@ -3415,7 +3431,7 @@ export const CreatePaymentForm = ({
                 fontSize: '14px',
                 boxSizing: 'border-box'
               }}>
-                ${totalByPaymentMethod.cashTotal.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                ${loadPaymentDistribution.cashPaidAmount.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
               </div>
               <div style={{ 
                 fontSize: '12px', 
