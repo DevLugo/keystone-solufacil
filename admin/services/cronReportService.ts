@@ -1,94 +1,9 @@
 import { TelegramService } from './telegramService';
-import { generateCreditsWithDocumentErrorsReport } from './reportGenerationService';
+import { generateCreditsWithDocumentErrorsReport, generateCarteraReport } from './reportGenerationService';
+import { generateAndSendReport, calculatePreviousWeek, ReportConfig, WeekInfo } from './reportFactoryService';
 
-// Función para calcular la semana anterior basada en semanas activas (lunes-domingo)
-const calculatePreviousWeek = () => {
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1; // getMonth() devuelve 0-11, necesitamos 1-12
-  
-  // Obtener información de las semanas activas del mes actual
-  const activeWeeksInfo = getActiveWeeksInfo(currentYear, currentMonth);
-  
-  // Encontrar en qué semana activa estamos actualmente
-  let currentWeekNumber = 0;
-  for (const week of activeWeeksInfo) {
-    if (now >= week.start && now <= week.end) {
-      currentWeekNumber = week.weekNumber;
-      break;
-    }
-  }
-  
-  // Si estamos en la semana 1, necesitamos la última semana del mes anterior
-  if (currentWeekNumber === 1) {
-    const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
-    const prevYear = currentMonth === 1 ? currentYear - 1 : currentYear;
-    return { year: prevYear, month: prevMonth };
-  }
-  
-  // Si estamos en la semana 2 o más, necesitamos la semana anterior del mes actual
-  return { year: currentYear, month: currentMonth };
-};
-
-// Función helper para obtener información de semanas activas (necesaria para el cálculo)
-const getActiveWeeksInfo = (year: number, month: number) => {
-  const firstDayOfMonth = new Date(year, month - 1, 1);
-  const lastDayOfMonth = new Date(year, month, 0);
-
-  // Generar todas las semanas que tocan el mes
-  const weeks: Array<{ start: Date, end: Date, weekNumber: number }> = [];
-  let currentDate = new Date(firstDayOfMonth);
-
-  // Retroceder hasta encontrar el primer lunes antes del mes
-  while (currentDate.getDay() !== 1) { // 1 = lunes
-    currentDate.setDate(currentDate.getDate() - 1);
-  }
-
-  let weekNumber = 1;
-
-  // Generar semanas hasta cubrir todo el mes
-  while (currentDate <= lastDayOfMonth) {
-    const weekStart = new Date(currentDate);
-    const weekEnd = new Date(currentDate);
-    weekEnd.setDate(weekEnd.getDate() + 6); // Lunes a domingo
-    weekEnd.setHours(23, 59, 59, 999);
-
-    // Contar días de trabajo (lunes-sábado) que pertenecen al mes
-    let workDaysInMonth = 0;
-    let tempDate = new Date(weekStart);
-
-    for (let i = 0; i < 6; i++) { // 6 días de trabajo
-      if (tempDate.getMonth() === month - 1) {
-        workDaysInMonth++;
-      }
-      tempDate.setDate(tempDate.getDate() + 1);
-    }
-
-    // La semana pertenece al mes que tiene más días activos
-    // Si hay empate (3-3), la semana va al mes que tiene el lunes
-    if (workDaysInMonth > 3 || (workDaysInMonth === 3 && weekStart.getMonth() === month - 1)) {
-      weeks.push({
-        start: new Date(weekStart),
-        end: new Date(weekEnd),
-        weekNumber
-      });
-      weekNumber++;
-    }
-
-    currentDate.setDate(currentDate.getDate() + 7);
-  }
-
-  return weeks;
-};
-
-// Interfaz para la configuración del reporte
-interface ReportConfig {
-  id: string;
-  name: string;
-  reportType: string;
-  routes: any[];
-  recipients: any[];
-}
+// ✅ INTERFACES Y TIPOS (ahora importados desde reportFactoryService)
+// interface ReportConfig ya está importada desde reportFactoryService
 
 // Función para generar reporte de cobranza con semana anterior
 const generateCobranzaReport = async (prisma: any, routeId: string) => {
@@ -125,7 +40,7 @@ const generateCobranzaReport = async (prisma: any, routeId: string) => {
   }
 };
 
-// Función para enviar reporte a Telegram (replica la lógica del frontend)
+// ✅ FUNCIÓN SIMPLIFICADA USANDO EL PATRÓN FACTORY
 export const sendCronReportToTelegram = async (
   chatId: string, 
   reportType: string,
@@ -133,105 +48,33 @@ export const sendCronReportToTelegram = async (
   reportConfig: ReportConfig
 ): Promise<boolean> => {
   try {
-    console.log(`📱 [CRON] Enviando reporte ${reportType} a ${chatId}`);
+    console.log(`📱 [CRON] Enviando reporte ${reportType} a ${chatId} usando Factory Pattern`);
     
-    // Obtener el token del bot desde las variables de entorno
-    const botToken = process.env.TELEGRAM_BOT_TOKEN;
-    if (!botToken) {
-      console.error('❌ [CRON] TELEGRAM_BOT_TOKEN no configurado');
-      return false;
+    // Calcular la semana anterior para reportes que la necesiten
+    let weekInfo: WeekInfo | null = null;
+    
+    if (reportType === 'resumen_semanal' || reportType === 'reporte_cobranza') {
+      weekInfo = calculatePreviousWeek();
+      console.log(`📅 [CRON] Semana calculada:`, weekInfo);
     }
     
-    // Crear instancia del servicio de Telegram
-    const telegramService = new TelegramService({ botToken, chatId });
+    // Usar la función unificada del Factory Pattern
+    const success = await generateAndSendReport(
+      reportType,
+      weekInfo,
+      { prisma },
+      reportConfig,
+      chatId
+    );
     
-    // Para reporte de cobranza, generar con semana anterior
-    if (reportType === 'reporte_cobranza') {
-      console.log(`📊 [CRON] Generando reporte de cobranza con semana anterior...`);
-      
-      try {
-        // Obtener la primera ruta configurada o usar todas
-        const routeId = reportConfig.routes?.length > 0 ? reportConfig.routes[0].id : 'all';
-        
-        // Generar el reporte de cobranza
-        const cobranzaReport = await generateCobranzaReport(prisma, routeId);
-        
-        if (cobranzaReport.success && cobranzaReport.weekInfo) {
-          const weekInfo = cobranzaReport.weekInfo;
-          const message = `📊 <b>REPORTE AUTOMÁTICO - COBRANZA</b>\n\n` +
-            `📅 Semana mostrada: ${weekInfo.monthName} ${weekInfo.year}\n` +
-            `🛣️ Ruta: ${reportConfig.routes?.length > 0 ? reportConfig.routes[0].name : 'Todas'}\n` +
-            `📈 Datos: ${JSON.stringify(cobranzaReport.data).length} caracteres\n\n` +
-            `✅ Reporte generado automáticamente el ${new Date().toLocaleString('es-ES')}\n` +
-            `🤖 Enviado por el sistema de cron`;
-          
-          const result = await telegramService.sendHtmlMessage(chatId, message);
-          return result.ok || false;
-        } else {
-          const errorMessage = `📊 <b>REPORTE AUTOMÁTICO - COBRANZA</b>\n\n` +
-            `❌ Error generando reporte: ${cobranzaReport.error}\n` +
-            `📅 Generado: ${new Date().toLocaleString('es-ES')}\n\n` +
-            `🤖 Enviado automáticamente por el sistema de cron`;
-          
-          const result = await telegramService.sendHtmlMessage(chatId, errorMessage);
-          return result.ok || false;
-        }
-        
-      } catch (error) {
-        console.error(`❌ [CRON] Error generando reporte de cobranza:`, error);
-        
-        const errorMessage = `📊 <b>REPORTE AUTOMÁTICO - COBRANZA</b>\n\n` +
-          `❌ Error: ${error instanceof Error ? error.message : 'Error desconocido'}\n` +
-          `📅 Generado: ${new Date().toLocaleString('es-ES')}\n\n` +
-          `🤖 Enviado automáticamente por el sistema de cron`;
-        
-        const result = await telegramService.sendHtmlMessage(chatId, errorMessage);
-        return result.ok || false;
-      }
-    }
-    // Para créditos con errores, generar y enviar PDF REAL usando función unificada
-    else if (reportType === 'creditos_con_errores') {
-      console.log(`📊 [CRON] Generando reporte de créditos con errores usando función unificada...`);
-      
-      try {
-        // ✅ GENERAR PDF USANDO LA FUNCIÓN UNIFICADA MEJORADA
-        const routeIds = reportConfig.routes?.map(r => r.id) || [];
-        const pdfBuffer = await generateCreditsWithDocumentErrorsReport({ prisma }, routeIds);
-        
-        if (pdfBuffer && pdfBuffer.length > 0) {
-          console.log(`📱 [CRON] PDF moderno generado exitosamente (${pdfBuffer.length} bytes), enviando archivo a Telegram...`);
-          
-          // Enviar el PDF mejorado usando el servicio de Telegram
-          const filename = `reporte_creditos_errores_${new Date().toISOString().slice(0, 10)}_${Date.now()}.pdf`;
-          const caption = `📊 <b>REPORTE AUTOMÁTICO - CRÉDITOS CON ERRORES</b>\n\n📅 Generado: ${new Date().toLocaleString('es-ES')}\n📊 Rutas: ${routeIds.length > 0 ? routeIds.length + ' específicas' : 'Todas'}\n\n✅ Reporte moderno y profesional\n🤖 Enviado automáticamente por el sistema`;
-          
-          const result = await telegramService.sendPdfFromBuffer(chatId, pdfBuffer, filename, caption);
-          return result.ok || false;
-        } else {
-          console.error(`❌ [CRON] No se pudo generar el PDF o está vacío`);
-          // Fallback: enviar mensaje de texto con más información
-          const message = `📊 <b>REPORTE AUTOMÁTICO - CRÉDITOS CON ERRORES</b>\n\n📅 Generado: ${new Date().toLocaleString('es-ES')}\n⚠️ Error generando PDF\n\n🔧 Posibles causas:\n• Error en la consulta de datos\n• Problemas con la generación del PDF\n• Configuración incorrecta\n\n✅ Enviado automáticamente por el sistema de cron`;
-          const result = await telegramService.sendHtmlMessage(chatId, message);
-          return result.ok || false;
-        }
-        
-      } catch (pdfError) {
-        console.error(`❌ [CRON] Error generando PDF usando función unificada:`, pdfError);
-        
-        // Fallback: enviar mensaje de texto
-        const message = `📊 <b>REPORTE AUTOMÁTICO</b>\n\nTipo: ${reportType}\nGenerado: ${new Date().toLocaleString('es-ES')}\n\n⚠️ Error generando PDF, enviando mensaje de texto\n✅ Enviado automáticamente por el sistema de cron`;
-        
-        const result = await telegramService.sendHtmlMessage(chatId, message);
-        return result.ok || false;
-      }
-      
+    if (success) {
+      console.log(`✅ [CRON] Reporte ${reportType} enviado exitosamente a ${chatId}`);
     } else {
-      // Para otros tipos, usar mensaje de texto
-      const message = `📊 <b>REPORTE AUTOMÁTICO</b>\n\nTipo: ${reportType}\nGenerado: ${new Date().toLocaleString('es-ES')}\n\n✅ Enviado automáticamente por el sistema de cron`;
-      
-      const result = await telegramService.sendHtmlMessage(chatId, message);
-      return result.ok || false;
+      console.error(`❌ [CRON] Error enviando reporte ${reportType} a ${chatId}`);
     }
+    
+    return success;
+    
   } catch (error) {
     console.error('❌ [CRON] Error enviando reporte a Telegram:', error);
     return false;
