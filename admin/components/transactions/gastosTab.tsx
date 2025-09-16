@@ -292,6 +292,7 @@ export const CreateExpensesForm = ({
 
   const router = useRouter();
 
+
   const handleAddTransaction = () => {
     if (!selectedRoute || !selectedDate) {
       alert('Por favor seleccione una ruta y una fecha');
@@ -321,6 +322,14 @@ export const CreateExpensesForm = ({
       newTransactions: [...newTransactions, newTransaction]
     });
   };
+
+  // Función para determinar si una transacción es válida
+  const isTransactionValid = (transaction: TransactionCreateInput) => {
+    const hasAmount = transaction.amount && transaction.amount.trim() !== '' && parseFloat(transaction.amount) > 0;
+    const hasExpenseSource = transaction.expenseSource && transaction.expenseSource.trim() !== '';
+    return hasAmount && hasExpenseSource; // Debe tener ambos campos
+  };
+
 
   const handleEditTransaction = (index: number, field: string, value: string) => {
     const updatedTransactions = [...newTransactions];
@@ -370,8 +379,26 @@ export const CreateExpensesForm = ({
     try {
       setIsCreating(true);
       
-      // Crear las nuevas transacciones
-      for (const transaction of newTransactions) {
+      // Filtrar transacciones vacías antes de crear
+      const validTransactions = newTransactions.filter(transaction => {
+        const isValid = isTransactionValid(transaction);
+        
+        if (!isValid) {
+          console.log('🚫 Filtrando transacción vacía:', {
+            amount: transaction.amount,
+            expenseSource: transaction.expenseSource,
+            isValid
+          });
+          return false;
+        }
+        
+        return true;
+      });
+      
+      console.log(`📊 Transacciones válidas: ${validTransactions.length} de ${newTransactions.length}`);
+      
+      // Crear solo las transacciones válidas
+      for (const transaction of validTransactions) {
         await createTransaction({
           variables: { data: transaction }
         });
@@ -409,6 +436,12 @@ export const CreateExpensesForm = ({
         newTransactions: [],
         editedTransactions: {}
       });
+      
+      // Mostrar mensaje informativo si se filtraron transacciones vacías
+      if (validTransactions.length < newTransactions.length) {
+        const filteredCount = newTransactions.length - validTransactions.length;
+        console.log(`ℹ️ Se filtraron ${filteredCount} transacciones vacías`);
+      }
       
       // Ocultar el mensaje después de 2 segundos
       setTimeout(() => {
@@ -856,18 +889,47 @@ export const CreateExpensesForm = ({
             padding: '16px',
             borderBottom: '1px solid #E0F2FE',
           }}>
-            <h3 style={{
-              margin: 0,
-              fontSize: '16px',
-              fontWeight: '600',
-              color: '#0277BD',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px'
-            }}>
-              <span>➕</span>
-              Gastos Nuevos ({newTransactions.length})
-            </h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{
+                margin: 0,
+                fontSize: '16px',
+                fontWeight: '600',
+                color: '#0277BD',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <span>➕</span>
+                Gastos Nuevos ({newTransactions.length})
+              </h3>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                fontSize: '11px',
+                fontWeight: '400',
+                color: '#6B7280'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <div style={{
+                    width: '6px',
+                    height: '6px',
+                    borderRadius: '50%',
+                    backgroundColor: '#10B981'
+                  }} />
+                  <span>Completo</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <div style={{
+                    width: '6px',
+                    height: '6px',
+                    borderRadius: '50%',
+                    backgroundColor: '#F59E0B'
+                  }} />
+                  <span>Incompleto</span>
+                </div>
+              </div>
+            </div>
           </div>
           
           <div style={{
@@ -899,20 +961,28 @@ export const CreateExpensesForm = ({
                   <tr 
                     key={`new-${index}`}
                     style={{
-                      backgroundColor: '#ECFDF5',
+                      backgroundColor: isTransactionValid(transaction) ? '#ECFDF5' : '#FEF3C7',
                       borderBottom: '1px solid #E0F2FE',
                     }}
                   >
                     <td style={tableCellStyle}>
-                      <Select
-                        value={expenseTypes.find(t => t.value === transaction.expenseSource) || expenseTypes[0]}
-                        options={expenseTypes}
-                        onChange={option => handleEditTransaction(index, 'expenseType', option?.value || '')}
-                        menuPortalTarget={document.body}
-                        menuPosition="fixed"
-                        menuPlacement="auto"
-                        size="small"
-                      />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{
+                          width: '8px',
+                          height: '8px',
+                          borderRadius: '50%',
+                          backgroundColor: isTransactionValid(transaction) ? '#10B981' : '#F59E0B'
+                        }} />
+                        <Select
+                          value={expenseTypes.find(t => t.value === transaction.expenseSource) || expenseTypes[0]}
+                          options={expenseTypes}
+                          onChange={option => handleEditTransaction(index, 'expenseType', option?.value || '')}
+                          menuPortalTarget={document.body}
+                          menuPosition="fixed"
+                          menuPlacement="auto"
+                          size="small"
+                        />
+                      </div>
                     </td>
                     <td style={tableCellStyle}>
                       <TextInput

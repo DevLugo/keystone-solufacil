@@ -21,7 +21,7 @@ interface LoanListViewProps {
   error: any;
   onRemoveLoan: (index: number) => void;
   onEditLoan: (index: number, field: string, value: string) => void;
-  onEditExistingLoan: (loanId: string, field: string, value: string) => void;
+  onEditExistingLoan?: (loanId: string, field: string, value: string) => void;
   focusedInput: string | null;
 }
 
@@ -92,14 +92,14 @@ export const LoanListView = memo(({
       setLocalExistingLoans(updatedLoans);
       
       // Notificar al componente padre
-      onEditExistingLoan(loan.id, field, value);
+      onEditExistingLoan?.(loan.id, field, value);
 
       // Si el cambio afecta a los campos calculados, actualizarlos
       if (['previousLoan', 'loantype', 'requestedAmount'].includes(field)) {
         const amounts = calculateAmounts({ ...loan, [field]: value });
-        onEditExistingLoan(loan.id, 'amountGived', amounts.amountGived);
-        onEditExistingLoan(loan.id, 'amountToPay', amounts.amountToPay);
-        onEditExistingLoan(loan.id, 'pendingAmount', amounts.pendingAmount);
+        onEditExistingLoan?.(loan.id, 'amountGived', amounts.amountGived);
+        onEditExistingLoan?.(loan.id, 'amountToPay', amounts.amountToPay);
+        onEditExistingLoan?.(loan.id, 'pendingAmount', amounts.pendingAmount);
       }
     } else {
       onEditLoan(index, field, value);
@@ -190,8 +190,8 @@ export const LoanListView = memo(({
           <div className="loan-input">
             <AvalDropdown
               loanId={loan.id}
-              currentAvalName={loan.avalName || ''}
-              currentAvalPhone={loan.avalPhone || ''}
+              currentAvalName={(loan as any).avalName || ''}
+              currentAvalPhone={(loan as any).avalPhone || ''}
               borrowerLocationId={loan.borrower?.personalData?.addresses?.[0]?.location?.id}
               onAvalChange={(avalName, avalPhone) => {
                 if (isExisting) {
@@ -205,8 +205,8 @@ export const LoanListView = memo(({
                   setLocalExistingLoans(updatedLoans);
                   
                   // Notificar al componente padre para persistir los cambios
-                  onEditExistingLoan(loan.id, 'avalName', avalName);
-                  onEditExistingLoan(loan.id, 'avalPhone', avalPhone);
+                  onEditExistingLoan?.(loan.id, 'avalName', avalName);
+                  onEditExistingLoan?.(loan.id, 'avalPhone', avalPhone);
                 } else {
                   // Para préstamos nuevos, actualizar directamente
                   handleEdit(loan, index, 'avalName', avalName, false);
@@ -221,7 +221,7 @@ export const LoanListView = memo(({
           <div className="loan-input">
             <input
               type="text"
-              value={loan.avalPhone || ''}
+              value={(loan as any).avalPhone || ''}
               onChange={(e) => handleEdit(loan, index, 'avalPhone', e.target.value, isExisting)}
               placeholder="Teléfono del aval"
             />
