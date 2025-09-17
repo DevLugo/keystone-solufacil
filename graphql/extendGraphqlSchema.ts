@@ -2019,6 +2019,62 @@ export const extendGraphqlSchema = graphql.extend(base => {
           try {
             const createdLoans: any[] = [];
             
+            // Validar clientes duplicados antes de procesar TODOS los préstamos
+            console.log('🔍 INICIANDO VALIDACIÓN DE CLIENTES DUPLICADOS (SOLO POR NOMBRE)');
+            console.log('📋 Préstamos a validar:', loans.length);
+            
+            for (let i = 0; i < loans.length; i++) {
+              const loanData = loans[i];
+              console.log(`🔍 Validando préstamo ${i + 1}/${loans.length}:`, {
+                fullName: loanData.borrowerData?.fullName,
+                phone: loanData.borrowerData?.phone,
+                hasBorrowerData: !!loanData.borrowerData
+              });
+              
+              if (loanData.borrowerData?.fullName) {
+                // Normalización robusta: eliminar TODOS los espacios múltiples y caracteres especiales
+                const normalizedName = loanData.borrowerData.fullName.trim().replace(/\s+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+                
+                console.log(`🔍 Buscando cliente duplicado por NOMBRE únicamente:`, {
+                  originalName: loanData.borrowerData.fullName,
+                  normalizedName: normalizedName
+                });
+                
+                // Buscar si ya existe un cliente con el mismo nombre (SIN FILTRO DE TELÉFONO)
+                const existingClient = await context.prisma.personalData.findFirst({
+                  where: {
+                    fullName: {
+                      equals: normalizedName,
+                      mode: 'insensitive'
+                    }
+                  },
+                  include: {
+                    phones: true
+                  }
+                });
+                
+                console.log(`🔍 Resultado de búsqueda:`, {
+                  found: !!existingClient,
+                  clientId: existingClient?.id,
+                  clientName: existingClient?.fullName,
+                  clientPhones: existingClient?.phones?.map(p => p.number)
+                });
+                
+                if (existingClient) {
+                  console.log('❌ CLIENTE DUPLICADO ENCONTRADO - DETENIENDO CREACIÓN');
+                  return [{
+                    success: false,
+                    message: `El cliente "${normalizedName}" ya existe en la base de datos. Renueva el crédito anterior.`,
+                    error: 'DUPLICATE_CLIENT',
+                    clientName: normalizedName
+                  }];
+                }
+              } else {
+                console.log(`⚠️ Préstamo ${i + 1} sin nombre de cliente, saltando validación`);
+              }
+            }
+            
+            console.log('✅ VALIDACIÓN COMPLETADA - NO SE ENCONTRARON DUPLICADOS, PROCEDIENDO A CREAR PRÉSTAMOS');
             // Usar transacción para garantizar atomicidad
             await context.prisma.$transaction(async (tx) => {
               for (const loanData of loans) {
@@ -2038,21 +2094,47 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   
                   borrowerId = previousLoan.borrower.id;
                 } else {
-                  // Crear nuevo borrower
-                  const borrower = await tx.borrower.create({
-                    data: {
-                      personalData: {
-                        create: {
-                          fullName: loanData.borrowerData?.fullName || '',
-                          phones: loanData.borrowerData?.phone ? {
-                            create: [{ number: loanData.borrowerData.phone }]
-                          } : undefined
+                  // Crear o CONECTAR borrower reutilizando PersonalData normalizado
+                  const rawName = loanData.borrowerData?.fullName || '';
+                  const normalizedName = rawName.replace(/\s+/g, ' ').trim();
+
+                  let personalDataId: string | null = null;
+                  if (normalizedName) {
+                    const existingPD = await tx.personalData.findFirst({
+                      where: { fullName: { equals: normalizedName, mode: 'insensitive' } }
+                    });
+                    personalDataId = existingPD?.id || null;
+                  }
+
+                  if (personalDataId) {
+                    // Si existe PD, buscar/reutilizar Borrower vinculado o crearlo
+                    const existingBorrower = await tx.borrower.findFirst({
+                      where: { personalDataId }
+                    });
+                    if (existingBorrower) {
+                      borrowerId = existingBorrower.id;
+                    } else {
+                      const borrower = await tx.borrower.create({
+                        data: { personalDataId }
+                      });
+                      borrowerId = borrower.id;
+                    }
+                  } else {
+                    // Crear PD normalizado y el Borrower
+                    const borrower = await tx.borrower.create({
+                      data: {
+                        personalData: {
+                          create: {
+                            fullName: normalizedName,
+                            phones: loanData.borrowerData?.phone ? {
+                              create: [{ number: loanData.borrowerData.phone }]
+                            } : undefined
+                          }
                         }
                       }
-                    }
-                  });
-                  
-                  borrowerId = borrower.id;
+                    });
+                    borrowerId = borrower.id;
+                  }
                 }
 
                 // ✅ NUEVO: Manejar aval según la acción especificada
@@ -2088,116 +2170,27 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     phone: avalData.phone
                   });
                   
-                  if (avalData.action === 'connect' && avalData.selectedCollateralId) {
-                    // ✅ NUEVO: Conectar aval existente, pero si hay cambios, actualizarlo primero
-                    console.log('🔗 Conectando aval existente con posible actualización:', {
+                  if ((avalData.action === 'connect' || avalData.action === 'update') && avalData.selectedCollateralId) {
+                    // Conectar aval existente (sin editar, solo conectar)
+                    console.log('🔗 Conectando aval existente:', {
                       selectedCollateralId: avalData.selectedCollateralId,
-                      name: avalData.name,
-                      phone: avalData.phone,
-                      hasChanges: !!(avalData.name || avalData.phone)
+                      action: avalData.action
                     });
-                    
-                    // Si hay cambios en name o phone, actualizar primero
-                    if (avalData.name || avalData.phone) {
-                      console.log('🔄 Actualizando aval existente antes de conectar:', {
-                        action: 'connect (con actualización)',
-                        selectedCollateralId: avalData.selectedCollateralId,
-                        name: avalData.name,
-                        phone: avalData.phone
-                      });
-                      
-                      const updateData: any = {};
-                      
-                      if (avalData.name) {
-                        updateData.fullName = avalData.name;
-                        console.log('📝 Actualizando nombre del aval a:', avalData.name);
-                      }
-                      
-                      if (avalData.phone) {
-                        updateData.phones = {
-                          deleteMany: {},
-                          create: [{ number: avalData.phone }]
-                        };
-                        console.log('📞 Actualizando teléfono del aval a:', avalData.phone);
-                      }
-                      
-                      console.log('💾 Datos de actualización del aval (connect):', updateData);
-                      
-                      await tx.personalData.update({
-                        where: { id: avalData.selectedCollateralId },
-                        data: updateData
-                      });
-                      console.log('✅ Aval actualizado exitosamente antes de conectar:', avalData.selectedCollateralId);
-                    }
                     
                     collateralConnections = {
                       collaterals: {
                         connect: [{ id: avalData.selectedCollateralId }]
                       }
                     };
-                    console.log('🔗 Aval conectado al préstamo (con actualización si fue necesaria):', avalData.selectedCollateralId);
+                    console.log('🔗 Aval conectado al préstamo:', avalData.selectedCollateralId);
                     
-                  } else if (avalData.action === 'update' && avalData.selectedCollateralId) {
-                    // ✅ MEJORADO: Actualizar aval existente y conectar (lógica consistente con connect)
-                    console.log('🔄 INICIANDO ACTUALIZACIÓN DE AVAL (update):', {
-                      action: avalData.action,
-                      selectedCollateralId: avalData.selectedCollateralId,
-                      name: avalData.name,
-                      phone: avalData.phone,
-                      hasName: !!avalData.name,
-                      hasPhone: !!avalData.phone,
-                      nameLength: avalData.name?.length,
-                      phoneLength: avalData.phone?.length
-                    });
-                    
-                    // ✅ NUEVO: Validar que realmente hay datos para actualizar
-                    if (!avalData.name && !avalData.phone) {
-                      console.log('⚠️ No hay datos para actualizar en el aval (update), procediendo solo con conexión');
-                    } else {
-                      // ✅ MEJORADO: Lógica de actualización más robusta
-                      const updateData: any = {};
-                      
-                      if (avalData.name && avalData.name.trim()) {
-                        updateData.fullName = avalData.name.trim();
-                        console.log('📝 Actualizando nombre del aval a:', updateData.fullName);
-                      }
-                      
-                      if (avalData.phone && avalData.phone.trim()) {
-                        updateData.phones = {
-                          deleteMany: {},
-                          create: [{ number: avalData.phone.trim() }]
-                        };
-                        console.log('📞 Actualizando teléfono del aval a:', updateData.phones.create[0].number);
-                      }
-                      
-                      if (Object.keys(updateData).length > 0) {
-                        console.log('💾 Datos de actualización del aval (update):', updateData);
-                        
-                        try {
-                          await tx.personalData.update({
-                            where: { id: avalData.selectedCollateralId },
-                            data: updateData
-                          });
-                          console.log('✅ Aval actualizado exitosamente (update):', avalData.selectedCollateralId);
-                        } catch (error) {
-                          console.error('❌ Error al actualizar aval (update):', error);
-                          throw new Error(`Error al actualizar aval: ${error}`);
-                        }
-                      } else {
-                        console.log('ℹ️ No hay cambios válidos para aplicar al aval (update)');
-                      }
-                    }
-                    
-                    // ✅ IMPORTANTE: Siempre conectar el aval (actualizado o no)
-                    collateralConnections = {
-                      collaterals: {
-                        connect: [{ id: avalData.selectedCollateralId }]
-                      }
-                    };
-                    
-                    console.log('🔗 Aval conectado al préstamo después de update:', avalData.selectedCollateralId);
                   } else if (avalData.action === 'create' && avalData.name) {
                     // Crear nuevo aval
+                    console.log('➕ Creando nuevo aval:', {
+                      name: avalData.name,
+                      phone: avalData.phone
+                    });
+                    
                     const newAval = await tx.personalData.create({
                       data: {
                         fullName: avalData.name,
@@ -2214,7 +2207,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                         connect: [{ id: newAval.id }]
                       }
                     };
-                    console.log('➕ Nuevo aval creado:', newAval.id);
+                    console.log('➕ Nuevo aval creado y conectado:', newAval.id);
                   }
                 }
 
@@ -2431,10 +2424,18 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
             });
 
-            return createdLoans;
+            return createdLoans.map(loan => ({
+              success: true,
+              loan: loan,
+              message: 'Préstamo creado exitosamente'
+            }));
           } catch (error) {
             console.error('Error en createMultipleLoans:', error);
-            throw new Error(`Error al crear múltiples préstamos: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            return [{
+              success: false,
+              message: `Error al crear múltiples préstamos: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              error: 'CREATION_ERROR'
+            }];
           }
         }
       }),

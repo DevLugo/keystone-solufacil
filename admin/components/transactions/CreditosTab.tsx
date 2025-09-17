@@ -15,8 +15,7 @@ import { gql } from '@apollo/client';
 import { calculateLoanAmounts } from '../../utils/loanCalculations';
 import { GET_ROUTE } from '../../graphql/queries/routes';
 import { CREATE_LOANS_BULK, UPDATE_LOAN_WITH_AVAL } from '../../graphql/mutations/loans';
-import AvalDropdown from '../loans/AvalDropdown';
-import ClientDropdown from '../loans/ClientDropdown';
+import PersonInputWithAutocomplete from '../loans/PersonInputWithAutocomplete';
 
 // Import types
 import type { Loan } from '../../types/loan';
@@ -27,31 +26,35 @@ import { useBalanceRefresh } from '../../hooks/useBalanceRefresh';
 // Estilos unificados para inputs
 const UNIFIED_INPUT_STYLES = {
   height: '32px',
-  fontSize: '12px',
-  padding: '6px 8px',
+  fontSize: '13px',
+  padding: '4px 6px',
   border: '1px solid #D1D5DB',
   borderRadius: '4px',
   backgroundColor: '#FFFFFF',
   transition: 'all 0.3s ease',
   width: '100%',
-  boxSizing: 'border-box',
-  lineHeight: '1.2'
+  boxSizing: 'border-box' as const,
+  lineHeight: '20px'
 };
 
 const UNIFIED_SELECT_STYLES = {
   control: (base: any) => ({ 
     ...base, 
-    fontSize: '12px', 
+    fontSize: '13px', 
     minHeight: '32px',
     height: '32px',
     border: '1px solid #D1D5DB',
     borderRadius: '4px',
     backgroundColor: '#FFFFFF',
     transition: 'all 0.3s ease',
-    boxSizing: 'border-box'
+    boxSizing: 'border-box',
+    padding: '0px'
   }),
   container: (base: any) => ({ ...base, width: '100%' }),
-  menuPortal: (base: any) => ({ ...base, zIndex: 9999 })
+  menuPortal: (base: any) => ({ ...base, zIndex: 9999 }),
+  valueContainer: (base: any) => ({ ...base, padding: '4px 6px' }),
+  input: (base: any) => ({ ...base, margin: '0px', padding: '0px' }),
+  placeholder: (base: any) => ({ ...base, margin: '0px', padding: '0px' })
 };
 
 const UNIFIED_CONTAINER_STYLES = {
@@ -63,7 +66,9 @@ const UNIFIED_CONTAINER_STYLES = {
 
 // Interfaz extendida para incluir información de collateral
 interface ExtendedLoan extends Partial<Loan> {
+  id: string;
   selectedCollateralId?: string;
+  selectedCollateralPhoneId?: string;
   avalAction?: 'create' | 'update' | 'connect' | 'clear';
   avalName?: string;
   avalPhone?: string;
@@ -77,6 +82,7 @@ interface ExtendedLoan extends Partial<Loan> {
       fullName: string;
     };
   };
+  previousLoanOption?: any;
 }
 
 // OPTIMIZADA: SIN campos virtuales costosos
@@ -385,6 +391,7 @@ const GET_PREVIOUS_LOANS = gql`
       borrower {
         id
         personalData {
+          id
           fullName
           phones {
             id
@@ -465,6 +472,7 @@ const GET_ALL_PREVIOUS_LOANS = gql`
       borrower {
         id
         personalData {
+          id
           fullName
           phones {
             id
@@ -865,14 +873,15 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   const generateLoanId = React.useCallback(() => `temp-loan-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, []);
 
   const emptyLoanRow = React.useMemo(() => ({
+    id: generateLoanId(),
     requestedAmount: '', amountGived: '', amountToPay: '', pendingAmount: '0',
     signDate: selectedDate?.toISOString() || '', comissionAmount: '0', avalName: '', avalPhone: '',
-    selectedCollateralId: undefined, avalAction: 'clear', collaterals: [],
+    selectedCollateralId: undefined, selectedCollateralPhoneId: undefined, avalAction: 'clear' as const, collaterals: [],
     loantype: undefined,
     borrower: { id: '', personalData: { id: '', fullName: '', phones: [{ id: '', number: '' }] } },
     previousLoan: undefined,
     previousLoanOption: null,
-  }), [selectedDate]);
+  }), [selectedDate, generateLoanId]);
 
   const [editableEmptyRow, setEditableEmptyRow] = React.useState<ExtendedLoan | null>(null);
 
@@ -901,25 +910,36 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
 
     if (field === 'previousLoan') {
       if (value?.value) {
+        // Forzar refetch de las queries para obtener datos actualizados
+        refetchPreviousLoans();
+        refetchAllPreviousLoans();
+        
         const selectedLoan = value.loanData;
         const pendingAmount = calculateLocalPendingAmount(selectedLoan).toFixed(2);
         const selectedType = loanTypesData?.loantypes?.find((type: any) => type.id === selectedLoan.loantype?.id);
+        
+        console.log('🔍 SELECTED LOAN BORROWER:', {
+          selectedLoanBorrower: selectedLoan.borrower,
+          personalDataId: selectedLoan.borrower?.personalData?.id,
+          personalDataKeys: selectedLoan.borrower?.personalData ? Object.keys(selectedLoan.borrower.personalData) : 'NO PERSONAL DATA'
+        });
         
         updatedRow = {
           ...updatedRow,
           previousLoanOption: value, // ✅ FIX: Guarda el objeto completo de la opción
           previousLoan: { ...selectedLoan, pendingAmount },
-          borrower: selectedLoan.borrower,
+          borrower: selectedLoan.borrower as any,
           avalName: selectedLoan.collaterals?.[0]?.fullName || '',
           avalPhone: selectedLoan.collaterals?.[0]?.phones?.[0]?.number || '',
           selectedCollateralId: selectedLoan.collaterals?.[0]?.id,
-          avalAction: selectedLoan.collaterals?.length > 0 ? 'connect' : 'clear',
+          selectedCollateralPhoneId: selectedLoan.collaterals?.[0]?.phones?.[0]?.id,
+          avalAction: selectedLoan.collaterals?.length > 0 ? 'connect' as const : 'clear' as const,
           loantype: selectedLoan.loantype,
           requestedAmount: selectedLoan.requestedAmount,
           comissionAmount: (selectedType?.loanGrantedComission ?? 0).toString(),
         };
       } else {
-        updatedRow = { ...updatedRow, previousLoanOption: null, previousLoan: undefined, borrower: emptyLoanRow.borrower };
+        updatedRow = { ...updatedRow, previousLoanOption: null, previousLoan: undefined, borrower: emptyLoanRow.borrower as any };
       }
     } else {
         if (field === 'loantype') {
@@ -927,7 +947,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
             updatedRow.loantype = selectedType;
             updatedRow.comissionAmount = (selectedType?.loanGrantedComission ?? 0).toString();
         } else if (field === 'clientData') {
-            updatedRow.borrower = { ...updatedRow.borrower, personalData: { ...updatedRow.borrower.personalData, fullName: value.clientName, phones: [{ id: '', number: value.clientPhone }] } };
+            updatedRow.borrower = { ...updatedRow.borrower, personalData: { ...updatedRow.borrower?.personalData, fullName: value.clientName, phones: [{ id: '', number: value.clientPhone }] } } as any;
         } else if (field === 'avalData') {
             updatedRow = { ...updatedRow, ...value };
         } else {
@@ -979,7 +999,68 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         return;
       }
 
-      const loansData = validLoans.map(loan => ({
+      // Validar clientes duplicados
+      for (const loan of validLoans) {
+        const cleanName = (loan.borrower?.personalData?.fullName || '').trim().replace(/\s+/g, ' ');
+        const cleanPhone = (loan.borrower?.personalData?.phones?.[0]?.number || '').trim().replace(/\s+/g, ' ');
+        
+        if (cleanName && cleanPhone) {
+          // Buscar si ya existe un cliente con el mismo nombre y teléfono
+          const existingClient = allPreviousLoansData?.loans?.find((existingLoan: any) => {
+            const existingName = (existingLoan.borrower?.personalData?.fullName || '').trim().replace(/\s+/g, ' ');
+            const existingPhone = (existingLoan.borrower?.personalData?.phones?.[0]?.number || '').trim().replace(/\s+/g, ' ');
+            return existingName.toLowerCase() === cleanName.toLowerCase() && existingPhone === cleanPhone;
+          });
+
+          if (existingClient) {
+            alert(`El cliente "${cleanName}" ya existe, renueva el crédito anterior`);
+            setIsCreating(false);
+            return;
+          }
+        }
+      }
+
+      const loansData = validLoans.map(loan => {
+        // Debug detallado para cada préstamo
+        console.log('🔍 DEBUG PRÉSTAMO EN handleSaveAllNewLoans:', {
+          loanId: loan.id,
+          hasBorrower: !!loan.borrower,
+          hasPersonalData: !!loan.borrower?.personalData,
+          personalDataKeys: loan.borrower?.personalData ? Object.keys(loan.borrower.personalData) : 'NO PERSONAL DATA',
+          fullName: loan.borrower?.personalData?.fullName,
+          hasPhones: !!loan.borrower?.personalData?.phones,
+          phonesLength: loan.borrower?.personalData?.phones?.length || 0,
+          firstPhone: loan.borrower?.personalData?.phones?.[0],
+          firstPhoneNumber: loan.borrower?.personalData?.phones?.[0]?.number,
+          isFromPrevious: !!loan.previousLoan,
+          // Debug adicional para ver si hay datos en otras rutas
+          loanKeys: Object.keys(loan),
+          hasClientData: !!(loan as any).clientData,
+          clientData: (loan as any).clientData
+        });
+        
+        // Intentar obtener el teléfono de diferentes fuentes
+        let phoneNumber = '';
+        
+        // 1. Intentar desde personalData.phones[0].number
+        if (loan.borrower?.personalData?.phones?.[0]?.number) {
+          phoneNumber = loan.borrower.personalData.phones[0].number;
+          console.log('📞 Teléfono encontrado en personalData.phones[0].number:', phoneNumber);
+        }
+        // 2. Intentar desde clientData (si existe)
+        else if ((loan as any).clientData?.clientPhone) {
+          phoneNumber = (loan as any).clientData.clientPhone;
+          console.log('📞 Teléfono encontrado en clientData.clientPhone:', phoneNumber);
+        }
+        // 3. Intentar desde avalData (si es un aval)
+        else if ((loan as any).avalData?.phone) {
+          phoneNumber = (loan as any).avalData.phone;
+          console.log('📞 Teléfono encontrado en avalData.phone:', phoneNumber);
+        }
+        
+        console.log('📞 Teléfono final seleccionado:', phoneNumber);
+        
+        return {
         requestedAmount: (loan.requestedAmount || '0').toString(),
         amountGived: (loan.amountGived || '0').toString(),
         signDate: loan.signDate || selectedDate?.toISOString() || '',
@@ -988,25 +1069,55 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         loantypeId: loan.loantype?.id || '',
         previousLoanId: loan.previousLoan?.id || undefined,
         borrowerData: {
-          fullName: loan.borrower?.personalData?.fullName || '',
-          phone: loan.borrower?.personalData?.phones?.[0]?.number || ''
+            fullName: (loan.borrower?.personalData?.fullName || '').trim().replace(/\s+/g, ' '),
+            phone: phoneNumber.trim().replace(/\s+/g, ' ')
         },
         avalData: {
           selectedCollateralId: loan.selectedCollateralId || undefined,
           action: loan.avalAction || 'clear',
-          name: loan.avalName || '',
-          phone: loan.avalPhone || ''
+            name: (loan.avalName || '').trim().replace(/\s+/g, ' '),
+            phone: (loan.avalPhone || '').trim().replace(/\s+/g, ' ')
         }
-      }));
+        };
+      });
 
       const { data } = await createMultipleLoans({ variables: { loans: loansData } });
 
       if (data?.createMultipleLoans) {
+        console.log('🔍 Respuesta de createMultipleLoans:', data.createMultipleLoans);
+        
+        // Verificar si hay errores - puede ser un array con un solo elemento de error
+        if (data.createMultipleLoans.length === 1 && !data.createMultipleLoans[0].success) {
+          const errorResponse = data.createMultipleLoans[0];
+          console.log('❌ Error único encontrado:', errorResponse);
+          const errorMessage = errorResponse.message || 'Error desconocido al crear el préstamo';
+          alert(errorMessage);
+          return;
+        }
+        
+        // Verificar si hay errores en múltiples elementos
+        const errorResponse = data.createMultipleLoans.find((loan: any) => !loan.success);
+        if (errorResponse) {
+          console.log('❌ Error encontrado en múltiples elementos:', errorResponse);
+          const errorMessage = errorResponse.message || 'Error desconocido al crear el préstamo';
+          alert(errorMessage);
+          return;
+        }
+
+        // Verificar que todos los elementos tengan success: true
+        const allSuccessful = data.createMultipleLoans.every((loan: any) => loan.success === true);
+        if (!allSuccessful) {
+          console.log('❌ No todos los préstamos se crearon exitosamente');
+          alert('Error al crear algunos préstamos');
+          return;
+        }
+
+        console.log('✅ Todos los préstamos se crearon exitosamente');
         setPendingLoans([]);
         setEditableEmptyRow(null);
         await Promise.all([refetchRoute(), refetchLoans()]);
         if (onBalanceUpdate) {
-          const totalAmount = data.createMultipleLoans.reduce((sum: number, loan: any) => sum + parseFloat(loan.amountGived || '0'), 0);
+          const totalAmount = data.createMultipleLoans.reduce((sum: number, loan: any) => sum + parseFloat(loan.loan?.amountGived || '0'), 0);
           onBalanceUpdate(-totalAmount);
         }
         triggerRefresh();
@@ -1349,35 +1460,36 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
               <tr style={{ backgroundColor: '#E0F2FE', borderBottom: '1px solid #B3E5FC' }}>
                 <th style={tableHeaderStyle}>Préstamo Previo</th>
                 <th style={tableHeaderStyle}>Tipo</th>
-                <th style={{ ...tableHeaderStyle, minWidth: '250px' }}>Cliente</th>
                 <th style={tableHeaderStyle}>M. Solicitado</th>
                 <th style={tableHeaderStyle}>M. Entregado</th>
                 <th style={tableHeaderStyle}>Comisión</th>
-                <th style={{ ...tableHeaderStyle, minWidth: '300px' }}>Aval</th>
+                <th style={{ ...tableHeaderStyle, minWidth: '200px', maxWidth: 'none', flex: '1' }}>Cliente</th>
+                <th style={{ ...tableHeaderStyle, minWidth: '200px', maxWidth: 'none', flex: '1' }}>Aval</th>
                 <th style={{ ...tableHeaderStyle, width: '80px' }}></th>
               </tr>
             </thead>
             <tbody>
               {[...pendingLoans, editableEmptyRow || emptyLoanRow].map((loan, index) => {
                 const isNewRow = index === pendingLoans.length;
+                const loanId = loan.id || `temp-${index}`;
                 return (
-                  <tr key={loan.id} style={{ backgroundColor: isNewRow ? 'white' : '#ECFDF5' }}>
+                  <tr key={loanId} style={{ backgroundColor: isNewRow ? 'white' : '#ECFDF5', padding: '8px 0px' }}>
                     <td style={tableCellStyle}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', height: '40px', justifyContent: 'flex-end' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#6B7280' }}>
+                        <div style={{ flexDirection: 'column', gap: '6px', height: '69px', justifyContent: 'flex-end' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#6B7280', fontWeight: '500' }}>
                                 <input
                                     type="checkbox"
-                                    checked={searchAllLeadersByRow[loan.id] || false}
+                                    checked={searchAllLeadersByRow[loanId] || false}
                                     onChange={(e) => {
                                         const newValue = e.target.checked;
                                         setSearchAllLeadersByRow(prev => ({
                                             ...prev,
-                                            [loan.id]: newValue
+                                            [loanId]: newValue
                                         }));
                                         
                                         // Si se activa, hacer refetch de la query con el texto de búsqueda actual
                                         if (newValue) {
-                                            const currentSearchText = dropdownSearchTextByRow[loan.id] || '';
+                                            const currentSearchText = dropdownSearchTextByRow[loanId] || '';
                                             refetchAllPreviousLoans({
                                                 searchText: currentSearchText,
                                                 take: 10
@@ -1387,43 +1499,43 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                     disabled={allPreviousLoansLoading}
                                     style={{ margin: 0 }}
                                 />
-                                Buscar en todos los líderes
+                                Buscar en todas las localidades
                                 {allPreviousLoansLoading && <span style={{ fontSize: '10px', color: '#059669' }}>⏳ Cargando...</span>}
                             </label>
                             <div style={{
-                                minWidth: isPreviousLoanFocused[loan.id] ? '250px' : '150px',
-                                maxWidth: isPreviousLoanFocused[loan.id] ? '350px' : '250px',
-                                height: '32px',
+                                minWidth: isPreviousLoanFocused[loanId] ? '250px' : '150px',
+                                maxWidth: isPreviousLoanFocused[loanId] ? '350px' : '250px',
+                                height: '40px',
                                 display: 'flex',
-                                alignItems: 'center',
+                                alignItems: 'flex-end',
                                 transition: 'all 0.3s ease'
                             }}>
                         <Select
-                                    placeholder={(searchAllLeadersByRow[loan.id] || false) ? "Escribe para buscar en todos los líderes..." : "Renovación..."}
-                                    options={getPreviousLoanOptions(loan.id)}
+                                    placeholder={(searchAllLeadersByRow[loanId] || false) ? "Escribe para buscar en todas las localidades..." : "Renovación..."}
+                                    options={getPreviousLoanOptions(loanId)}
                             onChange={(option) => handleRowChange(index, 'previousLoan', option, isNewRow)}
                                     value={loan.previousLoanOption}
                                     onInputChange={(inputValue) => {
-                                        if (searchAllLeadersByRow[loan.id]) {
+                                        if (searchAllLeadersByRow[loanId]) {
                                             setDropdownSearchTextByRow(prev => ({
                                                 ...prev,
-                                                [loan.id]: inputValue
+                                                [loanId]: inputValue
                                             }));
                                         }
                                     }}
                                     onFocus={() => {
                                         setIsPreviousLoanFocused(prev => ({
                                             ...prev,
-                                            [loan.id]: true
+                                            [loanId]: true
                                         }));
                                     }}
                                     onBlur={() => {
                                         setIsPreviousLoanFocused(prev => ({
                                             ...prev,
-                                            [loan.id]: false
+                                            [loanId]: false
                                         }));
                                     }}
-                                    filterOption={(searchAllLeadersByRow[loan.id] || false) ? null : undefined}
+                                    filterOption={(searchAllLeadersByRow[loanId] || false) ? null : undefined}
                                     menuPosition="fixed" 
                                     menuPortalTarget={document.body}
                                     components={{
@@ -1490,12 +1602,6 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                     }}
                                     styles={{ 
                                         ...UNIFIED_SELECT_STYLES,
-                                        control: (base) => ({ 
-                                            ...base, 
-                                            ...UNIFIED_SELECT_STYLES.control(base),
-                                            height: '32px !important',
-                                            minHeight: '32px !important'
-                                        }),
                                         menu: (base) => ({ ...base, minWidth: '400px', maxWidth: '500px' })
                                     }}
                                 />
@@ -1504,25 +1610,28 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                     </td>
                     <td>
                         <div style={{
-                            minWidth: isLoanTypeFocused[loan.id] ? '250px' : '150px',
-                            maxWidth: isLoanTypeFocused[loan.id] ? '350px' : '250px',
-                            ...UNIFIED_CONTAINER_STYLES
+                            minWidth: isLoanTypeFocused[loanId] ? '250px' : '150px',
+                            maxWidth: isLoanTypeFocused[loanId] ? '350px' : '250px',
+                            height: '40px',
+                            display: 'flex',
+                            alignItems: 'flex-end',
+                            transition: 'all 0.3s ease'
                         }}>
                         <Select
                             placeholder="Tipo..."
                             options={loanTypeOptions}
                             onChange={(option) => handleRowChange(index, 'loantype', option, isNewRow)}
-                            value={loanTypeOptions.find(opt => opt.value === loan.loantype?.id) || null}
+                            value={loanTypeOptions.find((opt: any) => opt.value === loan.loantype?.id) || null}
                                 onFocus={() => {
                                     setIsLoanTypeFocused(prev => ({
                                         ...prev,
-                                        [loan.id]: true
+                                        [loanId]: true
                                     }));
                                 }}
                                 onBlur={() => {
                                     setIsLoanTypeFocused(prev => ({
                                         ...prev,
-                                        [loan.id]: false
+                                        [loanId]: false
                                     }));
                                 }}
                             menuPosition="fixed" menuPortalTarget={document.body}
@@ -1543,13 +1652,13 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                                     fontSize: '12px',
                                                     cursor: 'pointer',
                                                     borderBottom: '1px solid #E5E7EB',
-                                                    display: 'flex',
+                                                    
                                                     alignItems: 'center',
                                                     gap: '8px',
                                                     minHeight: '40px'
                                                 }}
                                             >
-                                                <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <div style={{ flex: 1, alignItems: 'center', gap: '8px' }}>
                                                     <span style={{ fontWeight: '500' }}>{children}</span>
                                                     <span
                                                         style={{
@@ -1582,52 +1691,42 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                 }}
                                 styles={{ 
                                     ...UNIFIED_SELECT_STYLES,
-                                    control: (base) => ({ 
-                                        ...base, 
-                                        ...UNIFIED_SELECT_STYLES.control(base),
-                                        height: '32px !important',
-                                        minHeight: '32px !important'
-                                    }),
                                     menu: (base) => ({ ...base, minWidth: '300px', maxWidth: '400px' })
                                 }}
                             />
                         </div>
                     </td>
-                    <td style={{...tableCellStyle, minWidth: '200px', maxWidth: '300px', height: '60px', display: 'flex', alignItems: 'flex-end', padding: '0px'}}>
-                         <ClientDropdown
-                            key={loan.id} loanId={loan.id}
-                            currentClientName={loan.borrower?.personalData?.fullName || ''}
-                            currentClientPhone={loan.borrower?.personalData?.phones?.[0]?.number || ''}
-                            isFromPreviousLoan={!!loan.previousLoan}
-                            leaderLocation={loan.lead?.personalData?.addresses?.[0]?.location?.name || ''}
-                            leaderName={loan.lead?.personalData?.fullName || ''}
-                            showLocationTag={searchAllLeadersByRow[loan.id] || false} // Show location tag only when searching all leaders
-                            onClientChange={(name, phone, action) => handleRowChange(index, 'clientData', { clientName: name, clientPhone: phone, action }, isNewRow)}
-                        />
-                    </td>
                     <td>
                         <div style={{
-                            minWidth: isRequestedAmountFocused[loan.id] ? '120px' : '100px',
-                            maxWidth: isRequestedAmountFocused[loan.id] ? '180px' : '150px',
-                            ...UNIFIED_CONTAINER_STYLES
+                            minWidth: isRequestedAmountFocused[loanId] ? '120px' : '100px',
+                            maxWidth: isRequestedAmountFocused[loanId] ? '180px' : '150px',
+                            height: '40px',
+                            display: 'flex',
+                            alignItems: 'flex-end',
+                            transition: 'all 0.3s ease'
                         }}>
                         <TextInput
                             placeholder="0.00" value={loan.requestedAmount || ''}
-                            onChange={(e) => handleRowChange(index, 'requestedAmount', e.target.value, isNewRow)}
+                            onChange={(e) => {
+                                const value = e.target.value;
+                                // Si el valor actual es "0" y el usuario empieza a escribir, eliminar el "0"
+                                const newValue = (loan.requestedAmount === '0' && value.length > 1) ? value.substring(1) : value;
+                                handleRowChange(index, 'requestedAmount', newValue, isNewRow);
+                            }}
                                 onFocus={() => {
                                     setIsRequestedAmountFocused(prev => ({
                                         ...prev,
-                                        [loan.id]: true
+                                        [loanId]: true
                                     }));
                                 }}
                                 onBlur={() => {
                                     setIsRequestedAmountFocused(prev => ({
                                         ...prev,
-                                        [loan.id]: false
+                                        [loanId]: false
                                     }));
                                 }}
                                 style={UNIFIED_INPUT_STYLES} 
-                                type="number" step="0.01"
+                                type="text"
                             />
                         </div>
                     </td>
@@ -1635,7 +1734,10 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                         <div style={{
                             minWidth: '120px',
                             maxWidth: '180px',
-                            ...UNIFIED_CONTAINER_STYLES,
+                            height: '40px',
+                            display: 'flex',
+                            alignItems: 'flex-end',
+                            transition: 'all 0.3s ease',
                             position: 'relative'
                         }}>
                         <TextInput
@@ -1647,7 +1749,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                     cursor: 'not-allowed',
                                     color: '#6B7280'
                                 }} 
-                                type="number"
+                                type="text"
                             />
                             <div 
                                 style={{
@@ -1668,11 +1770,11 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                     cursor: 'default',
                                     zIndex: 10
                                 }}
-                                onMouseEnter={() => setShowTooltip(prev => ({ ...prev, [loan.id]: true }))}
-                                onMouseLeave={() => setShowTooltip(prev => ({ ...prev, [loan.id]: false }))}
+                                onMouseEnter={() => setShowTooltip(prev => ({ ...prev, [loanId]: true }))}
+                                onMouseLeave={() => setShowTooltip(prev => ({ ...prev, [loanId]: false }))}
                             >
                                 i
-                                {showTooltip[loan.id] && (
+                                {showTooltip[loanId] && (
                                     <div style={{
                                         position: 'absolute',
                                         bottom: '100%',
@@ -1707,40 +1809,142 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                     </td>
                      <td>
                         <div style={{
-                            minWidth: isCommissionFocused[loan.id] ? '120px' : '100px',
-                            maxWidth: isCommissionFocused[loan.id] ? '180px' : '150px',
-                            ...UNIFIED_CONTAINER_STYLES
+                            minWidth: isCommissionFocused[loanId] ? '120px' : '100px',
+                            maxWidth: isCommissionFocused[loanId] ? '180px' : '150px',
+                            height: '40px',
+                            display: 'flex',
+                            alignItems: 'flex-end',
+                            transition: 'all 0.3s ease'
                         }}>
                         <TextInput
                             placeholder="0.00" value={loan.comissionAmount || ''}
-                            onChange={(e) => handleRowChange(index, 'comissionAmount', e.target.value, isNewRow)}
+                            onChange={(e) => {
+                                const value = e.target.value;
+                                // Si el valor actual es "0" y el usuario empieza a escribir, eliminar el "0"
+                                const newValue = (loan.comissionAmount === '0' && value.length > 1) ? value.substring(1) : value;
+                                handleRowChange(index, 'comissionAmount', newValue, isNewRow);
+                            }}
                                 onFocus={() => {
                                     setIsCommissionFocused(prev => ({
                                         ...prev,
-                                        [loan.id]: true
+                                        [loanId]: true
                                     }));
                                 }}
                                 onBlur={() => {
                                     setIsCommissionFocused(prev => ({
                                         ...prev,
-                                        [loan.id]: false
+                                        [loanId]: false
                                     }));
                                 }}
                                 style={UNIFIED_INPUT_STYLES} 
-                                type="number" step="0.01"
+                                type="text"
                             />
                         </div>
                     </td>
-                    <td style={{...tableCellStyle, minWidth: '300px', maxWidth: '400px', height: '60px', display: 'flex', alignItems: 'flex-end'}}>
-                        <AvalDropdown
-                           loanId={loan.id}
-                           currentAvalName={loan.avalName || ''}
-                           currentAvalPhone={loan.avalPhone || ''}
-                           borrowerLocationId={undefined} usedAvalIds={usedAvalIds}
-                           selectedCollateralId={loan.selectedCollateralId}
-                           onAvalChange={(name, phone, pId, action) => handleRowChange(index, 'avalData', { avalName: name, avalPhone: phone, selectedCollateralId: pId, avalAction: action }, isNewRow)}
-                           onlyNameField={false}
-                        />
+                    {/* Celda Cliente */}
+                    <td style={{...tableCellStyle, minWidth: '200px', maxWidth: 'none', height: '40px', padding: '0px 8px 0px 0px', flex: '1'}}>
+                        <div style={{
+                            minWidth: '200px',
+                            maxWidth: 'none',
+                            ...UNIFIED_CONTAINER_STYLES
+                        }}>
+                            {(() => {
+                                console.log('CreditosTab - loan data:', {
+                                    loanId,
+                                    borrower: loan.borrower,
+                                    personalData: loan.borrower?.personalData,
+                                    personalDataId: loan.borrower?.personalData?.id,
+                                    phoneId: loan.borrower?.personalData?.phones?.[0]?.id,
+                                    isFromPrevious: !!loan.previousLoan
+                                });
+                                
+                                // Verificar específicamente si es un préstamo previo
+                                if (!!loan.previousLoan) {
+                                    console.log('🔍 PREVIOUS LOAN DETECTED:', {
+                                        hasBorrower: !!loan.borrower,
+                                        hasPersonalData: !!loan.borrower?.personalData,
+                                        personalDataId: loan.borrower?.personalData?.id,
+                                        personalDataKeys: loan.borrower?.personalData ? Object.keys(loan.borrower.personalData) : 'NO PERSONAL DATA'
+                                    });
+                                }
+                                
+                                return null;
+                            })()}
+                            <PersonInputWithAutocomplete
+                                key={`${loanId}-client-${loan.borrower?.personalData?.phones?.[0]?.id || 'no-phone'}`} 
+                                loanId={loanId}
+                                currentName={loan.borrower?.personalData?.fullName || ''}
+                                currentPhone={loan.borrower?.personalData?.phones?.[0]?.number || ''}
+                                onNameChange={(name) => {
+                                    const currentPhone = loan.borrower?.personalData?.phones?.[0]?.number || '';
+                                    handleRowChange(index, 'clientData', { clientName: name, clientPhone: currentPhone, action: 'create' }, isNewRow);
+                                }}
+                                onPhoneChange={(phone) => {
+                                    const currentName = loan.borrower?.personalData?.fullName || '';
+                                    handleRowChange(index, 'clientData', { clientName: currentName, clientPhone: phone, action: 'create' }, isNewRow);
+                                }}
+                                onClear={() => handleRowChange(index, 'clientData', { clientName: '', clientPhone: '', action: 'clear' }, isNewRow)}
+                                onActionChange={(action) => {
+                                    const currentName = loan.borrower?.personalData?.fullName || '';
+                                    const currentPhone = loan.borrower?.personalData?.phones?.[0]?.number || '';
+                                    handleRowChange(index, 'clientData', { clientName: currentName, clientPhone: currentPhone, action }, isNewRow);
+                                }}
+                                enableAutocomplete={false}
+                                isFromPrevious={!!loan.previousLoan}
+                                originalData={{ name: loan.borrower?.personalData?.fullName || '', phone: loan.borrower?.personalData?.phones?.[0]?.number || '' }}
+                                clientPersonalDataId={loan.borrower?.personalData?.id}
+                                clientPhoneId={loan.borrower?.personalData?.phones?.[0]?.id}
+                                leaderLocation={(loan as any).lead?.personalData?.addresses?.[0]?.location?.name || ''}
+                                leaderName={(loan as any).lead?.personalData?.fullName || ''}
+                                showLocationTag={searchAllLeadersByRow[loanId] || false}
+                                namePlaceholder="Nombre del cliente..."
+                                phonePlaceholder="Teléfono..."
+                                actionType="client"
+                                containerStyle={{ width: '100%' }}
+                            />
+                        </div>
+                    </td>
+                    {/* Celda Aval */}
+                    <td style={{...tableCellStyle, minWidth: '200px', maxWidth: 'none', height: '40px', padding: '0px 0px 0px 8px', flex: '1'}}>
+                        <div style={{
+                            minWidth: '200px',
+                            maxWidth: 'none',
+                            ...UNIFIED_CONTAINER_STYLES
+                        }}>
+                            <PersonInputWithAutocomplete
+                                key={`${loanId}-aval`} 
+                                loanId={loanId}
+                                selectedCollateralPhoneId={loan.selectedCollateralPhoneId}
+                                currentName={loan.avalName || ''}
+                                currentPhone={loan.avalPhone || ''}
+                                onNameChange={(name) => {
+                                    const currentPhone = loan.avalPhone || '';
+                                    handleRowChange(index, 'avalData', { avalName: name, avalPhone: currentPhone, selectedCollateralId: undefined, avalAction: 'create' }, isNewRow);
+                                }}
+                                onPhoneChange={(phone) => {
+                                    const currentName = loan.avalName || '';
+                                    handleRowChange(index, 'avalData', { avalName: currentName, avalPhone: phone, selectedCollateralId: undefined, avalAction: 'create' }, isNewRow);
+                                }}
+                                onClear={() => handleRowChange(index, 'avalData', { avalName: '', avalPhone: '', selectedCollateralId: undefined, avalAction: 'clear' }, isNewRow)}
+                                onActionChange={(action) => {
+                                    const currentName = loan.avalName || '';
+                                    const currentPhone = loan.avalPhone || '';
+                                    // Mantener el selectedCollateralId si existe (para avales seleccionados del dropdown)
+                                    const currentSelectedCollateralId = loan.selectedCollateralId;
+                                    handleRowChange(index, 'avalData', { avalName: currentName, avalPhone: currentPhone, selectedCollateralId: currentSelectedCollateralId, avalAction: action }, isNewRow);
+                                }}
+                                enableAutocomplete={true}
+                                selectedPersonId={loan.selectedCollateralId}
+                                onPersonSelect={(person) => handleRowChange(index, 'avalData', { avalName: person.fullName, avalPhone: person.phones?.[0]?.number || '', selectedCollateralId: person.id, selectedCollateralPhoneId: person.phones?.[0]?.id, avalAction: 'connect' }, isNewRow)}
+                                usedPersonIds={usedAvalIds}
+                                borrowerLocationId={undefined}
+                                includeAllLocations={false}
+                                namePlaceholder="Buscar o escribir nombre del aval..."
+                                phonePlaceholder={loan.avalName ? `Tel. ${loan.avalName.split(' ')[0]}...` : "Teléfono"}
+                                actionType="aval"
+                                containerStyle={{ width: '100%' }}
+                            />
+                        </div>
                     </td>
                     <td>
                       {!isNewRow && (
@@ -1866,7 +2070,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                     Deuda Pendiente del Préstamo Anterior
                   </label>
                   <TextInput
-                    type="number"
+                    type="text"
                     placeholder="0.00"
                     value={editingLoan.previousLoan?.pendingAmount || '0'}
                     readOnly
@@ -1970,11 +2174,13 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                     Monto Solicitado
                   </label>
                   <TextInput
-                    type="number"
+                    type="text"
                     placeholder="0.00"
                     value={editingLoan.requestedAmount}
                     onChange={(e) => {
-                      const requestedAmount = e.target.value;
+                      const value = e.target.value;
+                      // Si el valor actual es "0" y el usuario empieza a escribir, eliminar el "0"
+                      const requestedAmount = (editingLoan.requestedAmount === '0' && value.length > 1) ? value.substring(1) : value;
                       const { amountGived, amountToPay } = calculateLoanAmounts({
                         requestedAmount,
                         pendingAmount: editingLoan.previousLoan?.pendingAmount || '0',
@@ -1991,7 +2197,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                     Monto Entregado
                   </label>
                   <TextInput
-                    type="number"
+                    type="text"
                     placeholder="0.00"
                     value={editingLoan.amountGived}
                     readOnly
@@ -2004,7 +2210,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                     Monto a Pagar
                   </label>
                   <TextInput
-                    type="number"
+                    type="text"
                     placeholder="0.00"
                     value={editingLoan.amountToPay}
                     readOnly
@@ -2017,10 +2223,15 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                     Comisión
                   </label>
                   <TextInput
-                    type="number"
+                    type="text"
                     placeholder="0.00"
                     value={editingLoan.comissionAmount}
-                    onChange={(e) => setEditingLoan({ ...editingLoan, comissionAmount: e.target.value })}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      // Si el valor actual es "0" y el usuario empieza a escribir, eliminar el "0"
+                      const comissionAmount = (editingLoan.comissionAmount === '0' && value.length > 1) ? value.substring(1) : value;
+                      setEditingLoan({ ...editingLoan, comissionAmount });
+                    }}
                     style={inputStyle}
                   />
                 </div>
@@ -2029,17 +2240,42 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                   <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
                     Aval
                   </label>
-                  <AvalDropdown
+                  <PersonInputWithAutocomplete
                     loanId="editing-loan"
-                    currentAvalName={editingLoan.collaterals?.[0]?.fullName || (editingLoan as any).avalName || ''}
-                    currentAvalPhone={editingLoan.collaterals?.[0]?.phones?.[0]?.number || (editingLoan as any).avalPhone || ''}
-                    borrowerLocationId={editingLoan.borrower?.personalData?.addresses?.[0]?.location?.id}
-                    usedAvalIds={[]}
-                    selectedCollateralId={editingLoan.collaterals?.[0]?.id}
-                    onAvalChange={(avalName, avalPhone, personalDataId, action) => {
-                      setEditingLoan(prev => ({ ...prev, avalName, avalPhone, selectedCollateralId: personalDataId, avalAction: action } as any));
+                    currentName={editingLoan.collaterals?.[0]?.fullName || (editingLoan as any).avalName || ''}
+                    currentPhone={editingLoan.collaterals?.[0]?.phones?.[0]?.number || (editingLoan as any).avalPhone || ''}
+                    onNameChange={(name) => {
+                      const currentPhone = editingLoan.collaterals?.[0]?.phones?.[0]?.number || (editingLoan as any).avalPhone || '';
+                      setEditingLoan(prev => ({ ...prev, avalName: name, avalPhone: currentPhone } as any));
                     }}
-                    onlyNameField={false}
+                    onPhoneChange={(phone) => {
+                      const currentName = editingLoan.collaterals?.[0]?.fullName || (editingLoan as any).avalName || '';
+                      setEditingLoan(prev => ({ ...prev, avalName: currentName, avalPhone: phone } as any));
+                    }}
+                    onClear={() => setEditingLoan(prev => ({ ...prev, avalName: '', avalPhone: '', selectedCollateralId: undefined } as any))}
+                    onActionChange={(action) => {
+                      const currentName = editingLoan.collaterals?.[0]?.fullName || (editingLoan as any).avalName || '';
+                      const currentPhone = editingLoan.collaterals?.[0]?.phones?.[0]?.number || (editingLoan as any).avalPhone || '';
+                      setEditingLoan(prev => ({ ...prev, avalName: currentName, avalPhone: currentPhone, avalAction: action } as any));
+                    }}
+                    enableAutocomplete={true}
+                    selectedPersonId={editingLoan.collaterals?.[0]?.id}
+                    onPersonSelect={(person) => {
+                      setEditingLoan(prev => ({ 
+                        ...prev, 
+                        avalName: person.fullName, 
+                        avalPhone: person.phones?.[0]?.number || '', 
+                        selectedCollateralId: person.id, 
+                        avalAction: 'connect' 
+                      } as any));
+                    }}
+                    usedPersonIds={[]}
+                    borrowerLocationId={editingLoan.borrower?.personalData?.addresses?.[0]?.location?.id}
+                    includeAllLocations={false}
+                    namePlaceholder="Buscar o escribir nombre del aval..."
+                    phonePlaceholder="Teléfono..."
+                    actionType="aval"
+                    readonly={false}
                   />
                 </div>
               </Stack>
@@ -2086,12 +2322,12 @@ const tableHeaderStyle = {
 };
 
 const tableCellStyle = {
-  padding: '8px 12px',
+  padding: '12px 16px',
   color: '#1a1f36',
   fontSize: '11px',
   verticalAlign: 'middle', // Usamos verticalAlign para celdas de tabla
   whiteSpace: 'nowrap' as const,
-  height: '60px',
+  height: '80px',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   position: 'relative' as const,
