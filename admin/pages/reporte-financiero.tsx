@@ -74,6 +74,10 @@ interface FinancialReportData {
       tokaGasolina: number;
       cashGasolina: number;
       totalGasolina: number;
+      // Campos de desglose de nómina
+      nominaInterna: number;
+      salarioExterno: number;
+      viaticos: number;
     };
   };
 }
@@ -167,6 +171,37 @@ const styles = {
   totalRow: {
     backgroundColor: '#edf2f7',
     fontWeight: '600'
+  },
+  subSectionRow: {
+    backgroundColor: '#f7fafc',
+    fontWeight: '500'
+  },
+  subSectionCell: {
+    padding: '6px 8px',
+    textAlign: 'left' as const,
+    borderBottom: '1px solid #e2e8f0',
+    borderRight: '1px solid #e2e8f0',
+    fontSize: '10px',
+    backgroundColor: '#f7fafc',
+    color: '#4a5568'
+  },
+  subSectionDataCell: {
+    padding: '6px 8px',
+    textAlign: 'center' as const,
+    borderBottom: '1px solid #e2e8f0',
+    borderRight: '1px solid #e2e8f0',
+    fontSize: '10px',
+    backgroundColor: '#f7fafc',
+    fontWeight: '500'
+  },
+  mainSectionCell: {
+    padding: '12px 16px',
+    textAlign: 'left' as const,
+    borderBottom: '1px solid #e2e8f0',
+    borderRight: '1px solid #e2e8f0',
+    fontWeight: '500',
+    backgroundColor: '#fef5e7',
+    fontSize: '11px'
   }
 };
 
@@ -505,7 +540,8 @@ export default function ReporteFinancieroPage() {
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
                       const d: any = processedData.data[monthKey] as any;
-                      const gastosOperativos = Number(d?.generalExpenses || 0) + Number(d?.comissions || 0) + Number(d?.nomina || 0) + Number(d?.travelExpenses || 0);
+                      const totalSalarios = Number(d?.nominaInterna || 0) + Number(d?.salarioExterno || 0) + Number(d?.viaticos || 0);
+                      const gastosOperativos = Number(d?.generalExpenses || 0) + Number(d?.comissions || 0) + totalSalarios + Number(d?.travelExpenses || 0);
                       const gastosTotales = gastosOperativos + Number(d?.badDebtAmount || 0);
                       return (
                         <td key={month} style={{ ...styles.td, ...getValueColor(-gastosTotales), fontWeight: '600' }}>
@@ -521,7 +557,8 @@ export default function ReporteFinancieroPage() {
                       color: '#dc2626'
                     }}>
                       {(() => {
-                        const gastosOperativosAnual = Number(annualTotals.generalExpenses || 0) + Number(annualTotals.comissions || 0) + Number(annualTotals.nomina || 0) + Number(annualTotals.travelExpenses || 0);
+                        const totalSalariosAnual = Number(annualTotals.nominaInterna || 0) + Number(annualTotals.salarioExterno || 0) + Number(annualTotals.viaticos || 0);
+                        const gastosOperativosAnual = Number(annualTotals.generalExpenses || 0) + Number(annualTotals.comissions || 0) + totalSalariosAnual + Number(annualTotals.travelExpenses || 0);
                         const totalAnual = gastosOperativosAnual + Number(annualTotals.badDebtAmount || 0);
                         return totalAnual > 0 ? formatCurrency(totalAnual) : '-';
                       })()}
@@ -530,47 +567,126 @@ export default function ReporteFinancieroPage() {
 
                   {/* Gastos Operativos */}
                   <tr style={{ backgroundColor: '#fef5e7' }}>
-                    <td style={{ ...styles.tdFirst, paddingLeft: '32px', backgroundColor: '#fef5e7' }}>
-                      ├─ Gastos Operativos
+                    <td style={styles.mainSectionCell}>
+                      Gastos Operativos
                     </td>
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
                       const data = processedData.data[monthKey];
                       return (
-                        <td key={month} style={{ ...styles.td, backgroundColor: '#fef5e7', ...getValueColor(-data?.generalExpenses || 0) }}>
+                        <td key={month} style={{ ...styles.td, backgroundColor: '#fef5e7', ...getValueColor(-data?.generalExpenses || 0), fontWeight: '600' }}>
                           {data?.generalExpenses ? formatCurrency(data.generalExpenses) : '-'}
                         </td>
                       );
                     })}
+                    <td style={{ 
+                      ...styles.td, 
+                      backgroundColor: '#fef5e7', 
+                      fontWeight: '700',
+                      fontSize: '12px',
+                      color: '#dc2626'
+                    }}>
+                      {annualTotals.generalExpenses ? formatCurrency(annualTotals.generalExpenses) : '-'}
+                    </td>
                   </tr>
 
                   {/* Comisiones */}
                   <tr style={{ backgroundColor: '#fef5e7' }}>
-                    <td style={{ ...styles.tdFirst, paddingLeft: '32px', backgroundColor: '#fef5e7' }}>
-                      ├─ Comisiones
+                    <td style={styles.mainSectionCell}>
+                      Comisiones
                     </td>
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
                       const data = processedData.data[monthKey];
                       return (
-                        <td key={month} style={{ ...styles.td, backgroundColor: '#fef5e7', ...getValueColor(-data?.comissions || 0) }}>
+                        <td key={month} style={{ ...styles.td, backgroundColor: '#fef5e7', ...getValueColor(-data?.comissions || 0), fontWeight: '600' }}>
                           {data?.comissions ? formatCurrency(data.comissions) : '-'}
                         </td>
                       );
                     })}
+                    <td style={{ 
+                      ...styles.td, 
+                      backgroundColor: '#fef5e7', 
+                      fontWeight: '700',
+                      fontSize: '12px',
+                      color: '#dc2626'
+                    }}>
+                      {annualTotals.comissions ? formatCurrency(annualTotals.comissions) : '-'}
+                    </td>
                   </tr>
 
-                  {/* Nómina */}
+                  {/* Salarios */}
                   <tr style={{ backgroundColor: '#fef5e7' }}>
-                    <td style={{ ...styles.tdFirst, paddingLeft: '32px', backgroundColor: '#fef5e7' }}>
+                    <td style={styles.mainSectionCell}>
+                      Salarios
+                    </td>
+                    {processedData.months.map((month, index) => {
+                      const monthKey = (index + 1).toString().padStart(2, '0');
+                      const data = processedData.data[monthKey];
+                      const totalSalarios = (data?.nominaInterna || 0) + (data?.salarioExterno || 0) + (data?.viaticos || 0);
+                      return (
+                        <td key={month} style={{ ...styles.td, backgroundColor: '#fef5e7', ...getValueColor(-totalSalarios), fontWeight: '600' }}>
+                          {totalSalarios > 0 ? formatCurrency(totalSalarios) : '-'}
+                        </td>
+                      );
+                    })}
+                    <td style={{ 
+                      ...styles.td, 
+                      backgroundColor: '#fef5e7', 
+                      fontWeight: '700',
+                      fontSize: '12px',
+                      color: '#dc2626'
+                    }}>
+                      {(() => {
+                        const totalAnual = (annualTotals.nominaInterna || 0) + (annualTotals.salarioExterno || 0) + (annualTotals.viaticos || 0);
+                        return totalAnual > 0 ? formatCurrency(totalAnual) : '-';
+                      })()}
+                    </td>
+                  </tr>
+
+                  {/* Nómina Interna */}
+                  <tr style={styles.subSectionRow}>
+                    <td style={{ ...styles.subSectionCell, paddingLeft: '48px' }}>
                       ├─ Nómina
                     </td>
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
                       const data = processedData.data[monthKey];
                       return (
-                        <td key={month} style={{ ...styles.td, backgroundColor: '#fef5e7', ...getValueColor(-data?.nomina || 0) }}>
-                          {data?.nomina ? formatCurrency(data.nomina) : '-'}
+                        <td key={month} style={{ ...styles.subSectionDataCell, ...getValueColor(-data?.nominaInterna || 0) }}>
+                          {data?.nominaInterna ? formatCurrency(data.nominaInterna) : '-'}
+                        </td>
+                      );
+                    })}
+                  </tr>
+
+                  {/* Salario Externo */}
+                  <tr style={styles.subSectionRow}>
+                    <td style={{ ...styles.subSectionCell, paddingLeft: '48px' }}>
+                      ├─ Salario Externo
+                    </td>
+                    {processedData.months.map((month, index) => {
+                      const monthKey = (index + 1).toString().padStart(2, '0');
+                      const data = processedData.data[monthKey];
+                      return (
+                        <td key={month} style={{ ...styles.subSectionDataCell, ...getValueColor(-data?.salarioExterno || 0) }}>
+                          {data?.salarioExterno ? formatCurrency(data.salarioExterno) : '-'}
+                        </td>
+                      );
+                    })}
+                  </tr>
+
+                  {/* Viáticos */}
+                  <tr style={styles.subSectionRow}>
+                    <td style={{ ...styles.subSectionCell, paddingLeft: '48px' }}>
+                      └─ Viáticos
+                    </td>
+                    {processedData.months.map((month, index) => {
+                      const monthKey = (index + 1).toString().padStart(2, '0');
+                      const data = processedData.data[monthKey];
+                      return (
+                        <td key={month} style={{ ...styles.subSectionDataCell, ...getValueColor(-data?.viaticos || 0) }}>
+                          {data?.viaticos ? formatCurrency(data.viaticos) : '-'}
                         </td>
                       );
                     })}
@@ -578,46 +694,64 @@ export default function ReporteFinancieroPage() {
 
                   {/* CONNECT (TRAVEL_EXPENSES) */}
                   <tr style={{ backgroundColor: '#fef5e7' }}>
-                    <td style={{ ...styles.tdFirst, paddingLeft: '32px', backgroundColor: '#fef5e7' }}>
-                      ├─ CONNECT
+                    <td style={styles.mainSectionCell}>
+                      Connect
                     </td>
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
                       const data: any = processedData.data[monthKey];
                       return (
-                        <td key={month} style={{ ...styles.td, backgroundColor: '#fef5e7', ...getValueColor(-Number(data?.travelExpenses || 0)) }}>
+                        <td key={month} style={{ ...styles.td, backgroundColor: '#fef5e7', ...getValueColor(-Number(data?.travelExpenses || 0)), fontWeight: '600' }}>
                           {Number(data?.travelExpenses || 0) ? formatCurrency(Number(data.travelExpenses)) : '-'}
                         </td>
                       );
                     })}
+                    <td style={{ 
+                      ...styles.td, 
+                      backgroundColor: '#fef5e7', 
+                      fontWeight: '700',
+                      fontSize: '12px',
+                      color: '#dc2626'
+                    }}>
+                      {annualTotals.travelExpenses ? formatCurrency(annualTotals.travelExpenses) : '-'}
+                    </td>
                   </tr>
 
                   {/* Gasolina */}
                   <tr style={{ backgroundColor: '#fef5e7' }}>
-                    <td style={{ ...styles.tdFirst, paddingLeft: '32px', backgroundColor: '#fef5e7' }}>
-                      ├─ Gasolina
+                    <td style={styles.mainSectionCell}>
+                      Gasolina
                     </td>
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
                       const data = processedData.data[monthKey];
                       return (
-                        <td key={month} style={{ ...styles.td, backgroundColor: '#fef5e7', ...getValueColor(-data?.totalGasolina || 0) }}>
+                        <td key={month} style={{ ...styles.td, backgroundColor: '#fef5e7', ...getValueColor(-data?.totalGasolina || 0), fontWeight: '600' }}>
                           {data?.totalGasolina ? formatCurrency(data.totalGasolina) : '-'}
                         </td>
                       );
                     })}
+                    <td style={{ 
+                      ...styles.td, 
+                      backgroundColor: '#fef5e7', 
+                      fontWeight: '700',
+                      fontSize: '12px',
+                      color: '#dc2626'
+                    }}>
+                      {annualTotals.totalGasolina ? formatCurrency(annualTotals.totalGasolina) : '-'}
+                    </td>
                   </tr>
 
                   {/* Gasolina TOKA */}
-                  <tr style={{ backgroundColor: '#fef5e7' }}>
-                    <td style={{ ...styles.tdFirst, paddingLeft: '48px', backgroundColor: '#fef5e7' }}>
+                  <tr style={styles.subSectionRow}>
+                    <td style={{ ...styles.subSectionCell, paddingLeft: '48px' }}>
                       ├─ TOKA
                     </td>
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
                       const data = processedData.data[monthKey];
                       return (
-                        <td key={month} style={{ ...styles.td, backgroundColor: '#fef5e7', ...getValueColor(-data?.tokaGasolina || 0) }}>
+                        <td key={month} style={{ ...styles.subSectionDataCell, ...getValueColor(-data?.tokaGasolina || 0) }}>
                           {data?.tokaGasolina ? formatCurrency(data.tokaGasolina) : '-'}
                         </td>
                       );
@@ -625,15 +759,15 @@ export default function ReporteFinancieroPage() {
                   </tr>
 
                   {/* Gasolina Efectivo */}
-                  <tr style={{ backgroundColor: '#fef5e7' }}>
-                    <td style={{ ...styles.tdFirst, paddingLeft: '48px', backgroundColor: '#fef5e7' }}>
+                  <tr style={styles.subSectionRow}>
+                    <td style={{ ...styles.subSectionCell, paddingLeft: '48px' }}>
                       └─ Efectivo
                     </td>
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
                       const data = processedData.data[monthKey];
                       return (
-                        <td key={month} style={{ ...styles.td, backgroundColor: '#fef5e7', ...getValueColor(-data?.cashGasolina || 0) }}>
+                        <td key={month} style={{ ...styles.subSectionDataCell, ...getValueColor(-data?.cashGasolina || 0) }}>
                           {data?.cashGasolina ? formatCurrency(data.cashGasolina) : '-'}
                         </td>
                       );
@@ -642,8 +776,8 @@ export default function ReporteFinancieroPage() {
 
                   {/* Deuda Mala */}
                   <tr style={{ backgroundColor: '#fef5e7' }}>
-                    <td style={{ ...styles.tdFirst, paddingLeft: '32px', backgroundColor: '#fef5e7' }}>
-                      └─ Deuda Mala
+                    <td style={styles.mainSectionCell}>
+                      Deuda Mala
                     </td>
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
@@ -653,12 +787,22 @@ export default function ReporteFinancieroPage() {
                           ...styles.td, 
                           backgroundColor: '#fef5e7', 
                           ...getValueColor(-data?.badDebtAmount || 0),
+                          fontWeight: '600',
                           color: data?.badDebtAmount > 0 ? '#d32f2f' : '#666'
                         }}>
                           {data?.badDebtAmount ? formatCurrency(data.badDebtAmount) : '-'}
                         </td>
                       );
                     })}
+                    <td style={{ 
+                      ...styles.td, 
+                      backgroundColor: '#fef5e7', 
+                      fontWeight: '700',
+                      fontSize: '12px',
+                      color: '#dc2626'
+                    }}>
+                      {annualTotals.badDebtAmount ? formatCurrency(annualTotals.badDebtAmount) : '-'}
+                    </td>
                   </tr>
 
                   {/* SECCIÓN: INGRESOS */}
@@ -1035,30 +1179,30 @@ export default function ReporteFinancieroPage() {
                   </tr>
 
                   {/* Desglose de Ingresos */}
-                  <tr style={{ backgroundColor: '#f0f7ff' }}>
-                    <td style={{ ...styles.tdFirst, paddingLeft: '32px', backgroundColor: '#f0f7ff' }}>
+                  <tr style={styles.subSectionRow}>
+                    <td style={{ ...styles.subSectionCell, paddingLeft: '32px' }}>
                       ├─ Ganancia Pura
                     </td>
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
                       const data = processedData.data[monthKey];
                       return (
-                        <td key={month} style={{ ...styles.td, backgroundColor: '#f0f7ff', color: '#22c55e', fontWeight: '600' }}>
+                        <td key={month} style={{ ...styles.subSectionDataCell, color: '#22c55e' }}>
                           {data?.profitReturn ? formatCurrency(data.profitReturn) : '-'}
                         </td>
                       );
                     })}
                   </tr>
 
-                  <tr style={{ backgroundColor: '#f0f7ff' }}>
-                    <td style={{ ...styles.tdFirst, paddingLeft: '32px', backgroundColor: '#f0f7ff' }}>
+                  <tr style={styles.subSectionRow}>
+                    <td style={{ ...styles.subSectionCell, paddingLeft: '32px' }}>
                       └─ Capital Devuelto
                     </td>
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
                       const data = processedData.data[monthKey];
                       return (
-                        <td key={month} style={{ ...styles.td, backgroundColor: '#f0f7ff', color: '#3b82f6', fontWeight: '600' }}>
+                        <td key={month} style={{ ...styles.subSectionDataCell, color: '#3b82f6' }}>
                           {data?.capitalReturn ? formatCurrency(data.capitalReturn) : '-'}
                         </td>
                       );
@@ -1122,30 +1266,30 @@ export default function ReporteFinancieroPage() {
                   </tr>
 
                   {/* Desglose de Inversión */}
-                  <tr style={{ backgroundColor: '#fef2f2' }}>
-                    <td style={{ ...styles.tdFirst, paddingLeft: '32px', backgroundColor: '#fef2f2' }}>
+                  <tr style={styles.subSectionRow}>
+                    <td style={{ ...styles.subSectionCell, paddingLeft: '32px' }}>
                       ├─ Préstamos Otorgados
                     </td>
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
                       const data = processedData.data[monthKey];
                       return (
-                        <td key={month} style={{ ...styles.td, backgroundColor: '#fef2f2', color: '#dc2626', fontWeight: '600' }}>
+                        <td key={month} style={{ ...styles.subSectionDataCell, color: '#dc2626' }}>
                           {data?.loanDisbursements ? formatCurrency(data.loanDisbursements) : '-'}
                         </td>
                       );
                     })}
                   </tr>
 
-                  <tr style={{ backgroundColor: '#fef2f2' }}>
-                    <td style={{ ...styles.tdFirst, paddingLeft: '32px', backgroundColor: '#fef2f2' }}>
+                  <tr style={styles.subSectionRow}>
+                    <td style={{ ...styles.subSectionCell, paddingLeft: '32px' }}>
                       └─ Gastos Operativos
                     </td>
                     {processedData.months.map((month, index) => {
                       const monthKey = (index + 1).toString().padStart(2, '0');
                       const data = processedData.data[monthKey];
                       return (
-                        <td key={month} style={{ ...styles.td, backgroundColor: '#fef2f2', color: '#dc2626', fontWeight: '600' }}>
+                        <td key={month} style={{ ...styles.subSectionDataCell, color: '#dc2626' }}>
                           {data?.operationalExpenses ? formatCurrency(data.operationalExpenses) : '-'}
                         </td>
                       );

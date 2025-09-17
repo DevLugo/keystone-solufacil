@@ -607,6 +607,44 @@ export const Borrower = list({
       initialColumns: ['fullName', 'id'],
     },
   }
+  ,
+  hooks: {
+    beforeOperation: async ({ operation, resolvedData, context }) => {
+      if (operation !== 'create' && operation !== 'update') return;
+
+      const normalizeFullName = (name: string): string => {
+        if (!name) return '';
+        return name
+          .replace(/\s+/g, ' ')
+          .trim();
+      };
+
+      // Si viene un create anidado de personalData, intentar reutilizar existente
+      const pdCreate: any = (resolvedData as any)?.personalData?.create;
+      if (pdCreate && typeof pdCreate === 'object') {
+        const incomingName: string = pdCreate.fullName || '';
+        const normalizedName = normalizeFullName(incomingName);
+
+        // Buscar un PersonalData existente por nombre normalizado (case-insensitive)
+        const existing = await (context.prisma as any).personalData.findFirst({
+          where: {
+            fullName: {
+              equals: normalizedName,
+              mode: 'insensitive'
+            }
+          }
+        });
+
+        if (existing) {
+          // Reutilizar PD existente
+          (resolvedData as any).personalData = { connect: { id: existing.id } };
+        } else {
+          // Normalizar nombre para la creación
+          (resolvedData as any).personalData.create.fullName = normalizedName;
+        }
+      }
+    }
+  }
 });
 
 export const PersonalData = list({
@@ -652,6 +690,17 @@ export const PersonalData = list({
   },
   ui: { isHidden: true },
   hooks: {
+    beforeOperation: async ({ operation, resolvedData }) => {
+      if ((operation === 'create' || operation === 'update') && resolvedData?.fullName) {
+        const normalizeFullName = (name: string): string => {
+          if (!name) return '';
+          return name
+            .replace(/\s+/g, ' ')
+            .trim();
+        };
+        resolvedData.fullName = normalizeFullName(resolvedData.fullName as string);
+      }
+    },
     afterOperation: async (args) => {
       const { operation, item, context } = args as any;
       // Generar clientCode solo al crear, si no existe
