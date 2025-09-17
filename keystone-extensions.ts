@@ -205,7 +205,7 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
     
     // Logo
     try {
-      doc.image('./solufacil.png', doc.page.width - 100, 15, { width: 60 });
+      doc.image('./public/solufacil.png', doc.page.width - 100, 15, { width: 60 });
     } catch (error) {
       console.log('Logo no encontrado, continuando sin él');
     }
@@ -1549,7 +1549,7 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
       const headerY = 25;
       doc.fontSize(14).text(routeName as string, 30, headerY, { align: 'left', baseline: 'middle' });
       doc.fontSize(14).text('Listado de Cobranza', 0, headerY, { align: 'center', baseline: 'middle' });
-      doc.image('./solufacil.png', 450, 10, { width: 100 });
+      doc.image('./public/solufacil.png', 450, 10, { width: 100 });
 
       const subtitleY = headerY + 20;
       doc.fontSize(10).text(`Semanal del ${weekRange}`, 0, subtitleY, { align: 'center', baseline: 'middle' });
@@ -1757,11 +1757,23 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
 
       // Add page number to the final page
       addPageNumber(pageNumber);
-      doc.end();
+      
+      // Verificar que la respuesta no haya sido enviada antes de finalizar el PDF
+      if (!res.headersSent) {
+        doc.end();
+      } else {
+        console.error('Error: No se pudo finalizar el PDF porque la respuesta ya fue enviada');
+      }
 
     } catch (error) {
       console.error('Error generando PDF:', error);
-      res.status(500).json({ error: 'Error interno del servidor al generar PDF' });
+      
+      // Verificar si la respuesta ya fue enviada
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Error interno del servidor al generar PDF' });
+      } else {
+        console.error('Error: No se pudo enviar respuesta de error porque ya se envió una respuesta');
+      }
     }
   });
 
@@ -2111,7 +2123,7 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
 
       // Logo (si existe) - más grande
       try {
-        doc.image('./solufacil.png', doc.page.width - 100, 10, { width: 80 });
+        doc.image('./public/solufacil.png', doc.page.width - 100, 10, { width: 80 });
       } catch (e) {
         // Si no hay logo, continuamos sin él
       }
