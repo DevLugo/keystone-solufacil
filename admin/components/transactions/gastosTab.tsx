@@ -41,6 +41,7 @@ const GET_EXPENSES_BY_DATE_SIMPLE = gql`
       amount
       type
       expenseSource
+      description
       date
       sourceAccount {
         id
@@ -77,7 +78,9 @@ const expenseTypes = [
   { label: 'Lavado de Auto', value: 'LAVADO_DE_AUTO' },
   { label: 'Caseta', value: 'CASETA' },
   { label: 'Papelería', value: 'PAPELERIA' },
-  { label: 'Renta', value: 'HOUSE_RENT' }
+  { label: 'Renta', value: 'HOUSE_RENT' },
+  { label: 'IMSS/INFONAVIT', value: 'IMSS_INFONAVIT' },
+  { label: 'Otro', value: 'OTRO' }
 ];
 
 interface DropdownPortalProps {
@@ -311,6 +314,7 @@ export const CreateExpensesForm = ({
       amount: '',
       type: 'EXPENSE',
       expenseSource: '',
+      description: '',
       date: selectedDate.toISOString(),
       sourceAccount: { connect: { id: routeAccount.id } },
       route: { connect: { id: selectedRoute.id } },
@@ -352,6 +356,10 @@ export const CreateExpensesForm = ({
       }
       case 'amount': {
         transaction.amount = value;
+        break;
+      }
+      case 'description': {
+        transaction.description = value;
         break;
       }
       case 'sourceAccount': {
@@ -411,7 +419,8 @@ export const CreateExpensesForm = ({
             id,
             data: {
               amount: transaction.amount,
-              expenseSource: transaction.expenseSource
+              expenseSource: transaction.expenseSource,
+              description: transaction.description
             }
           }
         });
@@ -492,7 +501,8 @@ export const CreateExpensesForm = ({
           id: state.editingTransaction.id,
           data: {
             amount: state.editingTransaction.amount,
-            expenseSource: state.editingTransaction.expenseSource
+            expenseSource: state.editingTransaction.expenseSource,
+            description: state.editingTransaction.description
           }
         }
       });
@@ -778,6 +788,7 @@ export const CreateExpensesForm = ({
               }}>
                 <th style={tableHeaderStyle}>Tipo</th>
                 <th style={tableHeaderStyle}>Monto</th>
+                <th style={tableHeaderStyle}>Descripción</th>
                 <th style={tableHeaderStyle}>Fecha</th>
                 <th style={tableHeaderStyle}>Líder</th>
                 <th style={tableHeaderStyle}>Cuenta</th>
@@ -816,12 +827,23 @@ export const CreateExpensesForm = ({
                   <td style={tableCellStyle}>
                     {Object.keys(editedTransactions).includes(transaction.id) ? (
                       <TextInput
-                        type="number" step="1" step="1"
+                        type="number" step="1"
                         value={editedTransactions[transaction.id].amount}
                         onChange={e => handleEditExistingTransaction(transaction.id, 'amount', e.target.value)}
                       />
                     ) : (
                       `$${parseFloat(transaction.amount).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+                    )}
+                  </td>
+                  <td style={tableCellStyle}>
+                    {Object.keys(editedTransactions).includes(transaction.id) ? (
+                      <TextInput
+                        value={editedTransactions[transaction.id].description || ''}
+                        onChange={e => handleEditExistingTransaction(transaction.id, 'description', e.target.value)}
+                        placeholder="Descripción del gasto"
+                      />
+                    ) : (
+                      transaction.description || '-'
                     )}
                   </td>
                   <td style={tableCellStyle}>
@@ -947,6 +969,7 @@ export const CreateExpensesForm = ({
                 }}>
                   <th style={tableHeaderStyle}>Tipo</th>
                   <th style={tableHeaderStyle}>Monto</th>
+                  <th style={tableHeaderStyle}>Descripción</th>
                   <th style={tableHeaderStyle}>Fecha</th>
                   <th style={tableHeaderStyle}>Líder</th>
                   <th style={tableHeaderStyle}>Cuenta</th>
@@ -980,16 +1003,26 @@ export const CreateExpensesForm = ({
                           menuPortalTarget={document.body}
                           menuPosition="fixed"
                           menuPlacement="auto"
-                          size="small"
                         />
                       </div>
                     </td>
                     <td style={tableCellStyle}>
                       <TextInput
-                        type="number" step="1" step="1"
+                        type="number" step="1"
                         value={transaction.amount}
                         onChange={e => handleEditTransaction(index, 'amount', e.target.value)}
                         placeholder="0"
+                        style={{ 
+                          fontSize: '11px',
+                          height: '32px'
+                        }}
+                      />
+                    </td>
+                    <td style={tableCellStyle}>
+                      <TextInput
+                        value={transaction.description || ''}
+                        onChange={e => handleEditTransaction(index, 'description', e.target.value)}
+                        placeholder="Descripción del gasto"
                         style={{ 
                           fontSize: '11px',
                           height: '32px'
@@ -1027,7 +1060,6 @@ export const CreateExpensesForm = ({
                         menuPortalTarget={document.body}
                         menuPosition="fixed"
                         menuPlacement="auto"
-                        size="small"
                       />
                     </td>
                     <td style={{
@@ -1311,7 +1343,7 @@ export const CreateExpensesForm = ({
                 menuPlacement="auto"
               />
             </div>
-            <div style={{ marginBottom: '24px' }}>
+            <div style={{ marginBottom: '16px' }}>
               <label style={{
                 display: 'block',
                 marginBottom: '8px',
@@ -1330,6 +1362,26 @@ export const CreateExpensesForm = ({
                   }
                 })}
                 placeholder="0"
+              />
+            </div>
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{
+                display: 'block',
+                marginBottom: '8px',
+                fontSize: '14px',
+                color: '#4a5568',
+              }}>
+                Descripción
+              </label>
+              <TextInput
+                value={editingTransaction.description || ''}
+                onChange={e => updateState({
+                  editingTransaction: {
+                    ...editingTransaction,
+                    description: e.target.value
+                  }
+                })}
+                placeholder="Descripción del gasto"
               />
             </div>
             <div style={{

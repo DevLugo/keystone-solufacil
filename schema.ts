@@ -1710,7 +1710,9 @@ export const Transaction = list({
         { label: 'Lavado de Auto', value: 'LAVADO_DE_AUTO' },
         { label: 'Caseta', value: 'CASETA' },
         { label: 'Papelería', value: 'PAPELERIA' },
-        { label: 'Renta', value: 'HOUSE_RENT' }
+        { label: 'Renta', value: 'HOUSE_RENT' },
+        { label: 'IMSS/INFONAVIT', value: 'IMSS_INFONAVIT' },
+        { label: 'Otro', value: 'OTRO' }
       ],
     }),
     description: text(),

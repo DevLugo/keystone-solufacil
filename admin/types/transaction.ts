@@ -38,6 +38,7 @@ export interface Transaction {
   amount: string;
   type: string;
   expenseSource: string;
+  description?: string;
   date: string;
   sourceAccount: Account;
   lead?: {
@@ -52,6 +53,7 @@ export interface TransactionCreateInput {
   amount: string;
   type: string;
   expenseSource: string;
+  description?: string;
   date: string;
   sourceAccount: {
     connect: {

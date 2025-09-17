@@ -7,6 +7,7 @@ export const CREATE_TRANSACTION = gql`
       amount
       type
       expenseSource
+      description
       date
       sourceAccount {
         id
@@ -29,6 +30,7 @@ export const UPDATE_TRANSACTION = gql`
       amount
       type
       expenseSource
+      description
       date
       sourceAccount {
         id
