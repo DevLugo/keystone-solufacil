@@ -80,6 +80,7 @@ const expenseTypes = [
   { label: 'Papelería', value: 'PAPELERIA' },
   { label: 'Renta', value: 'HOUSE_RENT' },
   { label: 'IMSS/INFONAVIT', value: 'IMSS_INFONAVIT' },
+  { label: 'Pago de Mensualidad de Auto', value: 'CAR_PAYMENT' },
   { label: 'Otro', value: 'OTRO' }
 ];
 
