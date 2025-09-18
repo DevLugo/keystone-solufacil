@@ -1095,7 +1095,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
                       expectedWeeklyPayment: expectedWeekly.toFixed(2),
                       totalPaid: totalPaid.toFixed(2),
                       pendingAmountStored: pending.toFixed(2),
-                      ...(isCompleted && { finishedDate: new Date(paymentDate) })
+                      ...(isCompleted
+                        ? { status: 'FINISHED', finishedDate: new Date(paymentDate) }
+                        : { status: 'ACTIVE', finishedDate: null }
+                      )
                     }
                   });
                 } catch (loanError) {
@@ -1534,6 +1537,74 @@ export const extendGraphqlSchema = graphql.extend(base => {
             }
 
             // ✅ SIMPLIFICADO: Los balances ya se actualizaron arriba, no duplicar
+
+            // 🆕 RECÁLCULO FINAL POR PRÉSTAMO (después de recrear pagos/transacciones)
+            // Incluye tanto los préstamos con pagos nuevos como los que tenían pagos antes y ahora fueron eliminados
+            try {
+              const affectedLoanIdsSet = new Set<string>();
+              
+              // Obtener préstamos con pagos nuevos (solo si se crearon pagos)
+              if (payments.length > 0) {
+                const newPaymentRecords = await tx.loanPayment.findMany({
+                  where: { leadPaymentReceivedId: leadPaymentReceived.id }
+                });
+                newPaymentRecords.forEach(p => p?.loanId && affectedLoanIdsSet.add(p.loanId));
+              }
+              
+              // Préstamos que tenían pagos antes (pueden haber quedado sin pagos tras esta edición)
+              (existingPayment.payments || []).forEach((p: any) => p?.loanId && affectedLoanIdsSet.add(p.loanId));
+
+              const affectedLoanIdsArr = Array.from(affectedLoanIdsSet);
+              console.log('🔄 UPDATE: Recalculando préstamos afectados:', affectedLoanIdsArr);
+              
+              if (affectedLoanIdsArr.length > 0) {
+                await Promise.all(affectedLoanIdsArr.map(async (loanId) => {
+                  const loan = await tx.loan.findUnique({ 
+                    where: { id: loanId }, 
+                    include: { loantype: true }
+                  });
+                  if (!loan) return;
+
+                  // Sumar pagos actuales desde la tabla (más confiable dentro de la tx)
+                  const agg = await tx.loanPayment.aggregate({
+                    _sum: { amount: true },
+                    where: { loanId }
+                  } as any);
+                  const totalPaid = safeToNumber(agg?._sum?.amount || 0);
+
+                  const rate = safeToNumber((loan as any).loantype?.rate);
+                  const requested = safeToNumber((loan as any).requestedAmount);
+                  const weekDuration = Number((loan as any).loantype?.weekDuration || 0);
+                  const totalDebt = requested * (1 + rate);
+                  const expectedWeekly = weekDuration > 0 ? (totalDebt / weekDuration) : 0;
+                  const pending = Math.max(0, totalDebt - totalPaid);
+                  const isCompleted = totalPaid >= totalDebt - 0.005; // tolerancia centavos
+
+                  console.log(`🔄 UPDATE: Actualizando préstamo ${loanId}:`, {
+                    totalPaid,
+                    pending,
+                    totalDebt,
+                    isCompleted
+                  });
+
+                  await tx.loan.update({
+                    where: { id: loanId },
+                    data: {
+                      totalDebtAcquired: totalDebt.toFixed(2),
+                      expectedWeeklyPayment: expectedWeekly.toFixed(2),
+                      totalPaid: totalPaid.toFixed(2),
+                      pendingAmountStored: pending.toFixed(2),
+                      ...(isCompleted
+                        ? { status: 'FINISHED', finishedDate: new Date(paymentDate) }
+                        : { status: 'ACTIVE', finishedDate: null }
+                      )
+                    }
+                  });
+                }));
+              }
+            } catch (recalcErr) {
+              console.error('⚠️ Error recalculando préstamos tras updateCustomLeadPaymentReceived:', recalcErr);
+            }
 
             // 🆕 NUEVA LÓGICA: Manejar transferencias automáticas (crear/actualizar/eliminar)
             const oldBankPaidAmount = parseFloat(existingPayment.bankPaidAmount?.toString() || '0');
