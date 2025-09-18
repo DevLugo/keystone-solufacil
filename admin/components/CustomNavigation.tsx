@@ -95,6 +95,11 @@ const menuSections: MenuSection[] = [
         roles: ['ADMIN']
       },
       {
+        label: 'Cartera Muerta 2',
+        href: '/cartera-muerta2',
+        roles: ['ADMIN']
+      },
+      {
         label: 'Configuración de Reportes',
         href: '/configuracion-reportes',
         roles: ['ADMIN']

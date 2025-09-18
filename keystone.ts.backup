@@ -18,7 +18,6 @@ import dotenv from 'dotenv';
 import express, { Request, Response } from 'express';
 import PDFDocument from 'pdfkit';
 import { extendGraphqlSchema } from './graphql/extendGraphqlSchema';
-import { carteraMuertaCustomQuery } from './graphql/carteraMuertaCustomQuery';
 import { extendExpressApp } from './keystone-extensions.js';
 
 // Declare global types
@@ -75,7 +74,7 @@ export default withAuth(
     lists,
     session,
     graphql: {
-      extendGraphqlSchema: carteraMuertaCustomQuery,
+      extendGraphqlSchema: combinedGraphqlSchema,
     },
     ui: {
       isAccessAllowed: (context) => !!context.session?.data,

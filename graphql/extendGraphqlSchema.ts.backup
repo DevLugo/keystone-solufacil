@@ -9016,10 +9016,80 @@ export const extendGraphqlSchema = graphql.extend(base => {
             throw new Error('Error al obtener cartera muerta por mes');
           }
         }
-      }),
-    
+      })
+    }
+  }
+});
 
-           
+
+            const now = new Date();
+            const weeksAgo = new Date(now.getTime() - (weeksSinceLoan * 7 * 24 * 60 * 60 * 1000));
+            const weeksWithoutPaymentAgo = new Date(now.getTime() - (weeksWithoutPayment * 7 * 24 * 60 * 60 * 1000));
+
+            const whereClause: any = {
+              badDebtDate: null,
+              signDate: { lte: weeksAgo },
+              OR: [
+                { status: 'ACTIVE' },
+                { status: 'PENDING' }
+              ]
+            };
+
+            if (routeId) {
+              whereClause.lead = {
+                routes: {
+                  some: { id: routeId }
+                }
+              };
+            }
+
+            const loans = await context.prisma.loan.findMany({
+              where: whereClause,
+              include: {
+                lead: { 
+                  include: { 
+                    personalData: { 
+                      include: { 
+                        addresses: { 
+                          include: { location: true } 
+                        } 
+                      } 
+                    } 
+                  } 
+                },
+                payments: {
+                  where: { paymentDate: { gte: weeksWithoutPaymentAgo } },
+                  orderBy: { paymentDate: 'desc' }
+                }
+              }
+            });
+
+            const summaryByLocality: { [key: string]: { loanCount: number; totalAmount: number } } = {};
+
+            loans.forEach(loan => {
+              const locality = loan.lead.personalData?.addresses?.[0]?.location?.name || 'Sin localidad';
+              
+              if (!summaryByLocality[locality]) {
+                summaryByLocality[locality] = { loanCount: 0, totalAmount: 0 };
+              }
+              
+              summaryByLocality[locality].loanCount += 1;
+              summaryByLocality[locality].totalAmount += parseFloat(loan.pendingAmountStored?.toString() || '0');
+            });
+
+            const summary = Object.entries(summaryByLocality).map(([locality, data]) => ({
+              locality,
+              loanCount: data.loanCount,
+              totalAmount: data.totalAmount
+            }));
+
+            return summary;
+          } catch (error) {
+            console.error('Error en deadDebtSummary2:', error);
+            throw new Error('Error al obtener resumen de cartera muerta');
+          }
+        }
+      }),
 
       deadDebtByMonth2: graphql.field({
         type: graphql.list(graphql.JSON),
