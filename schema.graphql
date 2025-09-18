@@ -2996,7 +2996,6 @@ type Query {
   searchClients(searchTerm: String!, routeId: String, locationId: String, limit: Int = 20): [JSON!]!
   getClientHistory(clientId: String!, routeId: String, locationId: String): JSON!
   getPortfolioCleanups(routeId: String!, year: Int!, month: Int!): JSON!
-  previewBulkPortfolioCleanup(routeId: String!, fromDate: String!, toDate: String!, weeksWithoutPaymentThreshold: Int): JSON!
   debugTelegram: String!
   telegramStatus: String!
   loansForDeadDebt(weeksSinceLoan: Int!, weeksWithoutPayment: Int!): String!
