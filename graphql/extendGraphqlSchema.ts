@@ -2019,8 +2019,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
           try {
             const createdLoans: any[] = [];
             
-            // Validar clientes duplicados antes de procesar TODOS los préstamos
-            console.log('🔍 INICIANDO VALIDACIÓN DE CLIENTES DUPLICADOS (SOLO POR NOMBRE)');
+            // Validar clientes duplicados SOLO para préstamos nuevos (sin previousLoanId)
+            console.log('🔍 INICIANDO VALIDACIÓN DE CLIENTES DUPLICADOS (SOLO PARA PRÉSTAMOS NUEVOS)');
             console.log('📋 Préstamos a validar:', loans.length);
             
             for (let i = 0; i < loans.length; i++) {
@@ -2028,14 +2028,17 @@ export const extendGraphqlSchema = graphql.extend(base => {
               console.log(`🔍 Validando préstamo ${i + 1}/${loans.length}:`, {
                 fullName: loanData.borrowerData?.fullName,
                 phone: loanData.borrowerData?.phone,
-                hasBorrowerData: !!loanData.borrowerData
+                hasBorrowerData: !!loanData.borrowerData,
+                hasPreviousLoanId: !!loanData.previousLoanId,
+                isRenovation: !!loanData.previousLoanId
               });
               
-              if (loanData.borrowerData?.fullName) {
+              // Solo validar duplicados si NO es una renovación (no tiene previousLoanId)
+              if (loanData.borrowerData?.fullName && !loanData.previousLoanId) {
                 // Normalización robusta: eliminar TODOS los espacios múltiples y caracteres especiales
                 const normalizedName = loanData.borrowerData.fullName.trim().replace(/\s+/g, ' ').replace(/\s{2,}/g, ' ').trim();
                 
-                console.log(`🔍 Buscando cliente duplicado por NOMBRE únicamente:`, {
+                console.log(`🔍 Buscando cliente duplicado por NOMBRE únicamente (PRÉSTAMO NUEVO):`, {
                   originalName: loanData.borrowerData.fullName,
                   normalizedName: normalizedName
                 });
@@ -2069,6 +2072,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     clientName: normalizedName
                   }];
                 }
+              } else if (loanData.previousLoanId) {
+                console.log(`✅ Préstamo ${i + 1} es una RENOVACIÓN - Saltando validación de duplicados`);
               } else {
                 console.log(`⚠️ Préstamo ${i + 1} sin nombre de cliente, saltando validación`);
               }
