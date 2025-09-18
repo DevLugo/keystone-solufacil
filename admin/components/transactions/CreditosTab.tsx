@@ -1160,12 +1160,22 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         amountGived: editingLoan.amountGived,
         comissionAmount: editingLoan.comissionAmount,
         // signDate eliminado; backend usará la fecha del préstamo
-        avalData: {
-          name: (editingLoan as any).avalName || '',
-          phone: (editingLoan as any).avalPhone || '',
-          selectedCollateralId: (editingLoan as any).selectedCollateralId,
-          action: (editingLoan as any).avalAction || 'update'
-        }
+        avalData: ((editingLoan as any).selectedCollateralId
+          ? {
+              // Con ID seleccionado: forzar connect y NO enviar name/phone para evitar sobrescribir con texto parcial
+              selectedCollateralId: (editingLoan as any).selectedCollateralId,
+              action: 'connect' as const
+            }
+          : (
+              ((editingLoan as any).avalName || (editingLoan as any).avalPhone)
+                ? {
+                    // Sin ID: si hay datos escritos, crear/actualizar según avalAction
+                    name: (editingLoan as any).avalName || '',
+                    phone: (editingLoan as any).avalPhone || '',
+                    action: (editingLoan as any).avalAction || 'create'
+                  }
+                : { action: 'clear' as const }
+            ))
       };
 
       console.log('🔄 Enviando actualización de préstamo con aval:', loanData);
@@ -2259,7 +2269,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                       setEditingLoan(prev => ({ ...prev, avalName: currentName, avalPhone: currentPhone, avalAction: action } as any));
                     }}
                     enableAutocomplete={true}
-                    selectedPersonId={editingLoan.collaterals?.[0]?.id}
+                    selectedPersonId={(editingLoan as any).selectedCollateralId || editingLoan.collaterals?.[0]?.id}
                     onPersonSelect={(person) => {
                       setEditingLoan(prev => ({ 
                         ...prev, 
