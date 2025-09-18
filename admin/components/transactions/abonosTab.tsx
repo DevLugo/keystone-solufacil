@@ -1546,9 +1546,9 @@ export const CreatePaymentForm = ({
     const selectedDateObj = new Date(selectedDate);
     
     // Obtener IDs de préstamos que SÍ tienen pagos registrados (excluyendo los marcados como pagados temporalmente)
+    // Incluir también los marcados temporalmente como pagados (isMissingPayment)
     const paidLoanIds = new Set(
       existingPayments
-        .filter((payment: any) => !payment.isMissingPayment) // Excluir los marcados como pagados temporalmente
         .map((payment: any) => payment.loanId || payment.loan?.id)
         .filter(Boolean)
     );
@@ -1569,7 +1569,15 @@ export const CreatePaymentForm = ({
     return missingPayments;
   };
 
-  const missingPayments = calculateMissingPayments();
+  // Ordenar créditos sin pago por fecha de firma ASC (mismo orden que PDF)
+  const missingPayments = calculateMissingPayments().sort((a: any, b: any) => {
+    const dateA = new Date(a.signDate || '1970-01-01').getTime();
+    const dateB = new Date(b.signDate || '1970-01-01').getTime();
+    if (dateA !== dateB) return dateA - dateB;
+    const idA = (a.id || '').toString();
+    const idB = (b.id || '').toString();
+    return idA.localeCompare(idB);
+  });
 
   if (loansLoading || paymentsLoading || migratedPaymentsLoading || falcosLoading) return <LoadingDots label="Loading data" size="large" />;
   if (loansError) return <GraphQLErrorNotice errors={loansError?.graphQLErrors || []} networkError={loansError?.networkError} />;
@@ -2422,11 +2430,16 @@ export const CreatePaymentForm = ({
 
               {/* Abonos Registrados */}
               {existingPayments
+                // Ordenar por fecha de firma del crédito ASC (mismo orden que PDF)
                 .sort((a: any, b: any) => {
-                  // Ordenar: primero los marcados como pagados (isMissingPayment), luego los demás
-                  if (a.isMissingPayment && !b.isMissingPayment) return -1;
-                  if (!a.isMissingPayment && b.isMissingPayment) return 1;
-                  return 0;
+                  const sa = a.loan?.signDate || a.signDate;
+                  const sb = b.loan?.signDate || b.signDate;
+                  const dateA = new Date(sa || '1970-01-01').getTime();
+                  const dateB = new Date(sb || '1970-01-01').getTime();
+                  if (dateA !== dateB) return dateA - dateB;
+                  const ida = (a.loan?.id || a.loanId || '').toString();
+                  const idb = (b.loan?.id || b.loanId || '').toString();
+                  return ida.localeCompare(idb);
                 })
                 .map((payment, index) => {
                 const editedPayment = editedPayments[payment.id] || payment;
