@@ -1260,9 +1260,10 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
             }
           }
         },
-        orderBy: {
-          signDate: 'asc'
-        }
+        orderBy: [
+          { signDate: 'asc' },
+          { id: 'asc' }
+        ]
       }) as any[];
 
       // Ya no necesitamos filtrar aquí porque se hace en la consulta Prisma

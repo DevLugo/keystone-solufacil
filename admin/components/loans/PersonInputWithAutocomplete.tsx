@@ -34,6 +34,7 @@ interface PersonInputWithAutocompleteProps {
   onPhoneChange: (phone: string) => void;
   onClear: () => void;
   onActionChange: (action: 'create' | 'update' | 'connect' | 'clear') => void;
+  onPersonUpdated?: (updatedPerson: PersonalData) => void; // ✅ Nueva prop para refrescar datos
   
   // Configuración de autocomplete
   enableAutocomplete?: boolean;
@@ -79,6 +80,7 @@ const PersonInputWithAutocomplete: React.FC<PersonInputWithAutocompleteProps> = 
   onPhoneChange,
   onClear,
   onActionChange,
+  onPersonUpdated,
   
   // Configuración de autocomplete
   enableAutocomplete = false,
@@ -386,7 +388,12 @@ const PersonInputWithAutocomplete: React.FC<PersonInputWithAutocompleteProps> = 
     onNameChange(updatedPerson.fullName);
     onPhoneChange(updatedPerson.phones?.[0]?.number || '');
     onActionChange('update');
-  }, [onNameChange, onPhoneChange, onActionChange]);
+    
+    // ✅ SOLUCION: Notificar al componente padre que la persona fue actualizada
+    if (onPersonUpdated) {
+      onPersonUpdated(updatedPerson);
+    }
+  }, [onNameChange, onPhoneChange, onActionChange, onPersonUpdated]);
 
   // Efecto para cerrar dropdown al hacer click fuera
   useEffect(() => {

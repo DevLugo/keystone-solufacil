@@ -1420,6 +1420,12 @@ export const LoanPayment = list({
     afterOperation: async (args) => {
       const { operation, item, context, resolvedData } = args;
 
+      // ✅ SKIP: Si el hook está desactivado por updateCustomLeadPaymentReceived
+      if ((context as any).skipLoanPaymentHooks) {
+        console.log('🚫 SKIP: Hook de LoanPayment desactivado para evitar doble contabilidad');
+        return;
+      }
+
       if (operation === 'create' || operation === 'update') {
         try {
           
@@ -1798,7 +1804,9 @@ export const Transaction = list({
                transactionItem.incomeSource === 'CASH_LOAN_PAYMENT')) ||
               (transactionItem.type === 'EXPENSE' && 
               (transactionItem.expenseSource === 'LOAN_GRANTED' || 
-               transactionItem.expenseSource === 'LOAN_GRANTED_COMISSION'))) {
+               transactionItem.expenseSource === 'LOAN_GRANTED_COMISSION' ||
+               transactionItem.expenseSource === 'LOAN_PAYMENT_COMISSION')
+              )) {
             return;
           }
 
@@ -1860,7 +1868,9 @@ export const Transaction = list({
                transactionItem.incomeSource === 'CASH_LOAN_PAYMENT')) ||
               (transactionItem.type === 'EXPENSE' && 
               (transactionItem.expenseSource === 'LOAN_GRANTED' || 
-               transactionItem.expenseSource === 'LOAN_GRANTED_COMISSION'))) {
+               transactionItem.expenseSource === 'LOAN_GRANTED_COMISSION' ||
+               transactionItem.expenseSource === 'LOAN_PAYMENT_COMISSION'
+              ))) {
             return;
           }
 
