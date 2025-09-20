@@ -748,12 +748,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
             cashPaidAmount = cashPaidAmount ?? 0;
             bankPaidAmount = bankPaidAmount ?? 0;
             const totalPaidAmount = cashPaidAmount + bankPaidAmount;
-            const falcoAmount = expectedAmount - totalPaidAmount;
-            let paymentStatus = 'FALCO';
-
-            if (totalPaidAmount >= expectedAmount) {
-              paymentStatus = 'COMPLETE';
-            } else if (totalPaidAmount > 0 && totalPaidAmount < expectedAmount) {
+            // ✅ ELIMINADO: Lógica de Falco - ahora se maneja por separado
+            let paymentStatus = 'COMPLETE';
+            if (totalPaidAmount < expectedAmount) {
               paymentStatus = 'PARTIAL';
             }
 
@@ -806,7 +803,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               paidAmount: totalPaidAmount.toFixed(2),
               cashPaidAmount: cashPaidAmount.toFixed(2),
               bankPaidAmount: bankPaidAmount.toFixed(2),
-              falcoAmount: falcoAmount > 0 ? falcoAmount.toFixed(2) : '0.00',
+              falcoAmount: '0.00', // ✅ ELIMINADO: Falco se maneja por separado
               paymentStatus,
               agentId,
               leadId,
@@ -819,7 +816,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 paidAmount: totalPaidAmount.toFixed(2),
                 cashPaidAmount: cashPaidAmount.toFixed(2),
                 bankPaidAmount: bankPaidAmount.toFixed(2),
-                falcoAmount: falcoAmount > 0 ? falcoAmount.toFixed(2) : '0.00',
+                falcoAmount: '0.00', // ✅ ELIMINADO: Falco se maneja por separado
                 createdAt: new Date(paymentDate),
                 paymentStatus,
                 agentId,
@@ -1154,30 +1151,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               // Integrado en el procesamiento paralelo anterior para evitar duplicar consultas
             }
 
-            // ✅ NUEVO: Crear transacción de pérdida (EXPENSE) si hay falco
-            if (falcoAmount > 0) {
-              await tx.transaction.create({
-                data: {
-                  amount: falcoAmount.toFixed(2),
-                  date: new Date(paymentDate),
-                  type: 'EXPENSE',
-                  expenseSource: 'FALCO_LOSS',
-                  sourceAccountId: cashAccount.id,
-                  leadPaymentReceivedId: leadPaymentReceived.id,
-                  leadId: leadId,
-                  routeId: agent?.routes?.id,
-                  snapshotRouteId: agent?.routes?.id,
-                  description: `Pérdida por falco - ${leadPaymentReceived.id}`,
-                }
-              });
-              
-              // Descontar el falco del balance de efectivo
-              const currentCashAmount = safeToNumber(cashAccount.amount);
-              await tx.account.update({
-                where: { id: cashAccount.id },
-                data: { amount: (currentCashAmount - falcoAmount).toString() }
-              });
-            }
+            // ✅ ELIMINADO: Lógica de transacciones de falco - ahora se maneja por separado
 
             return {
               id: leadPaymentReceived.id,
@@ -1185,8 +1159,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
               paidAmount: safeToNumber(leadPaymentReceived.paidAmount),
               cashPaidAmount: safeToNumber(leadPaymentReceived.cashPaidAmount),
               bankPaidAmount: safeToNumber(leadPaymentReceived.bankPaidAmount),
-              falcoAmount: safeToNumber(leadPaymentReceived.falcoAmount),
-              paymentStatus: leadPaymentReceived.paymentStatus || 'FALCO',
+              falcoAmount: 0, // ✅ ELIMINADO: Falco se maneja por separado
+              paymentStatus: leadPaymentReceived.paymentStatus || 'COMPLETE',
               payments: payments.map((p, index) => ({
                 id: `temp-${index}`, // ID temporal para evitar el error
                 amount: p.amount,
@@ -1251,12 +1225,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
             cashPaidAmount = cashPaidAmount ?? 0;
             bankPaidAmount = bankPaidAmount ?? 0;
             const totalPaidAmount = cashPaidAmount + bankPaidAmount;
-            const falcoAmount = expectedAmount - totalPaidAmount;
-            let paymentStatus = 'FALCO';
-
-            if (totalPaidAmount >= expectedAmount) {
-              paymentStatus = 'COMPLETE';
-            } else if (totalPaidAmount > 0 && totalPaidAmount < expectedAmount) {
+            // ✅ ELIMINADO: Lógica de Falco - ahora se maneja por separado
+            let paymentStatus = 'COMPLETE';
+            if (totalPaidAmount < expectedAmount) {
               paymentStatus = 'PARTIAL';
             }
 
@@ -1275,6 +1246,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
             if (!existingPayment) {
               throw new Error('Pago no encontrado');
             }
+            
+            // ✅ BANDERA: Desactivar hooks de LoanPayment para evitar doble contabilidad
+            (context as any).skipLoanPaymentHooks = true;
 
             // 🆕 LOGS DETALLADOS PARA DEBUGGING
             console.log('🔍 UPDATE: LeadPaymentReceived encontrado:', {
@@ -1286,9 +1260,29 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 id: p.id,
                 amount: p.amount,
                 comission: p.comission,
-                transactionsCount: p.transactions.length
+                transactionsCount: p.transactions.length,
+                transactionDetails: p.transactions.map(t => ({
+                  id: t.id,
+                  type: t.type,
+                  amount: t.amount,
+                  expenseSource: t.expenseSource,
+                  incomeSource: t.incomeSource
+                }))
               }))
             });
+            
+            // ✅ VERIFICAR: También buscar transacciones relacionadas directamente con LeadPaymentReceived
+            const directTransactions = await tx.transaction.findMany({
+              where: { leadPaymentReceivedId: id }
+            });
+            console.log('🔍 UPDATE: Transacciones directamente relacionadas con LeadPaymentReceived:', directTransactions.map(t => ({
+              id: t.id,
+              type: t.type,
+              amount: t.amount,
+              expenseSource: t.expenseSource,
+              incomeSource: t.incomeSource,
+              loanPaymentId: t.loanPaymentId
+            })));
 
             const agentId = existingPayment.agentId || '';
             const leadId = existingPayment.leadId || '';
@@ -1327,24 +1321,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
               throw new Error('Cuentas del agente no encontradas en su ruta');
             }
 
-            // ✅ CORREGIDO: Solo calcular cambios de comisiones, no de pagos
-            let oldCommissionChange = 0;
-            let newCommissionChange = 0;
-
-            // Calcular comisiones existentes
-            for (const payment of existingPayment.payments) {
-              const commissionAmount = parseFloat((payment.comission || 0).toString());
-              oldCommissionChange += commissionAmount; // Sumar comisiones existentes
-            }
-
-            // Calcular comisiones nuevas
-            for (const payment of payments) {
-              const commissionAmount = payment.comission || 0;
-              newCommissionChange += commissionAmount; // Sumar comisiones nuevas
-            }
-
-            // Calcular el cambio neto de comisiones
-            const commissionChange = newCommissionChange - oldCommissionChange;
+            // ✅ NUEVA LÓGICA: Usar exactamente el mismo approach que createCustomLeadPaymentReceived
+            // Eliminar toda la lógica manual compleja de comisiones, usar la lógica probada de create
 
             // 🆕 LÓGICA CORREGIDA: Eliminar pagos existentes SIEMPRE que existan
             // Esto se ejecuta independientemente de si se van a crear nuevos pagos
@@ -1352,12 +1330,39 @@ export const extendGraphqlSchema = graphql.extend(base => {
               console.log('🗑️ UPDATE: Eliminando pagos existentes:', existingPayment.payments.length);
               console.log('🗑️ UPDATE: IDs de pagos a eliminar:', existingPayment.payments.map(p => p.id));
               
-              // Obtener IDs de transacciones existentes
-              const transactionIds = existingPayment.payments
+              // ✅ CORREGIDO: Obtener TODAS las transacciones relacionadas (por payments + directas)
+              const paymentTransactionIds = existingPayment.payments
                 .flatMap((payment: any) => payment.transactions.map((t: any) => t.id));
+              const allTransactionIds = [...paymentTransactionIds, ...directTransactions.map(t => t.id)];
+              const transactionIds = [...new Set(allTransactionIds)]; // Eliminar duplicados
               
               console.log('🗑️ UPDATE: Transacciones a eliminar:', transactionIds.length);
               console.log('🗑️ UPDATE: IDs de transacciones:', transactionIds);
+              
+              // ✅ DEBUG: Obtener detalles de las transacciones antes de eliminarlas
+              const transactionsToDelete = await tx.transaction.findMany({
+                where: { id: { in: transactionIds } }
+              });
+              console.log('🗑️ UPDATE: Detalles de transacciones a eliminar:', transactionsToDelete.map(t => ({
+                id: t.id,
+                type: t.type,
+                amount: t.amount,
+                expenseSource: t.expenseSource,
+                incomeSource: t.incomeSource,
+                description: `${t.type} de $${t.amount} - ${t.expenseSource || t.incomeSource}`
+              })));
+              
+              // ✅ VERIFICACIÓN ESPECÍFICA: Contar transacciones de pago vs comisión
+              const incomeTransactions = transactionsToDelete.filter(t => t.type === 'INCOME');
+              const commissionTransactions = transactionsToDelete.filter(t => t.type === 'EXPENSE' && t.expenseSource === 'LOAN_PAYMENT_COMISSION');
+              
+              console.log('📊 VERIFICACIÓN: Tipos de transacciones a eliminar:', {
+                totalTransactions: transactionsToDelete.length,
+                incomeCount: incomeTransactions.length,
+                incomeTotal: incomeTransactions.reduce((sum, t) => sum + parseFloat(t.amount?.toString() || '0'), 0),
+                commissionCount: commissionTransactions.length,
+                commissionTotal: commissionTransactions.reduce((sum, t) => sum + parseFloat(t.amount?.toString() || '0'), 0)
+              });
               
               // Eliminar transacciones existentes en lote
               if (transactionIds.length > 0) {
@@ -1365,24 +1370,22 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   where: { id: { in: transactionIds } }
                 });
                 console.log('✅ UPDATE: Transacciones eliminadas:', deleteResult.count);
-              }
-
-              // ✅ CORREGIDO: Solo revertir comisiones, no pagos
-              if (oldCommissionChange !== 0) {
-                const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
-                const newCashAmount = currentCashAmount + oldCommissionChange; // Revertir comisiones (sumar porque se habían restado)
                 
-                console.log('🔄 UPDATE: Revirtiendo comisiones existentes:', {
-                  currentAmount: currentCashAmount,
-                  commissionToRevert: oldCommissionChange,
-                  newAmount: newCashAmount
+                // ✅ VERIFICACIÓN: Confirmar que las transacciones se eliminaron
+                const remainingTransactions = await tx.transaction.findMany({
+                  where: { id: { in: transactionIds } }
                 });
+                console.log('🔍 VERIFICACIÓN: Transacciones restantes después de eliminación:', remainingTransactions.length);
                 
-                await tx.account.update({
-                  where: { id: cashAccount.id },
-                  data: { amount: newCashAmount.toString() }
-                });
-                console.log('✅ UPDATE: Comisiones existentes revertidas');
+                if (remainingTransactions.length > 0) {
+                  console.error('❌ ERROR: Algunas transacciones no se eliminaron:', remainingTransactions.map(t => ({
+                    id: t.id,
+                    type: t.type,
+                    amount: t.amount
+                  })));
+                } else {
+                  console.log('✅ CONFIRMADO: Todas las transacciones se eliminaron correctamente');
+                }
               }
 
               // Eliminar pagos existentes en lote
@@ -1410,13 +1413,94 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 paidAmount: totalPaidAmount.toFixed(2),
                 cashPaidAmount: cashPaidAmount.toFixed(2),
                 bankPaidAmount: bankPaidAmount.toFixed(2),
-                falcoAmount: falcoAmount > 0 ? falcoAmount.toFixed(2) : '0.00',
+                falcoAmount: '0.00', // ✅ ELIMINADO: Falco se maneja por separado
                 createdAt: new Date(paymentDate),
                 paymentStatus,
               },
             });
 
-            // ✅ SIMPLIFICADO: Solo manejar comisiones nuevas
+            // ✅ NUEVA LÓGICA: Calcular cambios de balances SIEMPRE (incluso si no hay pagos nuevos)
+            
+            // Calcular totales de pagos ANTERIORES
+            let oldCashPayments = 0;
+            let oldBankPayments = 0;
+            let oldCommissions = 0;
+            
+            for (const oldPayment of existingPayment.payments) {
+              const oldAmount = parseFloat((oldPayment.amount || 0).toString());
+              const oldCommission = parseFloat((oldPayment.comission || 0).toString());
+              
+              if (oldPayment.paymentMethod === 'CASH') {
+                oldCashPayments += oldAmount;
+              } else if (oldPayment.paymentMethod === 'MONEY_TRANSFER') {
+                oldBankPayments += oldAmount;
+              }
+              oldCommissions += oldCommission;
+            }
+            
+            // Calcular totales de pagos NUEVOS
+            let newCashPayments = 0;
+            let newBankPayments = 0;
+            let newCommissions = 0;
+            
+            for (const payment of payments) {
+              const paymentAmount = payment.amount || 0;
+              const commissionAmount = payment.comission || 0;
+              
+              if (payment.paymentMethod === 'CASH') {
+                newCashPayments += paymentAmount;
+              } else if (payment.paymentMethod === 'MONEY_TRANSFER') {
+                newBankPayments += paymentAmount;
+              }
+              newCommissions += commissionAmount;
+            }
+            
+            // ✅ CALCULAR SOLO LOS CAMBIOS (diferencias)
+            const cashPaymentChange = newCashPayments - oldCashPayments;
+            const bankPaymentChange = newBankPayments - oldBankPayments;
+            const commissionChange = newCommissions - oldCommissions;
+            
+            console.log('🔍 DEBUG - Cambios calculados:', {
+              oldCashPayments,
+              newCashPayments,
+              cashPaymentChange,
+              oldBankPayments,
+              newBankPayments,
+              bankPaymentChange,
+              oldCommissions,
+              newCommissions,
+              commissionChange
+            });
+            
+            // ✅ MANEJO DE CAMBIOS EN BALANCES (incluso si no hay transacciones nuevas)
+            // ✅ CORRECCIÓN: deleteMany NO dispara hooks, necesitamos calcular manualmente el efecto de eliminar transacciones
+            // Calcular el efecto directo de los cambios netos POR MÉTODO DE PAGO:
+            // - cashPaymentChange: solo cambios en pagos CASH → afecta balance de efectivo
+            // - bankPaymentChange: solo cambios en pagos TRANSFER → afecta balance de banco  
+            // - commissionChange: TODAS las comisiones → SIEMPRE afectan balance de efectivo
+            // EJEMPLO: Eliminar pago TRANSFER $300 + comisión $8 → Cash: +$8, Bank: -$300
+            const netCashChange = cashPaymentChange - commissionChange; // Solo pagos CASH + todas las comisiones
+            const netBankChange = bankPaymentChange; // Solo pagos TRANSFER
+            
+            console.log('🔍 DEBUG - Cambios netos para cuentas (CORREGIDO - efecto directo):', {
+              cashPaymentChange,
+              commissionChange,
+              netCashChange: `${cashPaymentChange} - (${commissionChange}) = ${netCashChange}`,
+              bankPaymentChange,
+              netBankChange,
+              explanation: 'deleteMany NO dispara hooks, calculamos manualmente el efecto directo'
+            });
+            
+            // ✅ DEBUG: Log detallado de lo que significa el cálculo
+            if (cashPaymentChange !== 0 || bankPaymentChange !== 0 || commissionChange !== 0) {
+              console.log(`💡 EXPLICACIÓN CORREGIDA: Efecto directo por método de pago:`);
+              console.log(`   - Cambio en pagos CASH: $${cashPaymentChange} → afecta balance de efectivo`);
+              console.log(`   - Cambio en pagos TRANSFER: $${bankPaymentChange} → afecta balance de banco`);
+              console.log(`   - Cambio en comisiones: $${commissionChange} → SIEMPRE afecta balance de efectivo`);
+              console.log(`   - Balance EFECTIVO: $${cashPaymentChange} - ($${commissionChange}) = $${netCashChange}`);
+              console.log(`   - Balance BANCO: $${bankPaymentChange}`);
+              console.log(`💡 EJEMPLO: Eliminar pago TRANSFER $300 + comisión $8 → Cash: +$8, Bank: -$300`);
+            }
 
             if (payments.length > 0) {
               const paymentData = payments.map(payment => ({
@@ -1444,13 +1528,14 @@ export const extendGraphqlSchema = graphql.extend(base => {
               });
               const loanMap = new Map(loans.map(loan => [loan.id, loan]));
 
-              // Crear las transacciones manualmente en lote
+              // ✅ CREAR TRANSACCIONES para los pagos nuevos
               const transactionData = [];
+
+              console.log('🔍 DEBUG - Procesando pagos:', createdPaymentRecords.length);
 
               for (const payment of createdPaymentRecords) {
                 const paymentAmount = parseFloat((payment.amount || 0).toString());
-                const commissionAmount = parseFloat((payment.comission || 0).toString());
-                const totalAmount = paymentAmount + commissionAmount; // ✅ INCLUIR comisión
+                const comissionAmount = parseFloat((payment.comission || 0).toString());
 
                 // Usar el mapa en lugar de consulta individual
                 const loan = loanMap.get(payment.loanId);
@@ -1471,7 +1556,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     loanData.profitAmount,
                     loanData.amountGived + loanData.profitAmount,
                     loanData.amountGived,
-                    0 // loanPayedAmount - asumimos 0 para el primer pago
+                    0
                   );
 
                   returnToCapital = paymentCalculation.returnToCapital;
@@ -1493,10 +1578,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   profitAmount: profitAmount.toFixed(2),
                 });
 
-                // ✅ AGREGAR: Crear transacción separada para la comisión si existe
-                if (commissionAmount > 0) {
+                // Crear transacción separada para la comisión si existe
+                if (comissionAmount > 0) {
                   transactionData.push({
-                    amount: (payment.comission || 0).toString(),
+                    amount: comissionAmount.toFixed(2),
                     date: new Date(paymentDate),
                     type: 'EXPENSE',
                     expenseSource: 'LOAN_PAYMENT_COMISSION',
@@ -1510,33 +1595,67 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   });
                 }
 
-                // ✅ SIMPLIFICADO: Solo procesar transacciones, no calcular balances aquí
               }
+
+              console.log('🔍 DEBUG - Total transacciones a crear:', transactionData.length);
+              console.log('🔍 DEBUG - Transacciones de comisiones:', transactionData.filter(t => t.type === 'EXPENSE' && t.expenseSource === 'LOAN_PAYMENT_COMISSION').length);
 
               // Crear todas las transacciones de una vez
               if (transactionData.length > 0) {
+                try {
                 await tx.transaction.createMany({ data: transactionData });
-                
-                // ✅ CORREGIDO: Solo aplicar el cambio neto de comisiones
-                if (commissionChange !== 0) {
+                  console.log('✅ Transacciones creadas exitosamente');
+                } catch (transactionError) {
+                  console.error('Error creando transacciones:', transactionError);
+                  throw transactionError;
+                }
+              }
+            }
+
+            // ✅ ACTUALIZAR BALANCES SIEMPRE (incluso si no hay pagos nuevos)
+            // Actualizar cuenta de efectivo solo si hay cambio
+            if (netCashChange !== 0) {
                   const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
-                  const newCashAmount = currentCashAmount - commissionChange; // Restar comisiones (aumento = resta, disminución = suma)
+              const newCashAmount = currentCashAmount + netCashChange;
                   
-                  console.log('🔧 Aplicando cambio neto de comisiones:', {
+              console.log('🔧 Actualizando cuenta de efectivo:', {
                     currentAmount: currentCashAmount,
-                    commissionChange,
-                    newAmount: newCashAmount
-                  });
+                netCashChange,
+                newAmount: newCashAmount,
+                details: `$${currentCashAmount} + (${netCashChange}) = $${newCashAmount}`
+              });
+              
+              console.log(`💰 VERIFICACIÓN: Aplicando cambio directo en balance de EFECTIVO:`);
+              console.log(`   Balance actual: $${currentCashAmount}`);
+              console.log(`   Cambio en pagos CASH: $${cashPaymentChange}`);
+              console.log(`   Cambio en comisiones (TODAS): $${commissionChange} (se resta porque menos gasto = más balance)`);
+              console.log(`   Cambio neto EFECTIVO: $${cashPaymentChange} - ($${commissionChange}) = $${netCashChange}`);
+              console.log(`   Balance final EFECTIVO: $${currentCashAmount} + ($${netCashChange}) = $${newCashAmount}`);
                   
                   await tx.account.update({
                     where: { id: cashAccount.id },
                     data: { amount: newCashAmount.toString() }
                   });
-                }
-              }
+              
+              console.log('✅ Cuenta de efectivo actualizada exitosamente');
             }
-
-            // ✅ SIMPLIFICADO: Los balances ya se actualizaron arriba, no duplicar
+            
+            // Actualizar cuenta bancaria solo si hay cambio
+            if (netBankChange !== 0) {
+              const currentBankAmount = parseFloat((bankAccount.amount || 0).toString());
+              const newBankAmount = currentBankAmount + netBankChange;
+              
+              console.log('🔧 Actualizando cuenta bancaria:', {
+                currentAmount: currentBankAmount,
+                netBankChange,
+                newAmount: newBankAmount
+              });
+              
+              await tx.account.update({
+                where: { id: bankAccount.id },
+                data: { amount: newBankAmount.toString() }
+              });
+            }
 
             // 🆕 RECÁLCULO FINAL POR PRÉSTAMO (después de recrear pagos/transacciones)
             // Incluye tanto los préstamos con pagos nuevos como los que tenían pagos antes y ahora fueron eliminados
@@ -1695,66 +1814,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
               console.log('✅ UPDATE: Nueva transferencia automática creada exitosamente');
             }
 
-            // ✅ NUEVO: Manejar cambios en falco (crear/actualizar/eliminar transacciones de pérdida)
-            const oldFalcoAmount = parseFloat(existingPayment.falcoAmount?.toString() || '0');
-            const newFalcoAmount = falcoAmount;
-            const falcoChange = newFalcoAmount - oldFalcoAmount;
+            // ✅ ELIMINADO: Lógica de transacciones de falco - ahora se maneja por separado
 
-            if (falcoChange !== 0) {
-              // Buscar transacción de falco existente
-              const existingFalcoTransaction = await tx.transaction.findFirst({
-                where: {
-                  leadPaymentReceivedId: id,
-                  type: 'EXPENSE',
-                  expenseSource: 'FALCO_LOSS'
-                }
-              });
-
-              if (existingFalcoTransaction) {
-                if (newFalcoAmount > 0) {
-                  // Actualizar transacción existente
-                  await tx.transaction.update({
-                    where: { id: existingFalcoTransaction.id },
-                    data: {
-                      amount: newFalcoAmount.toFixed(2),
-                      date: new Date(paymentDate),
-                      description: `Pérdida por falco actualizada - ${id}`,
-                    }
-                  });
-                } else {
-                  // Eliminar transacción si no hay más falco
-                  await tx.transaction.delete({
-                    where: { id: existingFalcoTransaction.id }
-                  });
-                }
-              } else if (newFalcoAmount > 0) {
-                // Crear nueva transacción de falco
-                await tx.transaction.create({
-                  data: {
-                    amount: newFalcoAmount.toFixed(2),
-                    date: new Date(paymentDate),
-                    type: 'EXPENSE',
-                    expenseSource: 'FALCO_LOSS',
-                    sourceAccountId: cashAccount.id,
-                    leadPaymentReceivedId: id,
-                    leadId: leadId,
-                    routeId: agent?.routes?.id,
-                    snapshotRouteId: agent?.routes?.id,
-                    description: `Pérdida por falco - ${id}`,
-                  }
-                });
-              }
-
-              // Ajustar balance de efectivo por el cambio en falco
-              if (falcoChange !== 0) {
-                const currentCashAmount = safeToNumber(cashAccount.amount);
-                const adjustedCashAmount = currentCashAmount - falcoChange; // Restar aumento de falco, sumar disminución
-                await tx.account.update({
-                  where: { id: cashAccount.id },
-                  data: { amount: adjustedCashAmount.toString() }
-                });
-              }
-            }
 
             // 🆕 LOGS FINALES: Verificar estado final
             const finalPayments = await tx.loanPayment.findMany({
@@ -1763,14 +1824,17 @@ export const extendGraphqlSchema = graphql.extend(base => {
             console.log('🔍 UPDATE: Estado final - Pagos restantes:', Array.isArray(finalPayments) ? finalPayments.length : 'No es array');
             console.log('🔍 UPDATE: Estado final - IDs de pagos:', Array.isArray(finalPayments) ? finalPayments.map(p => p.id) : 'No es array');
 
+            // ✅ REACTIVAR: Hooks de LoanPayment
+            (context as any).skipLoanPaymentHooks = false;
+
             return {
               id: leadPaymentReceived.id,
               expectedAmount: parseFloat(leadPaymentReceived.expectedAmount?.toString() || '0'),
               paidAmount: parseFloat(leadPaymentReceived.paidAmount?.toString() || '0'),
               cashPaidAmount: parseFloat(leadPaymentReceived.cashPaidAmount?.toString() || '0'),
               bankPaidAmount: parseFloat(leadPaymentReceived.bankPaidAmount?.toString() || '0'),
-              falcoAmount: parseFloat(leadPaymentReceived.falcoAmount?.toString() || '0'),
-              paymentStatus: leadPaymentReceived.paymentStatus || 'FALCO',
+              falcoAmount: 0, // ✅ ELIMINADO: Falco se maneja por separado
+              paymentStatus: leadPaymentReceived.paymentStatus || 'COMPLETE',
               payments: payments.map((p, index) => ({
                 id: `temp-${index}`, // ID temporal para evitar el error
                 amount: p.amount,
@@ -1787,6 +1851,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
             timeout: 45000 // 45 segundos de timeout de transacción (fallback generoso)
           });
           } catch (error) {
+            // ✅ REACTIVAR: Hooks de LoanPayment en caso de error
+            (context as any).skipLoanPaymentHooks = false;
+            
             console.error('❌ ERROR en updateCustomLeadPaymentReceived:', {
               error: error instanceof Error ? error.message : error,
               stack: error instanceof Error ? error.stack : undefined,
@@ -2252,7 +2319,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                       }
                     };
                     console.log('🔗 Aval conectado al préstamo:', avalData.selectedCollateralId);
-                  
+                    
                   // 2) Si no hay ID pero la acción es crear y hay nombre, crear PD y conectar
                   } else if (avalData.action === 'create' && avalData.name) {
                     console.log('➕ Creando nuevo aval:', {
@@ -2681,7 +2748,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   name: avalData.name,
                   phone: avalData.phone
                 });
-
+                
                 // 1) Si viene un ID seleccionado, conectar SIEMPRE (y opcionalmente actualizar datos si vienen)
                 if (avalData.selectedCollateralId) {
                   // Actualizar PD si vienen cambios (nombre/teléfono)
@@ -2719,7 +2786,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 // 3) Si action==='clear', limpiar conexiones
                 } else if (avalData.action === 'clear') {
                   await tx.loan.update({ where: { id: where }, data: { collaterals: { set: [] } } });
-                  console.log('🧹 Conexiones de aval limpiadas del préstamo');
+                console.log('🧹 Conexiones de aval limpiadas del préstamo');
                 } else {
                   console.log('ℹ️ Sin cambios de aval aplicables.');
                 }

@@ -562,7 +562,6 @@ export const CreatePaymentForm = ({
       cashPaidAmount: number;
       bankPaidAmount: number;
       totalPaidAmount: number;
-      falcoAmount: number;
     };
     existingPayments: any[];
     editedPayments: { [key: string]: any };
@@ -595,7 +594,6 @@ export const CreatePaymentForm = ({
       cashPaidAmount: 0,
       bankPaidAmount: 0,
       totalPaidAmount: 0,
-      falcoAmount: 0,
     },
     existingPayments: [],
     editedPayments: {},
@@ -1114,7 +1112,7 @@ export const CreatePaymentForm = ({
             expectedAmount: 0, // Sin pagos, monto esperado es 0
             cashPaidAmount: 0,
             bankPaidAmount: 0,
-            falcoAmount: 0,
+            falcoAmount: 0, // ✅ ELIMINADO: Falco se maneja por separado
             paymentDate: firstExistingPayment.leadPaymentReceived.createdAt,
             payments: [] // Array vacío para eliminar todos los pagos
           }
@@ -1142,14 +1140,14 @@ export const CreatePaymentForm = ({
         return;
       }
 
-      // Abrir el modal de distribución con los valores actuales
+      // ✅ CORREGIDO: Abrir el modal con valores recalculados basándose en el estado real actual
       updateState({ 
         isModalOpen: true,
         loadPaymentDistribution: {
-          totalPaidAmount: firstPaymentGroup.expectedAmount,
-          cashPaidAmount: firstPaymentGroup.cashPaidAmount,
-          bankPaidAmount: firstPaymentGroup.bankPaidAmount,
-          falcoAmount: firstPaymentGroup.expectedAmount - (firstPaymentGroup.cashPaidAmount + firstPaymentGroup.bankPaidAmount)
+          totalPaidAmount: totalAmount,
+          cashPaidAmount: totalByPaymentMethod.cashTotal, // Usar el cálculo actual real
+          bankPaidAmount: 0, // Resetear transferencia para que se recalcule
+          // ✅ ELIMINADO: Falco se maneja por separado
         }
       });
 
@@ -1166,8 +1164,16 @@ export const CreatePaymentForm = ({
 
   const handleSubmit = async () => {
     try {
+      console.log('🚀 DEBUG handleSubmit - Iniciando...', {
+        selectedLead: selectedLead?.id,
+        selectedDate,
+        paymentsCount: payments.length,
+        groupedPayments: state.groupedPayments
+      });
+
       if (!selectedLead?.id || !selectedDate) {
-        // Validación fallida - no mostrar alert
+        console.log('❌ ERROR: Falta selectedLead o selectedDate');
+        alert('Error: Falta información de líder o fecha seleccionada');
         return;
       }
 
@@ -1176,30 +1182,71 @@ export const CreatePaymentForm = ({
 
       // Verificar que la suma de la distribución coincida con el total pagado
       const { cashPaidAmount, bankPaidAmount } = loadPaymentDistribution;
-      const totalPaid = cashPaidAmount + bankPaidAmount;
+      // ✅ CORREGIDO: Para la validación, solo contar el efectivo que se está distribuyendo
+      // bankPaidAmount es transferencia del efectivo, no dinero adicional
+      const totalPaid = cashPaidAmount;
       
       // Calcular el total esperado
       const filteredNewPayments = payments
         .filter((p, index) => !strikethroughNewPaymentIndices.includes(index))
         .filter(p => (parseFloat(p.amount || '0') !== 0 || parseFloat(p.comission?.toString() || '0') !== 0));
 
-      const expectedAmount = filteredNewPayments.length > 0
+      // ✅ SEPARAR: expectedAmount para mutación (todos) vs expectedCashAmount para validación (solo efectivo)
+      const expectedTotalAmount = filteredNewPayments.length > 0
         ? filteredNewPayments
             .reduce((sum, payment) => sum + parseFloat(payment.amount || '0'), 0)
         : state.groupedPayments 
           ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0
           : 0;
 
-      if (Math.abs(totalPaid - expectedAmount) > 0.01) {
-        // La distribución no coincide - no mostrar alert
+      // ✅ CORREGIDO: Calcular efectivo esperado basándose en el contexto correcto
+      let expectedCashAmount;
+      if (filteredNewPayments.length > 0) {
+        // Caso: Hay pagos nuevos - usar totalByPaymentMethod de la UI
+        expectedCashAmount = totalByPaymentMethod.cashTotal - bankPaidAmount;
+      } else if (state.groupedPayments) {
+        // Caso: Solo pagos existentes editados - calcular desde groupedPayments
+        const { payments: groupedPaymentsList } = Object.values(state.groupedPayments)[0];
+        const cashFromGrouped = (groupedPaymentsList as any[])
+          .filter((p: any) => p.paymentMethod === 'CASH')
+          .reduce((sum: number, p: any) => sum + parseFloat(p.amount || '0'), 0);
+        expectedCashAmount = cashFromGrouped - bankPaidAmount;
+      } else {
+        expectedCashAmount = 0 - bankPaidAmount;
+      }
+
+      console.log('🔍 DEBUG handleSubmit - Validación de distribución:', {
+        'Efectivo total cobrado': totalByPaymentMethod.cashTotal,
+        'Transferencia al banco': bankPaidAmount,
+        'Efectivo disponible para distribución (esperado)': expectedCashAmount,
+        'Efectivo que se está distribuyendo (actual)': totalPaid,
+        'Diferencia': Math.abs(totalPaid - expectedCashAmount),
+        'Total para mutación': expectedTotalAmount,
+        cashPaidAmount,
+        bankPaidAmount,
+        filteredNewPayments
+      });
+
+      if (Math.abs(totalPaid - expectedCashAmount) > 0.01) {
+        console.log('❌ ERROR: La distribución no coincide. Diferencia:', Math.abs(totalPaid - expectedCashAmount));
+        alert(`Error: La distribución de efectivo ($${totalPaid}) no coincide con el efectivo cobrado ($${expectedCashAmount}). Diferencia: $${Math.abs(totalPaid - expectedCashAmount).toFixed(2)}`);
         return;
       }
 
       // Si hay pagos nuevos, crear un nuevo LeadPaymentReceived
       if (filteredNewPayments.length > 0) {
+        console.log('✅ Ejecutando createCustomLeadPaymentReceived con:', {
+          expectedAmount: expectedTotalAmount,
+          cashPaidAmount,
+          bankPaidAmount,
+          agentId: selectedLead.id,
+          leadId: selectedLead.id,
+          paymentDate: selectedDate.toISOString(),
+          payments: filteredNewPayments
+        });
         await createCustomLeadPaymentReceived({
           variables: {
-            expectedAmount,
+            expectedAmount: expectedTotalAmount,
             cashPaidAmount,
             bankPaidAmount,
             agentId: selectedLead.id,
@@ -1207,8 +1254,8 @@ export const CreatePaymentForm = ({
             paymentDate: selectedDate.toISOString(),
             payments: filteredNewPayments
               .map(payment => ({
-                amount: parseFloat(payment.amount),
-                comission: parseFloat(payment.comission.toString()),
+                amount: parseFloat(payment.amount || '0'),
+                comission: parseFloat(payment.comission?.toString() || '0'),
                 loanId: payment.loanId,
                 type: payment.type,
                 paymentMethod: payment.paymentMethod
@@ -1219,9 +1266,10 @@ export const CreatePaymentForm = ({
 
       // Si hay pagos existentes editados, actualizarlos
       if (state.groupedPayments) {
+        console.log('✅ Ejecutando updateCustomLeadPaymentReceived para pagos existentes:', state.groupedPayments);
         for (const [leadPaymentId, data] of Object.entries(state.groupedPayments)) {
           const { payments, paymentDate } = data;
-          const { cashPaidAmount, bankPaidAmount, falcoAmount } = loadPaymentDistribution;
+          const { cashPaidAmount, bankPaidAmount } = loadPaymentDistribution;
           // Limpiar pagos 0/0 antes de enviar actualización
           const cleanedPayments = (payments as any[]).filter((p: any) => {
             const amt = parseFloat(p.amount || '0');
@@ -1236,9 +1284,15 @@ export const CreatePaymentForm = ({
               expectedAmount: cleanedExpected,
               cashPaidAmount,
               bankPaidAmount,
-              falcoAmount,
+              falcoAmount: 0, // ✅ ELIMINADO: Falco se maneja por separado
               paymentDate,
-              payments: cleanedPayments
+              payments: cleanedPayments.map((payment: any) => ({
+                amount: parseFloat(payment.amount || '0'),
+                comission: parseFloat(payment.comission?.toString() || '0'),
+                loanId: payment.loanId,
+                type: payment.type,
+                paymentMethod: payment.paymentMethod
+              }))
             }
           });
         }
@@ -1390,7 +1444,12 @@ export const CreatePaymentForm = ({
     } else if (field === 'comission') {
       (newPayments[index][field] as unknown as string) = value;
     } else {
-      (newPayments[index][field] as any) = value;
+      // ✅ VALIDACIÓN: Asegurar que amount nunca sea null o undefined
+      if (field === 'amount') {
+        (newPayments[index][field] as any) = value === null || value === undefined || value === '' ? '0' : value;
+      } else {
+        (newPayments[index][field] as any) = value;
+      }
       // Reglas de comisión dinámica según monto vs pago esperado
       if (field === 'amount') {
         const amt = parseFloat(String(value) || '0');
@@ -1452,16 +1511,26 @@ export const CreatePaymentForm = ({
     return { cashTotal, transferTotal };
   }, [payments, existingPayments, editedPayments, strikethroughNewPaymentIndices, strikethroughPaymentIds]);
 
+  // ✅ NUEVO ENFOQUE: Calcular loadPaymentDistribution de manera derivada para asegurar sincronización
+  const computedLoadPaymentDistribution = useMemo(() => {
+    // ✅ VALIDAR: Limitar bankPaidAmount al efectivo disponible
+    const availableCash = totalByPaymentMethod.cashTotal;
+    const requestedTransfer = loadPaymentDistribution.bankPaidAmount;
+    const validTransfer = Math.min(requestedTransfer, Math.max(0, availableCash));
+    
+    return {
+      totalPaidAmount: totalAmount,
+      bankPaidAmount: validTransfer, // Limitado al efectivo disponible
+      cashPaidAmount: availableCash - validTransfer, // Efectivo menos lo transferido
+    };
+  }, [totalAmount, totalByPaymentMethod.cashTotal, loadPaymentDistribution.bankPaidAmount]);
+
+  // Actualizar estado solo cuando sea necesario
   useEffect(() => {
     updateState({
-      loadPaymentDistribution: {
-        totalPaidAmount: totalAmount,
-        bankPaidAmount: 0,
-        cashPaidAmount: totalAmount,
-        falcoAmount: 0,
-      }
+      loadPaymentDistribution: computedLoadPaymentDistribution
     });
-  }, [totalAmount]);
+  }, [computedLoadPaymentDistribution]);
 
   const paymentTypeCounts = useMemo(() => {
     return payments.reduce((counts, payment) => {
@@ -3465,14 +3534,15 @@ export const CreatePaymentForm = ({
                 value={loadPaymentDistribution.bankPaidAmount}
                 onChange={(e) => {
                   const transferAmount = Math.max(0, Math.min(parseFloat(e.target.value) || 0, totalByPaymentMethod.cashTotal));
+                  // ✅ CORREGIDO: El efectivo disponible para distribución es solo el efectivo real menos la transferencia
+                  const cashAmount = totalByPaymentMethod.cashTotal - transferAmount;
                   const totalAmountValue = payments.length > 0 ? totalAmount : state.groupedPayments ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0 : 0;
-                  const cashAmount = totalAmountValue - transferAmount;
                   
                   updateState({
                     loadPaymentDistribution: {
                       ...loadPaymentDistribution,
                       bankPaidAmount: transferAmount,
-                      cashPaidAmount: cashAmount,
+                      cashPaidAmount: cashAmount, // Solo efectivo real menos transferencia
                       totalPaidAmount: totalAmountValue,
                     }
                   });

@@ -1899,6 +1899,15 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                     const currentPhone = loan.borrower?.personalData?.phones?.[0]?.number || '';
                                     handleRowChange(index, 'clientData', { clientName: currentName, clientPhone: currentPhone, action }, isNewRow);
                                 }}
+                                onPersonUpdated={async (updatedPerson) => {
+                                    // ✅ SOLUCION: Refrescar datos del préstamo cuando se edite cliente
+                                    try {
+                                        await refetchLoans();
+                                        console.log('✅ Datos del préstamo refrescados después de editar cliente');
+                                    } catch (error) {
+                                        console.error('❌ Error al refrescar datos del préstamo:', error);
+                                    }
+                                }}
                                 enableAutocomplete={false}
                                 isFromPrevious={!!loan.previousLoan}
                                 originalData={{ name: loan.borrower?.personalData?.fullName || '', phone: loan.borrower?.personalData?.phones?.[0]?.number || '' }}
