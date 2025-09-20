@@ -2,7 +2,7 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
 
-import React, { useState, useEffect, useRef, ReactNode } from 'react';
+import React, { useState, useEffect, useRef, ReactNode, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Box, jsx, Stack } from '@keystone-ui/core';
 import { Button } from '@keystone-ui/button';
@@ -22,6 +22,60 @@ import type { Loan } from '../../types/loan';
 import { calculateAmountToPay, calculatePendingAmountSimple, processLoansWithCalculations } from '../../utils/loanCalculations';
 import KPIBar from './KPIBar';
 import { useBalanceRefresh } from '../../hooks/useBalanceRefresh';
+
+// Hook personalizado para prevenir navegación del navegador durante scroll horizontal
+const usePreventSwipeBack = (containerRef: React.RefObject<HTMLElement>) => {
+  const [isScrolling, setIsScrolling] = useState(false);
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleWheel = useCallback((e: WheelEvent) => {
+    // Solo prevenir si el scroll es horizontal
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Scroll manual horizontal
+      if (containerRef.current) {
+        containerRef.current.scrollLeft += e.deltaX;
+      }
+    }
+  }, [containerRef]);
+
+  const handleTouchStart = useCallback((e: TouchEvent) => {
+    if (e.touches.length === 1) {
+      setIsScrolling(true);
+    }
+  }, []);
+
+  const handleTouchMove = useCallback((e: TouchEvent) => {
+    if (isScrolling && e.touches.length === 1) {
+      // Prevenir el gesto de swipe back del navegador
+      e.preventDefault();
+    }
+  }, [isScrolling]);
+
+  const handleTouchEnd = useCallback(() => {
+    setIsScrolling(false);
+  }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    // Agregar event listeners
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    container.addEventListener('touchstart', handleTouchStart, { passive: true });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    container.addEventListener('touchend', handleTouchEnd, { passive: true });
+
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [containerRef, handleWheel, handleTouchStart, handleTouchMove, handleTouchEnd]);
+};
 
 // Estilos unificados para inputs
 const UNIFIED_INPUT_STYLES = {
@@ -666,6 +720,14 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
   
+  // ✅ Referencias para prevenir swipe back en tablas
+  const existingLoansTableRef = useRef<HTMLDivElement>(null);
+  const pendingLoansTableRef = useRef<HTMLDivElement>(null);
+  
+  // ✅ Hooks para prevenir navegación del navegador
+  usePreventSwipeBack(existingLoansTableRef);
+  usePreventSwipeBack(pendingLoansTableRef);
+  
   // Función para calcular la posición del dropdown basándose en el botón
   const getDropdownPosition = (loanId: string) => {
     const buttonElement = buttonRefs.current[loanId];
@@ -939,7 +1001,24 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
           comissionAmount: (selectedType?.loanGrantedComission ?? 0).toString(),
         };
       } else {
-        updatedRow = { ...updatedRow, previousLoanOption: null, previousLoan: undefined, borrower: emptyLoanRow.borrower as any };
+        // ✅ NUEVO: Limpiar todos los campos relacionados cuando se elimina previousLoan
+        updatedRow = { 
+          ...updatedRow, 
+          previousLoanOption: null, 
+          previousLoan: undefined, 
+          borrower: emptyLoanRow.borrower as any,
+          avalName: '',
+          avalPhone: '',
+          selectedCollateralId: undefined,
+          selectedCollateralPhoneId: undefined,
+          avalAction: 'clear' as const,
+          collaterals: [],
+          loantype: undefined,
+          requestedAmount: '',
+          comissionAmount: '0',
+          amountGived: '',
+          amountToPay: ''
+        };
       }
     } else {
         if (field === 'loantype') {
@@ -947,9 +1026,27 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
             updatedRow.loantype = selectedType;
             updatedRow.comissionAmount = (selectedType?.loanGrantedComission ?? 0).toString();
         } else if (field === 'clientData') {
-            updatedRow.borrower = { ...updatedRow.borrower, personalData: { ...updatedRow.borrower?.personalData, fullName: value.clientName, phones: [{ id: '', number: value.clientPhone }] } } as any;
+            // ✅ CORREGIDO: Preservar el ID del personalData y del phone al actualizar
+            const currentPersonalData = updatedRow.borrower?.personalData;
+            const currentPhoneId = currentPersonalData?.phones?.[0]?.id || '';
+            updatedRow.borrower = { 
+                ...updatedRow.borrower, 
+                personalData: { 
+                    ...currentPersonalData, 
+                    fullName: value.clientName, 
+                    phones: [{ id: currentPhoneId, number: value.clientPhone }] 
+                } 
+            } as any;
         } else if (field === 'avalData') {
-            updatedRow = { ...updatedRow, ...value };
+            // ✅ CORREGIDO: Actualizar específicamente los campos del aval
+            updatedRow = { 
+                ...updatedRow, 
+                avalName: value.avalName,
+                avalPhone: value.avalPhone,
+                selectedCollateralId: value.selectedCollateralId,
+                selectedCollateralPhoneId: value.selectedCollateralPhoneId,
+                avalAction: value.avalAction
+            };
         } else {
             updatedRow = { ...updatedRow, [field]: value };
         }
@@ -1036,7 +1133,13 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
           // Debug adicional para ver si hay datos en otras rutas
           loanKeys: Object.keys(loan),
           hasClientData: !!(loan as any).clientData,
-          clientData: (loan as any).clientData
+          clientData: (loan as any).clientData,
+          // ✅ DEBUG AVAL
+          avalName: loan.avalName,
+          avalPhone: loan.avalPhone,
+          selectedCollateralId: loan.selectedCollateralId,
+          selectedCollateralPhoneId: loan.selectedCollateralPhoneId,
+          avalAction: loan.avalAction
         });
         
         // Intentar obtener el teléfono de diferentes fuentes
@@ -1412,8 +1515,30 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
 
         {/* Loans Table */}
         <Box style={{ backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)', position: 'relative' }}>
-          {/* ... (La tabla de préstamos existentes se mantiene igual) ... */}
-          <div style={{ padding: '12px', overflowX: 'auto' }}>
+          {/* Indicador de scroll horizontal */}
+          <div style={{
+            position: 'absolute',
+            top: '50%',
+            right: '8px',
+            transform: 'translateY(-50%)',
+            background: 'rgba(0, 0, 0, 0.1)',
+            borderRadius: '4px',
+            padding: '4px 8px',
+            fontSize: '12px',
+            color: '#666',
+            zIndex: 10,
+            pointerEvents: 'none',
+            opacity: 0.7
+          }}>
+            ← Scroll →
+          </div>
+          <div ref={existingLoansTableRef} style={{ 
+            padding: '12px', 
+            overflowX: 'auto',
+            WebkitOverflowScrolling: 'touch',
+            overscrollBehaviorX: 'contain',
+            scrollBehavior: 'smooth'
+          }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead>
                     <tr style={{ backgroundColor: '#F9FAFB', borderBottom: '1px solid #E5E7EB' }}>
@@ -1464,7 +1589,30 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                 <span>➕</span> {pendingLoans.length > 0 ? `Préstamos Pendientes (${pendingLoans.length})` : 'Agregar Nuevos Préstamos'}
             </h3>
         </div>
-        <div style={{ padding: '12px', overflowX: 'auto' }}>
+        {/* Indicador de scroll horizontal */}
+        <div style={{
+          position: 'absolute',
+          top: '50%',
+          right: '8px',
+          transform: 'translateY(-50%)',
+          background: 'rgba(0, 0, 0, 0.1)',
+          borderRadius: '4px',
+          padding: '4px 8px',
+          fontSize: '12px',
+          color: '#666',
+          zIndex: 10,
+          pointerEvents: 'none',
+          opacity: 0.7
+        }}>
+          ← Scroll →
+        </div>
+        <div ref={pendingLoansTableRef} style={{ 
+          padding: '12px', 
+          overflowX: 'auto',
+          WebkitOverflowScrolling: 'touch',
+          overscrollBehaviorX: 'contain',
+          scrollBehavior: 'smooth'
+        }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
             <thead>
               <tr style={{ backgroundColor: '#E0F2FE', borderBottom: '1px solid #B3E5FC' }}>
@@ -1525,6 +1673,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                     options={getPreviousLoanOptions(loanId)}
                             onChange={(option) => handleRowChange(index, 'previousLoan', option, isNewRow)}
                                     value={loan.previousLoanOption}
+                                    isClearable={true}
                                     onInputChange={(inputValue) => {
                                         if (searchAllLeadersByRow[loanId]) {
                                             setDropdownSearchTextByRow(prev => ({
@@ -1900,10 +2049,23 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                     handleRowChange(index, 'clientData', { clientName: currentName, clientPhone: currentPhone, action }, isNewRow);
                                 }}
                                 onPersonUpdated={async (updatedPerson) => {
-                                    // ✅ SOLUCION: Refrescar datos del préstamo cuando se edite cliente
+                                    // ✅ SOLUCION: Actualizar el estado local con los datos reales de la base de datos
+                                    const updatedBorrower = {
+                                        ...loan.borrower,
+                                        personalData: {
+                                            ...loan.borrower?.personalData,
+                                            id: updatedPerson.id,
+                                            fullName: updatedPerson.fullName,
+                                            phones: updatedPerson.phones
+                                        }
+                                    };
+                                    
+                                    handleRowChange(index, 'borrower', updatedBorrower, isNewRow);
+                                    
+                                    // También refrescar los datos del servidor
                                     try {
                                         await refetchLoans();
-                                        console.log('✅ Datos del préstamo refrescados después de editar cliente');
+                                        console.log('✅ Datos del préstamo actualizados después de editar cliente');
                                     } catch (error) {
                                         console.error('❌ Error al refrescar datos del préstamo:', error);
                                     }
@@ -1938,19 +2100,48 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                 currentPhone={loan.avalPhone || ''}
                                 onNameChange={(name) => {
                                     const currentPhone = loan.avalPhone || '';
-                                    handleRowChange(index, 'avalData', { avalName: name, avalPhone: currentPhone, selectedCollateralId: undefined, avalAction: 'create' }, isNewRow);
+                                    // ✅ CORREGIDO: Mantener selectedCollateralId y selectedCollateralPhoneId si existen
+                                    const currentSelectedCollateralId = loan.selectedCollateralId;
+                                    const currentSelectedCollateralPhoneId = loan.selectedCollateralPhoneId;
+                                    const avalAction = currentSelectedCollateralId ? 'update' : 'create';
+                                    handleRowChange(index, 'avalData', { avalName: name, avalPhone: currentPhone, selectedCollateralId: currentSelectedCollateralId, selectedCollateralPhoneId: currentSelectedCollateralPhoneId, avalAction }, isNewRow);
                                 }}
                                 onPhoneChange={(phone) => {
                                     const currentName = loan.avalName || '';
-                                    handleRowChange(index, 'avalData', { avalName: currentName, avalPhone: phone, selectedCollateralId: undefined, avalAction: 'create' }, isNewRow);
+                                    // ✅ CORREGIDO: Mantener selectedCollateralId y selectedCollateralPhoneId si existen
+                                    const currentSelectedCollateralId = loan.selectedCollateralId;
+                                    const currentSelectedCollateralPhoneId = loan.selectedCollateralPhoneId;
+                                    const avalAction = currentSelectedCollateralId ? 'update' : 'create';
+                                    handleRowChange(index, 'avalData', { avalName: currentName, avalPhone: phone, selectedCollateralId: currentSelectedCollateralId, selectedCollateralPhoneId: currentSelectedCollateralPhoneId, avalAction }, isNewRow);
                                 }}
-                                onClear={() => handleRowChange(index, 'avalData', { avalName: '', avalPhone: '', selectedCollateralId: undefined, avalAction: 'clear' }, isNewRow)}
+                                onClear={() => handleRowChange(index, 'avalData', { avalName: '', avalPhone: '', selectedCollateralId: undefined, selectedCollateralPhoneId: undefined, avalAction: 'clear' }, isNewRow)}
+                                onPersonUpdated={async (updatedPerson) => {
+                                    // ✅ SOLUCION: Actualizar el estado local con los datos reales de la base de datos
+                                    const updatedAvalData = {
+                                        avalName: updatedPerson.fullName,
+                                        avalPhone: updatedPerson.phones?.[0]?.number || '',
+                                        selectedCollateralId: updatedPerson.id,
+                                        selectedCollateralPhoneId: updatedPerson.phones?.[0]?.id,
+                                        avalAction: 'update' as const
+                                    };
+                                    
+                                    handleRowChange(index, 'avalData', updatedAvalData, isNewRow);
+                                    
+                                    // También refrescar los datos del servidor
+                                    try {
+                                        await refetchLoans();
+                                        console.log('✅ Datos del préstamo actualizados después de editar aval');
+                                    } catch (error) {
+                                        console.error('❌ Error al refrescar datos del préstamo:', error);
+                                    }
+                                }}
                                 onActionChange={(action) => {
                                     const currentName = loan.avalName || '';
                                     const currentPhone = loan.avalPhone || '';
-                                    // Mantener el selectedCollateralId si existe (para avales seleccionados del dropdown)
+                                    // Mantener el selectedCollateralId y selectedCollateralPhoneId si existen
                                     const currentSelectedCollateralId = loan.selectedCollateralId;
-                                    handleRowChange(index, 'avalData', { avalName: currentName, avalPhone: currentPhone, selectedCollateralId: currentSelectedCollateralId, avalAction: action }, isNewRow);
+                                    const currentSelectedCollateralPhoneId = loan.selectedCollateralPhoneId;
+                                    handleRowChange(index, 'avalData', { avalName: currentName, avalPhone: currentPhone, selectedCollateralId: currentSelectedCollateralId, selectedCollateralPhoneId: currentSelectedCollateralPhoneId, avalAction: action }, isNewRow);
                                 }}
                                 enableAutocomplete={true}
                                 selectedPersonId={loan.selectedCollateralId}
