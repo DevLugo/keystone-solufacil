@@ -1460,6 +1460,11 @@ export const extendGraphqlSchema = graphql.extend(base => {
             const bankPaymentChange = newBankPayments - oldBankPayments;
             const commissionChange = newCommissions - oldCommissions;
             
+            // ✅ CORREGIDO: Incluir cambios en bankPaidAmount (transferencia automática)
+            const oldBankPaidAmountValue = parseFloat(existingPayment.bankPaidAmount?.toString() || '0');
+            const newBankPaidAmountValue = bankPaidAmount;
+            const bankPaidAmountChange = newBankPaidAmountValue - oldBankPaidAmountValue;
+            
             console.log('🔍 DEBUG - Cambios calculados:', {
               oldCashPayments,
               newCashPayments,
@@ -1467,6 +1472,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
               oldBankPayments,
               newBankPayments,
               bankPaymentChange,
+              oldBankPaidAmountValue,
+              newBankPaidAmountValue,
+              bankPaidAmountChange,
               oldCommissions,
               newCommissions,
               commissionChange
@@ -1477,29 +1485,32 @@ export const extendGraphqlSchema = graphql.extend(base => {
             // Calcular el efecto directo de los cambios netos POR MÉTODO DE PAGO:
             // - cashPaymentChange: solo cambios en pagos CASH → afecta balance de efectivo
             // - bankPaymentChange: solo cambios en pagos TRANSFER → afecta balance de banco  
+            // - bankPaidAmountChange: cambios en transferencia automática → afecta balance de banco
             // - commissionChange: TODAS las comisiones → SIEMPRE afectan balance de efectivo
-            // EJEMPLO: Eliminar pago TRANSFER $300 + comisión $8 → Cash: +$8, Bank: -$300
-            const netCashChange = cashPaymentChange - commissionChange; // Solo pagos CASH + todas las comisiones
-            const netBankChange = bankPaymentChange; // Solo pagos TRANSFER
+            // EJEMPLO: Cambiar transferencia de $500 a $600 → Bank: +$100, Cash: -$100
+            const netCashChange = cashPaymentChange - commissionChange - bankPaidAmountChange; // Pagos CASH + comisiones - transferencia automática
+            const netBankChange = bankPaymentChange + bankPaidAmountChange; // Pagos TRANSFER + transferencia automática
             
             console.log('🔍 DEBUG - Cambios netos para cuentas (CORREGIDO - efecto directo):', {
               cashPaymentChange,
               commissionChange,
-              netCashChange: `${cashPaymentChange} - (${commissionChange}) = ${netCashChange}`,
+              bankPaidAmountChange,
+              netCashChange: `${cashPaymentChange} - (${commissionChange}) - (${bankPaidAmountChange}) = ${netCashChange}`,
               bankPaymentChange,
-              netBankChange,
-              explanation: 'deleteMany NO dispara hooks, calculamos manualmente el efecto directo'
+              netBankChange: `${bankPaymentChange} + (${bankPaidAmountChange}) = ${netBankChange}`,
+              explanation: 'Incluye cambios en bankPaidAmount (transferencia automática)'
             });
             
             // ✅ DEBUG: Log detallado de lo que significa el cálculo
-            if (cashPaymentChange !== 0 || bankPaymentChange !== 0 || commissionChange !== 0) {
+            if (cashPaymentChange !== 0 || bankPaymentChange !== 0 || commissionChange !== 0 || bankPaidAmountChange !== 0) {
               console.log(`💡 EXPLICACIÓN CORREGIDA: Efecto directo por método de pago:`);
               console.log(`   - Cambio en pagos CASH: $${cashPaymentChange} → afecta balance de efectivo`);
               console.log(`   - Cambio en pagos TRANSFER: $${bankPaymentChange} → afecta balance de banco`);
+              console.log(`   - Cambio en transferencia automática: $${bankPaidAmountChange} → afecta balance de banco`);
               console.log(`   - Cambio en comisiones: $${commissionChange} → SIEMPRE afecta balance de efectivo`);
-              console.log(`   - Balance EFECTIVO: $${cashPaymentChange} - ($${commissionChange}) = $${netCashChange}`);
-              console.log(`   - Balance BANCO: $${bankPaymentChange}`);
-              console.log(`💡 EJEMPLO: Eliminar pago TRANSFER $300 + comisión $8 → Cash: +$8, Bank: -$300`);
+              console.log(`   - Balance EFECTIVO: $${cashPaymentChange} - ($${commissionChange}) - ($${bankPaidAmountChange}) = $${netCashChange}`);
+              console.log(`   - Balance BANCO: $${bankPaymentChange} + ($${bankPaidAmountChange}) = $${netBankChange}`);
+              console.log(`💡 EJEMPLO: Cambiar transferencia de $500 a $600 → Cash: -$100, Bank: +$100`);
             }
 
             if (payments.length > 0) {
@@ -1725,10 +1736,19 @@ export const extendGraphqlSchema = graphql.extend(base => {
               console.error('⚠️ Error recalculando préstamos tras updateCustomLeadPaymentReceived:', recalcErr);
             }
 
-            // 🆕 NUEVA LÓGICA: Manejar transferencias automáticas (crear/actualizar/eliminar)
+            // ✅ CORREGIDO: Manejar registros de transferencias automáticas (sin doble contabilidad)
+            // IMPORTANTE: Los balances ya fueron actualizados correctamente con netBankChange arriba.
+            // Esta sección solo maneja los registros de transacciones TRANSFER para auditoría.
             const oldBankPaidAmount = parseFloat(existingPayment.bankPaidAmount?.toString() || '0');
             const newBankPaidAmount = bankPaidAmount;
             const bankAmountChange = newBankPaidAmount - oldBankPaidAmount;
+            
+            console.log('🔍 UPDATE: Manejo de transferencias automáticas (solo registros):', {
+              oldBankPaidAmount,
+              newBankPaidAmount, 
+              bankAmountChange,
+              nota: 'Los balances ya fueron ajustados con netBankChange'
+            });
 
             // Buscar transferencias automáticas existentes de este LeadPaymentReceived
             const existingTransferTransactions = await tx.transaction.findMany({
@@ -1749,28 +1769,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
               });
 
-              // Revertir el efecto de las transferencias eliminadas en ambos balances
+              // ✅ CORREGIDO: No revertir balances manualmente, netBankChange ya maneja las diferencias
               const totalRevertedAmount = existingTransferTransactions.reduce((sum, t) => {
                 return sum + parseFloat((t.amount || 0).toString());
               }, 0);
 
-              if (totalRevertedAmount > 0) {
-                // Revertir balance bancario (reducir)
-                const currentBankAmount = parseFloat((bankAccount.amount || 0).toString());
-                await tx.account.update({
-                  where: { id: bankAccount.id },
-                  data: { amount: (currentBankAmount - totalRevertedAmount).toString() }
-                });
-
-                // Revertir balance de efectivo (aumentar)
-                const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
-                await tx.account.update({
-                  where: { id: cashAccount.id },
-                  data: { amount: (currentCashAmount + totalRevertedAmount).toString() }
-                });
-
-                console.log('🔄 UPDATE: Revertidos balances bancario y efectivo:', totalRevertedAmount);
-              }
+              console.log('🧹 UPDATE: Solo eliminando registros de transferencias (sin revertir balances):', {
+                transferenciasEliminadas: existingTransferTransactions.length,
+                montoTotal: totalRevertedAmount,
+                razon: 'netBankChange ya calculó las diferencias correctamente'
+              });
             }
 
             // Crear nueva transferencia si hay monto bancario
@@ -1797,21 +1805,12 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
               });
 
-              // Actualizar balance bancario con el monto transferido
-              const currentBankAmount = parseFloat((bankAccount.amount || 0).toString());
-              await tx.account.update({
-                where: { id: bankAccount.id },
-                data: { amount: (currentBankAmount + newBankPaidAmount).toString() }
+              // ✅ CORREGIDO: No actualizar balances aquí, netBankChange ya los maneja correctamente
+              console.log('📝 UPDATE: Registro de transferencia automática creado (balances ya ajustados por netBankChange):', {
+                bankPaidAmount: newBankPaidAmount,
+                razon: 'Los balances se actualizaron correctamente con netBankChange arriba',
+                netBankChange: 'ya aplicado en líneas anteriores'
               });
-
-              // Actualizar balance de efectivo (reducir el monto transferido)
-              const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
-              await tx.account.update({
-                where: { id: cashAccount.id },
-                data: { amount: (currentCashAmount - newBankPaidAmount).toString() }
-              });
-
-              console.log('✅ UPDATE: Nueva transferencia automática creada exitosamente');
             }
 
             // ✅ ELIMINADO: Lógica de transacciones de falco - ahora se maneja por separado
