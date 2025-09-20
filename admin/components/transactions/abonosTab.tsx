@@ -1137,13 +1137,25 @@ export const CreatePaymentForm = ({
         return;
       }
 
+      // ✅ PRE-CARGAR: Obtener el bankPaidAmount anterior del LeadPaymentReceived existente
+      const firstExistingPayment = existingPayments.find((p: any) => p.leadPaymentReceived?.bankPaidAmount !== undefined);
+      const existingBankPaidAmount = firstExistingPayment?.leadPaymentReceived?.bankPaidAmount 
+        ? parseFloat(firstExistingPayment.leadPaymentReceived.bankPaidAmount.toString())
+        : 0;
+
+      console.log('🔄 PRE-CARGAR: Valores de transferencia anterior:', {
+        existingBankPaidAmount,
+        cashTotal: totalByPaymentMethod.cashTotal,
+        cashDisponible: totalByPaymentMethod.cashTotal - existingBankPaidAmount
+      });
+
       // ✅ CORREGIDO: Abrir el modal con valores recalculados basándose en el estado real actual
       updateState({ 
         isModalOpen: true,
         loadPaymentDistribution: {
           totalPaidAmount: totalAmount,
-          cashPaidAmount: totalByPaymentMethod.cashTotal, // Usar el cálculo actual real
-          bankPaidAmount: 0, // Resetear transferencia para que se recalcule
+          cashPaidAmount: totalByPaymentMethod.cashTotal - existingBankPaidAmount, // Efectivo menos transferencia anterior
+          bankPaidAmount: existingBankPaidAmount, // ✅ PRE-CARGAR valor anterior de transferencia
           // ✅ ELIMINADO: Falco se maneja por separado
         }
       });
