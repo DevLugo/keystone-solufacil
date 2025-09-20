@@ -66,7 +66,7 @@ const GET_ROUTES = gql`
 
 const GET_LOANS_BY_LEAD = gql`
   query Loans($where: LoanWhereInput!) {
-    loans(where: $where) {
+    loans(where: $where, orderBy: [{ signDate: asc }, { id: asc }]) {
       id
       weeklyPaymentAmount
       signDate
@@ -713,12 +713,9 @@ export const CreatePaymentForm = ({
         };
       });
       
-      // ✅ AGREGAR: Ordenar abonos por fecha de creación del crédito (más viejo primero)
-      const sortedPayments = paymentsWithDefaultCommissions.sort((a: any, b: any) => {
-        const dateA = new Date(a.loan?.signDate || '1970-01-01');
-        const dateB = new Date(b.loan?.signDate || '1970-01-01');
-        return dateA.getTime() - dateB.getTime(); // Ascendente: crédito más viejo arriba
-      });
+      // ✅ SIMPLIFICADO: Los datos ya vienen ordenados por signDate desde la query GraphQL
+      // Solo necesitamos mantener el orden que viene de la base de datos
+      const sortedPayments = paymentsWithDefaultCommissions;
       
       updateState({ existingPayments: sortedPayments });
     }
@@ -1638,15 +1635,9 @@ export const CreatePaymentForm = ({
     return missingPayments;
   };
 
-  // Ordenar créditos sin pago por fecha de firma ASC (mismo orden que PDF)
-  const missingPayments = calculateMissingPayments().sort((a: any, b: any) => {
-    const dateA = new Date(a.signDate || '1970-01-01').getTime();
-    const dateB = new Date(b.signDate || '1970-01-01').getTime();
-    if (dateA !== dateB) return dateA - dateB;
-    const idA = (a.id || '').toString();
-    const idB = (b.id || '').toString();
-    return idA.localeCompare(idB);
-  });
+  // ✅ SIMPLIFICADO: Los datos ya vienen ordenados por signDate desde la query GraphQL
+  // Solo necesitamos mantener el orden que viene de la base de datos
+  const missingPayments = calculateMissingPayments();
 
   if (loansLoading || paymentsLoading || migratedPaymentsLoading || falcosLoading) return <LoadingDots label="Loading data" size="large" />;
   if (loansError) return <GraphQLErrorNotice errors={loansError?.graphQLErrors || []} networkError={loansError?.networkError} />;
