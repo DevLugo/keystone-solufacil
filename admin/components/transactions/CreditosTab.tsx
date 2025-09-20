@@ -1530,7 +1530,6 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
             pointerEvents: 'none',
             opacity: 0.7
           }}>
-            ← Scroll →
           </div>
           <div ref={existingLoansTableRef} style={{ 
             padding: '12px', 
@@ -1572,7 +1571,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                             <td style={tableCellStyle}>{loan.collaterals?.[0]?.fullName || (loan as any).avalName || '-'}</td>
                             <td style={tableCellStyle}>{loan.collaterals?.[0]?.phones?.[0]?.number || (loan as any).avalPhone || '-'}</td>
                             <td style={{ ...tableCellStyle, width: '40px', position: 'relative' }}>
-                                {isDeleting === loan.id ? <Box style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '32px' }}><LoadingDots label="Eliminando" size="small" /></Box> : <Button ref={el => { buttonRefs.current[loan.id] = el; }} tone="passive" size="small" onClick={() => setActiveMenu(activeMenu === loan.id ? null : loan.id)} style={{ padding: '6px', minWidth: '32px', height: '32px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><FaEllipsisV size={14} /></Button>}
+                                {isDeleting === loan.id ? <Box style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '32px' }}><LoadingDots label="Eliminando" size="small" /></Box> : <Button ref={el => { buttonRefs.current[loan.id] = el; }} tone="passive" size="small" onClick={() => setActiveMenu(activeMenu === loan.id ? null : loan.id)} style={{ padding: '6px 8px', minWidth: '40px', height: '32px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px' }} title="Opciones del préstamo">⋮</Button>}
                             </td>
                         </tr>
                     ))}
@@ -1604,7 +1603,6 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
           pointerEvents: 'none',
           opacity: 0.7
         }}>
-          ← Scroll →
         </div>
         <div ref={pendingLoansTableRef} style={{ 
           padding: '12px', 
@@ -2161,10 +2159,11 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                         <Button
                           tone="negative" size="small"
                           onClick={() => setPendingLoans(prev => prev.filter((_, i) => i !== index))}
-                          style={{ padding: '4px 8px', height: '28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-                          title="Eliminar de la lista"
+                          style={{ padding: '4px 8px', height: '28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginLeft: '16px', fontSize: '11px' }}
+                          title="Eliminar préstamo de la lista"
                         >
-                          <FaTrash size={12} />
+                          <FaTrash size={12} style={{ marginRight: '4px' }} />
+                          Eliminar
                         </Button>
                       )}
                     </td>
