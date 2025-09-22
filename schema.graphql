@@ -2984,7 +2984,7 @@ type Query {
   keystone: KeystoneMeta!
   authenticatedItem: AuthenticatedItem
   getLeadersBirthdays(month: Int!): [LeaderBirthday!]!
-  getTransactionsSummary(startDate: String!, endDate: String!): [TransactionSummary!]!
+  getTransactionsSummary(startDate: String!, endDate: String!, routeId: String): [TransactionSummary!]!
   getMonthlyResume(routeId: String!, year: Int!): JSON!
   getLoansReport(routeId: String!, year: Int!, month: Int!): JSON!
   getActiveLoansReport(routeId: String!, year: Int!, month: Int!, useActiveWeeks: Boolean!): JSON!

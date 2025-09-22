@@ -3197,8 +3197,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
         args: {
           startDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
           endDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          routeId: graphql.arg({ type: graphql.String }),
         },
-        resolve: async (root, { startDate, endDate }, context: Context) => {
+        resolve: async (root, { startDate, endDate, routeId }, context: Context) => {
           // Normalizar las fechas al inicio y fin del día en la zona horaria local
           const start = new Date(startDate);
           start.setHours(0, 0, 0, 0);
@@ -3217,13 +3218,23 @@ export const extendGraphqlSchema = graphql.extend(base => {
           });
 
           // OPTIMIZADO: Obtenemos todas las transacciones dentro del rango de fechas especificado
-          const rangeTransactions = await context.db.Transaction.findMany({
-            where: {
-              date: {
-                gte: start,
-                lte: end,
-              },
+          // Si se proporciona routeId, filtramos por ruta
+          const whereClause: any = {
+            date: {
+              gte: start,
+              lte: end,
             },
+          };
+
+          if (routeId) {
+            whereClause.OR = [
+              { snapshotRouteId: { equals: routeId } },
+              { route: { id: { equals: routeId } } }
+            ];
+          }
+
+          const rangeTransactions = await context.db.Transaction.findMany({
+            where: whereClause,
           });
           
           console.log(`Obtenidas ${rangeTransactions.length} transacciones en el rango`);
