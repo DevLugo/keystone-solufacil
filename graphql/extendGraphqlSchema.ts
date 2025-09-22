@@ -3006,6 +3006,93 @@ export const extendGraphqlSchema = graphql.extend(base => {
     },
     query: {
       // ✅ NUEVA FUNCIONALIDAD: Obtener cumpleaños de líderes por mes
+      previewBulkPortfolioCleanup: graphql.field({
+        type: graphql.nonNull(graphql.JSON),
+        args: {
+          routeId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          fromDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          toDate: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          weeksWithoutPaymentThreshold: graphql.arg({ type: graphql.Int }),
+        },
+        resolve: async (root, { routeId, fromDate, toDate, weeksWithoutPaymentThreshold = 0 }, context: Context) => {
+          try {
+            const start = new Date(fromDate);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(toDate);
+            end.setHours(23, 59, 59, 999);
+
+            // Buscar préstamos activos por fecha de firma
+            const candidateLoans = await (context.prisma as any).loan.findMany({
+              where: {
+                lead: { routes: { id: routeId } },
+                signDate: { gte: start, lte: end },
+                excludedByCleanup: { is: null },
+                finishedDate: null,
+                status: 'ACTIVE'
+              },
+              include: {
+                payments: { orderBy: { receivedAt: 'asc' } },
+                borrower: {
+                  include: {
+                    personalData: true
+                  }
+                },
+                lead: {
+                  include: {
+                    personalData: true
+                  }
+                }
+              }
+            });
+
+            const applyCV = typeof weeksWithoutPaymentThreshold === 'number' && weeksWithoutPaymentThreshold > 0;
+            let loansToExclude = candidateLoans as any[];
+
+            if (applyCV) {
+              const now = new Date();
+              loansToExclude = candidateLoans.filter((loan: any) => {
+                const lastPaymentDate = loan.payments?.length > 0
+                  ? new Date(loan.payments[loan.payments.length - 1].receivedAt)
+                  : new Date(loan.signDate);
+                const diffMs = now.getTime() - lastPaymentDate.getTime();
+                const weeks = Math.floor(diffMs / (1000 * 60 * 60 * 24 * 7));
+                return weeks >= weeksWithoutPaymentThreshold;
+              });
+            }
+
+            const totalAmount = loansToExclude.reduce((sum: number, loan: any) => sum + Number(loan.amountGived || 0), 0);
+
+            // Mostrar solo los primeros 5 préstamos como ejemplo
+            const sampleLoans = loansToExclude.slice(0, 5).map((loan: any) => ({
+              id: loan.id,
+              borrowerName: loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A',
+              amount: Number(loan.amountGived || 0),
+              signDate: loan.signDate,
+              lastPaymentDate: loan.payments?.length > 0 ? loan.payments[loan.payments.length - 1].receivedAt : null,
+              weeksWithoutPayment: (() => {
+                if (loan.payments?.length > 0) {
+                  const lastPayment = new Date(loan.payments[loan.payments.length - 1].receivedAt);
+                  const diffMs = new Date().getTime() - lastPayment.getTime();
+                  return Math.floor(diffMs / (1000 * 60 * 60 * 24 * 7));
+                }
+                return Math.floor((new Date().getTime() - new Date(loan.signDate).getTime()) / (1000 * 60 * 60 * 24 * 7));
+              })()
+            }));
+
+            return {
+              success: true,
+              count: loansToExclude.length,
+              totalAmount: totalAmount,
+              sampleLoans: sampleLoans,
+              message: `Se encontraron ${loansToExclude.length} préstamos que serían excluidos. Mostrando ${sampleLoans.length} ejemplos.`
+            };
+
+          } catch (error) {
+            console.error('Error en previewBulkPortfolioCleanup:', error);
+            throw new Error(`Error al previsualizar limpieza masiva de cartera: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        }
+      }),
       getLeadersBirthdays: graphql.field({
         type: graphql.nonNull(graphql.list(graphql.nonNull(LeaderBirthdayType))),
         args: {
