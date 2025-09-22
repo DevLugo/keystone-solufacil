@@ -2983,6 +2983,7 @@ type Query {
   telegramUsersCount(where: TelegramUserWhereInput! = {}): Int
   keystone: KeystoneMeta!
   authenticatedItem: AuthenticatedItem
+  previewBulkPortfolioCleanup(routeId: String!, fromDate: String!, toDate: String!, weeksWithoutPaymentThreshold: Int): JSON!
   getLeadersBirthdays(month: Int!): [LeaderBirthday!]!
   getTransactionsSummary(startDate: String!, endDate: String!, routeId: String): [TransactionSummary!]!
   getMonthlyResume(routeId: String!, year: Int!): JSON!
