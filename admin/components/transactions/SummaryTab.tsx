@@ -6,8 +6,8 @@ import { jsx, Box } from '@keystone-ui/core';
 import { gql, useQuery } from '@apollo/client';
 
 const GET_TRANSACTIONS_SUMMARY = gql`
-  query GetTransactionsSummary($startDate: String!, $endDate: String!) {
-    getTransactionsSummary(startDate: $startDate, endDate: $endDate) {
+  query GetTransactionsSummary($startDate: String!, $endDate: String!, $routeId: String) {
+    getTransactionsSummary(startDate: $startDate, endDate: $endDate, routeId: $routeId) {
       date
       locality
       abono
@@ -178,9 +178,14 @@ export const SummaryTab = ({ selectedDate, selectedRoute, refreshKey }: SummaryT
   const { data, loading, error, refetch } = useQuery(GET_TRANSACTIONS_SUMMARY, {
     variables: {
       startDate: selectedDate.toISOString(),
-      endDate: new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000 - 1).toISOString()
+      endDate: (() => {
+        const endDate = new Date(selectedDate);
+        endDate.setHours(23, 59, 59, 999);
+        return endDate.toISOString();
+      })(),
+      routeId: selectedRoute?.id
     },
-    skip: !selectedDate
+    skip: !selectedDate || !selectedRoute
   });
 
   useEffect(() => {

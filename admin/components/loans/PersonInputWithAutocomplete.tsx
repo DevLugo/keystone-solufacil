@@ -477,7 +477,7 @@ const PersonInputWithAutocomplete: React.FC<PersonInputWithAutocompleteProps> = 
         dropdownRef={dropdownRef}
         inputRef={inputRef}
         selectedPerson={(actionType === 'client' && isFromPrevious) || (actionType === 'aval' && internalSelectedPersonId) ? {
-          id: actionType === 'client' ? (clientPersonalDataId || 'client-selected') : (internalSelectedPersonId || 'temp-id'),
+          id: actionType === 'client' ? (clientPersonalDataId || 'client-selected') : (selectedPersonId || internalSelectedPersonId || 'temp-id'),
           fullName: name,
           phones: phone ? [{ id: actionType === 'client' ? (clientPhoneId || 'temp-phone') : (selectedCollateralPhoneId || 'temp-phone'), number: phone }] : [],
           addresses: []
