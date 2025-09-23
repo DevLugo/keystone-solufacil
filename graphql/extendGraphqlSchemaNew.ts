@@ -3,8 +3,8 @@ import type { Context } from '.keystone/types';
 import { telegramGraphQLExtensions, telegramResolvers } from './telegramExtensions';
 
 // Import types
-import { PaymentType, CustomLeadPaymentReceivedType } from './types/payment';
-import { LeaderBirthdayType } from './types/leader';
+import { PaymentType, CustomLeadPaymentReceivedType, LeaderBirthdayType } from './types/payment';
+import { LeaderBirthdayType as LeaderType } from './types/leader';
 
 // Import queries
 import { getLeadersBirthdays } from './queries/leaders';
@@ -15,8 +15,7 @@ import { moveLoansToDate, movePaymentsToDate, moveExpensesToDate } from './mutat
 import { createCustomLeadPaymentReceived } from './mutations/payment';
 
 // Import utility functions
-import { safeToNumber } from './utils/number';
-import { isLoanActiveOnDate, calculateWeeksWithoutPayment } from './utils/loan';
+import { safeToNumber, isLoanActiveOnDate, calculateWeeksWithoutPayment } from './utils/number';
 import { generateTestPDF, generatePDFWithStreams } from './reports/pdf';
 import { sendTelegramMessageToUser, sendTelegramFile, generateReportContent } from './services/telegram';
 
@@ -88,13 +87,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
             
             // Procesar cada fila del XML
             for (const row of rows) {
-              // Extraer datos de la fila fuera del try-catch para acceso en catch
-              const folio = row.folio?.[0] || '';
-              const fecha = row.fecha?.[0] || '';
-              const concepto = row.concepto?.[0] || '';
-              const importe = parseFloat(row.importe?.[0] || '0');
-              
               try {
+                // Extraer datos de la fila
+                const folio = row.folio?.[0] || '';
+                const fecha = row.fecha?.[0] || '';
+                const concepto = row.concepto?.[0] || '';
+                const importe = parseFloat(row.importe?.[0] || '0');
+                
                 if (!folio || !fecha || !concepto || importe <= 0) {
                   skippedCount++;
                   continue;
@@ -194,8 +193,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
       // For brevity, I'm not including all mutations from the original file
       // They would need to be extracted into separate files like we did with the others
       
-      // Telegram integration (commented out for now due to type issues)
-      // ...telegramResolvers,
+      // Telegram integration
+      ...telegramResolvers,
     },
     
     query: {
