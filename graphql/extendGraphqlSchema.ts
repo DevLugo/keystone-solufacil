@@ -3,6 +3,9 @@ import type { Context } from '.keystone/types';
 import { Decimal } from '@prisma/client/runtime/library';
 import { telegramGraphQLExtensions, telegramResolvers } from './telegramExtensions';
 import { calculatePaymentProfitAmount } from '../utils/loanPayment';
+// import { getLeadersBirthdays } from './queries/leaders';
+// import { getTransactionsSummary, TransactionSummaryType } from './queries/transactions';
+import { getFinancialReport } from './queries/financialReport';
 
 // Import fetch for Telegram API calls
 const fetch = require('node-fetch');
@@ -3456,8 +3459,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
               type: account.type 
             });
           });
-
-          
           console.log('\n=== PROCESANDO TRANSACCIONES ===');
           // Este objeto almacenará los datos agrupados por fecha y localidad
           // Cada localidad contendrá valores para cada tipo de ingreso o gasto
@@ -5408,6 +5409,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
                         if (!wasRenewed) {
                           data.finishedNotRenewed++;
                           data.finishedNotRenewedAmount += loanAmount;
+                          data.finishedForUI++;
+                          
+                          (data.finishedLoans as any[]).push({
+                            id: loan.id,
+                            finishedDate,
+                            startDate: loan.signDate,
+                            amountGived: Number(loan.amountGived || 0),
+                            fullName: loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A',
+                            reason: 'FINISHED_DATE'
+                          });
                         }
                         
                         if (isTargetLoan && isAtastaWeek1) {
@@ -5425,49 +5436,24 @@ export const extendGraphqlSchema = graphql.extend(base => {
                           console.log(`  - LISTA ANTES: ${(data.finishedLoans as any[]).length}`);
                         }
                         
-                        // Solo agregar a la lista de UI si NO fue renovado
-                        if (!wasRenewed) {
-                          data.finishedNotRenewed++;
-                          data.finishedNotRenewedAmount += loanAmount;
-                          data.finishedForUI++;
+                        // 🔍 DEBUG: Log específico para semana 3 de Atasta
+                        if (isAtastaWeek3 && isAtastaLocality(locality)) {
+                          atastaFinishedCount++;
+                        console.log(`    - ✅ CONTADO como finalizado${wasRenewed ? ' (RENOVADO - marcado en UI)' : ' (NO RENOVADO - visible en UI)'}`);
+                        console.log(`    - 📊 CONTADOR: Créditos finalizados = ${atastaFinishedCount}`);
+                        console.log(`    - 📊 BALANCE ACTUAL: -${atastaFinishedCount}`);
                           
-                          (data.finishedLoans as any[]).push({
-                            id: loan.id,
-                            finishedDate,
-                            startDate: loan.signDate,
-                            amountGived: Number(loan.amountGived || 0),
-                            fullName: loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A',
-                            reason: 'FINISHED_DATE'
-                          });
-                        }
-                        
-                        if (isTargetLoan && isAtastaWeek1) {
-                          console.log(`  - LISTA DESPUÉS: ${(data.finishedLoans as any[]).length}`);
-                          console.log(`  - RAZÓN: ${wasRenewed ? 'FINISHED_DATE_RENEWED' : 'FINISHED_DATE'}`);
-                          console.log(`  - ✅ AGREGADO A LISTA`);
-                          console.log(`  - 📊 CONTADOR FINAL: ${data.finished}`);
-                          console.log(`  - 📊 MONTO FINAL: ${data.finishedAmount}`);
-                          console.log(`  - 📊 ¿ESTO DEBERÍA SER REINGRESO?: ${loan.previousLoanId ? 'SÍ, tiene previousLoanId' : 'NO, no tiene previousLoanId'}`);
-                        }
-                          
-                          // 🔍 DEBUG: Log específico para semana 3 de Atasta
-                          if (isAtastaWeek3 && isAtastaLocality(locality)) {
-                            atastaFinishedCount++;
-                          console.log(`    - ✅ CONTADO como finalizado${wasRenewed ? ' (RENOVADO - marcado en UI)' : ' (NO RENOVADO - visible en UI)'}`);
-                            console.log(`    - 📊 CONTADOR: Créditos finalizados = ${atastaFinishedCount}`);
-                            console.log(`    - 📊 BALANCE ACTUAL: -${atastaFinishedCount}`);
-                            
-                            // 🔍 DEBUG ESPECÍFICO: Log adicional para oldid 7415
-                            if (loan.id === '7415') {
-                              console.log(`\n🔍 OLDID 7415 - PROCESADO COMO FINALIZADO:`);
-                              console.log(`  - ID: ${loan.id}`);
-                              console.log(`  - ¿Fue renovado?: ${wasRenewed}`);
-                              console.log(`  - Total deuda: ${totalDebt}`);
-                              console.log(`  - Total pagado: ${totalPaid}`);
-                              console.log(`  - Deuda pendiente: ${totalDebt - totalPaid}`);
-                              console.log(`  - ¿Deuda pendiente = 0?: ${totalDebt - totalPaid === 0}`);
-                            }
+                          // 🔍 DEBUG ESPECÍFICO: Log adicional para oldid 7415
+                          if (loan.id === '7415') {
+                            console.log(`\n🔍 OLDID 7415 - PROCESADO COMO FINALIZADO:`);
+                            console.log(`  - ID: ${loan.id}`);
+                            console.log(`  - ¿Fue renovado?: ${wasRenewed}`);
+                            console.log(`  - Total deuda: ${totalDebt}`);
+                            console.log(`  - Total pagado: ${totalPaid}`);
+                            console.log(`  - Deuda pendiente: ${totalDebt - totalPaid}`);
+                            console.log(`  - ¿Deuda pendiente = 0?: ${totalDebt - totalPaid === 0}`);
                           }
+                        }
                           
                           // 🔍 DEBUG: Solo para CELENE DZUL CHABLE de Xbacab
                           if (locality.toLowerCase().includes('xbacab') && fullName.toLowerCase().includes('celene')) {
@@ -5808,7 +5794,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
               });
 
               reportData[weekKey] = localitiesData;
-
               // 🔍 DEBUG: Log resumen para semana 3 de Atasta
               if (isAtastaWeek3) {
                 console.log(`\n📊 RESUMEN SEMANA 2 ATASTA:`);
@@ -6293,7 +6278,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
               gasolineCurrent = Number(aggCurr?._sum?.amount || 0);
               gasolinePrevious = Number(aggPrev?._sum?.amount || 0);
             } catch (_) {}
-
             // ✅ OPTIMIZACIÓN: Eliminar logs de debug para mejor performance
 
             return {
@@ -6801,381 +6785,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
     },
   }),
 
-  getFinancialReport: graphql.field({
-    type: graphql.nonNull(graphql.JSON),
-    args: {
-      routeIds: graphql.arg({ type: graphql.nonNull(graphql.list(graphql.nonNull(graphql.String))) }),
-      year: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
-    },
-    resolve: async (root, { routeIds, year }, context: Context) => {
-      try {
-        // Obtener información de las rutas
-        const routes = await context.prisma.route.findMany({
-          where: { id: { in: routeIds } },
-          select: { id: true, name: true }
-        });
-  
-        if (routes.length === 0) {
-          throw new Error('No se encontraron rutas');
-        }
-  
-        // Definir rango de fechas del año
-        const yearStart = new Date(`${year}-01-01`);
-        const yearEnd = new Date(`${year}-12-31T23:59:59.999Z`);
-  
-        // 1. Obtener TODAS las transacciones del año en una sola consulta
-        const transactions = await context.prisma.transaction.findMany({
-          where: {
-            route: { id: { in: routeIds } },
-            date: {
-              gte: yearStart,
-              lte: yearEnd,
-            },
-          },
-          select: {
-            amount: true,
-            type: true,
-            date: true,
-            expenseSource: true,
-            incomeSource: true,
-            sourceAccountId: true,
-            profitAmount: true,
-          }
-        });
-  
-        // 2. Obtener préstamos relevantes en una sola consulta optimizada
-        const loans = await context.prisma.loan.findMany({
-          where: {
-            lead: {
-              routes: { id: { in: routeIds } }
-            },
-            OR: [
-              // Préstamos firmados en el año
-              {
-                signDate: {
-                  gte: yearStart,
-                  lte: yearEnd
-                }
-              },
-              // Préstamos activos durante el año (sin fecha de finalización o finalizado después del inicio del año)
-              {
-                AND: [
-                  { signDate: { lt: yearEnd } },
-                  {
-                    OR: [
-                      { finishedDate: null },
-                      { finishedDate: { gte: yearStart } }
-                    ]
-                  }
-                ]
-              }
-            ]
-          },
-          select: {
-            id: true,
-            signDate: true,
-            finishedDate: true,
-            badDebtDate: true,
-            amountGived: true,
-            profitAmount: true,
-            previousLoanId: true,
-            payments: {
-              select: {
-                amount: true,
-                receivedAt: true,
-                createdAt: true
-              }
-            }
-          }
-        });
-  
-        // 3. Obtener cuentas de gasolina una sola vez
-        const gasolineAccounts = await context.prisma.account.findMany({
-          where: {
-            OR: [
-              { type: 'PREPAID_GAS' },
-              { type: 'OFFICE_CASH_FUND' },
-              { type: 'EMPLOYEE_CASH_FUND' }
-            ]
-          },
-          select: { id: true, type: true }
-        });
-  
-        const tokaAccountId = gasolineAccounts.find(acc => acc.type === 'PREPAID_GAS')?.id;
-        const cashAccountIds = gasolineAccounts
-          .filter(acc => acc.type === 'OFFICE_CASH_FUND' || acc.type === 'EMPLOYEE_CASH_FUND')
-          .map(acc => acc.id);
-  
-        // Inicializar estructura de datos mensual
-        const monthlyData: { [key: string]: any } = {};
-        
-        // Inicializar todos los meses
-        for (let month = 1; month <= 12; month++) {
-          const monthKey = month.toString().padStart(2, '0');
-          monthlyData[monthKey] = {
-            totalExpenses: 0,
-            generalExpenses: 0,
-            nomina: 0,
-            comissions: 0,
-            incomes: 0,
-            totalCash: 0,
-            loanDisbursements: 0,
-            carteraActiva: 0,
-            carteraVencida: 0,
-            renovados: 0,
-            badDebtAmount: 0,
-            totalIncomingCash: 0,
-            capitalReturn: 0,
-            profitReturn: 0,
-            operationalCashUsed: 0,
-            totalInvestment: 0,
-            tokaGasolina: 0,
-            cashGasolina: 0,
-            totalGasolina: 0,
-            operationalExpenses: 0,
-            availableCash: 0,
-            travelExpenses: 0,
-            paymentsCount: 0,
-            gainPerPayment: 0,
-            balance: 0,
-            operationalProfit: 0,
-            profitPercentage: 0,
-            balanceWithReinvest: 0,
-            carteraMuerta: 0,
-            uiExpensesTotal: 0,
-            uiGainsTotal: 0,
-            // Campos de desglose de nómina
-            nominaInterna: 0,
-            salarioExterno: 0,
-            viaticos: 0
-          };
-        }
-  
-        // 4. Procesar transacciones agrupadas por mes
-        for (const transaction of transactions) {
-          const transactionDate = transaction.date ? new Date(transaction.date) : new Date();
-          const month = transactionDate.getMonth() + 1;
-          const monthKey = month.toString().padStart(2, '0');
-  
-          const amount = Number(transaction.amount || 0);
-          const monthData = monthlyData[monthKey];
-  
-          // Clasificar transacciones
-          if (transaction.type === 'EXPENSE') {
-            // Clasificar gastos de gasolina
-            if (transaction.expenseSource === 'GASOLINE') {
-              if (transaction.sourceAccountId === tokaAccountId) {
-                monthData.tokaGasolina += amount;
-              } else if (cashAccountIds.includes(transaction.sourceAccountId || '')) {
-                monthData.cashGasolina += amount;
-              }
-              monthData.totalGasolina += amount;
-              monthData.generalExpenses += amount;
-            } else {
-              // Otros gastos
-              switch (transaction.expenseSource) {
-                case 'NOMINA_SALARY':
-                  monthData.nominaInterna += amount;
-                  monthData.nomina += amount;
-                  monthData.operationalExpenses += amount;
-                  break;
-                case 'EXTERNAL_SALARY':
-                  monthData.salarioExterno += amount;
-                  monthData.nomina += amount;
-                  monthData.operationalExpenses += amount;
-                  break;
-                case 'VIATIC':
-                  monthData.viaticos += amount;
-                  monthData.nomina += amount;
-                  monthData.operationalExpenses += amount;
-                  break;
-                case 'TRAVEL_EXPENSES':
-                  monthData.travelExpenses += amount;
-                  monthData.operationalExpenses += amount;
-                  break;
-                case 'LOAN_PAYMENT_COMISSION':
-                case 'LOAN_GRANTED_COMISSION':
-                case 'LEAD_COMISSION':
-                  monthData.comissions += amount;
-                  monthData.operationalExpenses += amount;
-                  break;
-                case 'LOAN_GRANTED':
-                  monthData.loanDisbursements += amount;
-                  break;
-                default:
-                  monthData.generalExpenses += amount;
-                  monthData.operationalExpenses += amount;
-                  break;
-              }
-            }
-            
-            monthData.totalExpenses += amount;
-            monthData.totalCash -= amount;
-            monthData.operationalCashUsed += amount;
-            
-            if (transaction.expenseSource !== 'LOAN_GRANTED') {
-              monthData.totalInvestment += amount;
-            }
-          } else if (transaction.type === 'INCOME') {
-            if (transaction.incomeSource === 'CASH_LOAN_PAYMENT' || 
-                transaction.incomeSource === 'BANK_LOAN_PAYMENT') {
-              monthData.totalIncomingCash += amount;
-              const profit = Number(transaction.profitAmount || 0);
-              monthData.profitReturn += profit;
-              monthData.incomes += profit;
-              monthData.capitalReturn += (amount - profit);
-              monthData.paymentsCount += 1;
-            } else {
-              monthData.incomes += amount;
-              monthData.totalIncomingCash += amount;
-              monthData.profitReturn += amount;
-            }
-            monthData.totalCash += amount;
-          }
-        }
-  
-        // 5. Calcular cartera y métricas de préstamos por mes (optimizado)
-        let cumulativeCashBalance = 0;
-        
-        for (let month = 1; month <= 12; month++) {
-          const monthKey = month.toString().padStart(2, '0');
-          const monthStart = new Date(year, month - 1, 1);
-          const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
-          
-          // Flujo de caja acumulado
-          const monthCashFlow = monthlyData[monthKey].totalCash || 0;
-          cumulativeCashBalance += monthCashFlow;
-          monthlyData[monthKey].availableCash = Math.max(0, cumulativeCashBalance);
-  
-          // Contar préstamos por estado (optimizado)
-          let activeLoans = 0;
-          let overdueLoans = 0;
-          let deadLoans = 0;
-          let renewedLoans = 0;
-          let badDebtAmount = 0;
-          let carteraMuertaTotal = 0;
-  
-          for (const loan of loans) {
-            const signDate = new Date(loan.signDate);
-            
-            // Solo procesar préstamos relevantes para este mes
-            if (signDate > monthEnd) continue;
-            
-            // Verificar si está activo al final del mes
-            const isActive = !loan.finishedDate || new Date(loan.finishedDate) > monthEnd;
-            
-            if (isActive) {
-              activeLoans++;
-              
-              // Verificar si está vencido (sin pagos en el mes)
-              let hasPaymentInMonth = false;
-              for (const payment of loan.payments || []) {
-                const paymentDate = new Date(payment.receivedAt || payment.createdAt);
-                if (paymentDate >= monthStart && paymentDate <= monthEnd) {
-                  hasPaymentInMonth = true;
-                  break;
-                }
-              }
-              
-              if (!hasPaymentInMonth && loan.badDebtDate && new Date(loan.badDebtDate) <= monthEnd) {
-                overdueLoans++;
-              }
-            }
-            
-            // Contar cartera muerta
-            if (loan.badDebtDate) {
-              const badDebtDate = new Date(loan.badDebtDate);
-              
-              // Préstamos marcados como bad debt en este mes específico
-              if (badDebtDate >= monthStart && badDebtDate <= monthEnd) {
-                const amountGived = Number(loan.amountGived || 0);
-                const profitAmount = Number(loan.profitAmount || 0);
-                const totalToPay = amountGived + profitAmount;
-                
-                let totalPaid = 0;
-                for (const payment of loan.payments || []) {
-                  const paymentDate = new Date(payment.receivedAt || payment.createdAt || new Date());
-                  if (paymentDate <= badDebtDate) {
-                    totalPaid += Number(payment.amount || 0);
-                  }
-                }
-                
-                const pendingDebt = Math.max(0, totalToPay - totalPaid);
-                badDebtAmount += pendingDebt;
-              }
-              
-              // Acumulado de cartera muerta
-              if (badDebtDate <= monthEnd) {
-                deadLoans++;
-                const amountGived = Number(loan.amountGived || 0);
-                const profitAmount = Number(loan.profitAmount || 0);
-                const totalToPay = amountGived + profitAmount;
-                
-                let totalPaid = 0;
-                let gananciaCobrada = 0;
-                for (const payment of loan.payments || []) {
-                  const paymentDate = new Date(payment.receivedAt || payment.createdAt || new Date());
-                  if (paymentDate <= badDebtDate) {
-                    totalPaid += Number(payment.amount || 0);
-                    // Aproximación de ganancia cobrada
-                    gananciaCobrada += Number(payment.amount || 0) * (profitAmount / totalToPay);
-                  }
-                }
-                
-                const deudaPendiente = totalToPay - totalPaid;
-                const gananciaPendiente = profitAmount - gananciaCobrada;
-                const carteraMuerta = deudaPendiente - gananciaPendiente;
-                carteraMuertaTotal += Math.max(0, carteraMuerta);
-              }
-            }
-            
-            // Contar renovados en el mes
-            if (loan.previousLoanId && signDate >= monthStart && signDate <= monthEnd) {
-              renewedLoans++;
-            }
-          }
-  
-          monthlyData[monthKey].carteraActiva = activeLoans;
-          monthlyData[monthKey].carteraVencida = overdueLoans;
-          monthlyData[monthKey].carteraMuerta = carteraMuertaTotal;
-          monthlyData[monthKey].renovados = renewedLoans;
-          monthlyData[monthKey].badDebtAmount = badDebtAmount;
-  
-          // Recalcular métricas finales
-          const data = monthlyData[monthKey];
-          const operationalExpenses = data.generalExpenses + data.nomina + data.comissions;
-          data.totalExpenses = operationalExpenses;
-          data.balance = data.incomes - operationalExpenses;
-          data.balanceWithReinvest = data.balance - data.loanDisbursements;
-          
-          const uiExpensesTotal = operationalExpenses + data.badDebtAmount + data.travelExpenses;
-          const uiGainsTotal = data.incomes;
-          data.uiExpensesTotal = uiExpensesTotal;
-          data.uiGainsTotal = uiGainsTotal;
-          data.operationalProfit = uiGainsTotal - uiExpensesTotal;
-          data.profitPercentage = uiGainsTotal > 0 ? ((data.operationalProfit / uiGainsTotal) * 100) : 0;
-          data.gainPerPayment = data.paymentsCount > 0 ? (data.operationalProfit / data.paymentsCount) : 0;
-        }
-  
-        return {
-          routes: routes.map(route => ({
-            id: route.id,
-            name: route.name
-          })),
-          year,
-          months: [
-            'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
-            'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'
-          ],
-          data: monthlyData
-        };
-  
-      } catch (error) {
-        console.error('Error in getFinancialReport:', error);
-        throw new Error(`Error generating financial report: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
-        },
-      }),
+      getFinancialReport: getFinancialReport,
       // Query para obtener cartera por ruta
       getCartera: graphql.field({
         type: graphql.nonNull(graphql.JSON),
@@ -7810,512 +7420,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         }
       }),
-      getClientHistory: graphql.field({
-        type: graphql.nonNull(graphql.JSON),
-        args: {
-          clientId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
-          routeId: graphql.arg({ type: graphql.String }),
-          locationId: graphql.arg({ type: graphql.String }),
-        },
-        resolve: async (root, { clientId, routeId, locationId }, context: Context) => {
-          try {
-            // Obtener datos del cliente
-            const client = await context.prisma.personalData.findUnique({
-              where: { id: clientId },
-              include: {
-                phones: true,
-                addresses: {
-                  include: {
-                    location: {
-                      include: {
-                        route: true
-                      }
-                    }
-                  }
-                },
-                // Préstamos como cliente principal (a través de Borrower)
-                borrower: {
-                  include: {
-                    loans: {
-                      include: {
-                        loantype: true,
-                        lead: {
-                          include: {
-                            personalData: true,
-                            routes: true
-                          }
-                        },
-                        payments: {
-                          orderBy: { receivedAt: 'asc' },
-                          include: {
-                            transactions: true
-                          }
-                        },
-                        transactions: {
-                          where: {
-                            type: { in: ['EXPENSE', 'INCOME'] }
-                          }
-                        }
-                      },
-                      orderBy: { signDate: 'desc' }
-                    }
-                  }
-                }
-              }
-            });
-
-            if (!client) {
-              throw new Error('Cliente no encontrado');
-            }
-
-            // Obtener préstamos como cliente (a través de borrower)
-            const clientLoans = client.borrower?.loans || [];
-            
-            // Buscar préstamos como aval usando collaterals
-            const collateralLoans = await context.prisma.loan.findMany({
-              where: {
-                collaterals: {
-                  some: {
-                    fullName: {
-                      contains: client.fullName,
-                      mode: 'insensitive'
-                    }
-                  }
-                }
-              },
-              include: {
-                loantype: true,
-                lead: {
-                  include: {
-                    personalData: true,
-                    routes: true
-                  }
-                },
-                payments: {
-                  orderBy: { receivedAt: 'asc' },
-                  include: {
-                    transactions: true
-                  }
-                },
-                transactions: {
-                  where: {
-                    type: { in: ['EXPENSE', 'INCOME'] }
-                  }
-                },
-                borrower: {
-                  include: {
-                    personalData: true
-                  }
-                },
-                collaterals: {
-                  include: {
-                    phones: true,
-                    addresses: {
-                      include: {
-                        location: true
-                      }
-                    }
-                  }
-                }
-              },
-              orderBy: { signDate: 'desc' }
-            });
-
-            // Filtrar por ruta/localidad si se especifica
-            let filteredLoansAsClient = clientLoans;
-            let filteredLoansAsCollateral = collateralLoans;
-
-            if (routeId || locationId) {
-              filteredLoansAsClient = clientLoans.filter(loan => {
-                if (routeId && loan.lead?.routes?.id !== routeId) return false;
-                if (locationId) {
-                  const loanLocation = client.addresses.find(addr => addr.location?.id === locationId);
-                  if (!loanLocation) return false;
-                }
-                return true;
-              });
-
-              filteredLoansAsCollateral = collateralLoans.filter(loan => {
-                if (routeId && loan.lead?.routes?.id !== routeId) return false;
-                return true; // Por ahora no filtramos por localidad para préstamos como aval
-              });
-            }
-
-            // Función para calcular estadísticas de un préstamo
-            const calculateLoanStats = (loan: any) => {
-              const amountGiven = parseFloat(loan.amountGived?.toString() || '0');
-              const amountRequested = parseFloat(loan.requestedAmount?.toString() || '0');
-              const commission = parseFloat(loan.comissionAmount?.toString() || '0');
-              const interestRate = parseFloat(loan.loantype?.rate?.toString() || '0');
-              
-              // Calcular el monto total a pagar (capital + intereses)
-              // Nota: interestRate ya viene en formato decimal (0.4 = 40%)
-              const totalAmountDue = amountRequested + (amountRequested * interestRate);
-              
-              // Procesar pagos con balance acumulativo y fechas formateadas
-              let runningBalance = totalAmountDue;
-              const detailedPayments = loan.payments
-                .sort((a: any, b: any) => new Date(a.receivedAt).getTime() - new Date(b.receivedAt).getTime())
-                .map((payment: any, index: number) => {
-                  const paymentAmount = parseFloat(payment.amount?.toString() || '0');
-                  const balanceBeforePayment = runningBalance;
-                  runningBalance -= paymentAmount;
-                  
-                  return {
-                    id: payment.id,
-                    amount: paymentAmount,
-                    receivedAt: payment.receivedAt,
-                    receivedAtFormatted: new Date(payment.receivedAt).toLocaleDateString('es-ES', {
-                      year: 'numeric',
-                      month: '2-digit',
-                      day: '2-digit',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    }),
-                    type: payment.type || 'PAGO',
-                    paymentMethod: payment.paymentMethod || 'EFECTIVO',
-                    paymentNumber: index + 1,
-                    balanceBeforePayment: Math.max(0, balanceBeforePayment),
-                    balanceAfterPayment: Math.max(0, runningBalance)
-                  };
-                });
-
-              const totalPaid = detailedPayments.reduce((sum, payment) => sum + payment.amount, 0);
-              const pendingDebt = Math.max(0, totalAmountDue - totalPaid);
-              const isPaidOff = pendingDebt <= 0.01; // Tolerancia para errores de redondeo
-
-              // ✅ CALCULAR PERÍODOS SIN PAGO para el historial
-              const noPaymentPeriods = (() => {
-                const periods: any[] = [];
-                const start = new Date(loan.signDate);
-                // ✅ NUEVA FUNCIONALIDAD: Si el préstamo fue renovado, usar renewedDate como fecha límite (descomentado después de migración)
-                const end = loan.finishedDate ? new Date(loan.finishedDate) : new Date();
-                // const end = loan.renewedDate ? 
-                //   new Date(loan.renewedDate) : 
-                //   (loan.finishedDate ? new Date(loan.finishedDate) : new Date());
-                
-                // Obtener fechas de pago tipo 'PAYMENT' con monto > 0
-                const paymentDates = detailedPayments
-                  .filter(payment => payment.type === 'PAYMENT' && payment.amount > 0)
-                  .map(payment => new Date(payment.receivedAt))
-                  .sort((a, b) => a.getTime() - b.getTime());
-                
-                // Función para obtener el lunes de la semana
-                const getMondayOfWeek = (date: Date): Date => {
-                  const monday = new Date(date);
-                  const dayOfWeek = monday.getDay();
-                  const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-                  monday.setDate(monday.getDate() + diff);
-                  return monday;
-                };
-                
-                // Función para obtener el domingo de la semana
-                const getSundayOfWeek = (date: Date): Date => {
-                  const sunday = new Date(date);
-                  const dayOfWeek = sunday.getDay();
-                  const diff = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
-                  sunday.setDate(sunday.getDate() + diff);
-                  return sunday;
-                };
-                
-                // Generar todas las semanas desde la segunda semana después de la firma
-                const weeks: { monday: Date, sunday: Date }[] = [];
-                let currentMonday = getMondayOfWeek(start);
-                currentMonday.setDate(currentMonday.getDate() + 7); // Primera semana no se espera pago
-                
-                while (currentMonday <= end) {
-                  const sunday = getSundayOfWeek(currentMonday);
-                  weeks.push({ 
-                    monday: new Date(currentMonday), 
-                    sunday: new Date(sunday) 
-                  });
-                  currentMonday.setDate(currentMonday.getDate() + 7);
-                }
-                
-                // Encontrar semanas sin pago
-                const weeksWithoutPayment: { monday: Date, sunday: Date }[] = [];
-                for (const week of weeks) {
-                  const hasPaymentInWeek = paymentDates.some(paymentDate => 
-                    paymentDate >= week.monday && paymentDate <= week.sunday
-                  );
-                  if (!hasPaymentInWeek) {
-                    weeksWithoutPayment.push(week);
-                  }
-                }
-                
-                // Agrupar semanas consecutivas
-                if (weeksWithoutPayment.length > 0) {
-                  let periodStart = weeksWithoutPayment[0];
-                  let periodEnd = weeksWithoutPayment[0];
-                  let weekCount = 1;
-                  
-                  for (let i = 1; i < weeksWithoutPayment.length; i++) {
-                    const currentWeek = weeksWithoutPayment[i];
-                    const previousWeek = weeksWithoutPayment[i - 1];
-                    const daysBetween = (currentWeek.monday.getTime() - previousWeek.monday.getTime()) / (1000 * 60 * 60 * 24);
-                    
-                    if (daysBetween === 7) {
-                      periodEnd = currentWeek;
-                      weekCount++;
-                    } else {
-                      periods.push({
-                        id: `no-payment-${periodStart.monday.getTime()}`,
-                        startDate: periodStart.monday.toISOString(),
-                        endDate: periodEnd.sunday.toISOString(),
-                        startDateFormatted: periodStart.monday.toLocaleDateString('es-ES', {
-                          year: 'numeric',
-                          month: '2-digit',
-                          day: '2-digit'
-                        }),
-                        endDateFormatted: periodEnd.sunday.toLocaleDateString('es-ES', {
-                          year: 'numeric',
-                          month: '2-digit',
-                          day: '2-digit'
-                        }),
-                        weekCount,
-                        type: 'NO_PAYMENT_PERIOD'
-                      });
-                      
-                      periodStart = currentWeek;
-                      periodEnd = currentWeek;
-                      weekCount = 1;
-                    }
-                  }
-                  
-                  // Agregar último período
-                  periods.push({
-                    id: `no-payment-${periodStart.monday.getTime()}`,
-                    startDate: periodStart.monday.toISOString(),
-                    endDate: periodEnd.sunday.toISOString(),
-                    startDateFormatted: periodStart.monday.toLocaleDateString('es-ES', {
-                      year: 'numeric',
-                      month: '2-digit',
-                      day: '2-digit'
-                    }),
-                    endDateFormatted: periodEnd.sunday.toLocaleDateString('es-ES', {
-                      year: 'numeric',
-                      month: '2-digit',
-                      day: '2-digit'
-                    }),
-                    weekCount,
-                    type: 'NO_PAYMENT_PERIOD'
-                  });
-                }
-                
-                return periods;
-              })();
-              
-              // Calcular días desde la firma
-              const signDate = new Date(loan.signDate);
-              const today = new Date();
-              const daysSinceSign = Math.floor((today.getTime() - signDate.getTime()) / (1000 * 60 * 60 * 24));
-              
-              // Determinar estado más detallado
-              let loanStatus = 'ACTIVO';
-              let statusDescription = 'Préstamo en curso, pendiente de pagos';
-              
-              // Verificar si fue renovado (hay otro préstamo que tiene este como previousLoanId)
-              const wasRenewed = filteredLoansAsClient.some((l: any) => l.previousLoanId === loan.id);
-              
-              if (loan.finishedDate) {
-                if (wasRenewed) {
-                  loanStatus = 'RENOVADO';
-                  statusDescription = 'Reemplazado por un nuevo préstamo (renovación)';
-                } else {
-                  loanStatus = 'TERMINADO';
-                  statusDescription = 'Pagado completamente y finalizado';
-                }
-              } else if (isPaidOff) {
-                loanStatus = 'PAGADO';
-                statusDescription = 'Monto completo pagado, pendiente de marcar como finalizado';
-              } else if (loan.badDebtDate && new Date(loan.badDebtDate) <= today) {
-                loanStatus = 'CARTERA MUERTA';
-                statusDescription = 'Marcado como cartera muerta - irrecuperable';
-              } else {
-                // Verificar si está dentro del plazo esperado
-                const expectedWeeks = parseInt(loan.loantype?.weekDuration || '12');
-                const expectedEndDate = new Date(signDate);
-                expectedEndDate.setDate(expectedEndDate.getDate() + (expectedWeeks * 7));
-                
-                if (today > expectedEndDate) {
-                  loanStatus = 'VENCIDO';
-                  statusDescription = `Fuera del plazo esperado (${expectedWeeks} semanas)`;
-                } else {
-                  const daysLeft = Math.ceil((expectedEndDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                  statusDescription = `Préstamo activo - ${daysLeft} días restantes del plazo`;
-                }
-              }
-
-              return {
-                id: loan.id,
-                signDate: loan.signDate,
-                signDateFormatted: signDate.toLocaleDateString('es-ES', {
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric'
-                }),
-                finishedDate: loan.finishedDate,
-                finishedDateFormatted: loan.finishedDate ? 
-                  new Date(loan.finishedDate).toLocaleDateString('es-ES', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                  }) : null,
-                loanType: loan.loantype?.name || 'N/A',
-                amountRequested,
-                totalAmountDue,
-                interestAmount: totalAmountDue - amountRequested,
-                commission,
-                totalPaid,
-                pendingDebt,
-                daysSinceSign,
-                status: loanStatus,
-                statusDescription,
-                wasRenewed,
-                weekDuration: loan.loantype?.weekDuration || 0,
-                rate: loan.loantype?.rate || 0,
-                leadName: loan.lead?.personalData?.fullName || 'N/A',
-                routeName: loan.lead?.routes?.name || 'N/A',
-                paymentsCount: detailedPayments.length,
-                payments: detailedPayments,
-                noPaymentPeriods: noPaymentPeriods,
-                renewedFrom: loan.previousLoanId,
-                renewedTo: null, // Se calculará después
-                avalName: loan.avalName || null,
-                avalPhone: loan.avalPhone || null
-              };
-            };
-
-            // Procesar préstamos como cliente
-            const loansAsClient = filteredLoansAsClient.map(calculateLoanStats);
-
-            // Calcular relaciones renewedTo después de procesar todos los préstamos
-            loansAsClient.forEach(loan => {
-              const renewedLoan = loansAsClient.find(l => l.renewedFrom === loan.id);
-              if (renewedLoan) {
-                loan.renewedTo = renewedLoan.id;
-              }
-            });
-
-            // Procesar préstamos como aval
-            const loansAsCollateral = filteredLoansAsCollateral.map((loan: any) => ({
-              ...calculateLoanStats(loan),
-              clientName: loan.borrower?.personalData?.fullName || 'Sin nombre',
-              clientDui: 'N/A' // Campo no disponible en PersonalData
-            }));
-
-            // Calcular estadísticas generales
-            const totalLoansAsClient = loansAsClient.length;
-            const totalLoansAsCollateral = loansAsCollateral.length;
-            const activeLoansAsClient = loansAsClient.filter(loan => loan.status === 'ACTIVO').length;
-            const activeLoansAsCollateral = loansAsCollateral.filter(loan => loan.status === 'ACTIVO').length;
-            
-            const totalAmountRequestedAsClient = loansAsClient.reduce((sum, loan) => sum + loan.amountRequested, 0);
-            const totalAmountPaidAsClient = loansAsClient.reduce((sum, loan) => sum + loan.totalPaid, 0);
-            const currentPendingDebtAsClient = loansAsClient.reduce((sum, loan) => sum + (loan.status === 'ACTIVO' ? loan.pendingDebt : 0), 0);
-
-            return {
-              client: {
-                id: client.id,
-                fullName: client.fullName,
-                dui: 'N/A', // Campo no disponible en PersonalData
-                phones: client.phones.map((phone: any) => phone.number),
-                addresses: client.addresses.map((address: any) => ({
-                  street: address.street,
-                  city: address.city,
-                  location: address.location?.name,
-                  route: address.location?.route?.name
-                }))
-              },
-              summary: {
-                totalLoansAsClient,
-                totalLoansAsCollateral,
-                activeLoansAsClient,
-                activeLoansAsCollateral,
-                totalAmountRequestedAsClient,
-                totalAmountPaidAsClient,
-                currentPendingDebtAsClient,
-                hasBeenClient: totalLoansAsClient > 0,
-                hasBeenCollateral: totalLoansAsCollateral > 0
-              },
-              loansAsClient,
-              loansAsCollateral
-            };
-
-          } catch (error) {
-            console.error('Error en getClientHistory:', error);
-            throw new Error(`Error al obtener historial del cliente: ${error instanceof Error ? error.message : 'Unknown error'}`);
-          }
-        }
-      }),
-
-      // Query para obtener registros de limpieza de cartera
-      getPortfolioCleanups: graphql.field({
-        type: graphql.nonNull(graphql.JSON),
-        args: {
-          routeId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
-          year: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
-          month: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
-        },
-        resolve: async (root, { routeId, year, month }, context: Context) => {
-          try {
-            const monthStart = new Date(year, month - 1, 1);
-            const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
- 
-            const cleanups = await (context.prisma as any).portfolioCleanup.findMany({
-              where: {
-                routeId: routeId,
-                cleanupDate: {
-                  gte: monthStart,
-                  lte: monthEnd
-                }
-              },
-              include: {
-                route: true,
-                executedBy: true
-              },
-              orderBy: {
-                cleanupDate: 'desc'
-              }
-            });
- 
-            return {
-              cleanups: cleanups.map((cleanup: any) => ({
-                id: cleanup.id,
-                name: cleanup.name,
-                description: cleanup.description,
-                cleanupDate: cleanup.cleanupDate,
-                fromDate: cleanup.fromDate,
-                toDate: cleanup.toDate,
-                routeName: cleanup.route?.name,
-                executedByName: cleanup.executedBy?.name
-              }))
-            };
- 
-          } catch (error) {
-            console.error('Error en getPortfolioCleanups:', error);
-            throw new Error(`Error al obtener registros de limpieza de cartera: ${error instanceof Error ? error.message : 'Unknown error'}`);
-          }
-        }
-      }),
-
-      // Extensiones para Telegram
-      debugTelegram: graphql.field({
-        type: graphql.nonNull(graphql.String),
-        resolve: async () => {
-          console.log('🔍 Debugging de Telegram solicitado via GraphQL');
-          return 'Debugging de Telegram completado - Revisa la consola del servidor';
-        }
-      }),
-
-      telegramStatus: graphql.field({
-        type: graphql.nonNull(graphql.String),
-        resolve: async () => {
-          console.log('📡 Estado de Telegram solicitado via GraphQL');
-          return 'Estado de Telegram verificado - Revisa la consola del servidor';
-        }
-      }),
-
       // ✅ FUNCIONALIDAD SIMPLIFICADA: Cartera muerta
       loansForDeadDebt: graphql.field({
         type: graphql.nonNull(graphql.String),
@@ -8878,7 +7982,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         }
       }),
-
       // Mutation simple para enviar reporte ahora
       sendReportNow: graphql.field({
         type: graphql.nonNull(graphql.String),
@@ -9217,7 +8320,6 @@ async function generateCreditsWithDocumentErrorsReport(doc: any, context: Contex
     doc.fontSize(12).text(`❌ Error generando reporte: ${error instanceof Error ? error.message : 'Unknown error'}`, { align: 'center' });
   }
 }
-
 // ✅ NUEVA FUNCIÓN MEJORADA PARA GENERAR CONTENIDO DEL REPORTE DIRECTAMENTE EN EL DOCUMENTO
 async function generateCreditsWithDocumentErrorsReportContent(doc: any, context: Context, routeIds: string[] = []) {
   try {
@@ -10089,7 +9191,6 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
   
   console.log(`Tabla completada con ${recordCount} registros`);
 }
-
 // ✅ FUNCIÓN PARA AGREGAR HEADER CON LOGO DE LA EMPRESA
 async function addCompanyHeader(doc: any) {
   try {

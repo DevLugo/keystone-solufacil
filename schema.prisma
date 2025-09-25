@@ -459,6 +459,16 @@ model TelegramUser {
   @@index([platformUserId])
 }
 
+model FinancialReportCache {
+  id          String    @id @default(cuid())
+  routeIdsKey String    @default("")
+  year        Int
+  month       Int
+  data        Json?     @default("{}")
+  createdAt   DateTime? @default(now())
+  updatedAt   DateTime? @default(now())
+}
+
 enum DocumentPhotoDocumentTypeType {
   INE
   DOMICILIO

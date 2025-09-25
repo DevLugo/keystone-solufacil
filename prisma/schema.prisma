@@ -506,3 +506,17 @@ model ReportConfig {
 
   @@map("reportConfigs")
 }
+
+/// Cache para resultados del reporte financiero mensual por rutas y año
+model FinancialReportCache {
+  id           String   @id @default(cuid())
+  routeIdsKey  String   // hash o join estable de routeIds
+  year         Int
+  month        Int      // 1-12
+  data         Json     // blob del mes cacheado
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([routeIdsKey, year, month], name: "financial_report_cache_unique_key")
+  @@map("financial_report_cache")
+}

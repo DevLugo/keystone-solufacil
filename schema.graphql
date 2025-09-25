@@ -2642,6 +2642,75 @@ input TelegramUserCreateInput {
   platformUser: UserRelateToOneForCreateInput
 }
 
+type FinancialReportCache {
+  id: ID!
+  routeIdsKey: String
+  year: Int
+  month: Int
+  data: JSON
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input FinancialReportCacheWhereUniqueInput {
+  id: ID
+}
+
+input FinancialReportCacheWhereInput {
+  AND: [FinancialReportCacheWhereInput!]
+  OR: [FinancialReportCacheWhereInput!]
+  NOT: [FinancialReportCacheWhereInput!]
+  id: IDFilter
+  routeIdsKey: StringFilter
+  year: IntFilter
+  month: IntFilter
+  createdAt: DateTimeNullableFilter
+  updatedAt: DateTimeNullableFilter
+}
+
+input IntFilter {
+  equals: Int
+  in: [Int!]
+  notIn: [Int!]
+  lt: Int
+  lte: Int
+  gt: Int
+  gte: Int
+  not: IntFilter
+}
+
+input FinancialReportCacheOrderByInput {
+  id: OrderDirection
+  routeIdsKey: OrderDirection
+  year: OrderDirection
+  month: OrderDirection
+  createdAt: OrderDirection
+  updatedAt: OrderDirection
+}
+
+input FinancialReportCacheUpdateInput {
+  routeIdsKey: String
+  year: Int
+  month: Int
+  data: JSON
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input FinancialReportCacheUpdateArgs {
+  where: FinancialReportCacheWhereUniqueInput!
+  data: FinancialReportCacheUpdateInput!
+}
+
+input FinancialReportCacheCreateInput {
+  routeIdsKey: String
+  year: Int
+  month: Int
+  data: JSON
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
 """
 The `JSON` scalar type represents JSON values as specified by [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf).
 """
@@ -2798,6 +2867,12 @@ type Mutation {
   updateTelegramUsers(data: [TelegramUserUpdateArgs!]!): [TelegramUser]
   deleteTelegramUser(where: TelegramUserWhereUniqueInput!): TelegramUser
   deleteTelegramUsers(where: [TelegramUserWhereUniqueInput!]!): [TelegramUser]
+  createFinancialReportCache(data: FinancialReportCacheCreateInput!): FinancialReportCache
+  createFinancialReportCaches(data: [FinancialReportCacheCreateInput!]!): [FinancialReportCache]
+  updateFinancialReportCache(where: FinancialReportCacheWhereUniqueInput!, data: FinancialReportCacheUpdateInput!): FinancialReportCache
+  updateFinancialReportCaches(data: [FinancialReportCacheUpdateArgs!]!): [FinancialReportCache]
+  deleteFinancialReportCache(where: FinancialReportCacheWhereUniqueInput!): FinancialReportCache
+  deleteFinancialReportCaches(where: [FinancialReportCacheWhereUniqueInput!]!): [FinancialReportCache]
   endSession: Boolean!
   authenticateUserWithPassword(email: String!, password: String!): UserAuthenticationWithPasswordResult
   createInitialUser(data: CreateInitialUserInput!): UserAuthenticationWithPasswordSuccess!
@@ -2986,6 +3061,9 @@ type Query {
   telegramUser(where: TelegramUserWhereUniqueInput!): TelegramUser
   telegramUsers(where: TelegramUserWhereInput! = {}, orderBy: [TelegramUserOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TelegramUserWhereUniqueInput): [TelegramUser!]
   telegramUsersCount(where: TelegramUserWhereInput! = {}): Int
+  financialReportCache(where: FinancialReportCacheWhereUniqueInput!): FinancialReportCache
+  financialReportCaches(where: FinancialReportCacheWhereInput! = {}, orderBy: [FinancialReportCacheOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: FinancialReportCacheWhereUniqueInput): [FinancialReportCache!]
+  financialReportCachesCount(where: FinancialReportCacheWhereInput! = {}): Int
   keystone: KeystoneMeta!
   authenticatedItem: AuthenticatedItem
   previewBulkPortfolioCleanup(routeId: String!, fromDate: String!, toDate: String!, weeksWithoutPaymentThreshold: Int): JSON!
@@ -2996,14 +3074,10 @@ type Query {
   getActiveLoansReport(routeId: String!, year: Int!, month: Int!, useActiveWeeks: Boolean!): JSON!
   getActiveClientsForLocality(routeId: String!, localityName: String!, year: Int!, month: Int!, weekEndDate: String): JSON!
   getRouteStats(routeId: String!): JSON!
-  getFinancialReport(routeIds: [String!]!, year: Int!): JSON!
+  getFinancialReport(routeIds: [String!]!, year: Int!, clearCache: Boolean): JSON!
   getCartera(routeId: String!, weeksWithoutPayment: Int!, includeBadDebt: Boolean!, analysisMonth: String, analysisYear: Int, includeOverdue: Boolean!, includeOverdrawn: Boolean!): JSON!
   adjustAccountBalance(accountId: String!, targetAmount: Float!, counterAccountId: String, description: String): JSON!
   searchClients(searchTerm: String!, routeId: String, locationId: String, limit: Int = 20): [JSON!]!
-  getClientHistory(clientId: String!, routeId: String, locationId: String): JSON!
-  getPortfolioCleanups(routeId: String!, year: Int!, month: Int!): JSON!
-  debugTelegram: String!
-  telegramStatus: String!
   loansForDeadDebt(weeksSinceLoan: Int!, weeksWithoutPayment: Int!): String!
   deadDebtSummary(weeksSinceLoan: Int!, weeksWithoutPayment: Int!): String!
 }

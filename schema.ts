@@ -2437,6 +2437,21 @@ export const ReportConfig = list({
   
 });
 
+// Cache para resultados del reporte financiero mensual por rutas y año
+export const FinancialReportCache = list({
+  access: allowAll,
+  ui: { isHidden: true },
+  graphql: { plural: 'FinancialReportCaches' },
+  fields: {
+    routeIdsKey: text({ validation: { isRequired: true } }),
+    year: integer({ validation: { isRequired: true } }),
+    month: integer({ validation: { isRequired: true } }), // 1-12
+    data: json({ defaultValue: {} }),
+    createdAt: timestamp({ defaultValue: { kind: 'now' } }),
+    updatedAt: timestamp({ defaultValue: { kind: 'now' } }),
+  },
+});
+
 // Modelo para usuarios de Telegram
 export const TelegramUser = list({
   access: allowAll,
@@ -2495,4 +2510,5 @@ export const lists = {
   DocumentPhoto,
   ReportConfig,
   TelegramUser,
+  FinancialReportCache,
 };
