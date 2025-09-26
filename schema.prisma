@@ -230,7 +230,7 @@ model Transaction {
   incomeSource          String?
   expenseSource         String?
   description           String               @default("")
-  expenseGroupId        String               @default("")
+  expenseGroupId        String?
   route                 Route?               @relation("Transaction_route", fields: [routeId], references: [id])
   routeId               String?              @map("route")
   lead                  Employee?            @relation("Transaction_lead", fields: [leadId], references: [id])

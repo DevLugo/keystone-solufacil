@@ -1569,7 +1569,7 @@ input TransactionWhereInput {
   incomeSource: StringNullableFilter
   expenseSource: StringNullableFilter
   description: StringFilter
-  expenseGroupId: StringFilter
+  expenseGroupId: StringNullableFilter
   route: RouteWhereInput
   lead: EmployeeWhereInput
   snapshotLeadId: StringFilter
