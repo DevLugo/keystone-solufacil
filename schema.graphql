@@ -1538,6 +1538,7 @@ type Transaction {
   incomeSource: String
   expenseSource: String
   description: String
+  expenseGroupId: String
   route: Route
   lead: Employee
   snapshotLeadId: String
@@ -1568,6 +1569,7 @@ input TransactionWhereInput {
   incomeSource: StringNullableFilter
   expenseSource: StringNullableFilter
   description: StringFilter
+  expenseGroupId: StringFilter
   route: RouteWhereInput
   lead: EmployeeWhereInput
   snapshotLeadId: StringFilter
@@ -1591,6 +1593,7 @@ input TransactionOrderByInput {
   incomeSource: OrderDirection
   expenseSource: OrderDirection
   description: OrderDirection
+  expenseGroupId: OrderDirection
   snapshotLeadId: OrderDirection
   snapshotRouteId: OrderDirection
   profitAmount: OrderDirection
@@ -1606,6 +1609,7 @@ input TransactionUpdateInput {
   incomeSource: String
   expenseSource: String
   description: String
+  expenseGroupId: String
   route: RouteRelateToOneForUpdateInput
   lead: EmployeeRelateToOneForUpdateInput
   snapshotLeadId: String
@@ -1645,6 +1649,7 @@ input TransactionCreateInput {
   incomeSource: String
   expenseSource: String
   description: String
+  expenseGroupId: String
   route: RouteRelateToOneForCreateInput
   lead: EmployeeRelateToOneForCreateInput
   snapshotLeadId: String

@@ -277,6 +277,8 @@ model Transaction {
   incomeSource String?
   expenseSource String?
   description String?
+  /// Identificador para agrupar transacciones que pertenecen al mismo gasto distribuido
+  expenseGroupId String?
   route     Route?
   lead      Employee?
   snapshotLeadId String?

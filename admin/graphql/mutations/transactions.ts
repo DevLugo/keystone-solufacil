@@ -9,6 +9,10 @@ export const CREATE_TRANSACTION = gql`
       expenseSource
       description
       date
+      expenseGroupId
+      route {
+        id
+      }
       sourceAccount {
         id
         amount
@@ -43,5 +47,10 @@ export const UPDATE_TRANSACTION = gql`
         }
       }
     }
+  }
+`;
+export const DELETE_TRANSACTION = gql`
+  mutation DeleteTransaction($id: ID!) {
+    deleteTransaction(where: { id: $id }) { id }
   }
 `;

@@ -6809,7 +6809,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
     },
     resolve: async (root, { routeIds, year }, context: Context) => {
       try {
-        // Obtener información de las rutas
+        // Configurar timeout para evitar bloqueos en producción
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Reporte financiero timeout - demasiados datos')), 30000); // 30 segundos
+        });
+        
+        const reportPromise = (async () => {
+          // Obtener información de las rutas
         const routes = await context.prisma.route.findMany({
           where: { id: { in: routeIds } },
           select: { id: true, name: true }
@@ -6843,32 +6849,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         });
   
-        // 2. Obtener préstamos relevantes en una sola consulta optimizada
+        // 2. Obtener préstamos relevantes con consulta optimizada
         const loans = await context.prisma.loan.findMany({
           where: {
             lead: {
               routes: { id: { in: routeIds } }
             },
+            signDate: { lt: yearEnd }, // Solo préstamos que empezaron antes del final del año
             OR: [
-              // Préstamos firmados en el año
-              {
-                signDate: {
-                  gte: yearStart,
-                  lte: yearEnd
-                }
-              },
-              // Préstamos activos durante el año (sin fecha de finalización o finalizado después del inicio del año)
-              {
-                AND: [
-                  { signDate: { lt: yearEnd } },
-                  {
-                    OR: [
-                      { finishedDate: null },
-                      { finishedDate: { gte: yearStart } }
-                    ]
-                  }
-                ]
-              }
+              { finishedDate: null }, // Préstamos activos
+              { finishedDate: { gte: yearStart } } // Préstamos que terminaron durante o después del año
             ]
           },
           select: {
@@ -6880,6 +6870,12 @@ export const extendGraphqlSchema = graphql.extend(base => {
             profitAmount: true,
             previousLoanId: true,
             payments: {
+              where: {
+                OR: [
+                  { receivedAt: { gte: yearStart, lte: yearEnd } },
+                  { createdAt: { gte: yearStart, lte: yearEnd } }
+                ]
+              },
               select: {
                 amount: true,
                 receivedAt: true,
@@ -7034,7 +7030,45 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         }
   
-        // 5. Calcular cartera y métricas de préstamos por mes (optimizado)
+        // 5. Preprocesar datos de préstamos para optimizar cálculos mensuales
+        const loanMetrics = loans.map(loan => {
+          const signDate = new Date(loan.signDate);
+          const finishedDate = loan.finishedDate ? new Date(loan.finishedDate) : null;
+          const badDebtDate = loan.badDebtDate ? new Date(loan.badDebtDate) : null;
+          const amountGived = Number(loan.amountGived || 0);
+          const profitAmount = Number(loan.profitAmount || 0);
+          const totalToPay = amountGived + profitAmount;
+          
+          // Precalcular pagos por fecha y crear índices para búsquedas rápidas
+          const paymentsByDate = (loan.payments || []).map(payment => ({
+            amount: Number(payment.amount || 0),
+            date: new Date(payment.receivedAt || payment.createdAt || new Date())
+          })).sort((a, b) => a.date.getTime() - b.date.getTime());
+          
+          // Crear mapa de pagos por mes para acceso O(1)
+          const paymentsByMonth = new Map();
+          paymentsByDate.forEach(payment => {
+            const month = payment.date.getMonth() + 1;
+            if (!paymentsByMonth.has(month)) {
+              paymentsByMonth.set(month, []);
+            }
+            paymentsByMonth.get(month).push(payment);
+          });
+          
+          return {
+            signDate,
+            finishedDate,
+            badDebtDate,
+            amountGived,
+            profitAmount,
+            totalToPay,
+            previousLoanId: loan.previousLoanId,
+            paymentsByDate,
+            paymentsByMonth
+          };
+        });
+
+        // 6. Calcular cartera y métricas de préstamos por mes (altamente optimizado)
         let cumulativeCashBalance = 0;
         
         for (let month = 1; month <= 12; month++) {
@@ -7046,95 +7080,79 @@ export const extendGraphqlSchema = graphql.extend(base => {
           const monthCashFlow = monthlyData[monthKey].totalCash || 0;
           cumulativeCashBalance += monthCashFlow;
           monthlyData[monthKey].availableCash = Math.max(0, cumulativeCashBalance);
-  
-          // Contar préstamos por estado (optimizado)
+
+          // Contar préstamos por estado (optimizado con preprocesamiento)
           let activeLoans = 0;
           let overdueLoans = 0;
           let deadLoans = 0;
           let renewedLoans = 0;
           let badDebtAmount = 0;
           let carteraMuertaTotal = 0;
-  
-          for (const loan of loans) {
-            const signDate = new Date(loan.signDate);
-            
+
+          for (const loan of loanMetrics) {
             // Solo procesar préstamos relevantes para este mes
-            if (signDate > monthEnd) continue;
+            if (loan.signDate > monthEnd) continue;
             
             // Verificar si está activo al final del mes
-            const isActive = !loan.finishedDate || new Date(loan.finishedDate) > monthEnd;
+            const isActive = !loan.finishedDate || loan.finishedDate > monthEnd;
             
             if (isActive) {
               activeLoans++;
               
-              // Verificar si está vencido (sin pagos en el mes)
-              let hasPaymentInMonth = false;
-              for (const payment of loan.payments || []) {
-                const paymentDate = new Date(payment.receivedAt || payment.createdAt);
-                if (paymentDate >= monthStart && paymentDate <= monthEnd) {
-                  hasPaymentInMonth = true;
-                  break;
-                }
-              }
+              // Verificar si está vencido (sin pagos en el mes) - optimizado con mapa
+              const hasPaymentInMonth = loan.paymentsByMonth.has(month);
               
-              if (!hasPaymentInMonth && loan.badDebtDate && new Date(loan.badDebtDate) <= monthEnd) {
+              if (!hasPaymentInMonth && loan.badDebtDate && loan.badDebtDate <= monthEnd) {
                 overdueLoans++;
               }
             }
             
             // Contar cartera muerta
             if (loan.badDebtDate) {
-              const badDebtDate = new Date(loan.badDebtDate);
-              
               // Préstamos marcados como bad debt en este mes específico
-              if (badDebtDate >= monthStart && badDebtDate <= monthEnd) {
-                const amountGived = Number(loan.amountGived || 0);
-                const profitAmount = Number(loan.profitAmount || 0);
-                const totalToPay = amountGived + profitAmount;
-                
+              if (loan.badDebtDate >= monthStart && loan.badDebtDate <= monthEnd) {
                 let totalPaid = 0;
-                for (const payment of loan.payments || []) {
-                  const paymentDate = new Date(payment.receivedAt || payment.createdAt || new Date());
-                  if (paymentDate <= badDebtDate) {
-                    totalPaid += Number(payment.amount || 0);
+                for (const payment of loan.paymentsByDate) {
+                  if (payment.date <= loan.badDebtDate) {
+                    totalPaid += payment.amount;
+                  } else {
+                    break; // Los pagos están ordenados por fecha
                   }
                 }
                 
-                const pendingDebt = Math.max(0, totalToPay - totalPaid);
+                const pendingDebt = Math.max(0, loan.totalToPay - totalPaid);
                 badDebtAmount += pendingDebt;
               }
               
               // Acumulado de cartera muerta
-              if (badDebtDate <= monthEnd) {
+              if (loan.badDebtDate <= monthEnd) {
                 deadLoans++;
-                const amountGived = Number(loan.amountGived || 0);
-                const profitAmount = Number(loan.profitAmount || 0);
-                const totalToPay = amountGived + profitAmount;
                 
                 let totalPaid = 0;
                 let gananciaCobrada = 0;
-                for (const payment of loan.payments || []) {
-                  const paymentDate = new Date(payment.receivedAt || payment.createdAt || new Date());
-                  if (paymentDate <= badDebtDate) {
-                    totalPaid += Number(payment.amount || 0);
+                for (const payment of loan.paymentsByDate) {
+                  if (payment.date <= loan.badDebtDate) {
+                    totalPaid += payment.amount;
                     // Aproximación de ganancia cobrada
-                    gananciaCobrada += Number(payment.amount || 0) * (profitAmount / totalToPay);
+                    gananciaCobrada += payment.amount * (loan.profitAmount / loan.totalToPay);
+                  } else {
+                    break; // Los pagos están ordenados por fecha
                   }
                 }
                 
-                const deudaPendiente = totalToPay - totalPaid;
-                const gananciaPendiente = profitAmount - gananciaCobrada;
+                const deudaPendiente = loan.totalToPay - totalPaid;
+                const gananciaPendiente = loan.profitAmount - gananciaCobrada;
                 const carteraMuerta = deudaPendiente - gananciaPendiente;
                 carteraMuertaTotal += Math.max(0, carteraMuerta);
               }
             }
             
             // Contar renovados en el mes
-            if (loan.previousLoanId && signDate >= monthStart && signDate <= monthEnd) {
+            if (loan.previousLoanId && loan.signDate >= monthStart && loan.signDate <= monthEnd) {
               renewedLoans++;
             }
           }
-  
+
           monthlyData[monthKey].carteraActiva = activeLoans;
           monthlyData[monthKey].carteraVencida = overdueLoans;
           monthlyData[monthKey].carteraMuerta = carteraMuertaTotal;
@@ -7157,25 +7175,27 @@ export const extendGraphqlSchema = graphql.extend(base => {
           data.gainPerPayment = data.paymentsCount > 0 ? (data.operationalProfit / data.paymentsCount) : 0;
         }
   
-        return {
-          routes: routes.map(route => ({
-            id: route.id,
-            name: route.name
-          })),
-          year,
-          months: [
-            'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
-            'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'
-          ],
-          data: monthlyData
-        };
-  
+          return {
+            routes: routes.map(route => ({
+              id: route.id,
+              name: route.name
+            })),
+            year,
+            months: [
+              'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
+              'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'
+            ],
+            data: monthlyData
+          };
+        })();
+        
+        return Promise.race([reportPromise, timeoutPromise]);
       } catch (error) {
         console.error('Error in getFinancialReport:', error);
         throw new Error(`Error generating financial report: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
-        },
-      }),
+    },
+  }),
       // Query para obtener cartera por ruta
       getCartera: graphql.field({
         type: graphql.nonNull(graphql.JSON),

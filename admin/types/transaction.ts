@@ -7,6 +7,10 @@ export interface Account {
   name?: string;
   type: 'BANK' | 'OFFICE_CASH_FUND' | 'EMPLOYEE_CASH_FUND' | 'PREPAID_GAS';
   amount?: number;
+  routes?: Array<{
+    id: string;
+    name: string;
+  }>;
 }
 
 export interface Route {
@@ -41,6 +45,8 @@ export interface Transaction {
   description?: string;
   date: string;
   sourceAccount: Account;
+  expenseGroupId?: string;
+  route?: { id: string };
   lead?: {
     id: string;
     personalData?: {
@@ -55,6 +61,9 @@ export interface TransactionCreateInput {
   expenseSource: string;
   description?: string;
   date: string;
+  expenseGroupId?: string;
+  isDistributed?: boolean; // Nuevo campo para indicar si es distribuido
+  selectedRouteIds?: string[]; // Rutas seleccionadas para distribución
   sourceAccount: {
     connect: {
       id: string;

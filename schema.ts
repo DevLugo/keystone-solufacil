@@ -1723,6 +1723,8 @@ export const Transaction = list({
       ],
     }),
     description: text(),
+    // Identificador de grupo para gastos distribuidos entre varias rutas
+    expenseGroupId: text({ ui: { description: 'Agrupa transacciones del mismo gasto distribuido' } }),
     route: relationship({ ref: 'Route.transactions' }),
     lead: relationship({ ref: 'Employee.transactions' }),
     snapshotLeadId: text(),
