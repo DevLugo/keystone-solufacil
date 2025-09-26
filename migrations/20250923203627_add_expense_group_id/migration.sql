@@ -1,2 +1,2 @@
 -- AlterTable
-ALTER TABLE "transactions" ADD COLUMN "expenseGroupId" TEXT;
+ALTER TABLE "Transaction" ADD COLUMN "expenseGroupId" TEXT;
