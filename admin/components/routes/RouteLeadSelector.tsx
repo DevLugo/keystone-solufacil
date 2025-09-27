@@ -313,10 +313,12 @@ const processRouteStats = (route: RouteSimple) => {
       });
     });
     
-    // Ordenar para que EMPLOYEE_CASH_FUND aparezca primero
+    // Ordenar para que EMPLOYEE_CASH_FUND aparezca primero y BANK segundo
     accounts.sort((a, b) => {
       if (a.type === 'EMPLOYEE_CASH_FUND') return -1;
       if (b.type === 'EMPLOYEE_CASH_FUND') return 1;
+      if (a.type === 'BANK') return -1;
+      if (b.type === 'BANK') return 1;
       return 0;
     });
   }
@@ -602,10 +604,13 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
             <Box css={styles.accountsContainer}>
               {routeSummary.accounts.map((account) => {
                 const isCashFund = account.type === 'EMPLOYEE_CASH_FUND';
+                const isBank = account.type === 'BANK';
+                const isSpecialAccount = isCashFund || isBank;
+                
                 return (
-                  <div key={account.id} css={isCashFund ? styles.summaryCardCashFund : styles.summaryCard}>
-                    <span css={isCashFund ? styles.cardLabelCashFund : styles.cardLabel}>{account.name}</span>
-                    <span css={isCashFund ? styles.cardValueCashFund : styles.cardValue}>
+                  <div key={account.id} css={isSpecialAccount ? styles.summaryCardCashFund : styles.summaryCard}>
+                    <span css={isSpecialAccount ? styles.cardLabelCashFund : styles.cardLabel}>{account.name}</span>
+                    <span css={isSpecialAccount ? styles.cardValueCashFund : styles.cardValue}>
                       {isRefreshingAmounts ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                           <span>...</span>
@@ -614,7 +619,7 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
                         formatCurrency(account.amount)
                       )}
                     </span>
-                    {isCashFund && (
+                    {isSpecialAccount && (
                       <div style={{
                         position: 'absolute',
                         top: '-2px',

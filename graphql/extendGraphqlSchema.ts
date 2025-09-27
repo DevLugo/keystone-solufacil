@@ -1108,10 +1108,17 @@ export const extendGraphqlSchema = graphql.extend(base => {
               // con el cálculo del cambio neto que incluye las transferencias
 
               // 🆕 NUEVA LÓGICA: Si hay monto bancario, crear transferencia automática
-              // Solo si NO hay pagos individuales MONEY_TRANSFER (para evitar doble actualización)
+              // La líder puede decidir transferir efectivo al banco independientemente de cómo recibió los pagos
               const hasMoneyTransferPayments = createdPaymentRecords.some(p => p.paymentMethod === 'MONEY_TRANSFER');
               
-              if (bankPaidAmount > 0 && !hasMoneyTransferPayments) {
+              console.log('🔍 DEBUG - Verificando transferencia automática:', {
+                bankPaidAmount,
+                hasMoneyTransferPayments,
+                paymentMethods: createdPaymentRecords.map(p => p.paymentMethod),
+                shouldCreateTransfer: bankPaidAmount > 0
+              });
+              
+              if (bankPaidAmount > 0) {
                 console.log('🔄 Creando transferencia automática por pago mixto:', {
                   amount: bankPaidAmount,
                   from: 'EMPLOYEE_CASH_FUND',
@@ -1134,15 +1141,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   }
                 });
 
-                // Actualizar balance bancario con el monto transferido
-                const currentBankAmount = safeToNumber(bankAccount.amount);
-                await tx.account.update({
-                  where: { id: bankAccount.id },
-                  data: { amount: (currentBankAmount + bankPaidAmount).toString() }
-                });
-
-                // ✅ NOTA: La cuenta de efectivo ya se actualizó arriba con el cambio neto
-                // que incluye la resta de la parte bancaria, no es necesario actualizarla aquí
+                // ✅ NOTA: No es necesario actualizar el balance bancario aquí porque
+                // ya se actualizó arriba en las líneas 1035-1052 con netBankChange
+                // que incluye el bankPaidAmount. Actualizarlo aquí causaría doble contabilización.
 
                 console.log('✅ Transferencia automática creada exitosamente');
               }
