@@ -1,7 +1,8 @@
 /** @jsxRuntime classic */
 /** @jsx jsx */
+/** @jsxFrag React.Fragment */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { jsx, Box } from '@keystone-ui/core';
 import { gql, useQuery } from '@apollo/client';
 
@@ -37,10 +38,130 @@ const GET_TRANSACTIONS_SUMMARY = gql`
   }
 `;
 
+const GET_BANK_INCOME_TRANSACTIONS = gql`
+  query GetBankIncomeTransactions($startDate: DateTime!, $endDate: DateTime!, $routeId: ID!) {
+    transactions(where: {
+      AND: [
+        { date: { gte: $startDate, lte: $endDate } },
+        { route: { id: { equals: $routeId } } },
+        {
+          OR: [
+            { 
+              AND: [
+                { type: { equals: "TRANSFER" } },
+                { destinationAccount: { type: { equals: "BANK" } } }
+              ]
+            },
+            { 
+              AND: [
+                { type: { equals: "INCOME" } },
+                { 
+                  OR: [
+                    { incomeSource: { equals: "BANK_LOAN_PAYMENT" } },
+                    { incomeSource: { equals: "MONEY_INVESMENT" } }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }) {
+      id
+      amount
+      type
+      incomeSource
+      createdAt
+      date
+      description
+      route {
+        id
+        name
+      }
+      lead {
+        id
+        personalData {
+          fullName
+          addresses {
+            location {
+              name
+              municipality {
+                name
+                state {
+                  name
+                }
+              }
+            }
+          }
+        }
+      }
+      destinationAccount {
+        id
+        type
+      }
+      sourceAccount {
+        id
+        type
+      }
+        leadPaymentReceived {
+          id
+          lead {
+            id
+            personalData {
+              fullName
+              addresses {
+                location {
+                  name
+                  municipality {
+                    name
+                    state {
+                      name
+                    }
+                  }
+                }
+              }
+            }
+          }
+          payments {
+            id
+            amount
+            receivedAt
+            loan {
+              borrower {
+                personalData {
+                  fullName
+                }
+              }
+            }
+          }
+        }
+        loanPayment {
+          id
+          amount
+          comission
+          paymentMethod
+          receivedAt
+        }
+    }
+  }
+`;
+
 interface SummaryTabProps {
   selectedDate: Date;
   selectedRoute?: Route | null;
   refreshKey: number;
+}
+
+interface BankIncomeData {
+  id: string;
+  name: string;
+  date: string;
+  amount: number;
+  type: string;
+  locality?: string;
+  employeeName?: string;
+  leaderLocality?: string;
+  description?: string;
 }
 
 interface Route {
@@ -63,6 +184,271 @@ interface LocalitySummary {
   bankBalance: number;
   details: any[];
 }
+
+// Modal de Entradas al Banco
+const BankIncomeModal = ({ 
+  isOpen, 
+  onClose, 
+  bankIncomes, 
+  totalTransactions, 
+  totalAmount,
+  loading = false
+}: { 
+  isOpen: boolean; 
+  onClose: () => void; 
+  bankIncomes: BankIncomeData[]; 
+  totalTransactions: number; 
+  totalAmount: number; 
+  loading?: boolean;
+}) => {
+  const [copied, setCopied] = useState(false);
+
+  const formatForCopy = () => {
+    let text = `ENTRADAS AL BANCO - RESUMEN\n`;
+    text += `Total: $${totalAmount.toFixed(2)} (${totalTransactions} transacciones)\n\n`;
+
+    text += `Entradas al Banco\n`;
+    bankIncomes.forEach(income => {
+      const date = new Date(income.date).toLocaleDateString('es-MX');
+      const employee = income.employeeName ? ` (${income.employeeName}` : '';
+      const leaderLocality = income.leaderLocality ? ` - ${income.leaderLocality}` : '';
+      const employeeInfo = income.employeeName ? `${employee}${leaderLocality})` : '';
+      text += `-${income.name}${employeeInfo}, ${date}, $${income.amount.toFixed(2)}\n`;
+    });
+
+    return text;
+  };
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(formatForCopy());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Error al copiar:', err);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  console.log('🎯 Modal recibiendo datos:', { bankIncomes, totalTransactions, totalAmount });
+
+  const groupedByLocality = bankIncomes.reduce((acc: Record<string, BankIncomeData[]>, income) => {
+    const locality = income.locality || 'Sin localidad';
+    if (!acc[locality]) {
+      acc[locality] = [];
+    }
+    acc[locality].push(income);
+    return acc;
+  }, {});
+
+  return (
+    <Box css={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000
+    }}>
+      <Box css={{
+        backgroundColor: 'white',
+        borderRadius: '12px',
+        padding: '24px',
+        maxWidth: '800px',
+        maxHeight: '80vh',
+        width: '90%',
+        overflow: 'auto',
+        boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
+      }}>
+        {/* Header */}
+        <Box css={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '20px',
+          paddingBottom: '16px',
+          borderBottom: '2px solid #e5e7eb'
+        }}>
+          <Box css={{
+            fontSize: '24px',
+            fontWeight: '700',
+            color: '#1f2937'
+          }}>
+            💰 Entradas al Banco
+          </Box>
+          <Box css={{
+            display: 'flex',
+            gap: '12px',
+            alignItems: 'center'
+          }}>
+            <Box css={{
+              fontSize: '14px',
+              color: '#6b7280',
+              backgroundColor: '#f3f4f6',
+              padding: '6px 12px',
+              borderRadius: '6px'
+            }}>
+              {totalTransactions} transacciones - ${totalAmount.toFixed(2)}
+            </Box>
+            <button
+              onClick={handleCopy}
+              css={{
+                backgroundColor: copied ? '#10b981' : '#3b82f6',
+                color: 'white',
+                border: 'none',
+                padding: '8px 16px',
+                borderRadius: '6px',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                '&:hover': {
+                  backgroundColor: copied ? '#059669' : '#2563eb'
+                }
+              }}
+            >
+              {copied ? '✓ Copiado' : '📋 Copiar'}
+            </button>
+            <button
+              onClick={onClose}
+              css={{
+                backgroundColor: '#ef4444',
+                color: 'white',
+                border: 'none',
+                padding: '8px 16px',
+                borderRadius: '6px',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                '&:hover': {
+                  backgroundColor: '#dc2626'
+                }
+              }}
+            >
+              ✕ Cerrar
+            </button>
+          </Box>
+        </Box>
+
+        {/* Content */}
+        <Box css={{ maxHeight: '60vh', overflow: 'auto' }}>
+          {loading ? (
+            <Box css={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '40px',
+              color: '#6b7280'
+            }}>
+              <Box css={{
+                width: '40px',
+                height: '40px',
+                border: '4px solid #e5e7eb',
+                borderTop: '4px solid #3b82f6',
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite',
+                marginBottom: '16px'
+              }} />
+              <Box css={{
+                fontSize: '16px',
+                fontWeight: '500'
+              }}>
+                Cargando entradas al banco...
+              </Box>
+            </Box>
+          ) : (
+            <Box css={{ marginBottom: '24px' }}>
+              <Box css={{
+                fontSize: '18px',
+                fontWeight: '700',
+                color: '#374151',
+                marginBottom: '12px',
+                padding: '8px 12px',
+                backgroundColor: '#f9fafb',
+                borderRadius: '6px',
+                borderLeft: '4px solid #3b82f6'
+              }}>
+                Entradas al Banco
+              </Box>
+              {bankIncomes.map((income) => (
+                <Box key={income.id} css={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '8px 16px',
+                  marginBottom: '4px',
+                  backgroundColor: income.type === 'TRANSFER' ? '#f0f9ff' : 
+                                 income.type === 'BANK_ABONO' ? '#f0fdf4' :
+                                 income.type === 'MONEY_INVESTMENT' ? '#fef3c7' : 
+                                 income.type === 'INCOME' ? '#f3e8ff' : '#fef2f2',
+                  borderRadius: '4px',
+                  borderLeft: `3px solid ${income.type === 'TRANSFER' ? '#0ea5e9' : 
+                                        income.type === 'BANK_ABONO' ? '#22c55e' :
+                                        income.type === 'MONEY_INVESTMENT' ? '#f59e0b' : 
+                                        income.type === 'INCOME' ? '#a855f7' : '#ef4444'}`
+                }}>
+                  <Box css={{ flex: 1 }}>
+                    <Box css={{
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      color: '#374151'
+                    }}>
+                      {income.name}
+                    </Box>
+                    {income.employeeName && (
+                      <Box css={{
+                        fontSize: '12px',
+                        color: '#6b7280',
+                        marginTop: '2px'
+                      }}>
+                        Por: {income.employeeName}
+                        {income.leaderLocality && (
+                          <span css={{ marginLeft: '8px', color: '#9ca3af' }}>
+                            ({income.leaderLocality})
+                          </span>
+                        )}
+                      </Box>
+                    )}
+                    {income.description && (
+                      <Box css={{
+                        fontSize: '12px',
+                        color: '#6b7280',
+                        marginTop: '2px'
+                      }}>
+                        {income.description}
+                      </Box>
+                    )}
+                  </Box>
+                  <Box css={{
+                    fontSize: '14px',
+                    color: '#6b7280',
+                    marginRight: '16px'
+                  }}>
+                    {new Date(income.date).toLocaleDateString('es-MX')}
+                  </Box>
+                  <Box css={{
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#059669'
+                  }}>
+                    ${income.amount.toFixed(2)}
+                  </Box>
+                </Box>
+              ))}
+            </Box>
+          )}
+        </Box>
+      </Box>
+    </Box>
+  );
+};
 
 // Componente reutilizable para mensaje de selección
 const SelectionMessage = ({ 
@@ -177,15 +563,87 @@ const SelectionMessage = ({
 export const SummaryTab = ({ selectedDate, selectedRoute, refreshKey }: SummaryTabProps) => {
   const { data, loading, error, refetch } = useQuery(GET_TRANSACTIONS_SUMMARY, {
     variables: {
-      startDate: selectedDate.toISOString(),
+      startDate: (() => {
+        // Crear fecha en UTC para 00:00 hora México (06:00 UTC)
+        const year = selectedDate.getFullYear();
+        const month = selectedDate.getMonth();
+        const day = selectedDate.getDate();
+        const startDate = new Date(Date.UTC(year, month, day, 6, 0, 0, 0)); // 06:00 UTC = 00:00 México
+        return startDate.toISOString();
+      })(),
       endDate: (() => {
-        const endDate = new Date(selectedDate);
-        endDate.setHours(23, 59, 59, 999);
+        // Crear fecha en UTC para 23:59 hora México (05:59 UTC del día siguiente)
+        const year = selectedDate.getFullYear();
+        const month = selectedDate.getMonth();
+        const day = selectedDate.getDate();
+        const endDate = new Date(Date.UTC(year, month, day + 1, 5, 59, 59, 999)); // 05:59 UTC = 23:59 México
         return endDate.toISOString();
       })(),
       routeId: selectedRoute?.id
     },
     skip: !selectedDate || !selectedRoute
+  });
+
+  const [expandedLocality, setExpandedLocality] = useState<string | null>(null);
+  const [showBankIncomeModal, setShowBankIncomeModal] = useState(false);
+  const [isLoadingBankIncome, setIsLoadingBankIncome] = useState(false);
+
+  // Query para obtener entradas al banco (solo se ejecuta cuando se abre el modal)
+  const { data: bankIncomeData, loading: bankIncomeLoading, refetch: refetchBankIncome, error: bankIncomeError } = useQuery(GET_BANK_INCOME_TRANSACTIONS, {
+    variables: {
+      routeId: selectedRoute?.id,
+      startDate: (() => {
+        // Calcular inicio de semana (lunes) en UTC para 00:00 hora México (06:00 UTC)
+        console.log('🔍 selectedDate original:', selectedDate);
+        const startOfWeek = new Date(selectedDate);
+        const dayOfWeek = startOfWeek.getDay(); // 0 = domingo, 1 = lunes, etc.
+        const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // Ajustar para que lunes = 0
+        console.log('🔍 dayOfWeek:', dayOfWeek, 'daysToMonday:', daysToMonday);
+        startOfWeek.setDate(startOfWeek.getDate() + daysToMonday);
+        console.log('🔍 startOfWeek (lunes):', startOfWeek);
+        
+        const year = startOfWeek.getFullYear();
+        const month = startOfWeek.getMonth();
+        const day = startOfWeek.getDate();
+        console.log('🔍 startOfWeek components:', { year, month, day });
+        const startDate = new Date(Date.UTC(year, month, day, 6, 0, 0, 0)); // 06:00 UTC = 00:00 México
+        console.log('🔍 startDate calculado (lunes):', startDate);
+        const result = startDate.toISOString();
+        console.log('🔍 startDate ISO result:', result);
+        return result;
+      })(),
+      endDate: (() => {
+        // Calcular fin de semana (domingo) en UTC para 23:59 hora México (05:59 UTC del día siguiente)
+        console.log('🔍 selectedDate original para endDate:', selectedDate);
+        const startOfWeek = new Date(selectedDate);
+        const dayOfWeek = startOfWeek.getDay(); // 0 = domingo, 1 = lunes, etc.
+        const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // Ajustar para que lunes = 0
+        startOfWeek.setDate(startOfWeek.getDate() + daysToMonday);
+        
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(endOfWeek.getDate() + 6); // Domingo
+        console.log('🔍 endOfWeek (domingo):', endOfWeek);
+        
+        const year = endOfWeek.getFullYear();
+        const month = endOfWeek.getMonth();
+        const day = endOfWeek.getDate();
+        console.log('🔍 endOfWeek components:', { year, month, day });
+        const endDate = new Date(Date.UTC(year, month, day + 1, 5, 59, 59, 999)); // 05:59 UTC del día siguiente = 23:59 México
+        console.log('🔍 endDate calculado (domingo):', endDate);
+        const result = endDate.toISOString();
+        console.log('🔍 endDate ISO result:', result);
+        return result;
+      })()
+    },
+    skip: !showBankIncomeModal || !selectedDate || !selectedRoute?.id, // Solo ejecutar cuando el modal esté abierto y tengamos los datos necesarios
+    fetchPolicy: 'no-cache', // No usar caché
+    notifyOnNetworkStatusChange: true,
+    onCompleted: (data) => {
+      console.log('✅ Consulta completada con datos:', data);
+    },
+    onError: (error) => {
+      console.error('❌ Error en consulta de entradas al banco:', error);
+    }
   });
 
   useEffect(() => {
@@ -194,7 +652,257 @@ export const SummaryTab = ({ selectedDate, selectedRoute, refreshKey }: SummaryT
     }
   }, [refreshKey, refetch, selectedDate]);
 
-  const [expandedLocality, setExpandedLocality] = useState<string | null>(null);
+  // Procesar datos de entradas al banco usando useMemo
+  const { bankIncomes, totalTransactions, totalAmount } = useMemo(() => {
+    console.log('🚀 Iniciando processBankIncomeData con:', bankIncomeData);
+    
+    // Solo procesar si tenemos datos y no estamos en estado de carga
+    if (!bankIncomeData || bankIncomeLoading) {
+      console.log('❌ No hay bankIncomeData o está cargando, retornando array vacío');
+      return { bankIncomes: [], totalTransactions: 0, totalAmount: 0 };
+    }
+
+    console.log('🔍 Procesando datos de entradas al banco:', bankIncomeData);
+
+    const bankIncomes: BankIncomeData[] = [];
+    let totalAmount = 0;
+
+    // Procesar transacciones que aumentan el balance del banco
+    if (bankIncomeData.transactions) {
+      console.log('📋 Hay transacciones para procesar:', bankIncomeData.transactions.length);
+      console.log('📋 Todas las transacciones encontradas:', bankIncomeData.transactions.map((t: any) => ({
+        id: t.id,
+        type: t.type,
+        amount: t.amount,
+        createdAt: t.createdAt,
+        date: t.date,
+        routeId: t.route?.id,
+        routeName: t.route?.name,
+        incomeSource: t.incomeSource,
+        destinationAccount: t.destinationAccount?.type,
+        sourceAccount: t.sourceAccount?.type,
+        description: t.description,
+        leadName: t.lead?.personalData?.fullName
+      })));
+      
+      // Buscar específicamente transacciones de Nicolás Bravo Campeche
+      const nicolasBravoTransactions = bankIncomeData.transactions.filter((t: any) => 
+        t.route?.name?.toLowerCase().includes('nicolas') || 
+        t.route?.name?.toLowerCase().includes('bravo') ||
+        t.route?.name?.toLowerCase().includes('campeche')
+      );
+      
+      console.log('🏛️ Transacciones de Nicolás Bravo Campeche:', nicolasBravoTransactions.map((t: any) => ({
+        id: t.id,
+        type: t.type,
+        amount: t.amount,
+        createdAt: t.createdAt,
+        routeName: t.route?.name,
+        incomeSource: t.incomeSource,
+        description: t.description,
+        leadPaymentReceivedId: t.leadPaymentReceived?.id
+      })));
+      
+      // Buscar transacciones con leadPaymentReceived específico
+      const leadPaymentTransactions = bankIncomeData.transactions.filter((t: any) => 
+        t.leadPaymentReceived?.id === 'cmg2omsj60021vpayxbbya1lt'
+      );
+      
+      console.log('💳 Transacciones del LeadPaymentReceived cmg2omsj60021vpayxbbya1lt:', leadPaymentTransactions.map((t: any) => ({
+        id: t.id,
+        type: t.type,
+        amount: t.amount,
+        createdAt: t.createdAt,
+        incomeSource: t.incomeSource,
+        description: t.description
+      })));
+      
+      // Filtrar transacciones por ruta seleccionada
+      const filteredTransactions = bankIncomeData.transactions.filter((transaction: any) => {
+        const isCorrectRoute = transaction.route?.id === selectedRoute?.id;
+        if (!isCorrectRoute) {
+          console.log('❌ Transacción no es de la ruta seleccionada:', {
+            transactionRouteId: transaction.route?.id,
+            selectedRouteId: selectedRoute?.id,
+            routeName: transaction.route?.name
+          });
+        }
+        return isCorrectRoute;
+      });
+      
+      console.log('📋 Transacciones filtradas por ruta:', filteredTransactions.length);
+      
+      // Log de transacciones que podrían ser entradas al banco
+      const potentialBankIncomes = filteredTransactions.filter((t: any) => {
+        return t.type === 'TRANSFER' || 
+               t.type === 'INCOME' || 
+               (t.destinationAccount?.type === 'BANK') ||
+               (t.incomeSource === 'BANK_LOAN_PAYMENT' || t.incomeSource === 'MONEY_INVESMENT');
+      });
+      
+      console.log('💰 Transacciones potenciales de entrada al banco:', potentialBankIncomes.map((t: any) => ({
+        id: t.id,
+        type: t.type,
+        amount: t.amount,
+        incomeSource: t.incomeSource,
+        destinationAccount: t.destinationAccount?.type,
+        description: t.description
+      })));
+      
+      for (const transaction of filteredTransactions) {
+        console.log('📊 Procesando transacción:', {
+          id: transaction.id,
+          type: transaction.type,
+          incomeSource: transaction.incomeSource,
+          amount: transaction.amount,
+          destinationAccount: transaction.destinationAccount
+        });
+        
+        let name = '';
+        let locality = '';
+        let employeeName = '';
+        let leaderLocality = '';
+
+        // Obtener nombre del empleado que realizó la transacción y su localidad
+        if (transaction.lead?.personalData) {
+          employeeName = transaction.lead.personalData.fullName || 'Empleado desconocido';
+          
+          // Extraer localidad del líder
+          if (transaction.lead.personalData.addresses && transaction.lead.personalData.addresses.length > 0) {
+            const address = transaction.lead.personalData.addresses[0];
+            if (address.location) {
+              leaderLocality = address.location.name || 'Sin localidad';
+              if (address.location.municipality?.state?.name) {
+                leaderLocality += `, ${address.location.municipality.state.name}`;
+              }
+            }
+          }
+        }
+
+        // Determinar si es una entrada al banco y el nombre según el tipo de transacción
+        let isBankIncome = false;
+        
+        switch (transaction.type) {
+          case 'TRANSFER':
+            // Verificar si es una transferencia al banco
+            if (transaction.destinationAccount?.type === 'BANK') {
+              name = 'Pago de líder';
+              locality = 'Entradas al Banco';
+              isBankIncome = true;
+              console.log('✅ TRANSFER al banco:', { name, locality });
+            } else {
+              console.log('❌ TRANSFER no al banco:', transaction.destinationAccount?.type);
+              continue; // Saltar esta transacción
+            }
+            break;
+          case 'INCOME':
+            console.log('🔍 Procesando INCOME con incomeSource:', transaction.incomeSource);
+            // Solo procesar INCOME que realmente aumentan el balance del banco
+            if (transaction.incomeSource === 'BANK_LOAN_PAYMENT' || 
+                transaction.incomeSource === 'MONEY_INVESMENT') {
+              
+              if (transaction.incomeSource === 'BANK_LOAN_PAYMENT') {
+                name = transaction.description || 'Pago bancario de préstamo';
+                locality = 'Entradas al Banco';
+                isBankIncome = true;
+                console.log('✅ Procesando BANK_LOAN_PAYMENT:', { name, locality });
+              } else if (transaction.incomeSource === 'MONEY_INVESMENT') {
+                name = transaction.description || 'Inversión de dinero';
+                locality = 'Entradas al Banco';
+                isBankIncome = true;
+                console.log('✅ Procesando MONEY_INVESMENT:', { name, locality });
+              }
+            } else {
+              console.log('❌ Saltando transacción INCOME:', transaction.incomeSource);
+              continue; // Saltar esta transacción
+            }
+            break;
+          default:
+            // Para otros tipos, verificar si tienen destinationAccount bancario
+            if (transaction.destinationAccount?.type === 'BANK') {
+              name = transaction.description || `Transacción ${transaction.type}`;
+              locality = 'Entradas al Banco';
+              isBankIncome = true;
+              console.log('✅ Otra transacción al banco:', { type: transaction.type, name, locality });
+            } else {
+              console.log('❌ Transacción no al banco:', { type: transaction.type, destinationAccount: transaction.destinationAccount?.type });
+              continue; // Saltar esta transacción
+            }
+        }
+        
+        // Si no es una entrada al banco, saltar esta transacción
+        if (!isBankIncome) {
+          console.log('❌ No es entrada al banco, saltando transacción:', transaction.type);
+          continue; // Saltar esta transacción
+        }
+
+        // Si hay LeadPaymentReceived asociado, usar esa información
+        if (transaction.leadPaymentReceived) {
+          const lpr = transaction.leadPaymentReceived;
+          if (lpr.lead?.personalData) {
+            locality = lpr.lead.personalData.fullName || 'Sin localidad';
+            
+            // Extraer localidad del líder desde leadPaymentReceived
+            if (lpr.lead.personalData.addresses && lpr.lead.personalData.addresses.length > 0) {
+              const address = lpr.lead.personalData.addresses[0];
+              if (address.location) {
+                leaderLocality = address.location.name || 'Sin localidad';
+                if (address.location.municipality?.state?.name) {
+                  leaderLocality += `, ${address.location.municipality.state.name}`;
+                }
+              }
+            }
+          }
+          
+          // Si hay pagos asociados, usar el nombre del cliente
+          if (lpr.payments && lpr.payments.length > 0) {
+            const firstPayment = lpr.payments[0];
+            if (firstPayment.loan?.borrower?.personalData) {
+              name = firstPayment.loan.borrower.personalData.fullName || 'Cliente desconocido';
+            }
+          }
+        } else {
+          // Si no hay LeadPaymentReceived, usar la información de la ruta y el lead
+          // locality ya se estableció en el switch anterior
+          
+          // Si no hay descripción específica, usar el nombre del lead
+          if (!name || name === 'Ingreso bancario') {
+            if (transaction.lead?.personalData?.fullName) {
+              name = `Ingreso - ${transaction.lead.personalData.fullName}`;
+            }
+          }
+        }
+
+        const bankIncomeItem = {
+          id: transaction.id,
+          name,
+          date: transaction.date || transaction.createdAt, // Usar date si existe, sino createdAt
+          amount: parseFloat(transaction.amount),
+          type: transaction.type,
+          locality,
+          employeeName,
+          leaderLocality,
+          description: transaction.description
+        };
+        
+        console.log('💾 Agregando transacción al array:', bankIncomeItem);
+        bankIncomes.push(bankIncomeItem);
+        totalAmount += parseFloat(transaction.amount);
+      }
+      console.log('✅ Bucle completado. Total procesadas:', bankIncomes.length);
+    } else {
+      console.log('❌ No hay transacciones en bankIncomeData.transactions');
+    }
+
+    const result = {
+      bankIncomes: bankIncomes.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+      totalTransactions: bankIncomes.length,
+      totalAmount
+    };
+    
+    console.log('✅ Resultado final:', result);
+    return result;
+  }, [bankIncomeData, bankIncomeLoading]);
 
   if (!selectedDate) return <div>Seleccione una fecha</div>;
   
@@ -1415,6 +2123,109 @@ export const SummaryTab = ({ selectedDate, selectedRoute, refreshKey }: SummaryT
       </Box>
         </Box>
       </Box>
+
+      {/* Botón de Entradas al Banco */}
+      <Box css={{
+        position: 'fixed',
+        bottom: '20px',
+        right: '20px',
+        zIndex: 100
+      }}>
+        <button
+          onClick={() => {
+            // Abrir el modal - la query se ejecutará automáticamente
+            const startDate = (() => {
+              const year = selectedDate.getFullYear();
+              const month = selectedDate.getMonth();
+              const day = selectedDate.getDate();
+              const startDate = new Date(Date.UTC(year, month, day, 6, 0, 0, 0));
+              return startDate.toISOString();
+            })();
+            const endDate = (() => {
+              const year = selectedDate.getFullYear();
+              const month = selectedDate.getMonth();
+              const day = selectedDate.getDate();
+              const endDate = new Date(Date.UTC(year, month, day + 1, 5, 59, 59, 999));
+              return endDate.toISOString();
+            })();
+            
+            console.log('🔍 Abriendo modal con datos:', {
+              selectedDate,
+              selectedRoute: selectedRoute?.id,
+              showBankIncomeModal: true,
+              startDate,
+              endDate,
+              startDateLocal: new Date(startDate).toLocaleString('es-MX'),
+              endDateLocal: new Date(endDate).toLocaleString('es-MX')
+            });
+            setShowBankIncomeModal(true);
+          }}
+          css={{
+            backgroundColor: '#22c55e',
+            color: 'white',
+            border: 'none',
+            padding: '16px 24px',
+            borderRadius: '12px',
+            fontSize: '16px',
+            fontWeight: '600',
+            cursor: 'pointer',
+            boxShadow: '0 4px 12px rgba(34, 197, 94, 0.3)',
+            transition: 'all 0.2s',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            '&:hover': {
+              backgroundColor: '#16a34a',
+              transform: 'translateY(-2px)',
+              boxShadow: '0 6px 16px rgba(34, 197, 94, 0.4)'
+            }
+          }}
+        >
+          {isLoadingBankIncome ? (
+            <>
+              <Box css={{
+                width: '16px',
+                height: '16px',
+                border: '2px solid #ffffff',
+                borderTop: '2px solid transparent',
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite'
+              }} />
+              Cargando...
+            </>
+          ) : (
+            <>
+              💰 Entradas al Banco
+              {totalTransactions > 0 && (
+                <Box css={{
+                  backgroundColor: '#ef4444',
+                  color: 'white',
+                  borderRadius: '50%',
+                  width: '20px',
+                  height: '20px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '12px',
+                  fontWeight: '700'
+                }}>
+                  {totalTransactions}
+                </Box>
+              )}
+            </>
+          )}
+        </button>
+      </Box>
+
+      {/* Modal de Entradas al Banco */}
+      <BankIncomeModal
+        isOpen={showBankIncomeModal}
+        onClose={() => setShowBankIncomeModal(false)}
+        bankIncomes={bankIncomes}
+        totalTransactions={totalTransactions}
+        totalAmount={totalAmount}
+        loading={bankIncomeLoading || isLoadingBankIncome}
+      />
       
       {/* CSS para animaciones */}
       <style jsx>{`
