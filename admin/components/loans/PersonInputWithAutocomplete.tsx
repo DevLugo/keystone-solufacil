@@ -45,6 +45,7 @@ interface PersonInputWithAutocompleteProps {
   // Configuración de persona seleccionada
   selectedPersonId?: string;
   onPersonSelect?: (person: PersonalData) => void;
+  onPersonSelected?: (person: PersonalData) => void; // ✅ NUEVO: Callback específico para selección de dropdown
   
   // Configuración de persona existente (para renovaciones)
   isFromPrevious?: boolean;
@@ -91,6 +92,7 @@ const PersonInputWithAutocomplete: React.FC<PersonInputWithAutocompleteProps> = 
   // Configuración de persona seleccionada
   selectedPersonId,
   onPersonSelect,
+  onPersonSelected,
   
   // Configuración de persona existente
   isFromPrevious = false,
@@ -343,14 +345,17 @@ const PersonInputWithAutocomplete: React.FC<PersonInputWithAutocompleteProps> = 
     setIsNewPerson(false);
     setHasDataChanges(false);
     
-    if (onPersonSelect) {
+    // ✅ NUEVO: Usar el callback específico para selección de dropdown
+    if (onPersonSelected) {
+      onPersonSelected(person);
+    } else if (onPersonSelect) {
       onPersonSelect(person);
     }
     
-    onNameChange(person.fullName);
-    onPhoneChange(primaryPhone);
+    // ✅ SOLUCION: No llamar onNameChange y onPhoneChange cuando se selecciona una persona del dropdown
+    // Esto evita que se sobrescriba el selectedCollateralId en el componente padre
     onActionChange('connect');
-  }, [onPersonSelect, onNameChange, onPhoneChange, onActionChange]);
+  }, [onPersonSelect, onPersonSelected, onActionChange]);
 
   const handleCreateNew = useCallback(() => {
     if (!name.trim()) return;

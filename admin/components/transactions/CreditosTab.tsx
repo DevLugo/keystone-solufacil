@@ -16,6 +16,7 @@ import { calculateLoanAmounts } from '../../utils/loanCalculations';
 import { GET_ROUTE } from '../../graphql/queries/routes';
 import { CREATE_LOANS_BULK, UPDATE_LOAN_WITH_AVAL } from '../../graphql/mutations/loans';
 import PersonInputWithAutocomplete from '../loans/PersonInputWithAutocomplete';
+import AvalInputWithAutocomplete from '../loans/AvalInputWithAutocomplete';
 
 // Import types
 import type { Loan } from '../../types/loan';
@@ -1038,6 +1039,15 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                 } 
             } as any;
         } else if (field === 'avalData') {
+            // ✅ DEBUG: Log de los datos recibidos en avalData
+            console.log('🔍 HANDLE ROW CHANGE - avalData recibido:', {
+                field,
+                value,
+                loanId: sourceRow.id,
+                isNewRow,
+                index
+            });
+            
             // ✅ CORREGIDO: Actualizar específicamente los campos del aval
             updatedRow = { 
                 ...updatedRow, 
@@ -1047,6 +1057,15 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                 selectedCollateralPhoneId: value.selectedCollateralPhoneId,
                 avalAction: value.avalAction
             };
+            
+            // ✅ DEBUG: Log del row actualizado
+            console.log('🔍 HANDLE ROW CHANGE - row actualizado:', {
+                loanId: updatedRow.id,
+                selectedCollateralId: updatedRow.selectedCollateralId,
+                avalAction: updatedRow.avalAction,
+                avalName: updatedRow.avalName,
+                avalPhone: updatedRow.avalPhone
+            });
         } else {
             updatedRow = { ...updatedRow, [field]: value };
         }
@@ -1063,9 +1082,15 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     }
 
     if (isNewRow) {
+      console.log('🔍 ACTUALIZANDO EDITABLE EMPTY ROW:', updatedRow);
       setEditableEmptyRow(updatedRow);
     } else {
-      setPendingLoans(prev => prev.map((loan, i) => i === index ? updatedRow : loan));
+      console.log('🔍 ACTUALIZANDO PENDING LOANS - index:', index, 'updatedRow:', updatedRow);
+      setPendingLoans(prev => {
+        const newPendingLoans = prev.map((loan, i) => i === index ? updatedRow : loan);
+        console.log('🔍 NUEVO ESTADO PENDING LOANS:', newPendingLoans);
+        return newPendingLoans;
+      });
     }
   }, [editableEmptyRow, pendingLoans, emptyLoanRow, loanTypesData, calculateLocalPendingAmount, calculateLoanAmounts]);
 
@@ -1119,6 +1144,17 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       }
 
       const loansData = validLoans.map(loan => {
+        // ✅ DEBUG: Estado completo del préstamo antes de procesar
+        console.log('🔍 ESTADO COMPLETO DEL PRÉSTAMO:', {
+          loanId: loan.id,
+          loanKeys: Object.keys(loan),
+          selectedCollateralId: loan.selectedCollateralId,
+          avalAction: loan.avalAction,
+          avalName: loan.avalName,
+          avalPhone: loan.avalPhone,
+          selectedCollateralPhoneId: loan.selectedCollateralPhoneId
+        });
+        
         // Debug detallado para cada préstamo
         console.log('🔍 DEBUG PRÉSTAMO EN handleSaveAllNewLoans:', {
           loanId: loan.id,
@@ -1164,6 +1200,17 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         
         console.log('📞 Teléfono final seleccionado:', phoneNumber);
         
+        // ✅ DEBUG AVAL DATA - Verificar que selectedCollateralId se está enviando correctamente
+        console.log('🔍 AVAL DATA DEBUG:', {
+          loanId: loan.id,
+          selectedCollateralId: loan.selectedCollateralId,
+          avalAction: loan.avalAction,
+          avalName: loan.avalName,
+          avalPhone: loan.avalPhone,
+          hasSelectedCollateralId: !!loan.selectedCollateralId,
+          isFromPrevious: !!loan.previousLoan
+        });
+        
         return {
         requestedAmount: (loan.requestedAmount || '0').toString(),
         amountGived: (loan.amountGived || '0').toString(),
@@ -1183,6 +1230,17 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
             phone: (loan.avalPhone || '').trim().replace(/\s+/g, ' ')
         }
         };
+        
+        // ✅ DEBUG FINAL - Mostrar el objeto avalData que se enviará
+        console.log('📤 AVAL DATA FINAL ENVIADO:', {
+          loanId: loan.id,
+          avalData: {
+            selectedCollateralId: loan.selectedCollateralId || undefined,
+            action: loan.avalAction || 'clear',
+            name: (loan.avalName || '').trim().replace(/\s+/g, ' '),
+            phone: (loan.avalPhone || '').trim().replace(/\s+/g, ' ')
+          }
+        });
       });
 
       const { data } = await createMultipleLoans({ variables: { loans: loansData } });
@@ -2120,70 +2178,23 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                             maxWidth: 'none',
                             ...UNIFIED_CONTAINER_STYLES
                         }}>
-                            <PersonInputWithAutocomplete
+                            <AvalInputWithAutocomplete
                                 key={`${loanId}-aval`} 
                                 loanId={loanId}
-                                selectedCollateralPhoneId={loan.selectedCollateralPhoneId}
                                 currentName={loan.avalName || ''}
                                 currentPhone={loan.avalPhone || ''}
-                                onNameChange={(name) => {
-                                    const currentPhone = loan.avalPhone || '';
-                                    // ✅ CORREGIDO: Mantener selectedCollateralId y selectedCollateralPhoneId si existen y son válidos
-                                    const currentSelectedCollateralId = loan.selectedCollateralId;
-                                    const currentSelectedCollateralPhoneId = loan.selectedCollateralPhoneId;
-                                    
-                                    // Verificar que el selectedCollateralPhoneId no sea temp-phone
-                                    const validSelectedCollateralPhoneId = (currentSelectedCollateralPhoneId && 
-                                                                           currentSelectedCollateralPhoneId !== 'temp-phone' && 
-                                                                           currentSelectedCollateralPhoneId !== '') 
-                                                                           ? currentSelectedCollateralPhoneId 
-                                                                           : undefined;
-                                    
-                                    const avalAction = currentSelectedCollateralId ? 'update' : 'create';
-                                    handleRowChange(index, 'avalData', { 
-                                        avalName: name, 
-                                        avalPhone: currentPhone, 
-                                        selectedCollateralId: currentSelectedCollateralId, 
-                                        selectedCollateralPhoneId: validSelectedCollateralPhoneId, 
-                                        avalAction 
-                                    }, isNewRow);
+                                selectedCollateralId={loan.selectedCollateralId}
+                                selectedCollateralPhoneId={loan.selectedCollateralPhoneId}
+                                onAvalChange={(avalData) => {
+                                    handleRowChange(index, 'avalData', avalData, isNewRow);
                                 }}
-                                onPhoneChange={(phone) => {
-                                    const currentName = loan.avalName || '';
-                                    // ✅ CORREGIDO: Mantener selectedCollateralId y selectedCollateralPhoneId si existen y son válidos
-                                    const currentSelectedCollateralId = loan.selectedCollateralId;
-                                    const currentSelectedCollateralPhoneId = loan.selectedCollateralPhoneId;
-                                    
-                                    // Verificar que el selectedCollateralPhoneId no sea temp-phone
-                                    const validSelectedCollateralPhoneId = (currentSelectedCollateralPhoneId && 
-                                                                           currentSelectedCollateralPhoneId !== 'temp-phone' && 
-                                                                           currentSelectedCollateralPhoneId !== '') 
-                                                                           ? currentSelectedCollateralPhoneId 
-                                                                           : undefined;
-                                    
-                                    const avalAction = currentSelectedCollateralId ? 'update' : 'create';
-                                    handleRowChange(index, 'avalData', { 
-                                        avalName: currentName, 
-                                        avalPhone: phone, 
-                                        selectedCollateralId: currentSelectedCollateralId, 
-                                        selectedCollateralPhoneId: validSelectedCollateralPhoneId, 
-                                        avalAction 
-                                    }, isNewRow);
-                                }}
-                                onClear={() => handleRowChange(index, 'avalData', { avalName: '', avalPhone: '', selectedCollateralId: undefined, selectedCollateralPhoneId: undefined, avalAction: 'clear' }, isNewRow)}
-                                onPersonUpdated={async (updatedPerson) => {
-                                    // ✅ SOLUCION: Actualizar el estado local con los datos reales de la base de datos
-                                    const updatedAvalData = {
-                                        avalName: updatedPerson.fullName,
-                                        avalPhone: updatedPerson.phones?.[0]?.number || '',
-                                        selectedCollateralId: updatedPerson.id,
-                                        selectedCollateralPhoneId: updatedPerson.phones?.[0]?.id,
-                                        avalAction: 'update' as const
-                                    };
-                                    
-                                    handleRowChange(index, 'avalData', updatedAvalData, isNewRow);
-                                    
-                                    // También refrescar los datos del servidor
+                                usedPersonIds={usedAvalIds}
+                                borrowerLocationId={undefined}
+                                includeAllLocations={false}
+                                readonly={false}
+                                isFromPrevious={!!loan.previousLoan} // ✅ NUEVO: Indicar si es renovación
+                                onAvalUpdated={async (updatedPerson) => {
+                                    // ✅ NUEVO: Callback para actualizar aval después de edición
                                     try {
                                         await refetchLoans();
                                         console.log('✅ Datos del préstamo actualizados después de editar aval');
@@ -2191,38 +2202,6 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                         console.error('❌ Error al refrescar datos del préstamo:', error);
                                     }
                                 }}
-                                onActionChange={(action) => {
-                                    const currentName = loan.avalName || '';
-                                    const currentPhone = loan.avalPhone || '';
-                                    // Mantener el selectedCollateralId y selectedCollateralPhoneId si existen y son válidos
-                                    const currentSelectedCollateralId = loan.selectedCollateralId;
-                                    const currentSelectedCollateralPhoneId = loan.selectedCollateralPhoneId;
-                                    
-                                    // Verificar que el selectedCollateralPhoneId no sea temp-phone
-                                    const validSelectedCollateralPhoneId = (currentSelectedCollateralPhoneId && 
-                                                                           currentSelectedCollateralPhoneId !== 'temp-phone' && 
-                                                                           currentSelectedCollateralPhoneId !== '') 
-                                                                           ? currentSelectedCollateralPhoneId 
-                                                                           : undefined;
-                                    
-                                    handleRowChange(index, 'avalData', { 
-                                        avalName: currentName, 
-                                        avalPhone: currentPhone, 
-                                        selectedCollateralId: currentSelectedCollateralId, 
-                                        selectedCollateralPhoneId: validSelectedCollateralPhoneId, 
-                                        avalAction: action 
-                                    }, isNewRow);
-                                }}
-                                enableAutocomplete={true}
-                                selectedPersonId={loan.selectedCollateralId}
-                                onPersonSelect={(person) => handleRowChange(index, 'avalData', { avalName: person.fullName, avalPhone: person.phones?.[0]?.number || '', selectedCollateralId: person.id, selectedCollateralPhoneId: person.phones?.[0]?.id, avalAction: 'connect' }, isNewRow)}
-                                usedPersonIds={usedAvalIds}
-                                borrowerLocationId={undefined}
-                                includeAllLocations={false}
-                                namePlaceholder="Buscar o escribir nombre del aval..."
-                                phonePlaceholder={loan.avalName ? `Tel. ${loan.avalName.split(' ')[0]}...` : "Teléfono"}
-                                actionType="aval"
-                                containerStyle={{ width: '100%' }}
                             />
                         </div>
                     </td>
