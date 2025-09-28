@@ -18,6 +18,7 @@ import { FaPlus, FaEllipsisV, FaInfoCircle, FaCalendarAlt } from 'react-icons/fa
 // Import components
 import RouteLeadSelector from '../routes/RouteLeadSelector';
 import KPIBar from './KPIBar';
+import { DateMover } from './utils/DateMover';
 import { useBalanceRefresh } from '../../contexts/BalanceRefreshContext';
 
 const GET_LEADS = gql`
@@ -555,6 +556,7 @@ export const CreatePaymentForm = ({
     isModalOpen: boolean;
     isFalcoModalOpen: boolean;
     isCreateFalcoModalOpen: boolean;
+    isMovePaymentsModalOpen: boolean;
     falcoPaymentAmount: number;
     selectedFalcoId: string | null;
     createFalcoAmount: number;
@@ -587,6 +589,7 @@ export const CreatePaymentForm = ({
     isModalOpen: false,
     isFalcoModalOpen: false,
     isCreateFalcoModalOpen: false,
+    isMovePaymentsModalOpen: false,
     falcoPaymentAmount: 0,
     selectedFalcoId: null,
     createFalcoAmount: 0,
@@ -605,7 +608,7 @@ export const CreatePaymentForm = ({
   const [massCommission, setMassCommission] = useState<string>('0');
 
   const { 
-    payments, comission, isModalOpen, isFalcoModalOpen, isCreateFalcoModalOpen, falcoPaymentAmount, 
+    payments, comission, isModalOpen, isFalcoModalOpen, isCreateFalcoModalOpen, isMovePaymentsModalOpen, falcoPaymentAmount, 
     selectedFalcoId, createFalcoAmount, loadPaymentDistribution, existingPayments, editedPayments, 
     isEditing, showSuccessMessage, groupedPayments
   } = state;
@@ -2135,9 +2138,16 @@ export const CreatePaymentForm = ({
             }
           },
           onReportFalco: () => updateState({ isCreateFalcoModalOpen: true }),
-          onMove: () => updateState({ isModalOpen: true }),
+          onMove: () => {
+            // Solo permitir mover si hay pagos existentes
+            if (existingPayments.length > 0) {
+              console.log('🔧 Botón Mover pagos clickeado');
+              updateState({ isMovePaymentsModalOpen: true });
+            }
+          },
           saving: updateLoading,
-          disabled: false
+          disabled: false,
+          moveDisabled: existingPayments.length === 0 // Deshabilitar si no hay pagos
         }}
         massCommission={(payments.length > 0 || (isEditing && existingPayments.length > 0)) ? {
           value: massCommission,
@@ -3660,6 +3670,107 @@ export const CreatePaymentForm = ({
           </div>
         </Box>
       </AlertDialog>
+
+      {/* Modal de Mover Pagos */}
+      {console.log('🔍 Estado isMovePaymentsModalOpen:', isMovePaymentsModalOpen)}
+      {isMovePaymentsModalOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '8px',
+            padding: '24px',
+            minWidth: '400px',
+            maxWidth: '500px',
+            boxShadow: '0 10px 25px rgba(0, 0, 0, 0.2)',
+          }}>
+            <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '600', color: '#374151' }}>
+              Mover Pagos
+            </h3>
+            <p style={{ margin: '0 0 20px 0', color: '#6B7280', fontSize: '14px' }}>
+              Selecciona la fecha destino para mover {existingPayments.length} pago(s) de {selectedDate?.toLocaleDateString('es-MX')}:
+            </p>
+            
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                Fecha destino:
+              </label>
+              <input
+                type="date"
+                id="movePaymentsTargetDate"
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #D1D5DB',
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  outline: 'none',
+                }}
+                onFocus={(e) => (e.target as HTMLInputElement).style.borderColor = '#3B82F6'}
+                onBlur={(e) => (e.target as HTMLInputElement).style.borderColor = '#D1D5DB'}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => updateState({ isMovePaymentsModalOpen: false })}
+                style={{
+                  padding: '10px 20px',
+                  border: '1px solid #D1D5DB',
+                  backgroundColor: 'white',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: '#374151',
+                }}
+                onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#F9FAFB'}
+                onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'white'}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  const targetDate = (document.getElementById('movePaymentsTargetDate') as HTMLInputElement)?.value;
+                  if (!targetDate) {
+                    alert('Por favor selecciona una fecha destino');
+                    return;
+                  }
+                  
+                  // Aquí iría la lógica para mover los pagos
+                  // Por ahora solo mostramos un mensaje
+                  alert(`Funcionalidad de mover pagos a ${targetDate} - Por implementar`);
+                  updateState({ isMovePaymentsModalOpen: false });
+                }}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: '#16a34a',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                }}
+                onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#15803d'}
+                onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#16a34a'}
+              >
+                Mover Pagos
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Box>
   );
 };

@@ -1362,13 +1362,35 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     }
   };
 
-  const totals = loans.reduce((acc, loan) => ({
+  // Calcular totales de préstamos existentes
+  const existingTotals = loans.reduce((acc, loan) => ({
     count: acc.count + 1,
     amountGived: acc.amountGived + parseFloat(loan.amountGived || '0'),
     amountToPay: acc.amountToPay + parseFloat(calculateAmountToPay(loan.requestedAmount, loan.loantype?.rate) || '0'),
+    totalComission: acc.totalComission + parseFloat(loan.comissionAmount || '0'),
     newLoans: acc.newLoans + (loan.previousLoan ? 0 : 1),
     renewals: acc.renewals + (loan.previousLoan ? 1 : 0),
-  }), { count: 0, amountGived: 0, amountToPay: 0, newLoans: 0, renewals: 0 });
+  }), { count: 0, amountGived: 0, amountToPay: 0, totalComission: 0, newLoans: 0, renewals: 0 });
+
+  // Calcular totales de préstamos pendientes
+  const pendingTotals = pendingLoans.reduce((acc, loan) => ({
+    count: acc.count + 1,
+    amountGived: acc.amountGived + parseFloat(loan.amountGived || '0'),
+    amountToPay: acc.amountToPay + parseFloat(calculateAmountToPay(loan.requestedAmount, loan.loantype?.rate) || '0'),
+    totalComission: acc.totalComission + parseFloat(loan.comissionAmount || '0'),
+    newLoans: acc.newLoans + (loan.previousLoan ? 0 : 1),
+    renewals: acc.renewals + (loan.previousLoan ? 1 : 0),
+  }), { count: 0, amountGived: 0, amountToPay: 0, totalComission: 0, newLoans: 0, renewals: 0 });
+
+  // Totales combinados (existentes + pendientes)
+  const totals = {
+    count: existingTotals.count + pendingTotals.count,
+    amountGived: existingTotals.amountGived + pendingTotals.amountGived,
+    amountToPay: existingTotals.amountToPay + pendingTotals.amountToPay,
+    totalComission: existingTotals.totalComission + pendingTotals.totalComission,
+    newLoans: existingTotals.newLoans + pendingTotals.newLoans,
+    renewals: existingTotals.renewals + pendingTotals.renewals,
+  };
   
   if (loansLoading || loanTypesLoading || previousLoansLoading) return (
     <Box css={{ 
@@ -1500,6 +1522,13 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
               color: '#166534',
               backgroundColor: '#F0FDF4',
               borderColor: '#BBF7D0'
+            },
+            {
+              label: 'Comisiones',
+              value: `$${totals.totalComission.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`,
+              color: '#6D28D9',
+              backgroundColor: '#EDE9FE',
+              borderColor: '#DDD6FE'
             }
           ]}
           buttons={[]}
@@ -2028,7 +2057,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                                 return null;
                             })()}
                             <PersonInputWithAutocomplete
-                                key={`${loanId}-client-${loan.borrower?.personalData?.phones?.[0]?.id || 'no-phone'}`} 
+                                key={`${loanId}-client`} 
                                 loanId={loanId}
                                 currentName={loan.borrower?.personalData?.fullName || ''}
                                 currentPhone={loan.borrower?.personalData?.phones?.[0]?.number || ''}

@@ -56,6 +56,7 @@ interface KPIBarProps {
     onMove: () => void;
     saving?: boolean;
     disabled?: boolean;
+    moveDisabled?: boolean; // Nueva prop para deshabilitar solo el botón de mover
   };
   dateMover?: {
     type: 'loans' | 'payments' | 'expenses';
@@ -309,11 +310,35 @@ export const KPIBar: React.FC<KPIBarProps> = ({
                   onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                 >🚫 Reportar falco</button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); setOpenPrimary(false); primaryMenu.onMove(); }}
-                  style={{ width: '100%', textAlign: 'left', padding: '10px 12px', background: 'transparent', border: 'none', cursor: 'pointer' }}
-                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#fff7ed')}
-                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                >📅 Mover</button>
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    if (!primaryMenu.moveDisabled) {
+                      setOpenPrimary(false); 
+                      primaryMenu.onMove(); 
+                    }
+                  }}
+                  disabled={primaryMenu.moveDisabled}
+                  style={{ 
+                    width: '100%', 
+                    textAlign: 'left', 
+                    padding: '10px 12px', 
+                    background: 'transparent', 
+                    border: 'none', 
+                    cursor: primaryMenu.moveDisabled ? 'not-allowed' : 'pointer',
+                    opacity: primaryMenu.moveDisabled ? 0.5 : 1,
+                    color: primaryMenu.moveDisabled ? '#9CA3AF' : '#374151'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!primaryMenu.moveDisabled) {
+                      e.currentTarget.style.backgroundColor = '#fff7ed';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!primaryMenu.moveDisabled) {
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                    }
+                  }}
+                >📅 Mover pagos</button>
               </div>
             )}
           </div>

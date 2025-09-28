@@ -3288,21 +3288,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
           routeId: graphql.arg({ type: graphql.String }),
         },
         resolve: async (root, { startDate, endDate, routeId }, context: Context) => {
-          // Normalizar las fechas al inicio y fin del día en la zona horaria local
+          // Las fechas ya vienen correctamente formateadas desde el frontend en UTC
+          // No necesitamos normalizarlas ya que el frontend ya calculó los rangos correctos
           const start = new Date(startDate);
-          start.setHours(0, 0, 0, 0);
-          
           const end = new Date(endDate);
-          end.setHours(23, 59, 59, 999);
 
           console.log('Buscando transacciones entre:', {
             start: start.toISOString(),
-            end: end.toISOString()
-          });
-
-          console.log('Buscando transacciones entre:', {
-            start: start.toISOString(),
-            end: end.toISOString()
+            end: end.toISOString(),
+            startLocal: start.toLocaleString('es-MX', { timeZone: 'America/Mexico_City' }),
+            endLocal: end.toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })
           });
 
           // OPTIMIZADO: Obtenemos todas las transacciones dentro del rango de fechas especificado
