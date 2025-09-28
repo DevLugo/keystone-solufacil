@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { jsx, Box } from '@keystone-ui/core';
 import { gql, useQuery } from '@apollo/client';
+import { BankIncomeModal } from './BankIncomeModal';
 
 const GET_TRANSACTIONS_SUMMARY = gql`
   query GetTransactionsSummary($startDate: String!, $endDate: String!, $routeId: String) {
@@ -141,6 +142,13 @@ const GET_BANK_INCOME_TRANSACTIONS = gql`
           comission
           paymentMethod
           receivedAt
+          loan {
+            borrower {
+              personalData {
+                fullName
+              }
+            }
+          }
         }
     }
   }
@@ -162,6 +170,8 @@ interface BankIncomeData {
   employeeName?: string;
   leaderLocality?: string;
   description?: string;
+  isClientPayment?: boolean;
+  isLeaderPayment?: boolean;
 }
 
 interface Route {
@@ -185,270 +195,6 @@ interface LocalitySummary {
   details: any[];
 }
 
-// Modal de Entradas al Banco
-const BankIncomeModal = ({ 
-  isOpen, 
-  onClose, 
-  bankIncomes, 
-  totalTransactions, 
-  totalAmount,
-  loading = false
-}: { 
-  isOpen: boolean; 
-  onClose: () => void; 
-  bankIncomes: BankIncomeData[]; 
-  totalTransactions: number; 
-  totalAmount: number; 
-  loading?: boolean;
-}) => {
-  const [copied, setCopied] = useState(false);
-
-  const formatForCopy = () => {
-    let text = `ENTRADAS AL BANCO - RESUMEN\n`;
-    text += `Total: $${totalAmount.toFixed(2)} (${totalTransactions} transacciones)\n\n`;
-
-    text += `Entradas al Banco\n`;
-    bankIncomes.forEach(income => {
-      const date = new Date(income.date).toLocaleDateString('es-MX');
-      const employee = income.employeeName ? ` (${income.employeeName}` : '';
-      const leaderLocality = income.leaderLocality ? ` - ${income.leaderLocality}` : '';
-      const employeeInfo = income.employeeName ? `${employee}${leaderLocality})` : '';
-      text += `-${income.name}${employeeInfo}, ${date}, $${income.amount.toFixed(2)}\n`;
-    });
-
-    return text;
-  };
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(formatForCopy());
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Error al copiar:', err);
-    }
-  };
-
-  if (!isOpen) return null;
-
-  console.log('🎯 Modal recibiendo datos:', { bankIncomes, totalTransactions, totalAmount });
-
-  const groupedByLocality = bankIncomes.reduce((acc: Record<string, BankIncomeData[]>, income) => {
-    const locality = income.locality || 'Sin localidad';
-    if (!acc[locality]) {
-      acc[locality] = [];
-    }
-    acc[locality].push(income);
-    return acc;
-  }, {});
-
-  return (
-    <Box css={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.5)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 1000
-    }}>
-      <Box css={{
-        backgroundColor: 'white',
-        borderRadius: '12px',
-        padding: '24px',
-        maxWidth: '800px',
-        maxHeight: '80vh',
-        width: '90%',
-        overflow: 'auto',
-        boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
-      }}>
-        {/* Header */}
-        <Box css={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: '20px',
-          paddingBottom: '16px',
-          borderBottom: '2px solid #e5e7eb'
-        }}>
-          <Box css={{
-            fontSize: '24px',
-            fontWeight: '700',
-            color: '#1f2937'
-          }}>
-            💰 Entradas al Banco
-          </Box>
-          <Box css={{
-            display: 'flex',
-            gap: '12px',
-            alignItems: 'center'
-          }}>
-            <Box css={{
-              fontSize: '14px',
-              color: '#6b7280',
-              backgroundColor: '#f3f4f6',
-              padding: '6px 12px',
-              borderRadius: '6px'
-            }}>
-              {totalTransactions} transacciones - ${totalAmount.toFixed(2)}
-            </Box>
-            <button
-              onClick={handleCopy}
-              css={{
-                backgroundColor: copied ? '#10b981' : '#3b82f6',
-                color: 'white',
-                border: 'none',
-                padding: '8px 16px',
-                borderRadius: '6px',
-                fontSize: '14px',
-                fontWeight: '600',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                '&:hover': {
-                  backgroundColor: copied ? '#059669' : '#2563eb'
-                }
-              }}
-            >
-              {copied ? '✓ Copiado' : '📋 Copiar'}
-            </button>
-            <button
-              onClick={onClose}
-              css={{
-                backgroundColor: '#ef4444',
-                color: 'white',
-                border: 'none',
-                padding: '8px 16px',
-                borderRadius: '6px',
-                fontSize: '14px',
-                fontWeight: '600',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                '&:hover': {
-                  backgroundColor: '#dc2626'
-                }
-              }}
-            >
-              ✕ Cerrar
-            </button>
-          </Box>
-        </Box>
-
-        {/* Content */}
-        <Box css={{ maxHeight: '60vh', overflow: 'auto' }}>
-          {loading ? (
-            <Box css={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '40px',
-              color: '#6b7280'
-            }}>
-              <Box css={{
-                width: '40px',
-                height: '40px',
-                border: '4px solid #e5e7eb',
-                borderTop: '4px solid #3b82f6',
-                borderRadius: '50%',
-                animation: 'spin 1s linear infinite',
-                marginBottom: '16px'
-              }} />
-              <Box css={{
-                fontSize: '16px',
-                fontWeight: '500'
-              }}>
-                Cargando entradas al banco...
-              </Box>
-            </Box>
-          ) : (
-            <Box css={{ marginBottom: '24px' }}>
-              <Box css={{
-                fontSize: '18px',
-                fontWeight: '700',
-                color: '#374151',
-                marginBottom: '12px',
-                padding: '8px 12px',
-                backgroundColor: '#f9fafb',
-                borderRadius: '6px',
-                borderLeft: '4px solid #3b82f6'
-              }}>
-                Entradas al Banco
-              </Box>
-              {bankIncomes.map((income) => (
-                <Box key={income.id} css={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '8px 16px',
-                  marginBottom: '4px',
-                  backgroundColor: income.type === 'TRANSFER' ? '#f0f9ff' : 
-                                 income.type === 'BANK_ABONO' ? '#f0fdf4' :
-                                 income.type === 'MONEY_INVESTMENT' ? '#fef3c7' : 
-                                 income.type === 'INCOME' ? '#f3e8ff' : '#fef2f2',
-                  borderRadius: '4px',
-                  borderLeft: `3px solid ${income.type === 'TRANSFER' ? '#0ea5e9' : 
-                                        income.type === 'BANK_ABONO' ? '#22c55e' :
-                                        income.type === 'MONEY_INVESTMENT' ? '#f59e0b' : 
-                                        income.type === 'INCOME' ? '#a855f7' : '#ef4444'}`
-                }}>
-                  <Box css={{ flex: 1 }}>
-                    <Box css={{
-                      fontSize: '14px',
-                      fontWeight: '500',
-                      color: '#374151'
-                    }}>
-                      {income.name}
-                    </Box>
-                    {income.employeeName && (
-                      <Box css={{
-                        fontSize: '12px',
-                        color: '#6b7280',
-                        marginTop: '2px'
-                      }}>
-                        Por: {income.employeeName}
-                        {income.leaderLocality && (
-                          <span css={{ marginLeft: '8px', color: '#9ca3af' }}>
-                            ({income.leaderLocality})
-                          </span>
-                        )}
-                      </Box>
-                    )}
-                    {income.description && (
-                      <Box css={{
-                        fontSize: '12px',
-                        color: '#6b7280',
-                        marginTop: '2px'
-                      }}>
-                        {income.description}
-                      </Box>
-                    )}
-                  </Box>
-                  <Box css={{
-                    fontSize: '14px',
-                    color: '#6b7280',
-                    marginRight: '16px'
-                  }}>
-                    {new Date(income.date).toLocaleDateString('es-MX')}
-                  </Box>
-                  <Box css={{
-                    fontSize: '14px',
-                    fontWeight: '600',
-                    color: '#059669'
-                  }}>
-                    ${income.amount.toFixed(2)}
-                  </Box>
-                </Box>
-              ))}
-            </Box>
-          )}
-        </Box>
-      </Box>
-    </Box>
-  );
-};
 
 // Componente reutilizable para mensaje de selección
 const SelectionMessage = ({ 
@@ -777,6 +523,14 @@ export const SummaryTab = ({ selectedDate, selectedRoute, refreshKey }: SummaryT
               }
             }
           }
+          
+          console.log('🔍 Datos del líder:', {
+            employeeName,
+            leaderLocality,
+            locationName: transaction.lead.personalData.addresses?.[0]?.location?.name,
+            stateName: transaction.lead.personalData.addresses?.[0]?.location?.municipality?.state?.name,
+            fullAddress: transaction.lead.personalData.addresses?.[0]
+          });
         }
 
         // Determinar si es una entrada al banco y el nombre según el tipo de transacción
@@ -786,10 +540,18 @@ export const SummaryTab = ({ selectedDate, selectedRoute, refreshKey }: SummaryT
           case 'TRANSFER':
             // Verificar si es una transferencia al banco
             if (transaction.destinationAccount?.type === 'BANK') {
-              name = 'Pago de líder';
+              // Para pagos de líder, usar la localidad como nombre principal
+              // Forzar el uso de la localidad extraída
+              name = leaderLocality;
               locality = 'Entradas al Banco';
               isBankIncome = true;
-              console.log('✅ TRANSFER al banco:', { name, locality });
+              console.log('✅ TRANSFER al banco - ANTES de procesar leadPaymentReceived:', { 
+                finalName: name,
+                leaderLocality, 
+                locality, 
+                employeeName,
+                hasLeadPaymentReceived: !!transaction.leadPaymentReceived
+              });
             } else {
               console.log('❌ TRANSFER no al banco:', transaction.destinationAccount?.type);
               continue; // Saltar esta transacción
@@ -839,39 +601,66 @@ export const SummaryTab = ({ selectedDate, selectedRoute, refreshKey }: SummaryT
         // Si hay LeadPaymentReceived asociado, usar esa información
         if (transaction.leadPaymentReceived) {
           const lpr = transaction.leadPaymentReceived;
-          if (lpr.lead?.personalData) {
-            locality = lpr.lead.personalData.fullName || 'Sin localidad';
-            
-            // Extraer localidad del líder desde leadPaymentReceived
-            if (lpr.lead.personalData.addresses && lpr.lead.personalData.addresses.length > 0) {
-              const address = lpr.lead.personalData.addresses[0];
-              if (address.location) {
-                leaderLocality = address.location.name || 'Sin localidad';
-                if (address.location.municipality?.state?.name) {
-                  leaderLocality += `, ${address.location.municipality.state.name}`;
-                }
+          
+          // Extraer localidad del líder desde leadPaymentReceived
+          if (lpr.lead?.personalData?.addresses && lpr.lead.personalData.addresses.length > 0) {
+            const address = lpr.lead.personalData.addresses[0];
+            if (address.location) {
+              leaderLocality = address.location.name || 'Sin localidad';
+              if (address.location.municipality?.state?.name) {
+                leaderLocality += `, ${address.location.municipality.state.name}`;
               }
             }
           }
           
-          // Si hay pagos asociados, usar el nombre del cliente
+          // Si hay pagos asociados, usar el nombre del cliente (no del líder)
           if (lpr.payments && lpr.payments.length > 0) {
             const firstPayment = lpr.payments[0];
             if (firstPayment.loan?.borrower?.personalData) {
               name = firstPayment.loan.borrower.personalData.fullName || 'Cliente desconocido';
             }
+          } else {
+            // Si no hay pagos, usar el nombre del líder como fallback
+            if (lpr.lead?.personalData) {
+              name = lpr.lead.personalData.fullName || 'Líder desconocido';
+            }
           }
         } else {
-          // Si no hay LeadPaymentReceived, usar la información de la ruta y el lead
-          // locality ya se estableció en el switch anterior
-          
-          // Si no hay descripción específica, usar el nombre del lead
-          if (!name || name === 'Ingreso bancario') {
-            if (transaction.lead?.personalData?.fullName) {
-              name = `Ingreso - ${transaction.lead.personalData.fullName}`;
+          // Si no hay LeadPaymentReceived, buscar el nombre del cliente en loanPayment
+          if (transaction.loanPayment) {
+            // Para pagos de préstamos, obtener el nombre del cliente desde loanPayment.loan.borrower
+            if (transaction.loanPayment.loan?.borrower?.personalData?.fullName) {
+              name = transaction.loanPayment.loan.borrower.personalData.fullName;
+            } else if (transaction.description && transaction.description !== 'Pago bancario de préstamo') {
+              name = transaction.description;
+            } else {
+              name = 'Pago de préstamo';
+            }
+          } else {
+            // Si no hay LeadPaymentReceived ni loanPayment, usar la información de la ruta y el lead
+            // locality ya se estableció en el switch anterior
+            
+            // Si no hay descripción específica, usar el nombre del lead
+            if (!name || name === 'Ingreso bancario') {
+              if (transaction.lead?.personalData?.fullName) {
+                name = `Ingreso - ${transaction.lead.personalData.fullName}`;
+              }
             }
           }
         }
+
+        // Log después de procesar leadPaymentReceived
+        if (transaction.type === 'TRANSFER') {
+          console.log('✅ TRANSFER al banco - DESPUÉS de procesar leadPaymentReceived:', { 
+            finalName: name,
+            leaderLocality, 
+            employeeName
+          });
+        }
+
+        // Determinar el tipo de pago
+        const isClientPayment = transaction.type === 'INCOME' && transaction.incomeSource === 'BANK_LOAN_PAYMENT';
+        const isLeaderPayment = transaction.type === 'TRANSFER' && transaction.destinationAccount?.type === 'BANK';
 
         const bankIncomeItem = {
           id: transaction.id,
@@ -882,7 +671,9 @@ export const SummaryTab = ({ selectedDate, selectedRoute, refreshKey }: SummaryT
           locality,
           employeeName,
           leaderLocality,
-          description: transaction.description
+          description: transaction.description,
+          isClientPayment,
+          isLeaderPayment
         };
         
         console.log('💾 Agregando transacción al array:', bankIncomeItem);

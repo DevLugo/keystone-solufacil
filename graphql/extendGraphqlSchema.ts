@@ -3464,10 +3464,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   const municipality = location.municipality;
                   const state = municipality.state;
                   
-                  if (location.name && municipality.name && state && state.name) {
+                  // DEBUG: Verificar datos específicos del líder problemático
+                  // Lógica más flexible: solo requiere location.name y state.name
+                  // El municipality.name puede estar vacío
+                  if (location.name && state && state.name) {
                     leadInfoMap.set(lead.id, {
                       locality: location.name,
-                      municipality: municipality.name,
+                      municipality: municipality.name || 'Sin municipio',
                       state: state.name,
                       fullName: personalData.fullName || 'Sin nombre'
                     });
