@@ -93,8 +93,8 @@ const EditPersonModal: React.FC<EditPersonModalProps> = ({
         }
       });
 
-      // Actualizar teléfono si existe
-      if (phone.trim() && person.phones?.[0]?.id) {
+      // Actualizar teléfono si existe y tiene un ID válido (no temp-phone)
+      if (phone.trim() && person.phones?.[0]?.id && person.phones[0].id !== 'temp-phone') {
         await updatePersonalDataPhone({
           variables: {
             where: { id: person.phones[0].id },
