@@ -2175,37 +2175,44 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 // Normalización robusta: eliminar TODOS los espacios múltiples y caracteres especiales
                 const normalizedName = loanData.borrowerData.fullName.trim().replace(/\s+/g, ' ').replace(/\s{2,}/g, ' ').trim();
                 
-                console.log(`🔍 Buscando cliente duplicado por NOMBRE únicamente (PRÉSTAMO NUEVO):`, {
+                console.log(`🔍 Buscando si el cliente ya ha tenido créditos anteriormente:`, {
                   originalName: loanData.borrowerData.fullName,
                   normalizedName: normalizedName
                 });
                 
-                // Buscar si ya existe un cliente con el mismo nombre (SIN FILTRO DE TELÉFONO)
-                const existingClient = await context.prisma.personalData.findFirst({
+                // Buscar si ya existe un BORROWER con el mismo nombre (no solo personalData)
+                // Esto significa que el cliente ya ha tenido créditos anteriormente
+                const existingBorrower = await context.prisma.borrower.findFirst({
                   where: {
-                    fullName: {
-                      equals: normalizedName,
-                      mode: 'insensitive'
+                    personalData: {
+                      fullName: {
+                        equals: normalizedName,
+                        mode: 'insensitive'
+                      }
                     }
                   },
                   include: {
-                    phones: true
+                    personalData: {
+                      include: {
+                        phones: true
+                      }
+                    }
                   }
                 });
                 
-                console.log(`🔍 Resultado de búsqueda:`, {
-                  found: !!existingClient,
-                  clientId: existingClient?.id,
-                  clientName: existingClient?.fullName,
-                  clientPhones: existingClient?.phones?.map(p => p.number)
+                console.log(`🔍 Resultado de búsqueda de borrower:`, {
+                  found: !!existingBorrower,
+                  borrowerId: existingBorrower?.id,
+                  clientName: existingBorrower?.personalData?.fullName,
+                  clientPhones: existingBorrower?.personalData?.phones?.map(p => p.number)
                 });
                 
-                if (existingClient) {
-                  console.log('❌ CLIENTE DUPLICADO ENCONTRADO - DETENIENDO CREACIÓN');
+                if (existingBorrower) {
+                  console.log('❌ CLIENTE CON HISTORIAL DE CRÉDITOS ENCONTRADO - DETENIENDO CREACIÓN');
                   return [{
                     success: false,
-                    message: `El cliente "${normalizedName}" ya existe en la base de datos. Renueva el crédito anterior.`,
-                    error: 'DUPLICATE_CLIENT',
+                    message: `El cliente "${normalizedName}" ya ha tenido créditos anteriormente. Usa la opción de renovación.`,
+                    error: 'EXISTING_BORROWER',
                     clientName: normalizedName
                   }];
                 }
@@ -2238,18 +2245,56 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 } else {
                   // Crear o CONECTAR borrower reutilizando PersonalData normalizado
                   const rawName = loanData.borrowerData?.fullName || '';
+                  const rawPhone = loanData.borrowerData?.phone || '';
                   const normalizedName = rawName.replace(/\s+/g, ' ').trim();
+                  const normalizedPhone = rawPhone.trim();
 
                   let personalDataId: string | null = null;
                   if (normalizedName) {
+                    // Buscar personalData por nombre Y teléfono para mayor precisión
                     const existingPD = await tx.personalData.findFirst({
-                      where: { fullName: { equals: normalizedName, mode: 'insensitive' } }
+                      where: { 
+                        fullName: { equals: normalizedName, mode: 'insensitive' },
+                        phones: {
+                          some: {
+                            number: { equals: normalizedPhone }
+                          }
+                        }
+                      }
                     });
                     personalDataId = existingPD?.id || null;
+                    
+                    // Si no se encuentra con nombre + teléfono, buscar solo por nombre como fallback
+                    if (!personalDataId) {
+                      const existingPDByName = await tx.personalData.findFirst({
+                        where: { fullName: { equals: normalizedName, mode: 'insensitive' } }
+                      });
+                      personalDataId = existingPDByName?.id || null;
+                    }
                   }
 
                   if (personalDataId) {
-                    // Si existe PD, buscar/reutilizar Borrower vinculado o crearlo
+                    // Si existe PD, verificar si tiene el teléfono correcto
+                    if (normalizedPhone) {
+                      const existingPhone = await tx.phone.findFirst({
+                        where: {
+                          personalDataId: personalDataId,
+                          number: normalizedPhone
+                        }
+                      });
+                      
+                      // Si no tiene el teléfono, agregarlo
+                      if (!existingPhone) {
+                        await tx.phone.create({
+                          data: {
+                            number: normalizedPhone,
+                            personalDataId: personalDataId
+                          }
+                        });
+                      }
+                    }
+                    
+                    // Buscar/reutilizar Borrower vinculado o crearlo
                     const existingBorrower = await tx.borrower.findFirst({
                       where: { personalDataId }
                     });
