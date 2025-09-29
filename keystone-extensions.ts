@@ -1378,66 +1378,51 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         const boundary = new Date(signWeekEnd);
         boundary.setDate(boundary.getDate() + 1); // lunes siguiente
         boundary.setHours(0, 0, 0, 0);
-        // Si el modo es next y ya estamos preparando siguiente semana, desplazar boundary 1 semana cuando corresponda
+        // El boundary siempre debe ser el mismo (lunes siguiente a la semana de firma)
+        // No se debe desplazar para semana siguiente
         const boundaryForCalc = new Date(boundary);
-        if (weekMode === 'next') {
-          boundaryForCalc.setDate(boundaryForCalc.getDate() + 7);
-        }
+        
         // Número de semana actual (para mostrar en el listado)
         // Calcular semanas desde la firma del préstamo
         const msPerWeek = 7 * 24 * 60 * 60 * 1000;
         const weeksElapsedSinceBoundary = Math.max(0, Math.floor((getMonday(weekEnd).getTime() - getMonday(boundaryForCalc).getTime()) / msPerWeek));
         const nSemanaValue = weeksElapsedSinceBoundary + 1;
         
-        // LÓGICA CORREGIDA PARA VDO BASADA EN LA SEMANA SOLICITADA:
-        // - Semana 0: Se entrega el crédito
-        // - Semana 1: Aparece en listados SIN VDO
-        // - Semana 2+: Solo los que NO pagaron la semana anterior tienen VDO
+        // LÓGICA SIMPLIFICADA PARA VDO:
+        // Pago VDO = Cantidad total que se espera hubieran pagado al final de la semana pasada
         
         let arrearsAmount = 0;
         
-        // Calcular VDO basado en la semana específica solicitada (current/next)
-        // Para semana actual: VDO = atrasos hasta la semana anterior
-        // Para semana siguiente: VDO = atrasos hasta la semana actual
-        
+        // Calcular cuántas semanas completas han pasado desde el boundary hasta el final de la semana pasada
+        // Para semana actual: semanas hasta el domingo anterior
+        // Para semana siguiente: semanas hasta el domingo actual
         const isNextWeek = weekMode === 'next';
-        const weeksForVDO = isNextWeek ? weeksElapsedSinceBoundary + 1 : weeksElapsedSinceBoundary;
+        const endOfLastWeek = isNextWeek ? weekEnd : new Date(weekStart.getTime() - 1);
         
-        // Solo calcular VDO si estamos en semana 2 o posterior
-        if (weeksForVDO >= 1) {
-          // Calcular cuánto debería haber pagado hasta la semana de referencia
-          const expectedAmount = expectedWeeklyPayment * weeksForVDO;
-          
-          // Calcular cuánto ha pagado realmente hasta la semana de referencia
-          const endDateForVDO = isNextWeek ? weekEnd : new Date(weekStart.getTime() - 1);
-          const totalPaidUpToReferenceWeek = (loan.payments || []).reduce((sum: number, p: any) => {
-            const d = new Date(p.receivedAt || p.createdAt);
-            if (d >= boundaryForCalc && d <= endDateForVDO) {
-              return sum + parseFloat((p.amount || 0).toString());
-            }
-            return sum;
-          }, 0);
-          
-          // VDO = lo que debería haber pagado - lo que realmente pagó
-          // Pero limitado al monto pendiente almacenado
-          if (expectedAmount > totalPaidUpToReferenceWeek) {
-            arrearsAmount = Math.max(0, Math.min(
-              expectedAmount - totalPaidUpToReferenceWeek, 
-              pendingAmountStored
-            ));
+        // Calcular semanas completas desde el boundary hasta el final de la semana pasada
+        const weeksSinceBoundary = Math.max(0, Math.floor((getMonday(endOfLastWeek).getTime() - getMonday(boundaryForCalc).getTime()) / msPerWeek));
+        
+        // Calcular cuánto debería haber pagado hasta el final de la semana pasada
+        const expectedAmount = expectedWeeklyPayment * weeksSinceBoundary;
+        
+        // Calcular cuánto ha pagado realmente hasta el final de la semana pasada
+        const totalPaidUpToLastWeek = (loan.payments || []).reduce((sum: number, p: any) => {
+          const d = new Date(p.receivedAt || p.createdAt);
+          if (d >= boundaryForCalc && d <= endOfLastWeek) {
+            return sum + parseFloat((p.amount || 0).toString());
           }
-          
-          // Debug para verificar cálculos
-          if (loan.borrower?.personalData?.fullName?.includes('Test') || arrearsAmount > 0) {
-            console.log(`🔍 VDO Debug - ${loan.borrower?.personalData?.fullName}:`);
-            console.log(`   - Modo: ${weekMode} (${isNextWeek ? 'siguiente' : 'actual'})`);
-            console.log(`   - Semana de referencia: ${weeksForVDO}`);
-            console.log(`   - Pago semanal esperado: ${expectedWeeklyPayment}`);
-            console.log(`   - Debería haber pagado: ${expectedAmount}`);
-            console.log(`   - Realmente pagó hasta ${endDateForVDO.toLocaleDateString()}: ${totalPaidUpToReferenceWeek}`);
-            console.log(`   - VDO calculado: ${arrearsAmount}`);
-          }
+          return sum;
+        }, 0);
+        
+        // VDO = lo que debería haber pagado hasta el final de la semana pasada - lo que realmente pagó
+        // Pero limitado al monto pendiente almacenado
+        if (expectedAmount > totalPaidUpToLastWeek) {
+          arrearsAmount = Math.max(0, Math.min(
+            expectedAmount - totalPaidUpToLastWeek, 
+            pendingAmountStored
+          ));
         }
+        
 
         // Para abono parcial, calcular solo pagos de la semana actual
         const totalPaidInCurrentWeek = (loan.payments || []).reduce((sum: number, p: any) => {

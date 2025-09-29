@@ -1577,11 +1577,14 @@ export const CreateExpensesForm = ({
                           value={selectedRoute?.accounts?.map(acc => ({ label: acc.name || '', value: acc.id })).find(acc => acc.value === transaction.sourceAccount?.connect?.id) || null}
                         options={selectedRoute?.accounts?.filter(acc => {
                           if (transaction.expenseSource === 'GASOLINE') {
-                            return acc.type === 'PREPAID_GAS' || acc.type === 'EMPLOYEE_CASH_FUND';
+                            return acc.type === 'PREPAID_GAS' || acc.type === 'EMPLOYEE_CASH_FUND' || acc.type === 'OFFICE_CASH_FUND';
                           }
                           return acc.type !== 'PREPAID_GAS';
                         }).map(acc => ({
-                            label: acc.type === 'PREPAID_GAS' ? `${acc.name || 'Toka'} (Prepago Gas)` : acc.type === 'EMPLOYEE_CASH_FUND' ? `${acc.name || 'Efectivo'} (Efectivo)` : acc.name || '',
+                            label: acc.type === 'PREPAID_GAS' ? `${acc.name || 'Toka'} (Prepago Gas)` : 
+                                   acc.type === 'EMPLOYEE_CASH_FUND' ? `${acc.name || 'Efectivo'} (Efectivo)` : 
+                                   acc.type === 'OFFICE_CASH_FUND' ? `${acc.name || 'Oficina'} (Oficina)` : 
+                                   acc.name || '',
                           value: acc.id
                         })) || []}
                         onChange={option => handleEditTransaction(index, 'sourceAccount', option?.value || '')}
