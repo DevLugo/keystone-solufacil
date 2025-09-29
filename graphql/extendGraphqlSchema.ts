@@ -2020,6 +2020,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
             });
 
+            // Logs de memoria removidos
+
             if (updateResult.count === 0) {
               // Si no se actualizó ningún préstamo, eliminar el registro de limpieza
               await (context.prisma as any).portfolioCleanup.delete({
@@ -2032,17 +2034,14 @@ export const extendGraphqlSchema = graphql.extend(base => {
               };
             }
 
-            // Obtener el monto total de los préstamos excluidos (solo para el reporte)
-            const excludedLoans = await (context.prisma as any).loan.findMany({
-              where: {
-                excludedByCleanupId: portfolioCleanup.id
-              },
-              select: {
-                amountGived: true
-              }
+            // Obtener el monto total con agregación Prisma (sin cargar filas)
+            const agg = await (context.prisma as any).loan.aggregate({
+              where: { excludedByCleanupId: portfolioCleanup.id },
+              _sum: { amountGived: true }
             });
+            const totalAmount = Number(agg?._sum?.amountGived || 0);
 
-            const totalAmount = excludedLoans.reduce((sum: number, loan: any) => sum + Number(loan.amountGived || 0), 0);
+            // Logs de memoria removidos
 
             return {
               success: true,
@@ -3083,148 +3082,114 @@ export const extendGraphqlSchema = graphql.extend(base => {
         },
         resolve: async (root, { routeId, fromDate, toDate, weeksWithoutPaymentThreshold = 0 }, context: Context) => {
           try {
+            // LÍMITE DE MEMORIA: Verificar uso de memoria antes de procesar
+            // Verificación de memoria removida a petición del usuario
+
             const start = new Date(fromDate);
             start.setHours(0, 0, 0, 0);
             const end = new Date(toDate);
             end.setHours(23, 59, 59, 999);
 
-            // OPTIMIZACIÓN 1: Primero obtener solo conteo y monto total (sin includes pesados)
-            const candidateLoans = await (context.prisma as any).loan.findMany({
-              where: {
-                lead: { routes: { id: routeId } },
-                signDate: { gte: start, lte: end },
-                excludedByCleanup: { is: null },
-                finishedDate: null,
-                status: 'ACTIVE'
-              },
-              select: {
-                id: true,
-                amountGived: true,
-                signDate: true
-              }
+            // TIMEOUT: Configurar timeout de 30 segundos para la operación
+            const timeoutPromise = new Promise((_, reject) => {
+              setTimeout(() => reject(new Error('Timeout: La operación tardó más de 30 segundos')), 30000);
             });
 
+            // OPTIMIZACIÓN CRÍTICA: Solo conteo y suma total - sin datos de muestra
             const applyCV = typeof weeksWithoutPaymentThreshold === 'number' && weeksWithoutPaymentThreshold > 0;
-            let loansToExclude = candidateLoans as any[];
 
+            let count = 0;
+            let totalAmount = 0;
+
+            // Ejecutar la operación con timeout
+            const operationPromise = (async () => {
             if (applyCV) {
-              // OPTIMIZACIÓN 2: Solo obtener último pago para préstamos que necesitan verificación
+                // Usar agregación SQL para obtener conteo y monto total con filtro de semanas sin pago
               const now = new Date();
-              const loanIds = candidateLoans.map((loan: any) => loan.id);
-              
-              // Obtener solo el último pago de cada préstamo (más eficiente)
-              const lastPayments = await (context.prisma as any).loanPayment.findMany({
-                where: {
-                  loanId: { in: loanIds }
-                },
-                select: {
-                  loanId: true,
-                  receivedAt: true
-                },
-                orderBy: {
-                  receivedAt: 'desc'
-                }
-              });
+                const weeksInMs = weeksWithoutPaymentThreshold * 7 * 24 * 60 * 60 * 1000;
+                const thresholdDate = new Date(now.getTime() - weeksInMs);
 
-              // Agrupar por loanId y tomar solo el más reciente
-              const lastPaymentMap = new Map();
-              lastPayments.forEach((payment: any) => {
-                if (!lastPaymentMap.has(payment.loanId)) {
-                  lastPaymentMap.set(payment.loanId, payment.receivedAt);
-                }
-              });
+                // Consulta optimizada usando agregación SQL - SOLO COUNT Y SUM
+                const result = await (context.prisma as any).$queryRaw`
+                  WITH loan_last_payments AS (
+                    SELECT DISTINCT ON (lp."loan") 
+                      lp."loan" as loanId,
+                      lp."receivedAt"
+                    FROM "LoanPayment" lp
+                    WHERE lp."loan" IN (
+                      SELECT l.id 
+                      FROM "Loan" l
+                      INNER JOIN "Employee" e ON l."lead" = e.id
+                      WHERE e."routes" = ${routeId}
+                        AND l."signDate" >= ${start}
+                        AND l."signDate" <= ${end}
+                        AND l."excludedByCleanup" IS NULL
+                        AND l."finishedDate" IS NULL
+                        AND l.status = 'ACTIVE'
+                    )
+                    ORDER BY lp."loan", lp."receivedAt" DESC
+                  ),
+                  loans_with_last_payment AS (
+                    SELECT 
+                      l.id,
+                      l."amountGived",
+                      l."signDate",
+                      COALESCE(llp."receivedAt", l."signDate") as last_payment_date
+                    FROM "Loan" l
+                    INNER JOIN "Employee" e ON l."lead" = e.id
+                    LEFT JOIN loan_last_payments llp ON l.id = llp."loanId"
+                    WHERE e."routes" = ${routeId}
+                      AND l."signDate" >= ${start}
+                      AND l."signDate" <= ${end}
+                      AND l."excludedByCleanup" IS NULL
+                      AND l."finishedDate" IS NULL
+                      AND l.status = 'ACTIVE'
+                  )
+                  SELECT 
+                    COUNT(*) as count,
+                    COALESCE(SUM("amountGived"), 0) as total_amount
+                  FROM loans_with_last_payment
+                  WHERE last_payment_date <= ${thresholdDate}
+                `;
 
-              loansToExclude = candidateLoans.filter((loan: any) => {
-                const lastPaymentDate = lastPaymentMap.get(loan.id) 
-                  ? new Date(lastPaymentMap.get(loan.id))
-                  : new Date(loan.signDate);
-                const diffMs = now.getTime() - lastPaymentDate.getTime();
-                const weeks = Math.floor(diffMs / (1000 * 60 * 60 * 24 * 7));
-                return weeks >= weeksWithoutPaymentThreshold;
-              });
+                count = Number(result[0]?.count || 0);
+                totalAmount = Number(result[0]?.total_amount || 0);
+              } else {
+                // Sin filtro de semanas - consulta simple optimizada - SOLO COUNT Y SUM
+                const result = await (context.prisma as any).$queryRaw`
+                  SELECT 
+                    COUNT(*) as count,
+                    COALESCE(SUM(l."amountGived"), 0) as total_amount
+                  FROM "Loan" l
+                  INNER JOIN "Employee" e ON l."lead" = e.id
+                  WHERE e."routes" = ${routeId}
+                    AND l."signDate" >= ${start}
+                    AND l."signDate" <= ${end}
+                    AND l."excludedByCleanup" IS NULL
+                    AND l."finishedDate" IS NULL
+                    AND l.status = 'ACTIVE'
+                `;
+
+                count = Number(result[0]?.count || 0);
+                totalAmount = Number(result[0]?.total_amount || 0);
             }
 
-            const totalAmount = loansToExclude.reduce((sum: number, loan: any) => sum + Number(loan.amountGived || 0), 0);
+              // Logs de memoria removidos
 
-            // OPTIMIZACIÓN 3: Solo obtener datos de muestra para los primeros 5 préstamos
-            let sampleLoans: any[] = [];
-            if (loansToExclude.length > 0) {
-              const sampleIds = loansToExclude.slice(0, 5).map((loan: any) => loan.id);
-              
-              const sampleLoansData = await (context.prisma as any).loan.findMany({
-                where: {
-                  id: { in: sampleIds }
-                },
-                select: {
-                  id: true,
-                  amountGived: true,
-                  signDate: true,
-                  borrower: {
-                    select: {
-                      personalData: {
-                        select: {
-                          fullName: true
-                        }
-                      }
-                    }
-                  },
-                  lead: {
-                    select: {
-                      personalData: {
-                        select: {
-                          fullName: true
-                        }
-                      }
-                    }
-                  }
-                }
-              });
+              return {
+                success: true,
+                count: count,
+                totalAmount: totalAmount,
+                message: `Se encontraron ${count} préstamos que serían excluidos con un monto total de $${totalAmount.toLocaleString()}.`
+              };
+            })();
 
-              // Obtener último pago solo para los préstamos de muestra
-              const sampleLastPayments = await (context.prisma as any).loanPayment.findMany({
-                where: {
-                  loanId: { in: sampleIds }
-                },
-                select: {
-                  loanId: true,
-                  receivedAt: true
-                },
-                orderBy: {
-                  receivedAt: 'desc'
-                }
-              });
-
-              const sampleLastPaymentMap = new Map();
-              sampleLastPayments.forEach((payment: any) => {
-                if (!sampleLastPaymentMap.has(payment.loanId)) {
-                  sampleLastPaymentMap.set(payment.loanId, payment.receivedAt);
-                }
-              });
-
-              sampleLoans = sampleLoansData.map((loan: any) => {
-                const lastPaymentDate = sampleLastPaymentMap.get(loan.id);
-                const weeksWithoutPayment = lastPaymentDate 
-                  ? Math.floor((new Date().getTime() - new Date(lastPaymentDate).getTime()) / (1000 * 60 * 60 * 24 * 7))
-                  : Math.floor((new Date().getTime() - new Date(loan.signDate).getTime()) / (1000 * 60 * 60 * 24 * 7));
-
-                return {
-                  id: loan.id,
-                  borrowerName: loan.borrower?.personalData?.fullName || loan.lead?.personalData?.fullName || 'N/A',
-                  amount: Number(loan.amountGived || 0),
-                  signDate: loan.signDate,
-                  lastPaymentDate: lastPaymentDate,
-                  weeksWithoutPayment: weeksWithoutPayment
-                };
-              });
-            }
-
-            return {
-              success: true,
-              count: loansToExclude.length,
-              totalAmount: totalAmount,
-              sampleLoans: sampleLoans,
-              message: `Se encontraron ${loansToExclude.length} préstamos que serían excluidos. Mostrando ${sampleLoans.length} ejemplos.`
-            };
+            // Ejecutar con timeout
+            const result = await Promise.race([operationPromise, timeoutPromise]);
+            
+            // Logs de memoria removidos
+            
+            return result;
 
           } catch (error) {
             console.error('Error en previewBulkPortfolioCleanup:', error);
