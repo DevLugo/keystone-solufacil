@@ -1978,51 +1978,46 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
             });
 
-            // SIMPLIFICADO: Una sola query para actualizar todos los préstamos que cumplan las condiciones
-            const whereConditions: any = {
-              lead: { routes: { id: routeId } },
-              signDate: { gte: start, lte: end },
-              excludedByCleanup: { is: null },
-              finishedDate: null,
-              status: 'ACTIVE'
-            };
+            // UPDATE directo en DB sin cargar filas: aplica excludedByCleanupId según filtros
+            const now = new Date();
+            const thresholdDate = new Date(now.getTime() - (weeksWithoutPaymentThreshold > 0 ? weeksWithoutPaymentThreshold * 7 * 24 * 60 * 60 * 1000 : 0));
 
-            // Si hay threshold de semanas, agregar condición adicional
-            if (typeof weeksWithoutPaymentThreshold === 'number' && weeksWithoutPaymentThreshold > 0) {
-              const now = new Date();
-              const thresholdDate = new Date(now.getTime() - (weeksWithoutPaymentThreshold * 7 * 24 * 60 * 60 * 1000));
-              
-              // Solo préstamos donde el último pago (o fecha de firma si no hay pagos) sea anterior al threshold
-              whereConditions.OR = [
-                {
-                  payments: {
-                    none: {},
-                    AND: {
-                      signDate: { lt: thresholdDate }
-                    }
-                  }
-                },
-                {
-                  payments: {
-                    some: {
-                      receivedAt: { lt: thresholdDate }
-                    }
-                  }
-                }
-              ];
-            }
-
-            // Una sola query para actualizar todos los préstamos que cumplan las condiciones
-            const updateResult = await (context.prisma as any).loan.updateMany({
-              where: whereConditions,
-              data: {
-                excludedByCleanupId: portfolioCleanup.id
-              }
-            });
+            const affected = await (context.prisma as any).$executeRaw`
+              UPDATE "Loan" l
+              SET "excludedByCleanup" = ${portfolioCleanup.id}
+              WHERE l."excludedByCleanup" IS NULL
+                AND l."finishedDate" IS NULL
+                AND l.status = 'ACTIVE'
+                AND l."signDate" >= ${start}
+                AND l."signDate" <= ${end}
+                AND (
+                  l."snapshotRouteId" = ${routeId}
+                  OR (
+                    (l."snapshotRouteId" IS NULL OR l."snapshotRouteId" = '')
+                    AND EXISTS (
+                      SELECT 1 FROM "Employee" e
+                      WHERE e.id = l."lead" AND e."routes" = ${routeId}
+                    )
+                  )
+                )
+                AND (
+                  ${weeksWithoutPaymentThreshold} = 0
+                  OR (
+                    EXISTS (
+                      SELECT 1 FROM "LoanPayment" lp
+                      WHERE lp."loan" = l.id AND lp."receivedAt" <= ${thresholdDate}
+                    )
+                    OR (
+                      NOT EXISTS (SELECT 1 FROM "LoanPayment" lp2 WHERE lp2."loan" = l.id)
+                      AND l."signDate" <= ${thresholdDate}
+                    )
+                  )
+                )
+            `;
 
             // Logs de memoria removidos
 
-            if (updateResult.count === 0) {
+            if (affected === 0) {
               // Si no se actualizó ningún préstamo, eliminar el registro de limpieza
               await (context.prisma as any).portfolioCleanup.delete({
                 where: { id: portfolioCleanup.id }
@@ -2034,21 +2029,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
               };
             }
 
-            // Obtener el monto total con agregación Prisma (sin cargar filas)
-            const agg = await (context.prisma as any).loan.aggregate({
-              where: { excludedByCleanupId: portfolioCleanup.id },
-              _sum: { amountGived: true }
-            });
-            const totalAmount = Number(agg?._sum?.amountGived || 0);
-
             // Logs de memoria removidos
 
             return {
               success: true,
               id: portfolioCleanup.id,
-              excludedLoansCount: updateResult.count,
-              excludedAmount: totalAmount,
-              message: `Limpieza masiva registrada. ${updateResult.count} préstamos excluidos.`
+              excludedLoansCount: affected,
+              message: `Limpieza masiva registrada. ${affected} préstamos excluidos.`
             };
 
           } catch (error) {
@@ -3119,8 +3106,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     WHERE lp."loan" IN (
                       SELECT l.id 
                       FROM "Loan" l
-                      INNER JOIN "Employee" e ON l."lead" = e.id
-                      WHERE e."routes" = ${routeId}
+                      WHERE (
+                        l."snapshotRouteId" = ${routeId}
+                        OR (
+                          (l."snapshotRouteId" IS NULL OR l."snapshotRouteId" = '')
+                          AND EXISTS (
+                            SELECT 1 FROM "Employee" e
+                            WHERE e.id = l."lead" AND e."routes" = ${routeId}
+                          )
+                        )
+                      )
                         AND l."signDate" >= ${start}
                         AND l."signDate" <= ${end}
                         AND l."excludedByCleanup" IS NULL
@@ -3136,9 +3131,17 @@ export const extendGraphqlSchema = graphql.extend(base => {
                       l."signDate",
                       COALESCE(llp."receivedAt", l."signDate") as last_payment_date
                     FROM "Loan" l
-                    INNER JOIN "Employee" e ON l."lead" = e.id
                     LEFT JOIN loan_last_payments llp ON l.id = llp."loanId"
-                    WHERE e."routes" = ${routeId}
+                    WHERE (
+                      l."snapshotRouteId" = ${routeId}
+                      OR (
+                        (l."snapshotRouteId" IS NULL OR l."snapshotRouteId" = '')
+                        AND EXISTS (
+                          SELECT 1 FROM "Employee" e
+                          WHERE e.id = l."lead" AND e."routes" = ${routeId}
+                        )
+                      )
+                    )
                       AND l."signDate" >= ${start}
                       AND l."signDate" <= ${end}
                       AND l."excludedByCleanup" IS NULL
@@ -3161,8 +3164,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     COUNT(*) as count,
                     COALESCE(SUM(l."amountGived"), 0) as total_amount
                   FROM "Loan" l
-                  INNER JOIN "Employee" e ON l."lead" = e.id
-                  WHERE e."routes" = ${routeId}
+                  WHERE (
+                    l."snapshotRouteId" = ${routeId}
+                    OR (
+                      (l."snapshotRouteId" IS NULL OR l."snapshotRouteId" = '')
+                      AND EXISTS (
+                        SELECT 1 FROM "Employee" e
+                        WHERE e.id = l."lead" AND e."routes" = ${routeId}
+                      )
+                    )
+                  )
                     AND l."signDate" >= ${start}
                     AND l."signDate" <= ${end}
                     AND l."excludedByCleanup" IS NULL
