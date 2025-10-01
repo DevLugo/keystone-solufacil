@@ -40,7 +40,7 @@ const menuSections: MenuSection[] = [
       {
         label: 'Captura Semanal',
         href: '/transacciones',
-        roles: ['NORMAL', 'CAPTURA', 'ADMIN']
+        roles: ['CAPTURA', 'ADMIN']
       },
       {
         label: 'Carga Gastos Toka',
