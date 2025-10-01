@@ -211,6 +211,9 @@ interface TransactionItem {
 
 export const User = list({
   access: allowAll,
+  ui: {
+    isHidden: ({ session }: any) => session?.data?.role !== 'ADMIN',
+  },
   fields: {
     name: text({ defaultValue: '' }),
     email: text({ isIndexed: 'unique', defaultValue: '' }),
@@ -420,6 +423,9 @@ export const Municipality = list({
 
 export const Employee = list({
   access: allowAll,
+  ui: {
+    isHidden: ({ session }: any) => session?.data?.role !== 'ADMIN',
+  },
   fields: {
     oldId: text({ db: { isNullable: true }, isIndexed: 'unique' }),
     routes: relationship({
@@ -488,6 +494,9 @@ export const Employee = list({
 
 export const Loantype = list({
   access: allowAll,
+  ui: {
+    isHidden: ({ session }: any) => session?.data?.role !== 'ADMIN',
+  },
   db: {
     idField: { kind: 'cuid' }, // Usa db.idField para definir el campo id
   },
