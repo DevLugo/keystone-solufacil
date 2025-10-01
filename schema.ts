@@ -222,6 +222,7 @@ export const User = list({
       options: [
         { label: 'Administrador', value: 'ADMIN' },
         { label: 'Usuario Normal', value: 'NORMAL' },
+        { label: 'Capturista', value: 'CAPTURA' },
       ],
       defaultValue: 'NORMAL',
     }),
