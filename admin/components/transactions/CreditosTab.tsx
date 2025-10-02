@@ -1300,13 +1300,26 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     // Calcular pendingAmount si no existe - usar 0 como valor por defecto seguro
     const calculatedPendingAmount = loan.pendingAmount || '0';
 
+    // Extraer información del aval de los collaterals
+    const firstCollateral = loan.collaterals?.[0];
+    const avalName = firstCollateral?.fullName || '';
+    const avalPhone = firstCollateral?.phones?.[0]?.number || '';
+    const selectedCollateralId = firstCollateral?.id;
+    const selectedCollateralPhoneId = firstCollateral?.phones?.[0]?.id;
+
     setEditingLoan({
       ...loan,
       requestedAmount: loan.requestedAmount.toString(),
       amountGived: loan.amountGived.toString(),
       amountToPay: calculatedAmountToPay.toString(),
       pendingAmount: calculatedPendingAmount.toString(),
-      comissionAmount: loan.comissionAmount?.toString() || '0'
+      comissionAmount: loan.comissionAmount?.toString() || '0',
+      // Mapear información del aval para el modal
+      avalName,
+      avalPhone,
+      selectedCollateralId,
+      selectedCollateralPhoneId,
+      avalAction: selectedCollateralId ? 'connect' : 'create'
     });
   };
 
@@ -2500,42 +2513,27 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                   <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
                     Aval
                   </label>
-                  <PersonInputWithAutocomplete
+                  <AvalInputWithAutocomplete
                     loanId="editing-loan"
-                    currentName={editingLoan.collaterals?.[0]?.fullName || (editingLoan as any).avalName || ''}
-                    currentPhone={editingLoan.collaterals?.[0]?.phones?.[0]?.number || (editingLoan as any).avalPhone || ''}
-                    onNameChange={(name) => {
-                      const currentPhone = editingLoan.collaterals?.[0]?.phones?.[0]?.number || (editingLoan as any).avalPhone || '';
-                      setEditingLoan(prev => ({ ...prev, avalName: name, avalPhone: currentPhone } as any));
-                    }}
-                    onPhoneChange={(phone) => {
-                      const currentName = editingLoan.collaterals?.[0]?.fullName || (editingLoan as any).avalName || '';
-                      setEditingLoan(prev => ({ ...prev, avalName: currentName, avalPhone: phone } as any));
-                    }}
-                    onClear={() => setEditingLoan(prev => ({ ...prev, avalName: '', avalPhone: '', selectedCollateralId: undefined } as any))}
-                    onActionChange={(action) => {
-                      const currentName = editingLoan.collaterals?.[0]?.fullName || (editingLoan as any).avalName || '';
-                      const currentPhone = editingLoan.collaterals?.[0]?.phones?.[0]?.number || (editingLoan as any).avalPhone || '';
-                      setEditingLoan(prev => ({ ...prev, avalName: currentName, avalPhone: currentPhone, avalAction: action } as any));
-                    }}
-                    enableAutocomplete={true}
-                    selectedPersonId={(editingLoan as any).selectedCollateralId || editingLoan.collaterals?.[0]?.id}
-                    onPersonSelect={(person) => {
+                    currentName={(editingLoan as any).avalName || ''}
+                    currentPhone={(editingLoan as any).avalPhone || ''}
+                    selectedCollateralId={(editingLoan as any).selectedCollateralId}
+                    selectedCollateralPhoneId={(editingLoan as any).selectedCollateralPhoneId}
+                    onAvalChange={(avalData) => {
                       setEditingLoan(prev => ({ 
                         ...prev, 
-                        avalName: person.fullName, 
-                        avalPhone: person.phones?.[0]?.number || '', 
-                        selectedCollateralId: person.id, 
-                        avalAction: 'connect' 
+                        avalName: avalData.avalName,
+                        avalPhone: avalData.avalPhone,
+                        selectedCollateralId: avalData.selectedCollateralId,
+                        selectedCollateralPhoneId: avalData.selectedCollateralPhoneId,
+                        avalAction: avalData.avalAction
                       } as any));
                     }}
                     usedPersonIds={[]}
                     borrowerLocationId={editingLoan.borrower?.personalData?.addresses?.[0]?.location?.id}
                     includeAllLocations={false}
-                    namePlaceholder="Buscar o escribir nombre del aval..."
-                    phonePlaceholder="Teléfono..."
-                    actionType="aval"
                     readonly={false}
+                    isFromPrevious={!!editingLoan.previousLoan}
                   />
                 </div>
               </Stack>
