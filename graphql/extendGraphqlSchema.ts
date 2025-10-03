@@ -2816,9 +2816,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     }
                   }
 
+                  // Conectar el aval sin limpiar las conexiones existentes
                   await tx.loan.update({
                     where: { id: where },
-                    data: { collaterals: { set: [], connect: [{ id: avalData.selectedCollateralId }] } }
+                    data: { collaterals: { connect: [{ id: avalData.selectedCollateralId }] } }
                   });
                   console.log('🔗 Aval conectado al préstamo:', avalData.selectedCollateralId);
 
@@ -2832,16 +2833,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   });
                   await tx.loan.update({
                     where: { id: where },
-                    data: { collaterals: { set: [], connect: [{ id: newAval.id }] } }
+                    data: { collaterals: { connect: [{ id: newAval.id }] } }
                   });
                   console.log('➕ Nuevo aval creado y conectado:', newAval.id);
 
                 // 3) Si action==='clear', limpiar conexiones
                 } else if (avalData.action === 'clear') {
                   await tx.loan.update({ where: { id: where }, data: { collaterals: { set: [] } } });
-                console.log('🧹 Conexiones de aval limpiadas del préstamo');
+                  console.log('🧹 Conexiones de aval limpiadas del préstamo');
                 } else {
-                  console.log('ℹ️ Sin cambios de aval aplicables.');
+                  console.log('ℹ️ Sin cambios de aval aplicables - manteniendo conexiones existentes.');
                 }
               }
               
@@ -2891,53 +2892,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
               });
               
               console.log('✅ Préstamo actualizado exitosamente con avales:', finalLoan?.id);
-              
-              // 1.2 Actualizar balance de cuenta EMPLOYEE_CASH_FUND según delta de montos
-              try {
-                // Obtener préstamo original para calcular delta
-                const originalLoan = await tx.loan.findUnique({ where: { id: where } });
-                if (originalLoan) {
-                  // Buscar lead y cuenta
-                  const lead = await context.db.Employee.findOne({ where: { id: (originalLoan as any).leadId } });
-                  const account = await context.prisma.account.findFirst({
-                    where: {
-                      routes: { some: { id: (lead as any)?.routesId } },
-                      type: 'EMPLOYEE_CASH_FUND'
-                    }
-                  });
-
-                  if (account) {
-                    const parseAmount = (v: any) => parseFloat((v ?? '0').toString());
-
-                    const oldAmount = parseAmount((originalLoan as any).amountGived);
-                    const oldCommission = parseAmount((originalLoan as any).comissionAmount);
-                    const newAmount = parseAmount((data as any).amountGived ?? updatedLoan.amountGived);
-                    const newCommission = parseAmount((data as any).comissionAmount ?? updatedLoan.comissionAmount);
-
-                    const oldTotal = oldAmount + oldCommission;
-                    const newTotal = newAmount + newCommission;
-                    const balanceChange = oldTotal - newTotal; // mismo signo que schema.ts
-
-                    const currentAmount = parseFloat(account.amount.toString());
-                    const updatedAmount = currentAmount + balanceChange;
-
-                    await context.db.Account.updateOne({
-                      where: { id: account.id },
-                      data: { amount: updatedAmount.toString() }
-                    });
-
-                    console.log('💰 Cuenta EMPLOYEE_CASH_FUND actualizada:', {
-                      accountId: account.id,
-                      oldTotal,
-                      newTotal,
-                      balanceChange,
-                      updatedAmount
-                    });
-                  }
-                }
-              } catch (e) {
-                console.error('⚠️ No se pudo actualizar la cuenta asociada:', e);
-              }
 
               return {
                 success: true,
