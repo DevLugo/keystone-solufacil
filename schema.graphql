@@ -2883,6 +2883,7 @@ input UpdateLoanWithAvalInput {
   requestedAmount: String
   amountGived: String
   comissionAmount: String
+  loantypeId: ID
   avalData: UpdateAvalDataInput
 }
 

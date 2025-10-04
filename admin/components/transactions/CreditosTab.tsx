@@ -1334,6 +1334,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         requestedAmount: editingLoan.requestedAmount,
         amountGived: editingLoan.amountGived,
         comissionAmount: editingLoan.comissionAmount,
+        loantypeId: editingLoan.loantype?.id, // ✅ NUEVO: Incluir loantypeId para recálculo de abonos
         // signDate eliminado; backend usará la fecha del préstamo
         avalData: ((editingLoan as any).selectedCollateralId
           ? {

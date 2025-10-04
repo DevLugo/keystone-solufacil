@@ -2644,6 +2644,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 requestedAmount: graphql.arg({ type: graphql.String }),
                 amountGived: graphql.arg({ type: graphql.String }),
                 comissionAmount: graphql.arg({ type: graphql.String }),
+                loantypeId: graphql.arg({ type: graphql.ID }),
                 avalData: graphql.arg({ 
                   type: graphql.inputObject({
                     name: 'UpdateAvalDataInput',
@@ -2685,6 +2686,123 @@ export const extendGraphqlSchema = graphql.extend(base => {
               });
               
               console.log('✅ Préstamo básico actualizado:', updatedLoan.id);
+
+              // ✅ NUEVA FUNCIONALIDAD: Recálculo de abonos si cambió el porcentaje
+                console.log("🔍 DEBUG - loantypeId recibido:", data.loantypeId);
+                console.log("🔍 DEBUG - loantypeId original:", originalLoan?.loantypeId);
+              if (data.loantypeId && originalLoan?.loantypeId !== data.loantypeId) {
+                console.log('🔄 Detectado cambio de porcentaje, recalculando abonos...');
+                
+                // Obtener el nuevo tipo de préstamo
+                const newLoanType = await context.prisma.Loantype.findUnique({
+                  where: { id: data.loantypeId }
+                });
+
+                if (newLoanType) {
+                  // Recalcular profitAmount del préstamo (rate ya está en porcentaje: 0.4 = 40%)
+                  const newProfitAmount = parseFloat(updatedLoan.amountGived.toString()) * parseFloat(newLoanType.rate.toString());
+                  const newAmountToPay = parseFloat(updatedLoan.amountGived.toString()) + newProfitAmount;
+                  // Calcular totalDebtAcquired y pendingAmountStored
+                  const newTotalDebtAcquired = newAmountToPay;
+                  const newPendingAmountStored = newAmountToPay; // Se recalculará después con los pagos reales
+                  const newExpectedWeeklyPayment = newAmountToPay / (newLoanType.weekDuration || 1);
+                  // Actualizar el préstamo con los nuevos cálculos
+                  await tx.loan.update({
+                    where: { id: where },
+                    data: {
+                      profitAmount: newProfitAmount.toFixed(2),
+                      expectedWeeklyPayment: newExpectedWeeklyPayment.toFixed(2),
+                      totalDebtAcquired: newTotalDebtAcquired.toFixed(2),
+                      pendingAmountStored: newPendingAmountStored.toFixed(2),
+                      loantype: { connect: { id: data.loantypeId } }
+                    }
+                  });
+                  console.log("🔍 DEBUG - Préstamo actualizado con loantypeId:", data.loantypeId);
+                  console.log("🔍 DEBUG - Datos enviados a la actualización:", {
+                    profitAmount: newProfitAmount.toFixed(2),
+                    amountToPay: newAmountToPay.toFixed(2),
+                    expectedWeeklyPayment: newExpectedWeeklyPayment.toFixed(2),
+                    totalDebtAcquired: newTotalDebtAcquired.toFixed(2),
+                    pendingAmountStored: newPendingAmountStored.toFixed(2),
+                    loantype: { connect: { id: data.loantypeId } }
+                  });
+
+                  // Obtener todos los abonos del préstamo
+                  const loanPayments = await tx.loanPayment.findMany({
+                    where: { loanId: where },
+                    orderBy: { receivedAt: 'asc' }
+                  });
+
+                  console.log(`📊 Recalculando ${loanPayments.length} abonos...`);
+
+                  // Recalcular cada abono
+                  let totalPaidAmount = 0;
+                  for (const payment of loanPayments) {
+                    const paymentAmount = parseFloat(payment.amount.toString());
+                    
+                    // Calcular returnToCapital y profitAmount usando la nueva lógica
+                    const paymentCalculation = await calculatePaymentProfitAmount(
+                      paymentAmount,
+                      newProfitAmount,
+                      newAmountToPay,
+                      parseFloat(updatedLoan.amountGived.toString()),
+                      totalPaidAmount
+                    );
+
+
+                    // Actualizar las transacciones asociadas
+                    const transactions = await tx.transaction.findMany({
+                      where: { loanPaymentId: payment.id }
+                    });
+
+                    for (const transaction of transactions) {
+                      await tx.transaction.update({
+                        where: { id: transaction.id },
+                        data: {
+                          returnToCapital: paymentCalculation.returnToCapital.toFixed(2),
+                          profitAmount: paymentCalculation.profitAmount.toFixed(2)
+                        }
+                      });
+                    }
+
+                    totalPaidAmount += paymentAmount;
+                    console.log(`✅ Abono ${payment.id} recalculado: returnToCapital=${paymentCalculation.returnToCapital}, profitAmount=${paymentCalculation.profitAmount}`);
+                  }
+
+                  console.log('✅ Recálculo de abonos completado');
+                  // Actualizar valores de la tabla de préstamos basándose en los pagos reales
+                  const totalPaidFromTransactions = loanPayments.reduce((sum, payment) => {
+                    return sum + parseFloat(payment.amount.toString());
+                  }, 0);
+                  
+                  // Recalcular newPendingAmountStored con los pagos reales
+                  const finalPendingAmountStored = Math.max(0, newAmountToPay - totalPaidFromTransactions);
+                  const newTotalPaid = totalPaidFromTransactions;
+                  
+                  // Actualizar el préstamo con los valores reales calculados
+                  await tx.loan.update({
+                    where: { id: where },
+                    data: {
+                      totalPaid: newTotalPaid.toFixed(2),
+                      pendingAmountStored: finalPendingAmountStored.toFixed(2)
+                    }
+                  });
+
+                  console.log(`✅ Préstamo actualizado con valores reales: totalPaid=${newTotalPaid}, pendingAmountStored=${finalPendingAmountStored}`);
+                }
+              }
+              
+              // ✅ ACTUALIZAR LOANTYPE SIEMPRE (incluso si no hay cambio de porcentaje)
+              if (data.loantypeId) {
+                console.log("🔄 Actualizando loantype a:", data.loantypeId);
+                await tx.loan.update({
+                  where: { id: where },
+                  data: {
+                    loantype: { connect: { id: data.loantypeId } }
+                  }
+                });
+                console.log("✅ Loantype actualizado exitosamente");
+              }
 
               // 1.1 Actualizar transacciones asociadas LOAN_GRANTED y LOAN_GRANTED_COMISSION si cambian montos/fecha
               try {
