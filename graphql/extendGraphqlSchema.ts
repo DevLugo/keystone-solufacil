@@ -10029,3 +10029,155 @@ function getMonday(date: Date): Date {
   const diff = d.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is Sunday
   return new Date(d.setDate(diff));
 }
+
+// Mutación para crear un teléfono
+export const createPhone = graphql.field({
+  type: graphql.object<{
+    id: string;
+    number: string;
+    personalData: {
+      id: string;
+      fullName: string;
+    };
+  }>()({
+    name: 'Phone',
+    fields: {
+      id: graphql.field({ type: graphql.nonNull(graphql.ID) }),
+      number: graphql.field({ type: graphql.String }),
+      personalData: graphql.field({
+        type: graphql.object<{
+          id: string;
+          fullName: string;
+        }>()({
+          name: 'PersonalData',
+          fields: {
+            id: graphql.field({ type: graphql.nonNull(graphql.ID) }),
+            fullName: graphql.field({ type: graphql.String }),
+          },
+        }),
+      }),
+    },
+  }),
+  args: {
+    data: graphql.arg({
+      type: graphql.nonNull(graphql.inputObject({
+        name: 'PhoneCreateInput',
+        fields: {
+          number: graphql.arg({ type: graphql.String }),
+          personalData: graphql.arg({ 
+            type: graphql.inputObject({
+              name: 'PersonalDataConnectInput',
+              fields: {
+                connect: graphql.arg({
+                  type: graphql.inputObject({
+                    name: 'PersonalDataWhereUniqueInput',
+                    fields: {
+                      id: graphql.arg({ type: graphql.nonNull(graphql.ID) }),
+                    },
+                    isOneOf: false,
+                  }),
+                }),
+              },
+              isOneOf: false,
+            })
+          }),
+        },
+        isOneOf: false,
+      })),
+    }),
+  },
+  resolve: async (root, { data }, context) => {
+    const { number, personalData } = data;
+    
+    const phone = await context.prisma.phone.create({
+      data: {
+        number,
+        personalData: {
+          connect: {
+            id: personalData?.connect?.id,
+          },
+        },
+      },
+      include: {
+        personalData: {
+          select: {
+            id: true,
+            fullName: true,
+          },
+        },
+      },
+    });
+
+    return phone;
+  },
+});
+
+// Mutación para actualizar un teléfono
+export const updatePhone = graphql.field({
+  type: graphql.object<{
+    id: string;
+    number: string;
+    personalData: {
+      id: string;
+      fullName: string;
+    };
+  }>()({
+    name: 'Phone',
+    fields: {
+      id: graphql.field({ type: graphql.nonNull(graphql.ID) }),
+      number: graphql.field({ type: graphql.String }),
+      personalData: graphql.field({
+        type: graphql.object<{
+          id: string;
+          fullName: string;
+        }>()({
+          name: 'PersonalData',
+          fields: {
+            id: graphql.field({ type: graphql.nonNull(graphql.ID) }),
+            fullName: graphql.field({ type: graphql.String }),
+          },
+        }),
+      }),
+    },
+  }),
+  args: {
+    where: graphql.arg({
+      type: graphql.nonNull(graphql.inputObject({
+        name: 'PhoneWhereUniqueInput',
+        fields: {
+          id: graphql.arg({ type: graphql.nonNull(graphql.ID) }),
+        },
+        isOneOf: false,
+      })),
+    }),
+    data: graphql.arg({
+      type: graphql.nonNull(graphql.inputObject({
+        name: 'PhoneUpdateInput',
+        fields: {
+          number: graphql.arg({ type: graphql.String }),
+        },
+        isOneOf: false,
+      })),
+    }),
+  },
+  resolve: async (root, { where, data }, context) => {
+    const { number } = data;
+    
+    const phone = await context.prisma.phone.update({
+      where: { id: where.id },
+      data: {
+        number,
+      },
+      include: {
+        personalData: {
+          select: {
+            id: true,
+            fullName: true,
+          },
+        },
+      },
+    });
+
+    return phone;
+  },
+});

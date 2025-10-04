@@ -1586,24 +1586,264 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
               value: `$${totals.amountGived.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`,
               color: '#BE185D',
               backgroundColor: '#FDF2F8',
-              borderColor: '#FBCFE8'
+              borderColor: '#FBCFE8',
+              showTooltip: true,
+              tooltipContent: (
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+                    Desglose de Montos Otorgados
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '4px 0',
+                    borderBottom: '1px solid #F3F4F6',
+                    fontSize: '11px'
+                  }}>
+                    <span style={{ color: '#374151' }}>
+                      💰 Nuevos Créditos
+                    </span>
+                    <span style={{ fontWeight: '600', color: '#1E40AF' }}>
+                      ${totals.newLoans > 0 ? (totals.amountGived * (totals.newLoans / totals.count)).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '0'}
+                    </span>
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '4px 0',
+                    borderBottom: '1px solid #F3F4F6',
+                    fontSize: '11px'
+                  }}>
+                    <span style={{ color: '#374151' }}>
+                      🔄 Renovaciones
+                    </span>
+                    <span style={{ fontWeight: '600', color: '#92400E' }}>
+                      ${totals.renewals > 0 ? (totals.amountGived * (totals.renewals / totals.count)).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '0'}
+                    </span>
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '4px 0',
+                    fontSize: '11px'
+                  }}>
+                    <span style={{ color: '#374151' }}>
+                      📊 Existentes
+                    </span>
+                    <span style={{ fontWeight: '600', color: '#6B7280' }}>
+                      ${existingTotals.amountGived.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '4px 0',
+                    fontSize: '11px'
+                  }}>
+                    <span style={{ color: '#374151' }}>
+                      ⏳ Pendientes
+                    </span>
+                    <span style={{ fontWeight: '600', color: '#3B82F6' }}>
+                      ${pendingTotals.amountGived.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                </div>
+              )
             },
             {
               label: 'A Pagar',
               value: `$${totals.amountToPay.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`,
               color: '#166534',
               backgroundColor: '#F0FDF4',
-              borderColor: '#BBF7D0'
+              borderColor: '#BBF7D0',
+              showTooltip: true,
+              tooltipContent: (
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+                    Desglose de Montos a Pagar
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '4px 0',
+                    borderBottom: '1px solid #F3F4F6',
+                    fontSize: '11px'
+                  }}>
+                    <span style={{ color: '#374151' }}>
+                      💰 Capital
+                    </span>
+                    <span style={{ fontWeight: '600', color: '#166534' }}>
+                      ${totals.amountGived.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '4px 0',
+                    borderBottom: '1px solid #F3F4F6',
+                    fontSize: '11px'
+                  }}>
+                    <span style={{ color: '#374151' }}>
+                      📈 Intereses
+                    </span>
+                    <span style={{ fontWeight: '600', color: '#166534' }}>
+                      ${(totals.amountToPay - totals.amountGived).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '4px 0',
+                    borderBottom: '1px solid #F3F4F6',
+                    fontSize: '11px'
+                  }}>
+                    <span style={{ color: '#374151' }}>
+                      📊 Existentes
+                    </span>
+                    <span style={{ fontWeight: '600', color: '#6B7280' }}>
+                      ${existingTotals.amountToPay.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '4px 0',
+                    fontSize: '11px'
+                  }}>
+                    <span style={{ color: '#374151' }}>
+                      ⏳ Pendientes
+                    </span>
+                    <span style={{ fontWeight: '600', color: '#3B82F6' }}>
+                      ${pendingTotals.amountToPay.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                </div>
+              )
             },
             {
               label: 'Comisiones',
               value: `$${totals.totalComission.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`,
               color: '#6D28D9',
               backgroundColor: '#EDE9FE',
-              borderColor: '#DDD6FE'
+              borderColor: '#DDD6FE',
+              showTooltip: true,
+              tooltipContent: (() => {
+                const breakdown: { [key: string]: { count: number, amount: number, existing: number, pending: number } } = {};
+                
+                // Analizar comisiones de préstamos existentes
+                loans.forEach((loan: any) => {
+                  const commission = parseFloat(loan.comissionAmount || '0');
+                  const key = commission.toString();
+                  if (!breakdown[key]) breakdown[key] = { count: 0, amount: 0, existing: 0, pending: 0 };
+                  breakdown[key].count += 1;
+                  breakdown[key].amount += commission;
+                  breakdown[key].existing += 1;
+                });
+                
+                // Analizar comisiones de préstamos pendientes
+                pendingLoans.forEach((loan: any) => {
+                  const commission = parseFloat(loan.comissionAmount || '0');
+                  const key = commission.toString();
+                  if (!breakdown[key]) breakdown[key] = { count: 0, amount: 0, existing: 0, pending: 0 };
+                  breakdown[key].count += 1;
+                  breakdown[key].amount += commission;
+                  breakdown[key].pending += 1;
+                });
+                
+                const sorted = Object.entries(breakdown).sort(([,a], [,b]) => b.amount - a.amount).slice(0, 5);
+                
+                if (sorted.length === 0) {
+                  return <div style={{ fontSize: '11px', color: '#6B7280', fontStyle: 'italic' }}>Sin desglose</div>;
+                }
+                
+                return (
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+                      Desglose de Comisiones
+                    </div>
+                    {sorted.map(([commission, data]) => {
+                      const isZeroCommission = parseFloat(commission) === 0;
+                      return (
+                        <div key={commission} style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          padding: '4px 0',
+                          borderBottom: '1px solid #F3F4F6',
+                          fontSize: '11px'
+                        }}>
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: '2px'
+                          }}>
+                            <span style={{
+                              backgroundColor: isZeroCommission ? '#FEF3C7' : 'transparent',
+                              color: isZeroCommission ? '#D97706' : '#374151',
+                              padding: isZeroCommission ? '2px 6px' : '0',
+                              borderRadius: isZeroCommission ? '4px' : '0',
+                              fontWeight: isZeroCommission ? '500' : 'normal'
+                            }}>
+                              {data.count}x ${commission}
+                            </span>
+                            <span style={{ fontWeight: '600', color: '#6D28D9' }}>
+                              ${data.amount.toFixed(2)}
+                            </span>
+                          </div>
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            fontSize: '10px',
+                            color: '#6B7280'
+                          }}>
+                            <span>📊 {data.existing} existentes</span>
+                            <span>⏳ {data.pending} pendientes</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '8px 0 4px 0',
+                      borderTop: '1px solid #E5E7EB',
+                      fontSize: '11px',
+                      fontWeight: '600',
+                      color: '#374151'
+                    }}>
+                      <span>📊 Existentes: ${existingTotals.totalComission.toFixed(2)}</span>
+                      <span>⏳ Pendientes: ${pendingTotals.totalComission.toFixed(2)}</span>
+                    </div>
+                  </div>
+                );
+              })()
             }
           ]}
           buttons={[]}
+          primaryMenu={{
+            onSave: handleSaveAllNewLoans,
+            onReportFalco: () => {
+              // TODO: Implementar reporte de falco para créditos
+              console.log('Reportar falco de créditos');
+            },
+            onMove: () => {
+              // TODO: Implementar mover créditos
+              console.log('Mover créditos');
+            },
+            saving: isCreating,
+            disabled: pendingLoans.length === 0,
+            moveDisabled: loans.length === 0
+          }}
           dateMover={{
             type: 'loans',
             selectedDate,
@@ -2527,6 +2767,17 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                         selectedCollateralId: avalData.selectedCollateralId,
                         selectedCollateralPhoneId: avalData.selectedCollateralPhoneId,
                         avalAction: avalData.avalAction
+                      } as any));
+                    }}
+                    onAvalUpdated={(updatedPerson) => {
+                      // Actualizar el estado del préstamo en edición con los datos actualizados
+                      setEditingLoan(prev => ({
+                        ...prev,
+                        avalName: updatedPerson.fullName,
+                        avalPhone: updatedPerson.phones?.[0]?.number || '',
+                        selectedCollateralId: updatedPerson.id,
+                        selectedCollateralPhoneId: updatedPerson.phones?.[0]?.id,
+                        avalAction: 'update'
                       } as any));
                     }}
                     usedPersonIds={[]}

@@ -97,7 +97,6 @@ function TransaccionesPageContent() {
   const [selectedLead, setSelectedLead] = useState<EmployeeWithTypename | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
-  const [minLoadingTimeReached, setMinLoadingTimeReached] = useState(false);
 
   // Usar el contexto para obtener la función de refresh
   const { triggerBalanceRefresh } = useBalanceRefresh();
@@ -132,30 +131,19 @@ function TransaccionesPageContent() {
 
   useEffect(() => {
     setIsLoading(true);
-    setMinLoadingTimeReached(false);
-    
-    // Timer para garantizar mínimo 1 segundo
-    const minTimer = setTimeout(() => {
-      setMinLoadingTimeReached(true);
-    }, 1000);
-    
-    return () => {
-      clearTimeout(minTimer);
-    };
   }, [selectedDate, refreshKey]);
 
-  // Efecto para ocultar loading cuando Apollo termine Y haya pasado el tiempo mínimo
+  // Efecto para ocultar loading cuando Apollo termine
   useEffect(() => {
-    if (!routesLoading && isLoading && minLoadingTimeReached) {
+    if (!routesLoading && isLoading) {
       // Pequeño delay para asegurar transición suave
       const hideTimeout = setTimeout(() => {
         setIsLoading(false);
-        setMinLoadingTimeReached(false);
       }, 100);
       
       return () => clearTimeout(hideTimeout);
     }
-  }, [routesLoading, isLoading, minLoadingTimeReached]);
+  }, [routesLoading, isLoading]);
 
   const handleRouteSelect = (route: RouteWithEmployees | null) => {
     setSelectedRoute(route);

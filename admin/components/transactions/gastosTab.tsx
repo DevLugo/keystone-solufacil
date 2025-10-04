@@ -17,8 +17,7 @@ import { createPortal } from 'react-dom';
 import RouteLeadSelector from '../routes/RouteLeadSelector';
 import DateMover from './utils/DateMover';
 import KPIBar from './KPIBar';
-import { useBalanceRefresh } from '../../hooks/useBalanceRefresh';
-import { BalanceRefreshProvider } from '../../contexts/BalanceRefreshContext';
+import { useBalanceRefresh } from '../../contexts/BalanceRefreshContext';
 
 // Import GraphQL queries and mutations
 import { GET_ROUTES_SIMPLE } from '../../graphql/queries/routes-optimized';
@@ -162,6 +161,7 @@ export interface GastosProps {
   selectedRoute: Route | null;
   selectedLead: Employee | null;
   onSaveComplete?: () => void;
+  onBalanceUpdate?: (balance: number) => void;
   refreshKey: number;
 }
 
@@ -321,9 +321,10 @@ export const CreateExpensesForm = ({
   selectedRoute, 
   selectedLead,
   refreshKey,
-  onSaveComplete
+  onSaveComplete,
+  onBalanceUpdate
 }: GastosProps) => {
-  const { triggerRefresh } = useBalanceRefresh();
+  const { triggerBalanceRefresh } = useBalanceRefresh();
   
   const [state, setState] = useState<FormState>({
     newTransactions: [],
@@ -787,8 +788,16 @@ export const CreateExpensesForm = ({
         await onSaveComplete();
       }
 
+      // Actualizar balance en la UI
+      if (onBalanceUpdate) {
+        const totalExpenseAmount = validTransactions.reduce((sum, transaction) => {
+          return sum + parseFloat(transaction.amount || '0');
+        }, 0);
+        onBalanceUpdate(-totalExpenseAmount); // Negativo porque son gastos
+      }
+
       // Triggear refresh de balances
-      triggerRefresh();
+      triggerBalanceRefresh();
 
       // Mostrar mensaje de éxito y limpiar el estado
       updateState({ 
@@ -1073,7 +1082,7 @@ export const CreateExpensesForm = ({
         console.log('✅ Edición del grupo distribuido completada exitosamente');
         await refetchExpenses();
         if (onSaveComplete) await onSaveComplete();
-        triggerRefresh();
+        triggerBalanceRefresh();
         updateState({ showSuccessMessage: true, editingDistributedGroup: null });
         setTimeout(() => updateState({ showSuccessMessage: false }), 2000);
       } catch (e) {
@@ -1130,7 +1139,7 @@ export const CreateExpensesForm = ({
 
       await refetchExpenses();
       if (onSaveComplete) await onSaveComplete();
-      triggerRefresh();
+      triggerBalanceRefresh();
 
       updateState({ 
         showSuccessMessage: true,
@@ -1228,7 +1237,7 @@ export const CreateExpensesForm = ({
 
       await refetchExpenses();
       if (onSaveComplete) await onSaveComplete();
-      triggerRefresh();
+      triggerBalanceRefresh();
 
       updateState({ showSuccessMessage: true });
       setTimeout(() => {
@@ -1266,7 +1275,7 @@ export const CreateExpensesForm = ({
       
       await refetchExpenses();
       if (onSaveComplete) await onSaveComplete();
-      triggerRefresh();
+      triggerBalanceRefresh();
       
       updateState({ 
         showSuccessMessage: true,
@@ -2398,7 +2407,7 @@ function ExpensesPageContent() {
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [selectedLead, setSelectedLead] = useState<Employee | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const { triggerRefresh } = useBalanceRefresh();
+  const { triggerBalanceRefresh } = useBalanceRefresh();
   const [defaultDistributionMode, setDefaultDistributionMode] = useState(false);
   const [defaultSelectedRoutes, setDefaultSelectedRoutes] = useState<string[]>([]);
   
@@ -2436,7 +2445,7 @@ function ExpensesPageContent() {
       if (selectedRoute?.id) {
         await refetchRouteData();
         setRefreshKey(prev => prev + 1);
-        triggerRefresh();
+        triggerBalanceRefresh();
       }
     } catch (error) {
       console.error('Error refreshing data:', error);
@@ -2500,11 +2509,7 @@ function ExpensesPageContent() {
 }
 
 export default function ExpensesPage() {
-  return (
-    <BalanceRefreshProvider>
-      <ExpensesPageContent />
-    </BalanceRefreshProvider>
-  );
+  return <ExpensesPageContent />;
 }
 
 // Styles
