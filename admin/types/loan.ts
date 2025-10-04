@@ -60,6 +60,7 @@ export type BaseLoan = {
 export type Loan = BaseLoan & {
   weeklyPaymentAmount: string;
   amountToPay: string;
+  totalDebtAcquired: string;
   pendingAmount: string;
   comissionAmount: string;
   avalName: string;

@@ -14,10 +14,14 @@ export const calculateLoanAmounts = ({ requestedAmount, pendingAmount, rate }: L
 
   // Calcular el monto a pagar (monto solicitado * (1 + tasa))
   const amountToPay = (requestedAmountNum * (1 + rateNum)).toFixed(2);
+  
+  // totalDebtAcquired es lo mismo que amountToPay para préstamos nuevos
+  const totalDebtAcquired = amountToPay;
 
   return {
     amountGived,
-    amountToPay
+    amountToPay,
+    totalDebtAcquired
   };
 };
 

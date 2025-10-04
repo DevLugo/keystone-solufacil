@@ -157,6 +157,7 @@ const GET_LOANS = gql`
       id
       requestedAmount
       amountGived
+      totalDebtAcquired
       signDate
       finishedDate
       createdAt
@@ -1072,13 +1073,14 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     }
 
     if (['requestedAmount', 'loantype', 'previousLoan'].includes(field)) {
-      const { amountGived, amountToPay } = calculateLoanAmounts({
+      const { amountGived, amountToPay, totalDebtAcquired } = calculateLoanAmounts({
         requestedAmount: updatedRow.requestedAmount || '0',
         pendingAmount: updatedRow.previousLoan?.pendingAmount || '0',
         rate: updatedRow.loantype?.rate || '0',
       });
       updatedRow.amountGived = amountGived;
       updatedRow.amountToPay = amountToPay;
+      updatedRow.totalDebtAcquired = totalDebtAcquired;
     }
 
     if (isNewRow) {
@@ -1439,7 +1441,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   const existingTotals = loans.reduce((acc, loan) => ({
     count: acc.count + 1,
     amountGived: acc.amountGived + parseFloat(loan.amountGived || '0'),
-    amountToPay: acc.amountToPay + parseFloat(calculateAmountToPay(loan.requestedAmount, loan.loantype?.rate) || '0'),
+    amountToPay: acc.amountToPay + parseFloat(loan.totalDebtAcquired || '0'),
     totalComission: acc.totalComission + parseFloat(loan.comissionAmount || '0'),
     newLoans: acc.newLoans + (loan.previousLoan ? 0 : 1),
     renewals: acc.renewals + (loan.previousLoan ? 1 : 0),
@@ -1449,7 +1451,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   const pendingTotals = pendingLoans.reduce((acc, loan) => ({
     count: acc.count + 1,
     amountGived: acc.amountGived + parseFloat(loan.amountGived || '0'),
-    amountToPay: acc.amountToPay + parseFloat(calculateAmountToPay(loan.requestedAmount, loan.loantype?.rate) || '0'),
+    amountToPay: acc.amountToPay + parseFloat(loan.totalDebtAcquired || '0'),
     totalComission: acc.totalComission + parseFloat(loan.comissionAmount || '0'),
     newLoans: acc.newLoans + (loan.previousLoan ? 0 : 1),
     renewals: acc.renewals + (loan.previousLoan ? 1 : 0),
@@ -1908,7 +1910,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                             <td style={tableCellStyle}>${loan.requestedAmount}</td>
                             <td style={tableCellStyle}>${loan.previousLoan?.pendingAmount || '0'}</td>
                             <td style={tableCellStyle}>${loan.amountGived}</td>
-                            <td style={tableCellStyle}>${calculateAmountToPay(loan.requestedAmount, loan.loantype?.rate) || 'N/A'}</td>
+                            <td style={tableCellStyle}>${loan.totalDebtAcquired || 'N/A'}</td>
                             <td style={tableCellStyle}>${loan.comissionAmount || '0'}</td>
                             <td style={tableCellStyle}>{loan.collaterals?.[0]?.fullName || (loan as any).avalName || '-'}</td>
                             <td style={tableCellStyle}>{loan.collaterals?.[0]?.phones?.[0]?.number || (loan as any).avalPhone || '-'}</td>
@@ -2607,7 +2609,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                       if (value) {
                         const selectedType = loanTypesData?.loantypes?.find((type: any) => type.id === value.value);
                         if (selectedType) {
-                          const { amountGived, amountToPay } = calculateLoanAmounts({
+                          const { amountGived, amountToPay, totalDebtAcquired } = calculateLoanAmounts({
                             requestedAmount: editingLoan.requestedAmount,
                             pendingAmount: editingLoan.previousLoan?.pendingAmount || '0',
                             rate: selectedType.rate
@@ -2616,7 +2618,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                           const commissionAmount = defaultCommission && parseFloat(defaultCommission.toString()) > 0 ?
                             defaultCommission.toString() :
                             editingLoan.comissionAmount || '0';
-                          setEditingLoan({ ...editingLoan, loantype: { id: value.value, name: value.label.split('(')[0].trim(), rate: selectedType.rate, weekDuration: selectedType.weekDuration }, amountGived, amountToPay, comissionAmount: commissionAmount });
+                          setEditingLoan({ ...editingLoan, loantype: { id: value.value, name: value.label.split('(')[0].trim(), rate: selectedType.rate, weekDuration: selectedType.weekDuration }, amountGived, amountToPay, totalDebtAcquired, comissionAmount: commissionAmount });
                         }
                       }
                     }}
@@ -2695,12 +2697,12 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                       const value = e.target.value;
                       // Si el valor actual es "0" y el usuario empieza a escribir, eliminar el "0"
                       const requestedAmount = (editingLoan.requestedAmount === '0' && value.length > 1) ? value.substring(1) : value;
-                      const { amountGived, amountToPay } = calculateLoanAmounts({
+                      const { amountGived, amountToPay, totalDebtAcquired } = calculateLoanAmounts({
                         requestedAmount,
                         pendingAmount: editingLoan.previousLoan?.pendingAmount || '0',
                         rate: editingLoan.loantype.rate
                       });
-                      setEditingLoan({ ...editingLoan, requestedAmount, amountGived, amountToPay });
+                      setEditingLoan({ ...editingLoan, requestedAmount, amountGived, amountToPay, totalDebtAcquired });
                     }}
                     style={inputStyle}
                   />
