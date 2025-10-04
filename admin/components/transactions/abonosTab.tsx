@@ -1,5 +1,6 @@
 /** @jsxRuntime classic */
 /** @jsx jsx */
+/** @jsxFrag React.Fragment */
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { gql, useQuery, useMutation, useLazyQuery } from '@apollo/client';
@@ -13,13 +14,14 @@ import { PageContainer, GraphQLErrorNotice } from '@keystone-6/core/admin-ui/com
 import { DatePicker, Select, TextInput } from '@keystone-ui/fields';
 import { LoanPayment } from '../../../schema';
 import type { Employee, Option } from '../../types/transaction';
-import { FaPlus, FaEllipsisV, FaInfoCircle, FaCalendarAlt } from 'react-icons/fa';
+import { FaPlus, FaEllipsisV, FaInfoCircle, FaCalendarAlt, FaEdit } from 'react-icons/fa';
 
 // Import components
 import RouteLeadSelector from '../routes/RouteLeadSelector';
 import KPIBar from './KPIBar';
 import { DateMover } from './utils/DateMover';
 import { useBalanceRefresh } from '../../contexts/BalanceRefreshContext';
+import EditPersonModal from '../loans/EditPersonModal';
 
 const GET_LEADS = gql`
   query GetLeads($routeId: ID!) {
@@ -78,6 +80,7 @@ const GET_LOANS_BY_LEAD = gql`
       }
       borrower {
         personalData{
+          id
           fullName
         }
       }
@@ -210,6 +213,26 @@ const GET_MIGRATED_PAYMENTS = gql`
           personalData {
             fullName
           }
+        }
+      }
+    }
+  }
+`;
+
+const GET_CLIENT_DATA = gql`
+  query GetClientData($id: ID!) {
+    personalData(where: { id: $id }) {
+      id
+      fullName
+      phones {
+        id
+        number
+      }
+      addresses {
+        id
+        location {
+          id
+          name
         }
       }
     }
@@ -751,11 +774,30 @@ export const CreatePaymentForm = ({
   const [markLoanAsDeceased, { loading: markDeceasedLoading }] = useMutation(MARK_LOAN_AS_DECEASED);
   const [unmarkLoanAsDeceased, { loading: unmarkDeceasedLoading }] = useMutation(UNMARK_LOAN_AS_DECEASED);
 
+  // Hook para obtener datos completos del cliente
+  const [getClientData, { loading: clientDataLoading }] = useLazyQuery(GET_CLIENT_DATA, {
+    onCompleted: (data) => {
+      if (data.personalData) {
+        setEditingClient(data.personalData);
+        setIsEditClientModalOpen(true);
+      } else {
+        console.log('❌ No se encontraron datos del cliente en la respuesta');
+      }
+    },
+    onError: (error) => {
+      console.error('❌ Error en getClientData:', error);
+    }
+  });
+
   // Estado para controlar loading general de guardado
   const [isSaving, setIsSaving] = useState(false);
   
   // Estado para tooltip de comisiones
   const [showCommissionTooltip, setShowCommissionTooltip] = useState(false);
+
+  // Estados para modal de edición de cliente
+  const [isEditClientModalOpen, setIsEditClientModalOpen] = useState(false);
+  const [editingClient, setEditingClient] = useState<any>(null);
 
   const router = useRouter();
 
@@ -986,6 +1028,53 @@ export const CreatePaymentForm = ({
       console.error('Error revirtiendo deceso:', error);
       alert('No se pudo eliminar la marcación de deceso');
     }
+  };
+
+  // Handlers para modal de edición de cliente
+  const handleEditClient = (loanId: string) => {
+    
+    // Buscar el préstamo en los datos de préstamos
+    const loan = loansData?.loans?.find(l => l.id === loanId);
+    
+      // Si el préstamo tiene borrower con personalData.id, usar ese ID
+      if (loan?.borrower?.personalData && 'id' in loan.borrower.personalData) {
+        console.log('🔍 Usando personalData.id del préstamo:', (loan.borrower.personalData as any).id);
+        getClientData({ variables: { id: (loan.borrower.personalData as any).id } });
+        return;
+      }
+    
+    // Si no, buscar en los pagos existentes como fallback
+    const existingPayment = existingPayments.find((p: any) => p.loan?.id === loanId);
+    
+    if (existingPayment?.loan?.borrower?.personalData && 'id' in existingPayment.loan.borrower.personalData) {
+      getClientData({ variables: { id: (existingPayment.loan.borrower.personalData as any).id } });
+    } else {
+    }
+  };
+
+  const handleCloseEditClientModal = () => {
+    setIsEditClientModalOpen(false);
+    setEditingClient(null);
+  };
+
+  const handleSaveEditedClient = async (updatedClient: any) => {
+    // Refrescar los datos para mostrar los cambios
+    if (onSaveComplete) {
+      onSaveComplete();
+    }
+    
+    // Refrescar los datos de pagos para asegurar que se muestren los cambios
+    try {
+      await Promise.all([
+        refetchPayments(),
+        refetchMigratedPayments(),
+        refetchFalcos()
+      ]);
+    } catch (error) {
+      console.error('Error al refrescar datos después de editar cliente:', error);
+    }
+    
+    handleCloseEditClientModal();
   };
 
   const handleSaveAllChanges = async () => {
@@ -2442,8 +2531,37 @@ export const CreatePaymentForm = ({
                       ⚠️ SIN PAGO
                     </span>
                   </td>
-                  <td style={{ color: '#DC2626', fontWeight: '500' }}>
-                    {loan.borrower?.personalData?.fullName || 'Sin nombre'}
+                  <td style={{ 
+                    color: '#DC2626', 
+                    fontWeight: '500',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <span>{loan.borrower?.personalData?.fullName || 'Sin nombre'}</span>
+                    {loan.borrower?.personalData?.id && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditClient(loan.id);
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          borderRadius: '4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#6B7280',
+                          fontSize: '12px'
+                        }}
+                        title="Editar cliente"
+                      >
+                        <FaEdit />
+                      </button>
+                    )}
                   </td>
                   <td style={{ color: '#DC2626', fontWeight: '500' }}>
                     {loan.signDate ? 
@@ -2641,9 +2759,36 @@ export const CreatePaymentForm = ({
                     <td style={{
                       textDecoration: isStrikethrough ? 'line-through' : 'none',
                       color: isStrikethrough ? '#dc2626' : 'inherit',
-                      fontWeight: isStrikethrough ? '500' : 'inherit'
+                      fontWeight: isStrikethrough ? '500' : 'inherit',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
                     }}>
-                      {payment.loan?.borrower?.personalData?.fullName}
+                      <span>{payment.loan?.borrower?.personalData?.fullName}</span>
+                      {payment.loan?.borrower?.personalData?.id && !isStrikethrough && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            console.log('🔍 Botón Editar Cliente (pagos registrados) clickeado, loanId:', payment.loanId || payment.loan?.id || '');
+                            handleEditClient(payment.loanId || payment.loan?.id || '');
+                          }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: '4px',
+                            borderRadius: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#6B7280',
+                            fontSize: '12px'
+                          }}
+                          title="Editar cliente"
+                        >
+                          <FaEdit />
+                        </button>
+                      )}
                     </td>
                     <td style={{
                       textDecoration: isStrikethrough ? 'line-through' : 'none',
@@ -2973,62 +3118,129 @@ export const CreatePaymentForm = ({
                             minWidth: '180px'
                           }}>
                             {!isDeceased ? (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const selectedLoan = loansData?.loans?.find(loan => loan.id === (payment.loanId || payment.loan?.id));
-                                  setDeceasedModal({
-                                    isOpen: true,
-                                    loanId: (payment.loanId || payment.loan?.id || ''),
-                                    clientName: selectedLoan?.borrower?.personalData?.fullName || 'Cliente'
-                                  });
-                                  setShowMenuForPayment(null);
-                                }}
-                                style={{
-                                  width: '100%',
-                                  padding: '10px 12px',
-                                  border: 'none',
-                                  backgroundColor: 'transparent',
-                                  textAlign: 'left',
-                                  cursor: 'pointer',
-                                  fontSize: '14px',
-                                  color: '#dc2626',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '8px'
-                                }}
-                                onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#fef2f2'}
-                                onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
-                              >
-                                💀 Registrar deceso
-                              </button>
+                              <>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const loanId = (payment.loanId || payment.loan?.id || '');
+                                    console.log('🔍 Botón Editar Cliente (no fallecido) clickeado, loanId:', loanId);
+                                    if (!loanId) {
+                                      console.log('❌ No hay loanId, cancelando');
+                                      return;
+                                    }
+                                    handleEditClient(loanId);
+                                    setShowMenuForPayment(null);
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: 'none',
+                                    backgroundColor: 'transparent',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    color: '#374151',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    borderBottom: '1px solid #e5e7eb'
+                                  }}
+                                  onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#f9fafb'}
+                                  onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
+                                >
+                                  <FaEdit size={12} />
+                                  Editar Cliente
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const selectedLoan = loansData?.loans?.find(loan => loan.id === (payment.loanId || payment.loan?.id));
+                                    setDeceasedModal({
+                                      isOpen: true,
+                                      loanId: (payment.loanId || payment.loan?.id || ''),
+                                      clientName: selectedLoan?.borrower?.personalData?.fullName || 'Cliente'
+                                    });
+                                    setShowMenuForPayment(null);
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: 'none',
+                                    backgroundColor: 'transparent',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    color: '#dc2626',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
+                                  }}
+                                  onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#fef2f2'}
+                                  onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
+                                >
+                                  💀 Registrar deceso
+                                </button>
+                              </>
                             ) : (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const loanId = (payment.loanId || payment.loan?.id || '');
-                                  if (!loanId) return;
-                                  handleUnmarkAsDeceased(loanId);
-                                  setShowMenuForPayment(null);
-                                }}
-                                style={{
-                                  width: '100%',
-                                  padding: '10px 12px',
-                                  border: 'none',
-                                  backgroundColor: 'transparent',
-                                  textAlign: 'left',
-                                  cursor: 'pointer',
-                                  fontSize: '14px',
-                                  color: '#2563eb',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '8px'
-                                }}
-                                onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#eff6ff'}
-                                onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
-                              >
-                                ↩️ Deshacer deceso
-                              </button>
+                              <>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const loanId = (payment.loanId || payment.loan?.id || '');
+                                    if (!loanId) {
+                                      console.log('❌ No hay loanId, cancelando');
+                                      return;
+                                    }
+                                    handleEditClient(loanId);
+                                    setShowMenuForPayment(null);
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: 'none',
+                                    backgroundColor: 'transparent',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    color: '#374151',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    borderBottom: '1px solid #e5e7eb'
+                                  }}
+                                  onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#f9fafb'}
+                                  onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
+                                >
+                                  <FaEdit size={12} />
+                                  Editar Cliente
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const loanId = (payment.loanId || payment.loan?.id || '');
+                                    if (!loanId) return;
+                                    handleUnmarkAsDeceased(loanId);
+                                    setShowMenuForPayment(null);
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: 'none',
+                                    backgroundColor: 'transparent',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    color: '#2563eb',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
+                                  }}
+                                  onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#eff6ff'}
+                                  onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
+                                >
+                                  ↩️ Deshacer deceso
+                                </button>
+                              </>
                             )}
                           </div>
                         )}
@@ -3771,6 +3983,15 @@ export const CreatePaymentForm = ({
           </div>
         </div>
       )}
+
+      {/* Modal de edición de cliente */}
+      <EditPersonModal
+        isOpen={isEditClientModalOpen}
+        onClose={handleCloseEditClientModal}
+        person={editingClient}
+        onSave={handleSaveEditedClient}
+        title="Editar Cliente"
+      />
     </Box>
   );
 };

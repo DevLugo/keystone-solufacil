@@ -3,7 +3,7 @@ import type { Context } from '.keystone/types';
 import { Decimal } from '@prisma/client/runtime/library';
 import { telegramGraphQLExtensions, telegramResolvers } from './telegramExtensions';
 import { getFinancialReport } from './resolvers/financialReportResolvers';
-import { calculatePaymentProfitAmount } from '../utils/loanPayment';
+import { calculatePaymentProfitAmount, calculateProfitAndReturnToCapital } from '../utils/loanPayment';
 
 // Import fetch for Telegram API calls
 const fetch = require('node-fetch');
@@ -900,13 +900,20 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     rate: safeToNumber(loan.loantype.rate)
                   };
 
-                  const paymentCalculation = await calculatePaymentProfitAmount(
+                  const requestedAmount = safeToNumber(loan.requestedAmount);
+                  const interestRate = safeToNumber(loan.loantype.rate);
+                  const currentProfit = safeToNumber(loan.profitAmount);
+                  const baseProfit = requestedAmount * interestRate;
+                  const profitPendingFromPreviousLoan = Math.max(0, currentProfit - baseProfit);
+
+                  const paymentCalculation = calculateProfitAndReturnToCapital({
                     paymentAmount,
-                    loanData.profitAmount,
-                    loanData.amountGived + loanData.profitAmount,
-                    loanData.amountGived,
-                    0 // loanPayedAmount - asumimos 0 para el primer pago
-                  );
+                    requestedAmount,
+                    interestRate,
+                    badDebtDate: loan.badDebtDate,
+                    paymentDate: new Date(paymentDate),
+                    profitPendingFromPreviousLoan
+                  });
 
                   returnToCapital = paymentCalculation.returnToCapital;
                   profitAmount = paymentCalculation.profitAmount;
@@ -1557,20 +1564,20 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 let profitAmount = 0;
 
                 if (loan && loan.loantype) {
-                  const loanData = {
-                    amountGived: safeToNumber(loan.amountGived),
-                    profitAmount: safeToNumber(loan.profitAmount),
-                    weekDuration: loan.loantype.weekDuration || 0,
-                    rate: safeToNumber(loan.loantype.rate)
-                  };
+                  const requestedAmount = safeToNumber(loan.requestedAmount);
+                  const interestRate = safeToNumber(loan.loantype.rate);
+                  const currentProfit = safeToNumber(loan.profitAmount);
+                  const baseProfit = requestedAmount * interestRate;
+                  const profitPendingFromPreviousLoan = Math.max(0, currentProfit - baseProfit);
 
-                  const paymentCalculation = await calculatePaymentProfitAmount(
+                  const paymentCalculation = calculateProfitAndReturnToCapital({
                     paymentAmount,
-                    loanData.profitAmount,
-                    loanData.amountGived + loanData.profitAmount,
-                    loanData.amountGived,
-                    0
-                  );
+                    requestedAmount,
+                    interestRate,
+                    badDebtDate: loan.badDebtDate,
+                    paymentDate: new Date(paymentDate),
+                    profitPendingFromPreviousLoan
+                  });
 
                   returnToCapital = paymentCalculation.returnToCapital;
                   profitAmount = paymentCalculation.profitAmount;
@@ -2644,6 +2651,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 requestedAmount: graphql.arg({ type: graphql.String }),
                 amountGived: graphql.arg({ type: graphql.String }),
                 comissionAmount: graphql.arg({ type: graphql.String }),
+                loantypeId: graphql.arg({ type: graphql.ID }),
                 avalData: graphql.arg({ 
                   type: graphql.inputObject({
                     name: 'UpdateAvalDataInput',
@@ -2685,6 +2693,194 @@ export const extendGraphqlSchema = graphql.extend(base => {
               });
               
               console.log('✅ Préstamo básico actualizado:', updatedLoan.id);
+
+              // ✅ NUEVA FUNCIONALIDAD: Recálculo de abonos si cambió el porcentaje
+                console.log("🔍 DEBUG - loantypeId recibido:", data.loantypeId);
+                console.log("🔍 DEBUG - loantypeId original:", originalLoan?.loantypeId);
+              if (data.loantypeId && originalLoan?.loantypeId !== data.loantypeId) {
+                console.log('🔄 Detectado cambio de porcentaje, recalculando abonos...');
+                
+                // Obtener el nuevo tipo de préstamo
+                const newLoanType = await context.prisma.Loantype.findUnique({
+                  where: { id: data.loantypeId }
+                });
+
+                if (newLoanType) {
+                  // 1. Calcular profit pendiente del préstamo anterior
+                  let profitPendingFromPreviousLoan = 0;
+                  if (updatedLoan.previousLoanId) {
+                    console.log('🔍 Calculando profit pendiente del préstamo anterior:', updatedLoan.previousLoanId);
+                    
+                    // Obtener todas las transacciones del préstamo anterior siguiendo Loan->LoanPayment->Transactions
+                    const previousLoanPayments = await tx.loanPayment.findMany({
+                      where: {
+                        loanId: updatedLoan.previousLoanId
+                      },
+                      include: {
+                        transactions: {
+                          where: {
+                            type: 'INCOME'
+                          }
+                        }
+                      }
+                    });
+                    
+                    // Extraer todas las transacciones de los pagos
+                    const previousLoanTransactions = previousLoanPayments.flatMap(payment => payment.transactions);
+                    
+                    // Sumar todo el profitAmount de las transacciones del préstamo anterior
+                    const totalProfitFromTransactions = previousLoanTransactions.reduce((sum, transaction) => {
+                      return sum + parseFloat(transaction.profitAmount?.toString() || '0');
+                    }, 0);
+                    
+                    // Obtener el profitAmount del préstamo anterior
+                    const previousLoan = await tx.loan.findUnique({
+                      where: { id: updatedLoan.previousLoanId }
+                    });
+                    
+                    if (previousLoan) {
+                      const previousLoanProfitAmount = parseFloat(previousLoan.profitAmount?.toString() || '0');
+                      // El profit pendiente es la diferencia entre el profit total del préstamo y el ya cobrado en transacciones
+                      profitPendingFromPreviousLoan = Math.max(0, previousLoanProfitAmount - totalProfitFromTransactions);
+                      
+                      console.log('📊 Profit del préstamo anterior:', {
+                        previousLoanId: updatedLoan.previousLoanId,
+                        previousLoanProfitAmount,
+                        totalProfitFromTransactions,
+                        profitPendingFromPreviousLoan,
+                        formula: `${previousLoanProfitAmount} - ${totalProfitFromTransactions} = ${profitPendingFromPreviousLoan}`
+                      });
+                    }
+                  } else {
+                    console.log('ℹ️ No hay préstamo anterior, profit pendiente = 0');
+                  }
+                  
+                  // 2. Recalcular profitAmount del préstamo actual + profit pendiente del anterior
+                  const requestedAmount = parseFloat(updatedLoan.requestedAmount.toString());
+                  const interestRate = parseFloat(newLoanType.rate.toString());
+                  const baseProfitAmount = requestedAmount * interestRate;
+                  const newProfitAmount = baseProfitAmount + profitPendingFromPreviousLoan;
+                  
+                  // 3. Calcular totalDebtAcquired: requestedAmount * (1 + rate)
+                  const newTotalDebtAcquired = requestedAmount * (1 + interestRate);
+                  
+                  console.log('💰 Cálculo final del profit y totalDebtAcquired:', {
+                    requestedAmount,
+                    interestRate,
+                    baseProfitAmount,
+                    profitPendingFromPreviousLoan,
+                    newProfitAmount,
+                    newTotalDebtAcquired,
+                    formula: `requestedAmount * (1 + rate) = ${requestedAmount} * (1 + ${interestRate}) = ${newTotalDebtAcquired}`
+                  });
+                  
+                  // Calcular pendingAmountStored y expectedWeeklyPayment
+                  const newPendingAmountStored = newTotalDebtAcquired; // Se recalculará después con los pagos reales
+                  const newExpectedWeeklyPayment = newTotalDebtAcquired / (newLoanType.weekDuration || 1);
+                  // Actualizar el préstamo con los nuevos cálculos
+                  await tx.loan.update({
+                    where: { id: where },
+                    data: {
+                      profitAmount: newProfitAmount.toFixed(2),
+                      expectedWeeklyPayment: newExpectedWeeklyPayment.toFixed(2),
+                      totalDebtAcquired: newTotalDebtAcquired.toFixed(2),
+                      pendingAmountStored: newPendingAmountStored.toFixed(2),
+                      loantype: { connect: { id: data.loantypeId } }
+                    }
+                  });
+                  
+                  console.log('✅ Préstamo actualizado con profitAmount recalculado:', {
+                    loanId: where,
+                    newProfitAmount: newProfitAmount.toFixed(2),
+                    profitPendingFromPreviousLoan,
+                    baseProfitAmount
+                  });
+                  console.log("🔍 DEBUG - Préstamo actualizado con loantypeId:", data.loantypeId);
+                  console.log("🔍 DEBUG - Datos enviados a la actualización:", {
+                    profitAmount: newProfitAmount.toFixed(2),
+                    totalDebtAcquired: newTotalDebtAcquired.toFixed(2),
+                    expectedWeeklyPayment: newExpectedWeeklyPayment.toFixed(2),
+                    pendingAmountStored: newPendingAmountStored.toFixed(2),
+                    loantype: { connect: { id: data.loantypeId } }
+                  });
+
+                  // Obtener todos los abonos del préstamo
+                  const loanPayments = await tx.loanPayment.findMany({
+                    where: { loanId: where },
+                    orderBy: { receivedAt: 'asc' }
+                  });
+
+                  console.log(`📊 Recalculando ${loanPayments.length} abonos...`);
+
+                  // Recalcular cada abono
+                  let totalPaidAmount = 0;
+                  for (const payment of loanPayments) {
+                    const paymentAmount = parseFloat(payment.amount.toString());
+                    
+                    // Calcular returnToCapital y profitAmount usando la nueva lógica
+                    const paymentCalculation = calculateProfitAndReturnToCapital({
+                      paymentAmount,
+                      requestedAmount,
+                      interestRate,
+                      badDebtDate: updatedLoan.badDebtDate,
+                      paymentDate: payment.receivedAt || new Date(),
+                      profitPendingFromPreviousLoan
+                    });
+
+
+                    // Actualizar las transacciones asociadas
+                    const transactions = await tx.transaction.findMany({
+                      where: { loanPaymentId: payment.id }
+                    });
+
+                    for (const transaction of transactions) {
+                      await tx.transaction.update({
+                        where: { id: transaction.id },
+                        data: {
+                          returnToCapital: paymentCalculation.returnToCapital.toFixed(2),
+                          profitAmount: paymentCalculation.profitAmount.toFixed(2)
+                        }
+                      });
+                    }
+
+                    totalPaidAmount += paymentAmount;
+                    console.log(`✅ Abono ${payment.id} recalculado: returnToCapital=${paymentCalculation.returnToCapital}, profitAmount=${paymentCalculation.profitAmount}`);
+                  }
+
+                  console.log('✅ Recálculo de abonos completado');
+                  // Actualizar valores de la tabla de préstamos basándose en los pagos reales
+                  const totalPaidFromTransactions = loanPayments.reduce((sum, payment) => {
+                    return sum + parseFloat(payment.amount.toString());
+                  }, 0);
+                  
+                  // Recalcular newPendingAmountStored con los pagos reales
+                  const finalPendingAmountStored = Math.max(0, newTotalDebtAcquired - totalPaidFromTransactions);
+                  const newTotalPaid = totalPaidFromTransactions;
+                  
+                  // Actualizar el préstamo con los valores reales calculados
+                  await tx.loan.update({
+                    where: { id: where },
+                    data: {
+                      totalPaid: newTotalPaid.toFixed(2),
+                      pendingAmountStored: finalPendingAmountStored.toFixed(2)
+                    }
+                  });
+
+                  console.log(`✅ Préstamo actualizado con valores reales: totalDebtAcquired=${newTotalDebtAcquired}, totalPaid=${newTotalPaid}, pendingAmountStored=${finalPendingAmountStored}`);
+                }
+              }
+              
+              // ✅ ACTUALIZAR LOANTYPE SIEMPRE (incluso si no hay cambio de porcentaje)
+              if (data.loantypeId) {
+                console.log("🔄 Actualizando loantype a:", data.loantypeId);
+                await tx.loan.update({
+                  where: { id: where },
+                  data: {
+                    loantype: { connect: { id: data.loantypeId } }
+                  }
+                });
+                console.log("✅ Loantype actualizado exitosamente");
+              }
 
               // 1.1 Actualizar transacciones asociadas LOAN_GRANTED y LOAN_GRANTED_COMISSION si cambian montos/fecha
               try {
@@ -8662,6 +8858,18 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         }
       }),
+
+      // Mutación para fusionar clientes
+      mergeClients: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        args: {
+          primaryClientId: graphql.arg({ type: graphql.nonNull(graphql.ID) }),
+          secondaryClientId: graphql.arg({ type: graphql.nonNull(graphql.ID) })
+        },
+        resolve: async (root, { primaryClientId, secondaryClientId }, context: Context) => {
+          return `Fusión de clientes: ${primaryClientId} + ${secondaryClientId}`;
+        }
+      }),
     }
   };
 });
@@ -10029,3 +10237,155 @@ function getMonday(date: Date): Date {
   const diff = d.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is Sunday
   return new Date(d.setDate(diff));
 }
+
+// Mutación para crear un teléfono
+export const createPhone = graphql.field({
+  type: graphql.object<{
+    id: string;
+    number: string;
+    personalData: {
+      id: string;
+      fullName: string;
+    };
+  }>()({
+    name: 'Phone',
+    fields: {
+      id: graphql.field({ type: graphql.nonNull(graphql.ID) }),
+      number: graphql.field({ type: graphql.String }),
+      personalData: graphql.field({
+        type: graphql.object<{
+          id: string;
+          fullName: string;
+        }>()({
+          name: 'PersonalData',
+          fields: {
+            id: graphql.field({ type: graphql.nonNull(graphql.ID) }),
+            fullName: graphql.field({ type: graphql.String }),
+          },
+        }),
+      }),
+    },
+  }),
+  args: {
+    data: graphql.arg({
+      type: graphql.nonNull(graphql.inputObject({
+        name: 'PhoneCreateInput',
+        fields: {
+          number: graphql.arg({ type: graphql.String }),
+          personalData: graphql.arg({ 
+            type: graphql.inputObject({
+              name: 'PersonalDataConnectInput',
+              fields: {
+                connect: graphql.arg({
+                  type: graphql.inputObject({
+                    name: 'PersonalDataWhereUniqueInput',
+                    fields: {
+                      id: graphql.arg({ type: graphql.nonNull(graphql.ID) }),
+                    },
+                    isOneOf: false,
+                  }),
+                }),
+              },
+              isOneOf: false,
+            })
+          }),
+        },
+        isOneOf: false,
+      })),
+    }),
+  },
+  resolve: async (root, { data }, context) => {
+    const { number, personalData } = data;
+    
+    const phone = await context.prisma.phone.create({
+      data: {
+        number,
+        personalData: {
+          connect: {
+            id: personalData?.connect?.id,
+          },
+        },
+      },
+      include: {
+        personalData: {
+          select: {
+            id: true,
+            fullName: true,
+          },
+        },
+      },
+    });
+
+    return phone;
+  },
+});
+
+// Mutación para actualizar un teléfono
+export const updatePhone = graphql.field({
+  type: graphql.object<{
+    id: string;
+    number: string;
+    personalData: {
+      id: string;
+      fullName: string;
+    };
+  }>()({
+    name: 'Phone',
+    fields: {
+      id: graphql.field({ type: graphql.nonNull(graphql.ID) }),
+      number: graphql.field({ type: graphql.String }),
+      personalData: graphql.field({
+        type: graphql.object<{
+          id: string;
+          fullName: string;
+        }>()({
+          name: 'PersonalData',
+          fields: {
+            id: graphql.field({ type: graphql.nonNull(graphql.ID) }),
+            fullName: graphql.field({ type: graphql.String }),
+          },
+        }),
+      }),
+    },
+  }),
+  args: {
+    where: graphql.arg({
+      type: graphql.nonNull(graphql.inputObject({
+        name: 'PhoneWhereUniqueInput',
+        fields: {
+          id: graphql.arg({ type: graphql.nonNull(graphql.ID) }),
+        },
+        isOneOf: false,
+      })),
+    }),
+    data: graphql.arg({
+      type: graphql.nonNull(graphql.inputObject({
+        name: 'PhoneUpdateInput',
+        fields: {
+          number: graphql.arg({ type: graphql.String }),
+        },
+        isOneOf: false,
+      })),
+    }),
+  },
+  resolve: async (root, { where, data }, context) => {
+    const { number } = data;
+    
+    const phone = await context.prisma.phone.update({
+      where: { id: where.id },
+      data: {
+        number,
+      },
+      include: {
+        personalData: {
+          select: {
+            id: true,
+            fullName: true,
+          },
+        },
+      },
+    });
+
+    return phone;
+  },
+});

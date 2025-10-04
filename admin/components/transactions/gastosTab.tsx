@@ -17,8 +17,7 @@ import { createPortal } from 'react-dom';
 import RouteLeadSelector from '../routes/RouteLeadSelector';
 import DateMover from './utils/DateMover';
 import KPIBar from './KPIBar';
-import { useBalanceRefresh } from '../../hooks/useBalanceRefresh';
-import { BalanceRefreshProvider } from '../../contexts/BalanceRefreshContext';
+import { useBalanceRefresh } from '../../contexts/BalanceRefreshContext';
 
 // Import GraphQL queries and mutations
 import { GET_ROUTES_SIMPLE } from '../../graphql/queries/routes-optimized';
@@ -34,10 +33,24 @@ const GET_EXPENSES_BY_DATE_SIMPLE = gql`
           { date: { gte: $date } }
           { date: { lt: $nextDate } }
           { type: { equals: "EXPENSE" } }
-          { 
+          {
             OR: [
               { route: { id: { equals: $routeId } } }
-              { sourceAccount: { routes: { some: { id: { equals: $routeId } } } } }
+              {
+                AND: [
+                  { route: { id: { equals: $routeId } } }
+                  { sourceAccount: { routes: { some: { id: { equals: $routeId } } } } }
+                  {
+                    OR: [
+                      { sourceAccount: { type: { equals: "EMPLOYEE_CASH_FUND" } } }
+                      { sourceAccount: { type: { equals: "PREPAID_GAS" } } }
+                      { sourceAccount: { type: { equals: "TRAVEL_EXPENSES" } } }
+                      { sourceAccount: { type: { equals: "BANK" } } }
+                      { sourceAccount: { type: { equals: "OFFICE_CASH_FUND" } } }
+                    ]
+                  }
+                ]
+              }
             ]
           }
         ]
@@ -162,6 +175,7 @@ export interface GastosProps {
   selectedRoute: Route | null;
   selectedLead: Employee | null;
   onSaveComplete?: () => void;
+  onBalanceUpdate?: (balance: number) => void;
   refreshKey: number;
 }
 
@@ -321,9 +335,10 @@ export const CreateExpensesForm = ({
   selectedRoute, 
   selectedLead,
   refreshKey,
-  onSaveComplete
+  onSaveComplete,
+  onBalanceUpdate
 }: GastosProps) => {
-  const { triggerRefresh } = useBalanceRefresh();
+  const { triggerBalanceRefresh } = useBalanceRefresh();
   
   const [state, setState] = useState<FormState>({
     newTransactions: [],
@@ -335,6 +350,9 @@ export const CreateExpensesForm = ({
     showDistributedEditConfirmation: null,
     showDistributedDeleteConfirmation: null
   });
+
+  // Estados para los filtros de gastos
+  const [includeBankOfficeExpenses, setIncludeBankOfficeExpenses] = useState(false);
 
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const menuRef = React.useRef<HTMLDivElement>(null);
@@ -360,14 +378,28 @@ export const CreateExpensesForm = ({
     skip: !selectedDate || !selectedRoute?.id,
     onCompleted: (data) => {
       if (data?.transactions) {
-        const filteredTransactions = selectedLead
-          ? data.transactions.filter((t: Transaction) => 
-              t.lead?.id === selectedLead.id && 
-              !['LOAN_PAYMENT_COMISSION', 'LOAN_GRANTED_COMISSION', 'LEAD_COMISSION', 'leadPaymentReceived', 'LOAN_GRANTED'].includes(t.expenseSource || '')
-            )
-          : data.transactions.filter((t: Transaction) => 
-              !['LOAN_PAYMENT_COMISSION', 'LOAN_GRANTED_COMISSION', 'LEAD_COMISSION', 'leadPaymentReceived', 'LOAN_GRANTED'].includes(t.expenseSource || '')
-            );
+        // Filtrar transacciones basado en los checkboxes
+        let filteredTransactions = data.transactions;
+        
+        // Si no se incluyen gastos de BANK y OFFICE_CASH_FUND, filtrarlos
+        if (!includeBankOfficeExpenses) {
+          filteredTransactions = filteredTransactions.filter((t: Transaction) => 
+            !['BANK', 'OFFICE_CASH_FUND'].includes(t.sourceAccount?.type || '')
+          );
+        }
+        
+        // Aplicar filtro de líder si está seleccionado
+        if (selectedLead) {
+          filteredTransactions = filteredTransactions.filter((t: Transaction) => 
+            t.lead?.id === selectedLead.id
+          );
+        }
+        
+        // Filtrar tipos de gasto específicos
+        filteredTransactions = filteredTransactions.filter((t: Transaction) => 
+          !['LOAN_PAYMENT_COMISSION', 'LOAN_GRANTED_COMISSION', 'LEAD_COMISSION', 'leadPaymentReceived', 'LOAN_GRANTED'].includes(t.expenseSource || '')
+        );
+        
         updateState({ transactions: filteredTransactions });
       }
     }
@@ -787,8 +819,16 @@ export const CreateExpensesForm = ({
         await onSaveComplete();
       }
 
+      // Actualizar balance en la UI
+      if (onBalanceUpdate) {
+        const totalExpenseAmount = validTransactions.reduce((sum, transaction) => {
+          return sum + parseFloat(transaction.amount || '0');
+        }, 0);
+        onBalanceUpdate(-totalExpenseAmount); // Negativo porque son gastos
+      }
+
       // Triggear refresh de balances
-      triggerRefresh();
+      triggerBalanceRefresh();
 
       // Mostrar mensaje de éxito y limpiar el estado
       updateState({ 
@@ -1073,7 +1113,7 @@ export const CreateExpensesForm = ({
         console.log('✅ Edición del grupo distribuido completada exitosamente');
         await refetchExpenses();
         if (onSaveComplete) await onSaveComplete();
-        triggerRefresh();
+        triggerBalanceRefresh();
         updateState({ showSuccessMessage: true, editingDistributedGroup: null });
         setTimeout(() => updateState({ showSuccessMessage: false }), 2000);
       } catch (e) {
@@ -1130,7 +1170,7 @@ export const CreateExpensesForm = ({
 
       await refetchExpenses();
       if (onSaveComplete) await onSaveComplete();
-      triggerRefresh();
+      triggerBalanceRefresh();
 
       updateState({ 
         showSuccessMessage: true,
@@ -1228,7 +1268,7 @@ export const CreateExpensesForm = ({
 
       await refetchExpenses();
       if (onSaveComplete) await onSaveComplete();
-      triggerRefresh();
+      triggerBalanceRefresh();
 
       updateState({ showSuccessMessage: true });
       setTimeout(() => {
@@ -1266,7 +1306,7 @@ export const CreateExpensesForm = ({
       
       await refetchExpenses();
       if (onSaveComplete) await onSaveComplete();
-      triggerRefresh();
+      triggerBalanceRefresh();
       
       updateState({ 
         showSuccessMessage: true,
@@ -1287,17 +1327,31 @@ export const CreateExpensesForm = ({
 
   useEffect(() => {
     if (expensesData?.transactions) {
-      const filteredTransactions = selectedLead
-        ? expensesData.transactions.filter((t: Transaction) => 
-            t.lead?.id === selectedLead.id && 
-            !['LOAN_PAYMENT_COMISSION', 'LOAN_GRANTED_COMISSION', 'LEAD_COMISSION', 'leadPaymentReceived', 'LOAN_GRANTED'].includes(t.expenseSource || '')
-          )
-        : expensesData.transactions.filter((t: Transaction) => 
-            !['LOAN_PAYMENT_COMISSION', 'LOAN_GRANTED_COMISSION', 'LEAD_COMISSION', 'leadPaymentReceived', 'LOAN_GRANTED'].includes(t.expenseSource || '')
-          );
+      // Filtrar transacciones basado en los checkboxes
+      let filteredTransactions = expensesData.transactions;
+      
+      // Si no se incluyen gastos de BANK y OFFICE_CASH_FUND, filtrarlos
+      if (!includeBankOfficeExpenses) {
+        filteredTransactions = filteredTransactions.filter((t: Transaction) => 
+          !['BANK', 'OFFICE_CASH_FUND'].includes(t.sourceAccount?.type || '')
+        );
+      }
+      
+      // Aplicar filtro de líder si está seleccionado
+      if (selectedLead) {
+        filteredTransactions = filteredTransactions.filter((t: Transaction) => 
+          t.lead?.id === selectedLead.id
+        );
+      }
+      
+      // Filtrar tipos de gasto específicos
+      filteredTransactions = filteredTransactions.filter((t: Transaction) => 
+        !['LOAN_PAYMENT_COMISSION', 'LOAN_GRANTED_COMISSION', 'LEAD_COMISSION', 'leadPaymentReceived', 'LOAN_GRANTED'].includes(t.expenseSource || '')
+      );
+      
       updateState({ transactions: filteredTransactions });
     }
-  }, [selectedDate, selectedLead, expensesData]);
+  }, [selectedDate, selectedLead, expensesData, includeBankOfficeExpenses, selectedRoute?.id]);
 
   useEffect(() => {
     refetchExpenses();
@@ -1437,6 +1491,77 @@ export const CreateExpensesForm = ({
         }}
       />
 
+      {/* Filtros de gastos */}
+      <Box css={{ 
+        backgroundColor: '#F8FAFC', 
+        borderRadius: '8px', 
+        padding: '16px', 
+        marginBottom: '16px',
+        border: '1px solid #E2E8F0',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '24px',
+        flexWrap: 'wrap'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <h4 style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#374151' }}>
+            🔍 Filtros de Gastos:
+          </h4>
+        </div>
+        
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: '12px',
+          padding: '8px 12px',
+          backgroundColor: '#ECFDF5',
+          borderRadius: '6px',
+          border: '1px solid #10B981'
+        }}>
+          <span style={{ fontSize: '12px', color: '#047857', fontWeight: '500' }}>
+            ✅ Por defecto: Efectivo, Gasolina, Viajes
+          </span>
+        </div>
+        
+        <label style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: '8px', 
+          cursor: 'pointer',
+          padding: '8px 12px',
+          borderRadius: '6px',
+          backgroundColor: includeBankOfficeExpenses ? '#EFF6FF' : 'transparent',
+          border: includeBankOfficeExpenses ? '1px solid #3B82F6' : '1px solid #E5E7EB',
+          transition: 'all 0.2s ease'
+        }}>
+          <input
+            type="checkbox"
+            checked={includeBankOfficeExpenses}
+            onChange={(e) => setIncludeBankOfficeExpenses(e.target.checked)}
+            style={{ margin: 0, width: '16px', height: '16px', accentColor: '#3B82F6' }}
+          />
+          <span style={{ 
+            fontSize: '13px', 
+            fontWeight: '500', 
+            color: includeBankOfficeExpenses ? '#1E40AF' : '#6B7280' 
+          }}>
+            🏦 Incluir gastos de Banco y Oficina
+          </span>
+        </label>
+        
+        <div style={{ 
+          fontSize: '12px', 
+          color: '#6B7280', 
+          fontStyle: 'italic',
+          marginLeft: 'auto'
+        }}>
+          {includeBankOfficeExpenses 
+            ? 'Mostrando todos los tipos de cuenta' 
+            : 'Solo cuentas principales de la ruta'
+          }
+        </div>
+      </Box>
+
       <Box css={{ backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)', position: 'relative', marginBottom: '16px' }}>
         <div style={{ padding: '12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -1474,6 +1599,58 @@ export const CreateExpensesForm = ({
                           border: '1px solid #93C5FD'
                         }}>
                           🔀 DIST
+                        </span>
+                      )}
+                      {transaction.sourceAccount?.type === 'PREPAID_GAS' && (
+                        <span style={{ 
+                          fontSize: '10px', 
+                          backgroundColor: '#FEF3C7', 
+                          color: '#92400E', 
+                          padding: '2px 6px', 
+                          borderRadius: '4px', 
+                          fontWeight: '500',
+                          border: '1px solid #FDE68A'
+                        }}>
+                          ⛽ GAS
+                        </span>
+                      )}
+                      {transaction.sourceAccount?.type === 'TRAVEL_EXPENSES' && (
+                        <span style={{ 
+                          fontSize: '10px', 
+                          backgroundColor: '#F0FDF4', 
+                          color: '#166534', 
+                          padding: '2px 6px', 
+                          borderRadius: '4px', 
+                          fontWeight: '500',
+                          border: '1px solid #BBF7D0'
+                        }}>
+                          ✈️ VIAJE
+                        </span>
+                      )}
+                      {transaction.sourceAccount?.type === 'BANK' && (
+                        <span style={{ 
+                          fontSize: '10px', 
+                          backgroundColor: '#EFF6FF', 
+                          color: '#1E40AF', 
+                          padding: '2px 6px', 
+                          borderRadius: '4px', 
+                          fontWeight: '500',
+                          border: '1px solid #BFDBFE'
+                        }}>
+                          🏦 BANCO
+                        </span>
+                      )}
+                      {transaction.sourceAccount?.type === 'OFFICE_CASH_FUND' && (
+                        <span style={{ 
+                          fontSize: '10px', 
+                          backgroundColor: '#FDF2F8', 
+                          color: '#BE185D', 
+                          padding: '2px 6px', 
+                          borderRadius: '4px', 
+                          fontWeight: '500',
+                          border: '1px solid #FBCFE8'
+                        }}>
+                          🏢 OFICINA
                         </span>
                       )}
                       <span>{expenseTypes.find(t => t.value === transaction.expenseSource)?.label || 'Sin tipo'}</span>
@@ -2398,7 +2575,7 @@ function ExpensesPageContent() {
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [selectedLead, setSelectedLead] = useState<Employee | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const { triggerRefresh } = useBalanceRefresh();
+  const { triggerBalanceRefresh } = useBalanceRefresh();
   const [defaultDistributionMode, setDefaultDistributionMode] = useState(false);
   const [defaultSelectedRoutes, setDefaultSelectedRoutes] = useState<string[]>([]);
   
@@ -2436,7 +2613,7 @@ function ExpensesPageContent() {
       if (selectedRoute?.id) {
         await refetchRouteData();
         setRefreshKey(prev => prev + 1);
-        triggerRefresh();
+        triggerBalanceRefresh();
       }
     } catch (error) {
       console.error('Error refreshing data:', error);
@@ -2500,11 +2677,7 @@ function ExpensesPageContent() {
 }
 
 export default function ExpensesPage() {
-  return (
-    <BalanceRefreshProvider>
-      <ExpensesPageContent />
-    </BalanceRefreshProvider>
-  );
+  return <ExpensesPageContent />;
 }
 
 // Styles
