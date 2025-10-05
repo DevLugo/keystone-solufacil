@@ -18,12 +18,12 @@ interface MenuSection {
 const menuSections: MenuSection[] = [
   {
     title: 'Clientes',
-    roles: ['NORMAL', 'ADMIN'],
+    roles: ['CAPTURA', 'NORMAL', 'ADMIN'],
     items: [
       {
         label: 'Historial de Clientes',
         href: '/historial-cliente',
-        roles: ['NORMAL', 'ADMIN']
+        roles: ['CAPTURA', 'NORMAL', 'ADMIN']
       },
       {
         label: 'Carga de Documentos',
@@ -35,7 +35,7 @@ const menuSections: MenuSection[] = [
   },
   {
     title: 'Operaciones',
-    roles: ['NORMAL', 'ADMIN'],
+    roles: ['CAPTURA', 'NORMAL', 'ADMIN'],
     items: [
       {
         label: 'Captura Semanal',
