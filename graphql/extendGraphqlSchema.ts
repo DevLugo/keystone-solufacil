@@ -7469,8 +7469,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 },
                 lead: {
                   include: {
+                    routes: true, // Incluir información de la ruta del líder
                     personalData: {
                       include: {
+                        phones: true, // Incluir teléfonos del líder
                         addresses: {
                           include: {
                             location: {
@@ -7523,8 +7525,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
                         status: true,
                         lead: {
                           include: {
+                            routes: true, // Incluir información de la ruta del líder
                             personalData: {
                               include: {
+                                phones: true, // Incluir teléfonos del líder
                                 addresses: {
                                   include: {
                                     location: {
@@ -7559,6 +7563,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
             }
 
             console.log('✅ Clientes encontrados:', clients.length);
+            
+            // Debug: verificar clientCode
+            if (clients.length > 0) {
+              console.log('🔍 Debug clientCode - Primer cliente:', {
+                id: clients[0].id,
+                fullName: clients[0].fullName,
+                clientCode: clients[0].clientCode,
+                hasClientCode: 'clientCode' in clients[0]
+              });
+            }
 
             // 🔗 Combinar resultados: clientes como deudores + como avalistas
             const combinedResults = new Map();
@@ -7610,13 +7624,33 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
               }
 
+              // Obtener información del líder para ruta y teléfono
+              let leaderRoute = 'N/A';
+              let leaderPhone = 'N/A';
+              
+              if (loans.length > 0) {
+                const latestLoan = loans.reduce((latest, loan) => {
+                  const loanDate = new Date(loan.signDate);
+                  const latestDate = new Date(latest.signDate);
+                  return loanDate > latestDate ? loan : latest;
+                });
+                
+                if (latestLoan.lead?.routes?.name) {
+                  leaderRoute = latestLoan.lead.routes.name;
+                }
+                
+                if (latestLoan.lead?.personalData?.phones?.[0]?.number) {
+                  leaderPhone = latestLoan.lead.personalData.phones[0].number;
+                }
+              }
+
               combinedResults.set(client.id, {
                 id: client.id,
                 name: client.fullName || 'Sin nombre',
-                dui: 'N/A', // Campo no disponible en PersonalData
-                phone: client.phones[0]?.number || 'N/A',
+                clientCode: client.clientCode || 'Sin clave', // Usar clientCode real
+                phone: leaderPhone, // Teléfono del líder
                 address: client.addresses[0] ? `${client.addresses[0].location?.name || 'Sin localidad'}` : 'N/A',
-                route: client.addresses[0]?.location?.route?.name || 'N/A',
+                route: leaderRoute, // Ruta del líder
                 location: location,
                 municipality: municipality,
                 state: state,
@@ -7669,6 +7703,15 @@ export const extendGraphqlSchema = graphql.extend(base => {
                         existingClient.municipality = leadLocation.municipality?.name || 'Sin municipio';
                         existingClient.state = leadLocation.municipality?.state?.name || 'Sin estado';
                         existingClient.city = loan.lead.personalData.addresses[0].street || 'Sin dirección';
+                      }
+                      
+                      // Actualizar ruta y teléfono del líder si este préstamo es más reciente
+                      if (loan.lead?.routes?.name) {
+                        existingClient.route = loan.lead.routes.name;
+                      }
+                      
+                      if (loan.lead?.personalData?.phones?.[0]?.number) {
+                        existingClient.phone = loan.lead.personalData.phones[0].number;
                       }
                     }
                   }
@@ -8108,7 +8151,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               client: {
                 id: client.id,
                 fullName: client.fullName,
-                dui: 'N/A', // Campo no disponible en PersonalData
+                clientCode: client.clientCode || 'Sin clave', // Usar clientCode real
                 phones: client.phones.map((phone: any) => phone.number),
                 addresses: client.addresses.map((address: any) => ({
                   street: address.street,

@@ -93,7 +93,7 @@ const MERGE_CLIENTS = gql`
 interface ClientSearchResult {
   id: string;
   name: string;
-  dui: string;
+  clientCode: string; // Cambiado de dui a clientCode
   phone: string;
   address: string;
   route: string;
@@ -197,7 +197,7 @@ interface ClientHistoryData {
   client: {
     id: string;
     fullName: string;
-    dui: string;
+    clientCode: string; // Cambiado de dui a clientCode
     phones: string[];
     addresses: Array<{
       street: string;
@@ -379,8 +379,8 @@ const HistorialClientePage: React.FC = () => {
         searchClients({
           variables: {
             searchTerm,
-            routeId: selectedRoute?.id,
-            locationId: selectedLocation?.id,
+            routeId: null, // No filtrar por ruta
+            locationId: null, // No filtrar por localidad
             limit: 20
           }
         });
@@ -390,7 +390,7 @@ const HistorialClientePage: React.FC = () => {
     } else {
       setClientResults([]);
     }
-  }, [searchTerm, selectedRoute, selectedLocation, searchClients, showAutocomplete]);
+  }, [searchTerm, searchClients, showAutocomplete]);
 
   useEffect(() => {
     if (searchData?.searchClients) {
@@ -405,8 +405,8 @@ const HistorialClientePage: React.FC = () => {
         searchClients({
           variables: {
             searchTerm: mergeSearchTerm,
-            routeId: selectedRoute?.id,
-            locationId: selectedLocation?.id,
+            routeId: null, // No filtrar por ruta
+            locationId: null, // No filtrar por localidad
             limit: 20
           }
         });
@@ -416,7 +416,7 @@ const HistorialClientePage: React.FC = () => {
     } else {
       setMergeClientResults([]);
     }
-  }, [mergeSearchTerm, selectedRoute, selectedLocation, searchClients, showMergeAutocomplete]);
+  }, [mergeSearchTerm, searchClients, showMergeAutocomplete]);
 
   useEffect(() => {
     if (searchData?.searchClients && showMergeModal) {
@@ -436,8 +436,8 @@ const HistorialClientePage: React.FC = () => {
       getClientHistory({
         variables: {
           clientId: selectedClient.id,
-          routeId: selectedRoute?.id,
-          locationId: selectedLocation?.id
+          routeId: null, // No filtrar por ruta
+          locationId: null // No filtrar por localidad
         }
       });
       
@@ -518,8 +518,8 @@ const HistorialClientePage: React.FC = () => {
 
     const confirmMerge = window.confirm(
       `¿Estás seguro de que quieres fusionar los clientes?\n\n` +
-      `Cliente Principal: ${primaryClient.name} (${primaryClient.dui})\n` +
-      `Cliente Secundario: ${secondaryClient.name} (${secondaryClient.dui})\n\n` +
+      `Cliente Principal: ${primaryClient.name} (${primaryClient.clientCode})\n` +
+      `Cliente Secundario: ${secondaryClient.name} (${secondaryClient.clientCode})\n\n` +
       `El cliente secundario será eliminado y todos sus datos se transferirán al cliente principal.`
     );
 
@@ -590,7 +590,7 @@ const HistorialClientePage: React.FC = () => {
         body: JSON.stringify({
           clientId: historyData.client.id,
           clientName: historyData.client.fullName,
-          clientDui: historyData.client.dui,
+          clientDui: historyData.client.clientCode,
           clientPhones: historyData.client.phones,
           clientAddresses: historyData.client.addresses,
           summary: historyData.summary,
@@ -638,7 +638,7 @@ const HistorialClientePage: React.FC = () => {
           📋 Historial de Cliente
         </h1>
 
-        {/* Filtros de búsqueda */}
+        {/* Búsqueda de Cliente */}
         <div style={{
           backgroundColor: '#f7fafc',
           padding: '24px',
@@ -650,62 +650,9 @@ const HistorialClientePage: React.FC = () => {
             🔍 Búsqueda de Cliente
           </h2>
 
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))', 
-            gap: isMobile ? '12px' : '16px', 
-            marginBottom: '16px' 
-          }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '8px', color: '#4a5568' }}>
-                Ruta (Opcional)
-              </label>
-              <Select
-                value={routeOptions.find((opt: any) => opt.value === selectedRoute?.id) || null}
-                onChange={(option) => {
-                  const route = routesData?.routes?.find((r: any) => r.id === option?.value);
-                  console.log('🔍 Ruta seleccionada:', route);
-                  console.log('👥 Empleados encontrados:', route?.employees?.length);
-                  console.log('🏘️ Estructura empleados:', route?.employees);
-                  setSelectedRoute(route || null);
-                  setSelectedLocation(null); // Limpiar localidad cuando cambia la ruta
-                }}
-                options={routeOptions}
-                placeholder="Seleccionar ruta..."
-                isLoading={routesLoading}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '8px', color: '#4a5568' }}>
-                Localidad (Opcional)
-              </label>
-              <Select
-                value={locationOptions.find((opt: any) => opt.value === selectedLocation?.id) || null}
-                onChange={(option) => {
-                  // Buscar la localidad en los empleados de la ruta
-                  let foundLocation = null;
-                  selectedRoute?.employees?.forEach((employee: any) => {
-                    employee.personalData?.addresses?.forEach((address: any) => {
-                      if (address.location && address.location.id === option?.value) {
-                        foundLocation = address.location;
-                      }
-                    });
-                  });
-                  console.log('🏠 Localidad seleccionada:', foundLocation);
-                  console.log('📍 Empleados disponibles:', selectedRoute?.employees?.length);
-                  setSelectedLocation(foundLocation);
-                }}
-                options={locationOptions}
-                placeholder="Seleccionar localidad..."
-                isDisabled={!selectedRoute}
-              />
-            </div>
-          </div>
-
           <div style={{ position: 'relative', marginBottom: '16px' }}>
             <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '8px', color: '#4a5568' }}>
-              Buscar Cliente (Nombre, DUI)
+              Buscar Cliente (Nombre, Clave Única) - La información de ruta y localidad aparecerá en los resultados
             </label>
             <input
               type="text"
@@ -753,12 +700,15 @@ const HistorialClientePage: React.FC = () => {
                     onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
                   >
-                    <div style={{ fontWeight: '600', color: '#2d3748' }}>{client.name}</div>
-                    <div style={{ fontSize: '12px', color: '#718096' }}>
-                      📍 {client.location} | 🏘️ {client.municipality} | 🏛️ {client.state}
+                    <div style={{ fontWeight: '600', color: '#2d3748', marginBottom: '4px' }}>{client.name}</div>
+                    <div style={{ fontSize: '12px', color: '#4a5568', marginBottom: '2px' }}>
+                      📍 <strong>Localidad:</strong> {client.location} | 🏘️ <strong>Municipio:</strong> {client.municipality} | 🏛️ <strong>Estado:</strong> {client.state}
                     </div>
-                    <div style={{ fontSize: '11px', color: '#a0aec0' }}>
-                      📞 {client.phone} | 🏠 {client.route} | 🏙️ {client.city}
+                    <div style={{ fontSize: '12px', color: '#4a5568', marginBottom: '2px' }}>
+                      🗺️ <strong>Ruta:</strong> {client.route} | 📞 <strong>Teléfono:</strong> {client.phone}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#a0aec0', marginBottom: '2px' }}>
+                      🏠 <strong>Dirección:</strong> {client.city}
                     </div>
                     {client.latestLoanDate && (
                       <div style={{ fontSize: '11px', color: '#805ad5', marginTop: '2px' }}>
@@ -898,7 +848,7 @@ const HistorialClientePage: React.FC = () => {
                 textAlign: isMobile ? 'center' : 'left',
                 width: '100%'
               }}>
-                Cliente seleccionado: <strong>{selectedClient.name}</strong> ({selectedClient.dui})
+                Cliente seleccionado: <strong>{selectedClient.name}</strong> ({selectedClient.clientCode})
               </div>
             )}
           </div>
@@ -934,17 +884,46 @@ const HistorialClientePage: React.FC = () => {
               
               <div style={{ 
                 display: 'grid', 
-                gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(250px, 1fr))', 
+                gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(300px, 1fr))', 
                 gap: isMobile ? '12px' : '16px' 
               }}>
                 <div>
-                  <p><strong>DUI:</strong> {historyResult.client.dui}</p>
-                  <p><strong>Teléfonos:</strong> {historyResult.client.phones.join(', ')}</p>
+                  <p style={{ marginBottom: '8px' }}>
+                    <strong>🔑 Clave Única:</strong> {historyResult.client.clientCode}
+                  </p>
+                  <p style={{ marginBottom: '8px' }}>
+                    <strong>📞 Teléfonos:</strong> {historyResult.client.phones.join(', ')}
+                  </p>
                 </div>
                 <div>
                   {historyResult.client.addresses.map((addr, index) => (
-                    <p key={index}><strong>Dirección:</strong> {addr.city}, {addr.location} ({addr.route})</p>
+                    <div key={index} style={{ marginBottom: '8px' }}>
+                      <p style={{ marginBottom: '4px' }}>
+                        <strong>📍 Localidad:</strong> {addr.location}
+                      </p>
+                      <p style={{ marginBottom: '4px' }}>
+                        <strong>🗺️ Ruta:</strong> {addr.route}
+                      </p>
+                      <p style={{ marginBottom: '4px' }}>
+                        <strong>🏠 Dirección:</strong> {addr.city}
+                      </p>
+                    </div>
                   ))}
+                </div>
+                <div>
+                  <p style={{ marginBottom: '8px' }}>
+                    <strong>📊 Relación:</strong> 
+                    {historyResult.summary.hasBeenClient && ' ✅ Cliente'}
+                    {historyResult.summary.hasBeenCollateral && ' 🤝 Aval'}
+                  </p>
+                  <p style={{ marginBottom: '8px' }}>
+                    <strong>📅 Desde:</strong> {historyResult.loansAsClient.length > 0 ? 
+                      formatDate(historyResult.loansAsClient[historyResult.loansAsClient.length - 1].signDate) : 
+                      historyResult.loansAsCollateral.length > 0 ? 
+                        formatDate(historyResult.loansAsCollateral[historyResult.loansAsCollateral.length - 1].signDate) : 
+                        'N/A'
+                    }
+                  </p>
                 </div>
               </div>
             </div>
@@ -1284,7 +1263,7 @@ const HistorialClientePage: React.FC = () => {
                           borderBottom: '2px solid #e2e8f0', 
                           fontSize: isMobile ? '10px' : '12px', 
                           fontWeight: '600' 
-                        }}>LÍDER</th>
+                        }}>AVAL</th>
                         <th style={{ 
                           padding: isMobile ? '8px' : '12px', 
                           textAlign: 'center', 
@@ -1358,8 +1337,16 @@ const HistorialClientePage: React.FC = () => {
                               )}
                             </td>
                             <td style={{ padding: '12px', fontSize: '12px', color: '#718096' }}>
-                              {loan.leadName}
-                              <div style={{ fontSize: '10px' }}>{loan.routeName}</div>
+                              {loan.avalName ? (
+                                <>
+                                  <div style={{ fontWeight: '600', color: '#2d3748' }}>{loan.avalName}</div>
+                                  {loan.avalPhone && (
+                                    <div style={{ fontSize: '10px', color: '#4a5568' }}>📞 {loan.avalPhone}</div>
+                                  )}
+                                </>
+                              ) : (
+                                <div style={{ fontSize: '10px', color: '#a0aec0', fontStyle: 'italic' }}>Sin aval</div>
+                              )}
                             </td>
                             <td style={{ padding: '12px', fontSize: '13px', textAlign: 'center' }}>
                               {loan.daysSinceSign}
@@ -1520,7 +1507,7 @@ const HistorialClientePage: React.FC = () => {
                         <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>PAGADO</th>
                         <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>DEUDA PENDIENTE</th>
                         <th style={{ padding: '12px', textAlign: 'center', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>ESTADO</th>
-                        <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>LÍDER</th>
+                        <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>AVAL</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1535,7 +1522,7 @@ const HistorialClientePage: React.FC = () => {
                               }}>
                             <td style={{ padding: '12px', fontSize: '13px', fontWeight: '600' }}>
                               {loan.clientName}
-                              <div style={{ fontSize: '11px', color: '#718096' }}>DUI: {loan.clientDui}</div>
+                              <div style={{ fontSize: '11px', color: '#718096' }}>Clave: {loan.clientDui}</div>
                             </td>
                             <td style={{ padding: '12px', fontSize: '13px' }}>
                               <div>{loan.signDateFormatted || formatDate(loan.signDate)}</div>
@@ -1583,8 +1570,16 @@ const HistorialClientePage: React.FC = () => {
                               )}
                             </td>
                             <td style={{ padding: '12px', fontSize: '12px', color: '#718096' }}>
-                              {loan.leadName}
-                              <div style={{ fontSize: '10px' }}>{loan.routeName}</div>
+                              {loan.avalName ? (
+                                <>
+                                  <div style={{ fontWeight: '600', color: '#2d3748' }}>{loan.avalName}</div>
+                                  {loan.avalPhone && (
+                                    <div style={{ fontSize: '10px', color: '#4a5568' }}>📞 {loan.avalPhone}</div>
+                                  )}
+                                </>
+                              ) : (
+                                <div style={{ fontSize: '10px', color: '#a0aec0', fontStyle: 'italic' }}>Sin aval</div>
+                              )}
                             </td>
                           </tr>
                           
@@ -1783,7 +1778,7 @@ const HistorialClientePage: React.FC = () => {
                   }}>
                     <div style={{ fontWeight: '600', color: '#166534' }}>{primaryClient.name}</div>
                     <div style={{ fontSize: '12px', color: '#16A34A' }}>
-                      DUI: {primaryClient.dui} | Teléfono: {primaryClient.phone}
+                      Clave: {primaryClient.clientCode} | Teléfono: {primaryClient.phone}
                     </div>
                     <div style={{ fontSize: '11px', color: '#16A34A' }}>
                       📍 {primaryClient.location} | 🏘️ {primaryClient.municipality}
@@ -1839,7 +1834,7 @@ const HistorialClientePage: React.FC = () => {
                           >
                             <div style={{ fontWeight: '600', color: '#1F2937' }}>{client.name}</div>
                             <div style={{ fontSize: '12px', color: '#6B7280' }}>
-                              DUI: {client.dui} | Teléfono: {client.phone}
+                              Clave: {client.clientCode} | Teléfono: {client.phone}
                             </div>
                             <div style={{ fontSize: '11px', color: '#9CA3AF' }}>
                               📍 {client.location} | 🏘️ {client.municipality}
@@ -1873,7 +1868,7 @@ const HistorialClientePage: React.FC = () => {
                   }}>
                     <div style={{ fontWeight: '600', color: '#DC2626' }}>{secondaryClient.name}</div>
                     <div style={{ fontSize: '12px', color: '#EF4444' }}>
-                      DUI: {secondaryClient.dui} | Teléfono: {secondaryClient.phone}
+                      Clave: {secondaryClient.clientCode} | Teléfono: {secondaryClient.phone}
                     </div>
                     <div style={{ fontSize: '11px', color: '#EF4444' }}>
                       📍 {secondaryClient.location} | 🏘️ {secondaryClient.municipality}
@@ -1929,7 +1924,7 @@ const HistorialClientePage: React.FC = () => {
                           >
                             <div style={{ fontWeight: '600', color: '#1F2937' }}>{client.name}</div>
                             <div style={{ fontSize: '12px', color: '#6B7280' }}>
-                              DUI: {client.dui} | Teléfono: {client.phone}
+                              Clave: {client.clientCode} | Teléfono: {client.phone}
                             </div>
                             <div style={{ fontSize: '11px', color: '#9CA3AF' }}>
                               📍 {client.location} | 🏘️ {client.municipality}
