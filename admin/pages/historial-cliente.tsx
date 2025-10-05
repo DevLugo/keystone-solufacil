@@ -205,6 +205,14 @@ interface ClientHistoryData {
       location: string;
       route: string;
     }>;
+    leader: {
+      name: string;
+      route: string;
+      location: string;
+      municipality: string;
+      state: string;
+      phone: string;
+    };
   };
   summary: {
     totalLoansAsClient: number;
@@ -873,57 +881,122 @@ const HistorialClientePage: React.FC = () => {
             {/* Client Info Header */}
             <div style={{
               backgroundColor: '#edf2f7',
-              padding: '24px',
+              padding: isMobile ? '16px' : '24px',
               borderRadius: '8px',
               marginBottom: '24px',
               border: '1px solid #cbd5e0'
             }}>
-              <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '16px', color: '#2d3748' }}>
-                👤 {historyResult.client.fullName}
+              <h2 style={{ 
+                fontSize: isMobile ? '16px' : '18px', 
+                fontWeight: '600', 
+                marginBottom: '20px', 
+                color: '#2d3748' 
+              }}>
+                Información del Cliente y Líder Asignado
               </h2>
               
               <div style={{ 
                 display: 'grid', 
-                gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(300px, 1fr))', 
-                gap: isMobile ? '12px' : '16px' 
+                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', 
+                gap: isMobile ? '20px' : '32px' 
               }}>
-                <div>
-                  <p style={{ marginBottom: '8px' }}>
-                    <strong>🔑 Clave Única:</strong> {historyResult.client.clientCode}
-                  </p>
-                  <p style={{ marginBottom: '8px' }}>
-                    <strong>📞 Teléfonos:</strong> {historyResult.client.phones.join(', ')}
-                  </p>
+                {/* Información del Cliente */}
+                <div style={{
+                  backgroundColor: 'white',
+                  padding: isMobile ? '12px' : '16px',
+                  borderRadius: '6px',
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <h3 style={{ 
+                    fontSize: isMobile ? '14px' : '16px', 
+                    fontWeight: '600', 
+                    marginBottom: '12px', 
+                    color: '#2d3748',
+                    borderBottom: '2px solid #4299e1',
+                    paddingBottom: '4px'
+                  }}>
+                    👤 Cliente
+                  </h3>
+                  
+                  <div style={{ display: 'grid', gap: '8px' }}>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>👤 Nombre:</strong> {historyResult.client.fullName}
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>🔑 Clave:</strong> {historyResult.client.clientCode}
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>📞 Teléfonos:</strong> {historyResult.client.phones.join(', ')}
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>📊 Relación:</strong> 
+                      {historyResult.summary.hasBeenClient && ' ✅ Cliente'}
+                      {historyResult.summary.hasBeenCollateral && ' 🤝 Aval'}
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>📅 Desde:</strong> {historyResult.loansAsClient.length > 0 ? 
+                        formatDate(historyResult.loansAsClient[historyResult.loansAsClient.length - 1].signDate) : 
+                        historyResult.loansAsCollateral.length > 0 ? 
+                          formatDate(historyResult.loansAsCollateral[historyResult.loansAsCollateral.length - 1].signDate) : 
+                          'N/A'
+                      }
+                    </p>
+                    
+                    {/* Dirección del cliente */}
+                    {historyResult.client.addresses.map((addr, index) => (
+                      <div key={index} style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
+                        <p style={{ margin: '0 0 4px 0', fontSize: isMobile ? '12px' : '13px' }}>
+                          <strong>📍 Localidad:</strong> {addr.location}
+                        </p>
+                        <p style={{ margin: '0 0 4px 0', fontSize: isMobile ? '12px' : '13px' }}>
+                          <strong>🗺️ Ruta:</strong> {addr.route}
+                        </p>
+                        <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                          <strong>🏠 Dirección:</strong> {addr.city}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div>
-                  {historyResult.client.addresses.map((addr, index) => (
-                    <div key={index} style={{ marginBottom: '8px' }}>
-                      <p style={{ marginBottom: '4px' }}>
-                        <strong>📍 Localidad:</strong> {addr.location}
-                      </p>
-                      <p style={{ marginBottom: '4px' }}>
-                        <strong>🗺️ Ruta:</strong> {addr.route}
-                      </p>
-                      <p style={{ marginBottom: '4px' }}>
-                        <strong>🏠 Dirección:</strong> {addr.city}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-                <div>
-                  <p style={{ marginBottom: '8px' }}>
-                    <strong>📊 Relación:</strong> 
-                    {historyResult.summary.hasBeenClient && ' ✅ Cliente'}
-                    {historyResult.summary.hasBeenCollateral && ' 🤝 Aval'}
-                  </p>
-                  <p style={{ marginBottom: '8px' }}>
-                    <strong>📅 Desde:</strong> {historyResult.loansAsClient.length > 0 ? 
-                      formatDate(historyResult.loansAsClient[historyResult.loansAsClient.length - 1].signDate) : 
-                      historyResult.loansAsCollateral.length > 0 ? 
-                        formatDate(historyResult.loansAsCollateral[historyResult.loansAsCollateral.length - 1].signDate) : 
-                        'N/A'
-                    }
-                  </p>
+
+                {/* Información del Líder */}
+                <div style={{
+                  backgroundColor: 'white',
+                  padding: isMobile ? '12px' : '16px',
+                  borderRadius: '6px',
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <h3 style={{ 
+                    fontSize: isMobile ? '14px' : '16px', 
+                    fontWeight: '600', 
+                    marginBottom: '12px', 
+                    color: '#2d3748',
+                    borderBottom: '2px solid #38a169',
+                    paddingBottom: '4px'
+                  }}>
+                    👨‍💼 Líder Asignado
+                  </h3>
+                  
+                  <div style={{ display: 'grid', gap: '8px' }}>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>👤 Nombre:</strong> {historyResult.client.leader.name}
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>🗺️ Ruta:</strong> {historyResult.client.leader.route}
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>📍 Localidad:</strong> {historyResult.client.leader.location}
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>🏘️ Municipio:</strong> {historyResult.client.leader.municipality}
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>🌍 Estado:</strong> {historyResult.client.leader.state}
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>📞 Teléfono:</strong> {historyResult.client.leader.phone}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -971,35 +1044,39 @@ const HistorialClientePage: React.FC = () => {
                 </p>
               </div>
 
-              <div style={{
-                backgroundColor: '#f0fff4',
-                padding: '20px',
-                borderRadius: '8px',
-                border: '2px solid #48bb78',
-                textAlign: 'center'
-              }}>
-                <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: '#2d3748' }}>
-                  💰 Total Prestado
-                </h3>
-                <p style={{ fontSize: '20px', fontWeight: 'bold', color: '#48bb78' }}>
-                  {formatCurrency(historyResult.summary.totalAmountRequestedAsClient)}
-                </p>
-              </div>
+              {isAdmin && (
+                <>
+                  <div style={{
+                    backgroundColor: '#f0fff4',
+                    padding: '20px',
+                    borderRadius: '8px',
+                    border: '2px solid #48bb78',
+                    textAlign: 'center'
+                  }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: '#2d3748' }}>
+                      💰 Total Prestado
+                    </h3>
+                    <p style={{ fontSize: '20px', fontWeight: 'bold', color: '#48bb78' }}>
+                      {formatCurrency(historyResult.summary.totalAmountRequestedAsClient)}
+                    </p>
+                  </div>
 
-              <div style={{
-                backgroundColor: '#fffbf0',
-                padding: '20px',
-                borderRadius: '8px',
-                border: '2px solid #ed8936',
-                textAlign: 'center'
-              }}>
-                <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: '#2d3748' }}>
-                  💳 Total Pagado
-                </h3>
-                <p style={{ fontSize: '20px', fontWeight: 'bold', color: '#ed8936' }}>
-                  {formatCurrency(historyResult.summary.totalAmountPaidAsClient)}
-                </p>
-              </div>
+                  <div style={{
+                    backgroundColor: '#fffbf0',
+                    padding: '20px',
+                    borderRadius: '8px',
+                    border: '2px solid #ed8936',
+                    textAlign: 'center'
+                  }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: '#2d3748' }}>
+                      💳 Total Pagado
+                    </h3>
+                    <p style={{ fontSize: '20px', fontWeight: 'bold', color: '#ed8936' }}>
+                      {formatCurrency(historyResult.summary.totalAmountPaidAsClient)}
+                    </p>
+                  </div>
+                </>
+              )}
 
               <div style={{
                 backgroundColor: historyResult.summary.currentPendingDebtAsClient > 0 ? '#fed7e2' : '#f0fff4',
