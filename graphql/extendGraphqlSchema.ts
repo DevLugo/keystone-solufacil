@@ -1228,9 +1228,50 @@ export const extendGraphqlSchema = graphql.extend(base => {
           payments: graphql.arg({ type: graphql.nonNull(graphql.list(graphql.nonNull(PaymentInputType))) }),
         },
         resolve: async (root, { id, expectedAmount, cashPaidAmount = 0, bankPaidAmount = 0, paymentDate, payments }, context: Context): Promise<LeadPaymentReceivedResponse> => {
+          // Función auxiliar para reintentos con backoff exponencial
+          const retryWithBackoff = async <T>(
+            operation: () => Promise<T>,
+            maxRetries: number = 3,
+            baseDelay: number = 1000
+          ): Promise<T> => {
+            let lastError: Error;
+            
+            for (let attempt = 0; attempt <= maxRetries; attempt++) {
+              try {
+                return await operation();
+              } catch (error) {
+                lastError = error as Error;
+                
+                // No reintentar si es un error de validación o lógica
+                if (error instanceof Error && (
+                  error.message.includes('no encontrado') ||
+                  error.message.includes('no se encontraron') ||
+                  error.message.includes('validation')
+                )) {
+                  throw error;
+                }
+                
+                if (attempt === maxRetries) {
+                  throw lastError;
+                }
+                
+                const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 1000;
+                console.log(`⚠️ Reintentando operación (intento ${attempt + 1}/${maxRetries + 1}) en ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+              }
+            }
+            
+            throw lastError!;
+          };
+
           try {
-            // Usar transacción para garantizar atomicidad y optimizar performance
-            return await context.prisma.$transaction(async (tx) => {
+            // Calcular timeout dinámico basado en la cantidad de pagos
+            const dynamicTimeout = Math.max(120000, payments.length * 2000); // Mínimo 2 min, +2s por pago
+            
+            console.log(`🔄 Iniciando updateCustomLeadPaymentReceived para ${payments.length} pagos (timeout: ${dynamicTimeout}ms)`);
+            
+            return await retryWithBackoff(async () => {
+              return await context.prisma.$transaction(async (tx) => {
             cashPaidAmount = cashPaidAmount ?? 0;
             bankPaidAmount = bankPaidAmount ?? 0;
             const totalPaidAmount = cashPaidAmount + bankPaidAmount;
@@ -1305,57 +1346,33 @@ export const extendGraphqlSchema = graphql.extend(base => {
             // ✅ NUEVA LÓGICA: Usar exactamente el mismo approach que createCustomLeadPaymentReceived
             // Eliminar toda la lógica manual compleja de comisiones, usar la lógica probada de create
 
-            // 🆕 LÓGICA CORREGIDA: Eliminar pagos existentes SIEMPRE que existan
-            // Esto se ejecuta independientemente de si se van a crear nuevos pagos
+            // 🆕 LÓGICA OPTIMIZADA: Eliminar pagos existentes en operaciones en lotes eficientes
             if (existingPayment.payments.length > 0) {
+              console.log(`🗑️ Eliminando ${existingPayment.payments.length} pagos existentes y sus transacciones...`);
               
-              // ✅ CORREGIDO: Obtener TODAS las transacciones relacionadas (por payments + directas)
+              // ✅ OPTIMIZADO: Obtener TODAS las transacciones relacionadas en una sola consulta
               const paymentTransactionIds = existingPayment.payments
                 .flatMap((payment: any) => payment.transactions.map((t: any) => t.id));
               const allTransactionIds = [...paymentTransactionIds, ...directTransactions.map(t => t.id)];
               const transactionIds = [...new Set(allTransactionIds)]; // Eliminar duplicados
               
-              
-              // ✅ DEBUG: Obtener detalles de las transacciones antes de eliminarlas
-              const transactionsToDelete = await tx.transaction.findMany({
-                where: { id: { in: transactionIds } }
-              });
-              
-              // ✅ VERIFICACIÓN ESPECÍFICA: Contar transacciones de pago vs comisión
-              const incomeTransactions = transactionsToDelete.filter(t => t.type === 'INCOME');
-              const commissionTransactions = transactionsToDelete.filter(t => t.type === 'EXPENSE' && t.expenseSource === 'LOAN_PAYMENT_COMISSION');
-              
-              
-              // Eliminar transacciones existentes en lote
+              // ✅ OPTIMIZADO: Eliminar transacciones en lotes más pequeños para evitar timeouts
               if (transactionIds.length > 0) {
-                const deleteResult = await tx.transaction.deleteMany({
-                  where: { id: { in: transactionIds } }
-                });
-                
-                // ✅ VERIFICACIÓN: Confirmar que las transacciones se eliminaron
-                const remainingTransactions = await tx.transaction.findMany({
-                  where: { id: { in: transactionIds } }
-                });
-                
-                if (remainingTransactions.length > 0) {
-                  console.error('❌ ERROR: Algunas transacciones no se eliminaron:', remainingTransactions.map(t => ({
-                    id: t.id,
-                    type: t.type,
-                    amount: t.amount
-                  })));
+                const batchSize = 50; // Procesar en lotes de 50 transacciones
+                for (let i = 0; i < transactionIds.length; i += batchSize) {
+                  const batch = transactionIds.slice(i, i + batchSize);
+                  await tx.transaction.deleteMany({
+                    where: { id: { in: batch } }
+                  });
                 }
+                console.log(`✅ Eliminadas ${transactionIds.length} transacciones en lotes de ${batchSize}`);
               }
 
-              // Eliminar pagos existentes en lote
+              // ✅ OPTIMIZADO: Eliminar pagos existentes en lote
               const deletePaymentsResult = await tx.loanPayment.deleteMany({
                 where: { leadPaymentReceivedId: id }
               });
-
-              
-              // 🆕 VERIFICACIÓN: Confirmar que los pagos se eliminaron
-              const remainingPayments = await tx.loanPayment.findMany({
-                where: { leadPaymentReceivedId: id }
-              });
+              console.log(`✅ Eliminados ${deletePaymentsResult.count} pagos existentes`);
             } else {
               console.log('ℹ️ UPDATE: No hay pagos existentes para eliminar');
             }
@@ -1438,36 +1455,45 @@ export const extendGraphqlSchema = graphql.extend(base => {
             }
 
             if (payments.length > 0) {
-              const paymentData = payments.map(payment => ({
-                amount: payment.amount.toFixed(2),
-                comission: payment.comission.toFixed(2),
-                loanId: payment.loanId,
-                type: payment.type,
-                paymentMethod: payment.paymentMethod,
-                receivedAt: new Date(paymentDate),
-                leadPaymentReceivedId: leadPaymentReceived.id,
-              }));
+              console.log(`💾 Creando ${payments.length} pagos nuevos...`);
+              
+              // ✅ OPTIMIZADO: Crear pagos en lotes para mejor performance
+              const batchSize = 25; // Procesar en lotes de 25 pagos
+              const createdPaymentRecords = [];
+              
+              for (let i = 0; i < payments.length; i += batchSize) {
+                const batch = payments.slice(i, i + batchSize);
+                const paymentData = batch.map(payment => ({
+                  amount: payment.amount.toFixed(2),
+                  comission: payment.comission.toFixed(2),
+                  loanId: payment.loanId,
+                  type: payment.type,
+                  paymentMethod: payment.paymentMethod,
+                  receivedAt: new Date(paymentDate),
+                  leadPaymentReceivedId: leadPaymentReceived.id,
+                }));
 
-              await tx.loanPayment.createMany({ data: paymentData });
+                await tx.loanPayment.createMany({ data: paymentData });
+              }
 
               // Obtener los pagos creados para crear las transacciones
-              const createdPaymentRecords = await tx.loanPayment.findMany({
+              const allCreatedPayments = await tx.loanPayment.findMany({
                 where: { leadPaymentReceivedId: leadPaymentReceived.id }
               });
 
-              // OPTIMIZADO: Obtener todos los datos necesarios en una sola consulta
-              const loanIds = createdPaymentRecords.map(p => p.loanId);
+              // ✅ OPTIMIZADO: Obtener todos los datos necesarios en una sola consulta
+              const loanIds = allCreatedPayments.map(p => p.loanId);
               const loans = await tx.loan.findMany({
                 where: { id: { in: loanIds } },
                 include: { loantype: true }
               });
               const loanMap = new Map(loans.map(loan => [loan.id, loan]));
 
-              // ✅ CREAR TRANSACCIONES para los pagos nuevos
+              // ✅ OPTIMIZADO: Crear transacciones en lotes
               const transactionData = [];
+              const transactionBatchSize = 50;
 
-
-              for (const payment of createdPaymentRecords) {
+              for (const payment of allCreatedPayments) {
                 const paymentAmount = parseFloat((payment.amount || 0).toString());
                 const comissionAmount = parseFloat((payment.comission || 0).toString());
 
@@ -1528,18 +1554,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     description: `Comisión por pago de préstamo - ${payment.id}`,
                   });
                 }
-
               }
 
-
-              // Crear todas las transacciones de una vez
+              // ✅ OPTIMIZADO: Crear transacciones en lotes para evitar timeouts
               if (transactionData.length > 0) {
-                try {
-                await tx.transaction.createMany({ data: transactionData });
-                } catch (transactionError) {
-                  console.error('Error creando transacciones:', transactionError);
-                  throw transactionError;
+                console.log(`💾 Creando ${transactionData.length} transacciones en lotes...`);
+                for (let i = 0; i < transactionData.length; i += transactionBatchSize) {
+                  const batch = transactionData.slice(i, i + transactionBatchSize);
+                  await tx.transaction.createMany({ data: batch });
                 }
+                console.log(`✅ Creadas ${transactionData.length} transacciones exitosamente`);
               }
             }
 
@@ -1569,8 +1593,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               });
             }
 
-            // 🆕 RECÁLCULO FINAL POR PRÉSTAMO (después de recrear pagos/transacciones)
-            // Incluye tanto los préstamos con pagos nuevos como los que tenían pagos antes y ahora fueron eliminados
+            // 🆕 RECÁLCULO OPTIMIZADO POR PRÉSTAMO (después de recrear pagos/transacciones)
             try {
               const affectedLoanIdsSet = new Set<string>();
               
@@ -1588,22 +1611,28 @@ export const extendGraphqlSchema = graphql.extend(base => {
               const affectedLoanIdsArr = Array.from(affectedLoanIdsSet);
               
               if (affectedLoanIdsArr.length > 0) {
-                // Ejecutar secuencialmente dentro de la transacción para evitar
-                // múltiples consultas concurrentes que puedan cerrar la conexión
-                for (const loanId of affectedLoanIdsArr) {
-                  const loan = await tx.loan.findUnique({
-                    where: { id: loanId },
-                    include: { loantype: true }
-                  });
-                  if (!loan) continue;
+                console.log(`🔄 Recalculando ${affectedLoanIdsArr.length} préstamos afectados...`);
+                
+                // ✅ OPTIMIZADO: Obtener todos los préstamos y sus tipos en una sola consulta
+                const loansToUpdate = await tx.loan.findMany({
+                  where: { id: { in: affectedLoanIdsArr } },
+                  include: { loantype: true }
+                });
 
-                  // Sumar pagos actuales desde la tabla (más confiable dentro de la tx)
-                  const agg = await tx.loanPayment.aggregate({
-                    _sum: { amount: true },
-                    where: { loanId }
-                  } as any);
-                  const totalPaid = safeToNumber(agg?._sum?.amount || 0);
+                // ✅ OPTIMIZADO: Obtener totales de pagos para todos los préstamos en una sola consulta
+                const paymentTotals = await tx.loanPayment.groupBy({
+                  by: ['loanId'],
+                  _sum: { amount: true },
+                  where: { loanId: { in: affectedLoanIdsArr } }
+                });
+                
+                const paymentTotalsMap = new Map(
+                  paymentTotals.map(pt => [pt.loanId, safeToNumber(pt._sum.amount || 0)])
+                );
 
+                // ✅ OPTIMIZADO: Actualizar préstamos en lotes
+                const updatePromises = loansToUpdate.map(async (loan) => {
+                  const totalPaid = paymentTotalsMap.get(loan.id) || 0;
                   const rate = safeToNumber((loan as any).loantype?.rate);
                   const requested = safeToNumber((loan as any).requestedAmount);
                   const weekDuration = Number((loan as any).loantype?.weekDuration || 0);
@@ -1612,8 +1641,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   const pending = Math.max(0, totalDebt - totalPaid);
                   const isCompleted = totalPaid >= totalDebt - 0.005; // tolerancia centavos
 
-                  await tx.loan.update({
-                    where: { id: loanId },
+                  return tx.loan.update({
+                    where: { id: loan.id },
                     data: {
                       totalDebtAcquired: totalDebt.toFixed(2),
                       expectedWeeklyPayment: expectedWeekly.toFixed(2),
@@ -1625,7 +1654,11 @@ export const extendGraphqlSchema = graphql.extend(base => {
                       )
                     }
                   });
-                }
+                });
+
+                // Ejecutar todas las actualizaciones en paralelo
+                await Promise.all(updatePromises);
+                console.log(`✅ Recalculados ${loansToUpdate.length} préstamos exitosamente`);
               }
             } catch (recalcErr) {
               console.error('⚠️ Error recalculando préstamos tras updateCustomLeadPaymentReceived:', recalcErr);
@@ -1697,29 +1730,31 @@ export const extendGraphqlSchema = graphql.extend(base => {
             // ✅ REACTIVAR: Hooks de LoanPayment
             (context as any).skipLoanPaymentHooks = false;
 
-            return {
-              id: leadPaymentReceived.id,
-              expectedAmount: parseFloat(leadPaymentReceived.expectedAmount?.toString() || '0'),
-              paidAmount: parseFloat(leadPaymentReceived.paidAmount?.toString() || '0'),
-              cashPaidAmount: parseFloat(leadPaymentReceived.cashPaidAmount?.toString() || '0'),
-              bankPaidAmount: parseFloat(leadPaymentReceived.bankPaidAmount?.toString() || '0'),
-              falcoAmount: 0, // ✅ ELIMINADO: Falco se maneja por separado
-              paymentStatus: leadPaymentReceived.paymentStatus || 'COMPLETE',
-              payments: payments.map((p, index) => ({
-                id: `temp-${index}`, // ID temporal para evitar el error
-                amount: p.amount,
-                comission: p.comission,
-                loanId: p.loanId,
-                type: p.type,
-                paymentMethod: p.paymentMethod
-              })),
-              paymentDate,
-              agentId,
-              leadId,
-            };
-          }, {
-            timeout: 60000 // 60 segundos de timeout de transacción (mayor tolerancia en prod)
-          });
+                return {
+                  id: leadPaymentReceived.id,
+                  expectedAmount: parseFloat(leadPaymentReceived.expectedAmount?.toString() || '0'),
+                  paidAmount: parseFloat(leadPaymentReceived.paidAmount?.toString() || '0'),
+                  cashPaidAmount: parseFloat(leadPaymentReceived.cashPaidAmount?.toString() || '0'),
+                  bankPaidAmount: parseFloat(leadPaymentReceived.bankPaidAmount?.toString() || '0'),
+                  falcoAmount: 0, // ✅ ELIMINADO: Falco se maneja por separado
+                  paymentStatus: leadPaymentReceived.paymentStatus || 'COMPLETE',
+                  payments: payments.map((p, index) => ({
+                    id: `temp-${index}`, // ID temporal para evitar el error
+                    amount: p.amount,
+                    comission: p.comission,
+                    loanId: p.loanId,
+                    type: p.type,
+                    paymentMethod: p.paymentMethod
+                  })),
+                  paymentDate,
+                  agentId,
+                  leadId,
+                };
+              }, {
+                timeout: dynamicTimeout, // Timeout dinámico basado en cantidad de pagos
+                isolationLevel: 'ReadCommitted' // Nivel de aislamiento más eficiente
+              });
+            });
           } catch (error) {
             // ✅ REACTIVAR: Hooks de LoanPayment en caso de error
             (context as any).skipLoanPaymentHooks = false;
@@ -1733,19 +1768,40 @@ export const extendGraphqlSchema = graphql.extend(base => {
               paymentsCount: payments?.length || 0
             });
             
-            // Manejo específico para error de timeout de transacción
-            if (error instanceof Error && error.message.includes('Transaction already closed')) {
+            // Manejo específico para errores de conexión PostgreSQL
+            if (error instanceof Error && (
+              error.message.includes('Connection closed') ||
+              error.message.includes('Connection terminated') ||
+              error.message.includes('Connection lost') ||
+              error.message.includes('Error in PostgreSQL connection')
+            )) {
               throw new Error(
-                'La operación tardó demasiado tiempo debido a la latencia del servidor. ' +
-                'Por favor, intente procesar menos pagos a la vez o contacte al administrador.'
+                `Error de conexión con la base de datos. La operación se reintentó automáticamente pero falló. ` +
+                `Por favor, intente nuevamente. Si el problema persiste, contacte al administrador. ` +
+                `(Pagos procesados: ${payments?.length || 0})`
+              );
+            }
+            
+            // Manejo específico para error de timeout de transacción
+            if (error instanceof Error && (
+              error.message.includes('Transaction already closed') ||
+              error.message.includes('timeout')
+            )) {
+              const estimatedTimeout = Math.max(120, (payments?.length || 0) * 2);
+              throw new Error(
+                `La operación tardó demasiado tiempo (${estimatedTimeout}s) debido a la latencia del servidor. ` +
+                `Se procesaron ${payments?.length || 0} pagos. ` +
+                `Por favor, intente procesar menos pagos a la vez o contacte al administrador.`
               );
             }
             
             // Manejo específico para error de Prisma P2028
             if (error instanceof Error && 'code' in error && error.code === 'P2028') {
+              const estimatedTimeout = Math.max(120, (payments?.length || 0) * 2);
               throw new Error(
-                'Timeout de transacción: La operación excedió el tiempo límite de 45 segundos. ' +
-                'Esto puede deberse a la latencia de red con el servidor de base de datos.'
+                `Timeout de transacción: La operación excedió el tiempo límite de ${estimatedTimeout} segundos. ` +
+                `Esto puede deberse a la latencia de red con el servidor de base de datos. ` +
+                `Pagos procesados: ${payments?.length || 0}`
               );
             }
             
