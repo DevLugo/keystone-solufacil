@@ -1282,6 +1282,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
             }
 
             // Obtener el LeadPaymentReceived existente con pagos y transacciones relacionadas
+            console.log(`🔍 [DEBUG] Obteniendo LeadPaymentReceived existente: ${id}`);
             const existingPayment = await tx.leadPaymentReceived.findUnique({
               where: { id },
               include: {
@@ -1296,15 +1297,31 @@ export const extendGraphqlSchema = graphql.extend(base => {
             if (!existingPayment) {
               throw new Error('Pago no encontrado');
             }
+
+            console.log(`🔍 [DEBUG] LeadPaymentReceived encontrado con ${existingPayment.payments.length} pagos existentes`);
+            console.log(`🔍 [DEBUG] Pagos existentes:`, existingPayment.payments.map(p => ({ 
+              id: p.id, 
+              amount: p.amount, 
+              paymentMethod: p.paymentMethod, 
+              transactionCount: p.transactions.length 
+            })));
             
             // ✅ BANDERA: Desactivar hooks de LoanPayment para evitar doble contabilidad
             (context as any).skipLoanPaymentHooks = true;
 
             
             // ✅ VERIFICAR: También buscar transacciones relacionadas directamente con LeadPaymentReceived
+            console.log(`🔍 [DEBUG] Buscando transacciones directas para LeadPaymentReceived: ${id}`);
             const directTransactions = await tx.transaction.findMany({
               where: { leadPaymentReceivedId: id }
             });
+            console.log(`🔍 [DEBUG] Encontradas ${directTransactions.length} transacciones directas`);
+            console.log(`🔍 [DEBUG] Transacciones directas:`, directTransactions.map(t => ({ 
+              id: t.id, 
+              type: t.type, 
+              amount: t.amount, 
+              source: t.incomeSource || t.expenseSource 
+            })));
 
             const agentId = existingPayment.agentId || '';
             const leadId = existingPayment.leadId || '';
@@ -1356,23 +1373,31 @@ export const extendGraphqlSchema = graphql.extend(base => {
               const allTransactionIds = [...paymentTransactionIds, ...directTransactions.map(t => t.id)];
               const transactionIds = [...new Set(allTransactionIds)]; // Eliminar duplicados
               
-              // ✅ OPTIMIZADO: Eliminar transacciones en lotes más pequeños para evitar timeouts
-              if (transactionIds.length > 0) {
-                const batchSize = 50; // Procesar en lotes de 50 transacciones
-                for (let i = 0; i < transactionIds.length; i += batchSize) {
-                  const batch = transactionIds.slice(i, i + batchSize);
-                  await tx.transaction.deleteMany({
-                    where: { id: { in: batch } }
-                  });
-                }
-                console.log(`✅ Eliminadas ${transactionIds.length} transacciones en lotes de ${batchSize}`);
+            // ✅ OPTIMIZADO: Eliminar transacciones en lotes más pequeños para evitar timeouts
+            if (transactionIds.length > 0) {
+              console.log(`🗑️ [DEBUG] Eliminando ${transactionIds.length} transacciones en lotes...`);
+              console.log(`🗑️ [DEBUG] IDs de transacciones a eliminar:`, transactionIds.slice(0, 5), transactionIds.length > 5 ? '...' : '');
+              
+              const batchSize = 50; // Procesar en lotes de 50 transacciones
+              for (let i = 0; i < transactionIds.length; i += batchSize) {
+                const batch = transactionIds.slice(i, i + batchSize);
+                console.log(`🗑️ [DEBUG] Eliminando lote ${Math.floor(i/batchSize) + 1} con ${batch.length} transacciones...`);
+                
+                const deleteResult = await tx.transaction.deleteMany({
+                  where: { id: { in: batch } }
+                });
+                
+                console.log(`🗑️ [DEBUG] Lote ${Math.floor(i/batchSize) + 1} eliminado: ${deleteResult.count} transacciones`);
               }
+              console.log(`✅ [DEBUG] Eliminadas ${transactionIds.length} transacciones en lotes de ${batchSize}`);
+            }
 
               // ✅ OPTIMIZADO: Eliminar pagos existentes en lote
+              console.log(`🗑️ [DEBUG] Eliminando pagos existentes para LeadPaymentReceived: ${id}`);
               const deletePaymentsResult = await tx.loanPayment.deleteMany({
                 where: { leadPaymentReceivedId: id }
               });
-              console.log(`✅ Eliminados ${deletePaymentsResult.count} pagos existentes`);
+              console.log(`✅ [DEBUG] Eliminados ${deletePaymentsResult.count} pagos existentes`);
             } else {
               console.log('ℹ️ UPDATE: No hay pagos existentes para eliminar');
             }
@@ -1398,34 +1423,46 @@ export const extendGraphqlSchema = graphql.extend(base => {
             let oldBankPayments = 0;
             let oldCommissions = 0;
             
+            console.log(`🔍 [DEBUG] Calculando totales de pagos ANTERIORES...`);
             for (const oldPayment of existingPayment.payments) {
               const oldAmount = parseFloat((oldPayment.amount || 0).toString());
               const oldCommission = parseFloat((oldPayment.comission || 0).toString());
+              
+              console.log(`🔍 [DEBUG] Pago anterior: ${oldPayment.paymentMethod} - $${oldAmount} (comisión: $${oldCommission})`);
               
               if (oldPayment.paymentMethod === 'CASH') {
                 oldCashPayments += oldAmount;
               } else if (oldPayment.paymentMethod === 'MONEY_TRANSFER') {
                 oldBankPayments += oldAmount;
+                console.log(`🔍 [DEBUG] Pago MONEY_TRANSFER detectado: $${oldAmount}`);
               }
               oldCommissions += oldCommission;
             }
+            
+            console.log(`🔍 [DEBUG] Totales anteriores - CASH: $${oldCashPayments}, TRANSFER: $${oldBankPayments}, Comisiones: $${oldCommissions}`);
             
             // Calcular totales de pagos NUEVOS
             let newCashPayments = 0;
             let newBankPayments = 0;
             let newCommissions = 0;
             
+            console.log(`🔍 [DEBUG] Calculando totales de pagos NUEVOS...`);
             for (const payment of payments) {
               const paymentAmount = payment.amount || 0;
               const commissionAmount = payment.comission || 0;
+              
+              console.log(`🔍 [DEBUG] Pago nuevo: ${payment.paymentMethod} - $${paymentAmount} (comisión: $${commissionAmount})`);
               
               if (payment.paymentMethod === 'CASH') {
                 newCashPayments += paymentAmount;
               } else if (payment.paymentMethod === 'MONEY_TRANSFER') {
                 newBankPayments += paymentAmount;
+                console.log(`🔍 [DEBUG] Pago MONEY_TRANSFER nuevo detectado: $${paymentAmount}`);
               }
               newCommissions += commissionAmount;
             }
+            
+            console.log(`🔍 [DEBUG] Totales nuevos - CASH: $${newCashPayments}, TRANSFER: $${newBankPayments}, Comisiones: $${newCommissions}`);
             
             // ✅ CALCULAR SOLO LOS CAMBIOS (diferencias)
             const cashPaymentChange = newCashPayments - oldCashPayments;
@@ -1452,6 +1489,12 @@ export const extendGraphqlSchema = graphql.extend(base => {
             
             // ✅ DEBUG: Log detallado de lo que significa el cálculo
             if (cashPaymentChange !== 0 || bankPaymentChange !== 0 || commissionChange !== 0 || bankPaidAmountChange !== 0) {
+              console.log(`📊 [DEBUG] CÁLCULO DE CAMBIOS EN BALANCES:`);
+              console.log(`📊 [DEBUG] - Pagos CASH: ${oldCashPayments} → ${newCashPayments} (cambio: ${cashPaymentChange})`);
+              console.log(`📊 [DEBUG] - Pagos TRANSFER: ${oldBankPayments} → ${newBankPayments} (cambio: ${bankPaymentChange})`);
+              console.log(`📊 [DEBUG] - Comisiones: ${oldCommissions} → ${newCommissions} (cambio: ${commissionChange})`);
+              console.log(`📊 [DEBUG] - Transferencia automática: ${oldBankPaidAmountValue} → ${newBankPaidAmountValue} (cambio: ${bankPaidAmountChange})`);
+              console.log(`📊 [DEBUG] - EFECTO NETO: Cash ${netCashChange}, Bank ${netBankChange}`);
             }
 
             if (payments.length > 0) {
@@ -1570,15 +1613,20 @@ export const extendGraphqlSchema = graphql.extend(base => {
             // ✅ ACTUALIZAR BALANCES SIEMPRE (incluso si no hay pagos nuevos)
             // Actualizar cuenta de efectivo solo si hay cambio
             if (netCashChange !== 0) {
-                  const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
+              const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
               const newCashAmount = currentCashAmount + netCashChange;
-                  
-                  
-                  await tx.account.update({
-                    where: { id: cashAccount.id },
-                    data: { amount: newCashAmount.toString() }
-                  });
               
+              console.log(`💰 [DEBUG] Actualizando balance de efectivo: ${currentCashAmount} + ${netCashChange} = ${newCashAmount}`);
+              console.log(`💰 [DEBUG] Cuenta de efectivo ID: ${cashAccount.id}`);
+              
+              const updateResult = await tx.account.update({
+                where: { id: cashAccount.id },
+                data: { amount: newCashAmount.toString() }
+              });
+              
+              console.log(`💰 [DEBUG] Balance de efectivo actualizado exitosamente: ${updateResult.amount}`);
+            } else {
+              console.log(`💰 [DEBUG] No hay cambio en balance de efectivo (netCashChange = ${netCashChange})`);
             }
             
             // Actualizar cuenta bancaria solo si hay cambio
@@ -1586,11 +1634,17 @@ export const extendGraphqlSchema = graphql.extend(base => {
               const currentBankAmount = parseFloat((bankAccount.amount || 0).toString());
               const newBankAmount = currentBankAmount + netBankChange;
               
+              console.log(`🏦 [DEBUG] Actualizando balance bancario: ${currentBankAmount} + ${netBankChange} = ${newBankAmount}`);
+              console.log(`🏦 [DEBUG] Cuenta bancaria ID: ${bankAccount.id}`);
               
-              await tx.account.update({
+              const updateResult = await tx.account.update({
                 where: { id: bankAccount.id },
                 data: { amount: newBankAmount.toString() }
               });
+              
+              console.log(`🏦 [DEBUG] Balance bancario actualizado exitosamente: ${updateResult.amount}`);
+            } else {
+              console.log(`🏦 [DEBUG] No hay cambio en balance bancario (netBankChange = ${netBankChange})`);
             }
 
             // 🆕 RECÁLCULO OPTIMIZADO POR PRÉSTAMO (después de recrear pagos/transacciones)
@@ -1726,6 +1780,19 @@ export const extendGraphqlSchema = graphql.extend(base => {
             const finalPayments = await tx.loanPayment.findMany({
               where: { leadPaymentReceivedId: id }
             });
+
+            // ✅ VALIDACIÓN FINAL: Verificar que no queden transacciones huérfanas
+            console.log(`🔍 [DEBUG] Verificando transacciones restantes para LeadPaymentReceived: ${id}`);
+            const remainingTransactions = await tx.transaction.findMany({
+              where: { leadPaymentReceivedId: id }
+            });
+
+            if (remainingTransactions.length > 0) {
+              console.warn(`⚠️ [DEBUG] ADVERTENCIA: Quedan ${remainingTransactions.length} transacciones huérfanas para LeadPaymentReceived ${id}`);
+              console.warn(`⚠️ [DEBUG] Transacciones restantes:`, remainingTransactions.map(t => ({ id: t.id, type: t.type, amount: t.amount, paymentMethod: t.incomeSource || t.expenseSource })));
+            } else {
+              console.log(`✅ [DEBUG] Verificación exitosa: No quedan transacciones huérfanas`);
+            }
 
             // ✅ REACTIVAR: Hooks de LoanPayment
             (context as any).skipLoanPaymentHooks = false;
