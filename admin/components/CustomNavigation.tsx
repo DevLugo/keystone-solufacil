@@ -105,6 +105,11 @@ const menuSections: MenuSection[] = [
         roles: ['ADMIN']
       },
       {
+        label: 'Administrar Gastos',
+        href: '/administrar-gastos',
+        roles: ['ADMIN']
+      },
+      {
         label: 'Todas las Listas',
         href: '/',
         roles: ['ADMIN']
