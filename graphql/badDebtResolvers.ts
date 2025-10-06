@@ -177,13 +177,17 @@ export const loansForDeadDebt = graphql.field({
         if (weeksWithoutPaymentMin && weeksWithoutPayment < weeksWithoutPaymentMin) continue;
         if (weeksWithoutPaymentMax && weeksWithoutPayment > weeksWithoutPaymentMax) continue;
 
-        // Calcular monto pendiente
+        // Calcular monto pendiente y cartera muerta usando el mismo método que el reporte financiero
         const totalPaid = loan.payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
         const totalDebt = Number(loan.amountGived || 0) + Number(loan.profitAmount || 0);
         const pendingAmount = Math.max(0, totalDebt - totalPaid);
 
-        // Calcular cartera muerta estimada (monto pendiente)
-        const badDebtCandidate = pendingAmount;
+        // Calcular ganancia cobrada proporcionalmente
+        const gananciaCobrada = totalPaid * (Number(loan.profitAmount || 0) / totalDebt);
+        const gananciaPendiente = Number(loan.profitAmount || 0) - gananciaCobrada;
+        
+        // Calcular cartera muerta usando el mismo método que el reporte financiero
+        const badDebtCandidate = Math.max(0, pendingAmount - gananciaPendiente);
 
         processedLoans.push({
           id: loan.id,
@@ -453,13 +457,17 @@ export const deadDebtMonthlySummary = graphql.field({
         if (weeksWithoutPaymentMin && weeksWithoutPayment < weeksWithoutPaymentMin) continue;
         if (weeksWithoutPaymentMax && weeksWithoutPayment > weeksWithoutPaymentMax) continue;
 
-        // Calcular monto pendiente
+        // Calcular monto pendiente y cartera muerta usando el mismo método que el reporte financiero
         const totalPaid = loan.payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
         const totalDebt = Number(loan.amountGived || 0) + Number(loan.profitAmount || 0);
         const pendingAmount = Math.max(0, totalDebt - totalPaid);
 
-        // Calcular cartera muerta estimada
-        const badDebtCandidate = pendingAmount;
+        // Calcular ganancia cobrada proporcionalmente
+        const gananciaCobrada = totalPaid * (Number(loan.profitAmount || 0) / totalDebt);
+        const gananciaPendiente = Number(loan.profitAmount || 0) - gananciaCobrada;
+        
+        // Calcular cartera muerta usando el mismo método que el reporte financiero
+        const badDebtCandidate = Math.max(0, pendingAmount - gananciaPendiente);
 
         // Determinar en qué mes evaluar este préstamo
         const evaluationDate = fromDate ? new Date(fromDate) : new Date(year, 11, 31); // Por defecto, fin de año

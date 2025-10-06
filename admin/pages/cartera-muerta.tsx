@@ -51,6 +51,9 @@ export default function CarteraMuertaPage() {
   const [expandedMonthRouteFilter, setExpandedMonthRouteFilter] = useState<string>('');
   const [selectedMonthlyLoans, setSelectedMonthlyLoans] = useState<string[]>([]);
   const [isCopying, setIsCopying] = useState(false);
+  const [showMarkDeadDebtModal, setShowMarkDeadDebtModal] = useState(false);
+  const [selectedDeadDebtDate, setSelectedDeadDebtDate] = useState<string>('');
+  const [isMarkingDeadDebt, setIsMarkingDeadDebt] = useState(false);
 
   // Cargar rutas y leads como en RouteLeadSelector
   const { data: routesData, loading: routesLoading } = useQuery(GET_ROUTES_SIMPLE, {
@@ -204,6 +207,90 @@ export default function CarteraMuertaPage() {
     return { totalDeuda, totalCarteraMuerta, count: selectedLoans.length };
   };
 
+  // Función para obtener el último día del mes
+  const getLastDayOfMonth = (year: number, month: number) => {
+    return new Date(year, month, 0).toISOString().split('T')[0];
+  };
+
+  // Función para abrir el modal de marcado de cartera muerta
+  const handleOpenMarkDeadDebtModal = () => {
+    if (selectedMonthlyLoans.length === 0) {
+      setError('Selecciona al menos un crédito para marcar como cartera muerta');
+      return;
+    }
+
+    // Establecer la fecha por defecto como el último día del mes actual
+    const now = new Date();
+    const lastDayOfCurrentMonth = getLastDayOfMonth(now.getFullYear(), now.getMonth() + 1);
+    setSelectedDeadDebtDate(lastDayOfCurrentMonth);
+    setShowMarkDeadDebtModal(true);
+  };
+
+  // Función para marcar créditos seleccionados como cartera muerta
+  const handleMarkSelectedMonthlyLoansAsDeadDebt = async () => {
+    if (selectedMonthlyLoans.length === 0) {
+      setError('Selecciona al menos un crédito para marcar como cartera muerta');
+      return;
+    }
+
+    if (!selectedDeadDebtDate) {
+      setError('Selecciona una fecha para marcar como cartera muerta');
+      return;
+    }
+
+    setIsMarkingDeadDebt(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const response = await fetch('/api/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: `
+            mutation MarkLoansDeadDebt($loanIds: [ID!]!, $deadDebtDate: String!) {
+              markLoansDeadDebt(loanIds: $loanIds, deadDebtDate: $deadDebtDate)
+            }
+          `,
+          variables: {
+            loanIds: selectedMonthlyLoans,
+            deadDebtDate: selectedDeadDebtDate
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.errors) {
+        throw new Error(result.errors[0].message);
+      }
+
+      const mutationResult = JSON.parse(result.data.markLoansDeadDebt);
+      
+      if (mutationResult.success) {
+        setSuccess(`${mutationResult.count || selectedMonthlyLoans.length} créditos marcados como cartera muerta exitosamente con fecha ${selectedDeadDebtDate}`);
+        setSelectedMonthlyLoans([]); // Limpiar selección
+        setShowMarkDeadDebtModal(false);
+        
+        // Recargar datos mensuales para actualizar la vista
+        handleLoadMonthlyData();
+      } else {
+        throw new Error(mutationResult.message || 'Error al marcar créditos');
+      }
+    } catch (err: any) {
+      console.error('Error al marcar créditos como cartera muerta:', err);
+      setError(err.message || 'Error al marcar créditos como cartera muerta');
+    } finally {
+      setIsMarkingDeadDebt(false);
+    }
+  };
+
   const handleMarkAsDeadDebt = async () => {
     if (selectedLoans.length === 0) {
       setError('Selecciona al menos un crédito para marcar como cartera muerta');
@@ -284,9 +371,9 @@ export default function CarteraMuertaPage() {
         },
         body: JSON.stringify({
           query: `
-            query GetLoansForDeadDebt($weeksSinceLoanMin: Int, $weeksSinceLoanMax: Int, $weeksWithoutPaymentMin: Int, $weeksWithoutPaymentMax: Int, $routeId: String, $localities: [String!], $badDebtStatus: String) {
-              loansForDeadDebt(weeksSinceLoanMin: $weeksSinceLoanMin, weeksSinceLoanMax: $weeksSinceLoanMax, weeksWithoutPaymentMin: $weeksWithoutPaymentMin, weeksWithoutPaymentMax: $weeksWithoutPaymentMax, routeId: $routeId, localities: $localities, badDebtStatus: $badDebtStatus)
-              deadDebtSummary(weeksSinceLoanMin: $weeksSinceLoanMin, weeksSinceLoanMax: $weeksSinceLoanMax, weeksWithoutPaymentMin: $weeksWithoutPaymentMin, weeksWithoutPaymentMax: $weeksWithoutPaymentMax, routeId: $routeId, localities: $localities, badDebtStatus: $badDebtStatus)
+            query GetLoansForDeadDebt($weeksSinceLoanMin: Int, $weeksSinceLoanMax: Int, $weeksWithoutPaymentMin: Int, $weeksWithoutPaymentMax: Int, $routeId: String, $localities: [String!], $badDebtStatus: String, $fromDate: String, $toDate: String) {
+              loansForDeadDebt(weeksSinceLoanMin: $weeksSinceLoanMin, weeksSinceLoanMax: $weeksSinceLoanMax, weeksWithoutPaymentMin: $weeksWithoutPaymentMin, weeksWithoutPaymentMax: $weeksWithoutPaymentMax, routeId: $routeId, localities: $localities, badDebtStatus: $badDebtStatus, fromDate: $fromDate, toDate: $toDate)
+              deadDebtSummary(weeksSinceLoanMin: $weeksSinceLoanMin, weeksSinceLoanMax: $weeksSinceLoanMax, weeksWithoutPaymentMin: $weeksWithoutPaymentMin, weeksWithoutPaymentMax: $weeksWithoutPaymentMax, routeId: $routeId, localities: $localities, badDebtStatus: $badDebtStatus, fromDate: $fromDate, toDate: $toDate)
             }
           `,
           variables: {
@@ -297,7 +384,9 @@ export default function CarteraMuertaPage() {
             routeId: routeId || null,
             // Si hay ruta pero ninguna localidad seleccionada, enviar [] para que el backend devuelva vacío
             localities: routeId ? localities : null,
-            badDebtStatus
+            badDebtStatus,
+            fromDate: monthlyFromDate || null,
+            toDate: monthlyToDate || null
           }
         })
       });
@@ -941,9 +1030,30 @@ export default function CarteraMuertaPage() {
                                           padding: '1rem', 
                                           marginBottom: '1rem'
                                         }}>
-                                          <h5 style={{ margin: '0 0 0.5rem 0', color: '#1565c0' }}>
-                                            📋 Seleccionados: {selectedTotals.count} créditos
-                                          </h5>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                                            <h5 style={{ margin: '0', color: '#1565c0' }}>
+                                              📋 Seleccionados: {selectedTotals.count} créditos
+                                            </h5>
+                                            <button
+                                              onClick={handleOpenMarkDeadDebtModal}
+                                              disabled={isMarkingDeadDebt}
+                                              style={{
+                                                backgroundColor: isMarkingDeadDebt ? '#6c757d' : '#dc3545',
+                                                color: 'white',
+                                                border: 'none',
+                                                padding: '0.5rem 1rem',
+                                                borderRadius: '4px',
+                                                cursor: isMarkingDeadDebt ? 'not-allowed' : 'pointer',
+                                                fontSize: '0.875rem',
+                                                fontWeight: '500',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '0.5rem'
+                                              }}
+                                            >
+                                              {isMarkingDeadDebt ? '⏳ Marcando...' : '🏷️ Marcar como cartera'}
+                                            </button>
+                                          </div>
                                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
                                             <div style={{ textAlign: 'center' }}>
                                               <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#dc3545' }}>
@@ -1127,6 +1237,14 @@ export default function CarteraMuertaPage() {
           <ul style={{ marginBottom: '1.5rem', color: '#666', paddingLeft: '1.5rem' }}>
             <li><strong>Semanas desde el crédito:</strong> Mínimo de semanas transcurridas desde que se otorgó el crédito</li>
             <li><strong>Semanas sin pago:</strong> Mínimo de semanas sin realizar pagos</li>
+            <li><strong>Estado cartera muerta:</strong> 
+              <ul style={{ marginTop: '0.5rem', paddingLeft: '1rem' }}>
+                <li><strong>No marcados:</strong> Créditos que aún no han sido marcados como cartera muerta</li>
+                <li><strong>Marcados:</strong> Créditos ya marcados como cartera muerta</li>
+                <li><strong>Todos:</strong> Incluye tanto marcados como no marcados</li>
+              </ul>
+            </li>
+            <li><strong>Fechas (Desde/Hasta):</strong> Cuando selecciones "Marcados", puedes especificar un rango de fechas para ver solo los créditos marcados en ese período</li>
           </ul>
           
           <div style={{ 
@@ -1141,6 +1259,102 @@ export default function CarteraMuertaPage() {
               {`Créditos ${weeksSinceLoanMin != null ? `con >= ${weeksSinceLoanMin} semanas` : ''}${weeksSinceLoanMin != null && weeksSinceLoanMax != null ? ' y ' : ''}${weeksSinceLoanMax != null ? `<= ${weeksSinceLoanMax} semanas` : ''} desde el crédito`}
               {` y ${weeksWithoutPaymentMin != null ? `>= ${weeksWithoutPaymentMin} semanas` : ''}${weeksWithoutPaymentMin != null && weeksWithoutPaymentMax != null ? ' y ' : ''}${weeksWithoutPaymentMax != null ? `<= ${weeksWithoutPaymentMax} semanas` : ''} sin pago`}
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para marcar créditos como cartera muerta */}
+      {showMarkDeadDebtModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '8px',
+            padding: '2rem',
+            maxWidth: '500px',
+            width: '90%',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+          }}>
+            <h3 style={{ margin: '0 0 1.5rem 0', color: '#333' }}>
+              🏷️ Marcar como Cartera Muerta
+            </h3>
+            
+            <div style={{ marginBottom: '1.5rem' }}>
+              <p style={{ margin: '0 0 1rem 0', color: '#666' }}>
+                Se marcarán <strong>{selectedMonthlyLoans.length} créditos</strong> como cartera muerta.
+              </p>
+              
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500', color: '#333' }}>
+                  Fecha de marcado:
+                </label>
+                <input
+                  type="date"
+                  value={selectedDeadDebtDate}
+                  onChange={(e) => setSelectedDeadDebtDate(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px'
+                  }}
+                />
+                <div style={{ fontSize: '0.875rem', color: '#6c757d', marginTop: '0.25rem' }}>
+                  Por defecto se establece el último día del mes actual
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowMarkDeadDebtModal(false)}
+                disabled={isMarkingDeadDebt}
+                style={{
+                  backgroundColor: '#6c757d',
+                  color: 'white',
+                  border: 'none',
+                  padding: '0.75rem 1.5rem',
+                  borderRadius: '4px',
+                  cursor: isMarkingDeadDebt ? 'not-allowed' : 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500'
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleMarkSelectedMonthlyLoansAsDeadDebt}
+                disabled={isMarkingDeadDebt || !selectedDeadDebtDate}
+                style={{
+                  backgroundColor: isMarkingDeadDebt || !selectedDeadDebtDate ? '#6c757d' : '#dc3545',
+                  color: 'white',
+                  border: 'none',
+                  padding: '0.75rem 1.5rem',
+                  borderRadius: '4px',
+                  cursor: isMarkingDeadDebt || !selectedDeadDebtDate ? 'not-allowed' : 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
+                }}
+              >
+                {isMarkingDeadDebt ? '⏳ Marcando...' : '✅ Guardar'}
+              </button>
+            </div>
           </div>
         </div>
       )}

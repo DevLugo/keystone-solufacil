@@ -7175,6 +7175,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
           let deadLoans = 0;
           let renewedLoans = 0;
           let badDebtAmount = 0;
+          let badDebtNewCount = 0;
+          let badDebtPrincipalPending = 0;
+          let badDebtProfitPending = 0;
           let carteraMuertaTotal = 0;
 
           for (const loan of loanMetrics) {
@@ -7326,7 +7329,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
             const loans = await (context.prisma as any).loan.findMany({
               where: {
                 lead: {
-                  routesId: { in: routeIds }
+                  routes: { id: { in: routeIds } }
                 }
               },
               include: {
@@ -8447,11 +8450,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
           weeksWithoutPaymentMax: graphql.arg({ type: graphql.Int }),
           routeId: graphql.arg({ type: graphql.String }),
           localities: graphql.arg({ type: graphql.list(graphql.nonNull(graphql.String)) }),
-          badDebtStatus: graphql.arg({ type: graphql.String }) // 'ALL' | 'MARKED' | 'UNMARKED'
+          badDebtStatus: graphql.arg({ type: graphql.String }), // 'ALL' | 'MARKED' | 'UNMARKED'
+          fromDate: graphql.arg({ type: graphql.String }),
+          toDate: graphql.arg({ type: graphql.String })
         },
-        resolve: async (source, { weeksSinceLoanMin, weeksSinceLoanMax, weeksWithoutPaymentMin, weeksWithoutPaymentMax, routeId, localities, badDebtStatus }, context: Context) => {
+        resolve: async (source, { weeksSinceLoanMin, weeksSinceLoanMax, weeksWithoutPaymentMin, weeksWithoutPaymentMax, routeId, localities, badDebtStatus, fromDate, toDate }, context: Context) => {
           try {
-            console.log('🔍 Buscando créditos para cartera muerta:', { weeksSinceLoanMin, weeksSinceLoanMax, weeksWithoutPaymentMin, weeksWithoutPaymentMax, routeId, localities, badDebtStatus });
+            console.log('🔍 Buscando créditos para cartera muerta:', { weeksSinceLoanMin, weeksSinceLoanMax, weeksWithoutPaymentMin, weeksWithoutPaymentMax, routeId, localities, badDebtStatus, fromDate, toDate });
             
             // Calcular fechas límite
             const now = new Date();
@@ -8481,7 +8486,21 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
             // Filtro por estado de cartera muerta
             if (badDebtStatus === 'MARKED') {
-              baseAndFilters.push({ badDebtDate: { not: null } });
+              const badDebtDateFilter: any = { not: null };
+              
+              // Si se proporcionan fechas específicas, filtrar por fecha de marcado
+              if (fromDate || toDate) {
+                const dateRange: any = {};
+                if (fromDate) {
+                  dateRange.gte = new Date(fromDate);
+                }
+                if (toDate) {
+                  dateRange.lte = new Date(toDate);
+                }
+                badDebtDateFilter.and = dateRange;
+              }
+              
+              baseAndFilters.push({ badDebtDate: badDebtDateFilter });
             } else if (badDebtStatus === 'UNMARKED' || !badDebtStatus) {
               // Por defecto, mostrar solo no marcados (comportamiento previo)
               baseAndFilters.push({ badDebtDate: null });
@@ -8783,11 +8802,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
           weeksWithoutPaymentMax: graphql.arg({ type: graphql.Int }),
           routeId: graphql.arg({ type: graphql.String }),
           localities: graphql.arg({ type: graphql.list(graphql.nonNull(graphql.String)) }),
-          badDebtStatus: graphql.arg({ type: graphql.String }) // 'ALL' | 'MARKED' | 'UNMARKED'
+          badDebtStatus: graphql.arg({ type: graphql.String }), // 'ALL' | 'MARKED' | 'UNMARKED'
+          fromDate: graphql.arg({ type: graphql.String }),
+          toDate: graphql.arg({ type: graphql.String })
         },
-        resolve: async (source, { weeksSinceLoanMin, weeksSinceLoanMax, weeksWithoutPaymentMin, weeksWithoutPaymentMax, routeId, localities, badDebtStatus }, context: Context) => {
+        resolve: async (source, { weeksSinceLoanMin, weeksSinceLoanMax, weeksWithoutPaymentMin, weeksWithoutPaymentMax, routeId, localities, badDebtStatus, fromDate, toDate }, context: Context) => {
           try {
-            console.log('🔍 Generando resumen de cartera muerta:', { weeksSinceLoanMin, weeksSinceLoanMax, weeksWithoutPaymentMin, weeksWithoutPaymentMax });
+            console.log('🔍 Generando resumen de cartera muerta:', { weeksSinceLoanMin, weeksSinceLoanMax, weeksWithoutPaymentMin, weeksWithoutPaymentMax, fromDate, toDate });
             
             // Calcular fechas límite (misma lógica que loansForDeadDebt)
             const now = new Date();
@@ -8811,7 +8832,21 @@ export const extendGraphqlSchema = graphql.extend(base => {
             ];
 
             if (badDebtStatus === 'MARKED') {
-              summaryAndFilters.push({ badDebtDate: { not: null } });
+              const badDebtDateFilter: any = { not: null };
+              
+              // Si se proporcionan fechas específicas, filtrar por fecha de marcado
+              if (fromDate || toDate) {
+                const dateRange: any = {};
+                if (fromDate) {
+                  dateRange.gte = new Date(fromDate);
+                }
+                if (toDate) {
+                  dateRange.lte = new Date(toDate);
+                }
+                badDebtDateFilter.and = dateRange;
+              }
+              
+              summaryAndFilters.push({ badDebtDate: badDebtDateFilter });
             } else if (badDebtStatus === 'UNMARKED' || !badDebtStatus) {
               summaryAndFilters.push({ badDebtDate: null });
             }
@@ -9151,7 +9186,21 @@ export const extendGraphqlSchema = graphql.extend(base => {
             
             // Filtro de estado de cartera muerta
             if (badDebtStatus === 'MARKED') {
-              baseAndFilters.push({ badDebtDate: { not: null } });
+              const badDebtDateFilter: any = { not: null };
+              
+              // Si se proporcionan fechas específicas, filtrar por fecha de marcado
+              if (fromDate || toDate) {
+                const dateRange: any = {};
+                if (fromDate) {
+                  dateRange.gte = new Date(fromDate);
+                }
+                if (toDate) {
+                  dateRange.lte = new Date(toDate);
+                }
+                badDebtDateFilter.and = dateRange;
+              }
+              
+              baseAndFilters.push({ badDebtDate: badDebtDateFilter });
             } else if (badDebtStatus === 'UNMARKED' || !badDebtStatus) {
               baseAndFilters.push({ badDebtDate: null });
             }
@@ -9416,10 +9465,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   }
                 }
                 
-                const deudaPendiente = Number(loan.pendingAmountStored || 0);
-                const pagosPendientes = deudaPendiente;
-                const gananciaPorCobrar = pagosPendientes * (profitAmountNum / totalToPay);
-                const badDebtCandidate = Math.max(0, deudaPendiente - gananciaPorCobrar);
+                // Calcular cartera muerta usando el mismo método que el reporte financiero
+                const deudaPendiente = totalToPay - totalPaid;
+                const gananciaPendiente = profitAmountNum - gananciaCobrada;
+                const badDebtCandidate = Math.max(0, deudaPendiente - gananciaPendiente);
                 
                 totalBadDebtCandidate += badDebtCandidate;
                 totalPendingAmount += deudaPendiente;

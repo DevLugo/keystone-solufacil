@@ -3004,8 +3004,8 @@ type Query {
   getPortfolioCleanups(routeId: String!, year: Int!, month: Int!): JSON!
   debugTelegram: String!
   telegramStatus: String!
-  loansForDeadDebt(weeksSinceLoanMin: Int, weeksSinceLoanMax: Int, weeksWithoutPaymentMin: Int, weeksWithoutPaymentMax: Int, routeId: String, localities: [String!], badDebtStatus: String): String!
-  deadDebtSummary(weeksSinceLoanMin: Int, weeksSinceLoanMax: Int, weeksWithoutPaymentMin: Int, weeksWithoutPaymentMax: Int, routeId: String, localities: [String!], badDebtStatus: String): String!
+  loansForDeadDebt(weeksSinceLoanMin: Int, weeksSinceLoanMax: Int, weeksWithoutPaymentMin: Int, weeksWithoutPaymentMax: Int, routeId: String, localities: [String!], badDebtStatus: String, fromDate: String, toDate: String): String!
+  deadDebtSummary(weeksSinceLoanMin: Int, weeksSinceLoanMax: Int, weeksWithoutPaymentMin: Int, weeksWithoutPaymentMax: Int, routeId: String, localities: [String!], badDebtStatus: String, fromDate: String, toDate: String): String!
   deadDebtByMonth(routeId: String, localities: [String!], year: Int!, month: Int!): String!
   deadDebtMonthlySummary(routeId: String, localities: [String!], year: Int!, weeksSinceLoanMin: Int, weeksSinceLoanMax: Int, weeksWithoutPaymentMin: Int, weeksWithoutPaymentMax: Int, badDebtStatus: String, fromDate: String, toDate: String): String!
 }
