@@ -52,6 +52,54 @@ const GET_ALL_ACTIVE_LOANS = gql`
     }) {
       id
       status
+      requestedAmount
+      borrower {
+        id
+        personalData {
+          addresses {
+            location {
+              name
+            }
+          }
+        }
+      }
+      lead {
+        id
+        personalData {
+          addresses {
+            location {
+              name
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+// Query para obtener préstamos activos con pagos recientes (último mes)
+const GET_ACTIVE_LOANS_WITH_RECENT_PAYMENTS = gql`
+  query GetActiveLoansWithRecentPayments {
+    loans(where: {
+      AND: [
+        { finishedDate: { equals: null } },
+        { pendingAmountStored: { gt: "0" } },
+        { excludedByCleanup: null },
+        { badDebtDate: { equals: null } }
+      ]
+    }) {
+      id
+      status
+      requestedAmount
+      badDebtDate
+      payments(where: {
+        receivedAt: {
+          gte: "${new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()}"
+        }
+      }) {
+        id
+        receivedAt
+      }
       borrower {
         id
         personalData {
@@ -125,6 +173,12 @@ interface Employee {
 interface ActiveLoan {
   id: string;
   status: string;
+  requestedAmount: number;
+  badDebtDate?: string;
+  payments?: Array<{
+    id: string;
+    receivedAt: string;
+  }>;
   borrower: {
     id: string;
     personalData: {
@@ -153,21 +207,151 @@ interface RouteStats {
   totalClients: number;
 }
 
+interface LoanAmountBreakdown {
+  [amount: string]: number;
+}
+
+interface LocationLoanBreakdown {
+  [locationName: string]: LoanAmountBreakdown;
+}
+
 const AdministrarRutasPage = () => {
   const [selectedLocalities, setSelectedLocalities] = useState<Set<string>>(new Set());
   const [targetRouteId, setTargetRouteId] = useState<string>('');
   const [sourceRouteId, setSourceRouteId] = useState<string>('');
   const [pendingMoves, setPendingMoves] = useState<Array<{ employeeId: string; fromRouteId: string; toRouteId: string }>>([]);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [hoveredTooltip, setHoveredTooltip] = useState<{ type: 'route' | 'locality', id: string, content: string, x: number, y: number } | null>(null);
 
   // Queries
   const { data: routesData, loading: routesLoading, error: routesError } = useQuery(GET_ROUTES);
   const { data: activeLoansData, loading: activeLoansLoading, error: activeLoansError } = useQuery(GET_ALL_ACTIVE_LOANS);
+  const { data: recentPaymentsData, loading: recentPaymentsLoading, error: recentPaymentsError } = useQuery(GET_ACTIVE_LOANS_WITH_RECENT_PAYMENTS);
 
   // Mutation
   const [updateLocationRoute, { loading: updateLoading }] = useMutation(UPDATE_LOCALITY_ROUTE);
 
   const routes = routesData?.routes || [];
+
+  // Función helper para crear tooltip de desglose
+  const createBreakdownTooltip = (breakdown: LoanAmountBreakdown) => {
+    const sortedAmounts = Object.entries(breakdown)
+      .sort(([a], [b]) => {
+        const numA = parseInt(a);
+        const numB = parseInt(b);
+        return numA - numB;
+      });
+    
+    if (sortedAmounts.length === 0) return 'Sin créditos activos';
+    
+    const total = Object.values(breakdown).reduce((sum, count) => sum + count, 0);
+    
+    // Formatear montos con separadores de miles
+    const formatAmount = (amount: string) => {
+      return parseInt(amount).toLocaleString('es-MX');
+    };
+    
+    const breakdownText = sortedAmounts
+      .map(([amount, count]) => `${count} de $${formatAmount(amount)}`)
+      .join('\n');
+    
+    return `💰 Créditos Activos: ${total}\n\n📊 Desglose por Monto:\n${breakdownText}`;
+  };
+
+  // Funciones para manejar el hover del tooltip
+  const handleTooltipMouseEnter = (type: 'route' | 'locality', id: string, content: string, event: React.MouseEvent) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setHoveredTooltip({
+      type,
+      id,
+      content,
+      x: rect.left + rect.width / 2,
+      y: rect.top - 10
+    });
+  };
+
+  const handleTooltipMouseLeave = () => {
+    setHoveredTooltip(null);
+  };
+
+  // Calcular desglose de créditos activos por monto y localidad
+  const loanAmountBreakdown = useMemo(() => {
+    if (!recentPaymentsData?.loans || !routes.length) return {};
+
+    const breakdown: LocationLoanBreakdown = {};
+
+    // Filtrar préstamos que tienen pagos recientes (último mes)
+    const activeLoansWithRecentPayments = recentPaymentsData.loans.filter((loan: ActiveLoan) => 
+      loan.payments && loan.payments.length > 0
+    );
+
+    // Agrupar por localidad y monto
+    activeLoansWithRecentPayments.forEach((loan: ActiveLoan) => {
+      const loanLocation = loan.borrower?.personalData?.addresses?.[0]?.location?.name || 
+                         loan.lead?.personalData?.addresses?.[0]?.location?.name;
+      
+      if (loanLocation && loan.requestedAmount) {
+        const amount = Math.round(parseFloat(loan.requestedAmount.toString()));
+        const amountKey = `${amount}`;
+        
+        if (!breakdown[loanLocation]) {
+          breakdown[loanLocation] = {};
+        }
+        
+        if (!breakdown[loanLocation][amountKey]) {
+          breakdown[loanLocation][amountKey] = 0;
+        }
+        
+        breakdown[loanLocation][amountKey]++;
+      }
+    });
+
+    return breakdown;
+  }, [recentPaymentsData, routes]);
+
+  // Calcular desglose por ruta
+  const routeLoanBreakdown = useMemo(() => {
+    if (!recentPaymentsData?.loans || !routes.length) return {};
+
+    const routeBreakdown: Record<string, LoanAmountBreakdown> = {};
+
+    // Filtrar préstamos que tienen pagos recientes (último mes)
+    const activeLoansWithRecentPayments = recentPaymentsData.loans.filter((loan: ActiveLoan) => 
+      loan.payments && loan.payments.length > 0
+    );
+
+    // Agrupar por ruta y monto
+    activeLoansWithRecentPayments.forEach((loan: ActiveLoan) => {
+      const loanLocation = loan.borrower?.personalData?.addresses?.[0]?.location?.name || 
+                         loan.lead?.personalData?.addresses?.[0]?.location?.name;
+      
+      if (loanLocation && loan.requestedAmount) {
+        // Encontrar la ruta que contiene esta localidad
+        const route = routes.find((r: Route) => 
+          r.employees.some((emp: Employee) => 
+            emp.personalData.addresses[0]?.location.name === loanLocation
+          )
+        );
+        
+        if (route) {
+          const amount = Math.round(parseFloat(loan.requestedAmount.toString()));
+          const amountKey = `${amount}`;
+          
+          if (!routeBreakdown[route.id]) {
+            routeBreakdown[route.id] = {};
+          }
+          
+          if (!routeBreakdown[route.id][amountKey]) {
+            routeBreakdown[route.id][amountKey] = 0;
+          }
+          
+          routeBreakdown[route.id][amountKey]++;
+        }
+      }
+    });
+
+    return routeBreakdown;
+  }, [recentPaymentsData, routes]);
 
   // Calcular estadísticas por ruta
   const routeStats = useMemo(() => {
@@ -344,7 +528,7 @@ const AdministrarRutasPage = () => {
     setIsPreviewMode(false);
   };
 
-  if (routesLoading || activeLoansLoading) {
+  if (routesLoading || activeLoansLoading || recentPaymentsLoading) {
     return (
       <PageContainer header="Administrar Rutas y Localidades">
         <Box padding="large">
@@ -354,12 +538,12 @@ const AdministrarRutasPage = () => {
     );
   }
 
-  if (routesError || activeLoansError) {
+  if (routesError || activeLoansError || recentPaymentsError) {
     return (
       <PageContainer header="Administrar Rutas y Localidades">
         <Box padding="large">
           <GraphQLErrorNotice
-            errors={routesError ? [routesError] : [activeLoansError!]}
+            errors={routesError ? [routesError] : activeLoansError ? [activeLoansError] : [recentPaymentsError!]}
             networkError={undefined}
           />
         </Box>
@@ -521,8 +705,30 @@ const AdministrarRutasPage = () => {
                       </Box>
                     </Box>
 
-                    <Box css={{ fontSize: '16px', color: '#4a5568', marginBottom: '20px' }}>
-                      👥 {stats.activeClients} clientes activos (real)
+                    <Box css={{ fontSize: '16px', color: '#4a5568', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Box>👥 {stats.activeClients} clientes activos (real)</Box>
+                      {routeLoanBreakdown[route.id] && Object.keys(routeLoanBreakdown[route.id]).length > 0 && (
+                        <Box
+                          css={{
+                            position: 'relative',
+                            cursor: 'help',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '16px',
+                            height: '16px',
+                            backgroundColor: '#3b82f6',
+                            color: 'white',
+                            borderRadius: '50%',
+                            fontSize: '12px',
+                            fontWeight: 'bold'
+                          }}
+                          onMouseEnter={(e) => handleTooltipMouseEnter('route', route.id, createBreakdownTooltip(routeLoanBreakdown[route.id]), e)}
+                          onMouseLeave={handleTooltipMouseLeave}
+                        >
+                          i
+                        </Box>
+                      )}
                     </Box>
 
                     <Box css={{ fontSize: '16px', color: '#2d3748', marginBottom: '16px' }}>
@@ -556,7 +762,82 @@ const AdministrarRutasPage = () => {
                             />
                             <Box css={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
                               <Box css={{ color: '#e53e3e' }}>📍</Box>
-                              <Box css={{ fontSize: '14px', color: '#2d3748' }}>{localityName}</Box>
+                              <Box css={{ fontSize: '14px', color: '#2d3748', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                {(() => {
+                                  // Calcular créditos activos para esta localidad
+                                  const activeCredits = loanAmountBreakdown[localityName] 
+                                    ? Object.values(loanAmountBreakdown[localityName]).reduce((sum, count) => sum + count, 0)
+                                    : 0;
+                                  
+                                  // Calcular total de clientes (del badge existente)
+                                  const totalClients = (() => {
+                                    if (!activeLoansData?.loans) return 0;
+                                    
+                                    const localityName = employee.personalData.addresses[0]?.location.name;
+                                    if (!localityName) return 0;
+                                    
+                                    const loansByClient: { [clientId: string]: any[] } = {};
+                                    
+                                    activeLoansData.loans.forEach((loan: ActiveLoan) => {
+                                      const loanLocation = loan.borrower?.personalData?.addresses?.[0]?.location?.name || 
+                                                         loan.lead?.personalData?.addresses?.[0]?.location?.name;
+                                      
+                                      if (loanLocation === localityName) {
+                                        const clientId = loan.borrower?.id || loan.lead?.id;
+                                        if (clientId) {
+                                          if (!loansByClient[clientId]) {
+                                            loansByClient[clientId] = [];
+                                          }
+                                          loansByClient[clientId].push(loan);
+                                        }
+                                      }
+                                    });
+                                    
+                                    return Object.keys(loansByClient).length;
+                                  })();
+
+                                  // Determinar color basado en la proporción de créditos activos vs total de clientes
+                                  const ratio = totalClients > 0 ? activeCredits / totalClients : 0;
+                                  let color = '#2d3748'; // gris por defecto
+                                  
+                                  if (ratio >= 0.7) {
+                                    color = '#059669'; // verde (buena proporción)
+                                  } else if (ratio >= 0.4) {
+                                    color = '#d97706'; // amarillo (proporción media)
+                                  } else if (ratio > 0) {
+                                    color = '#dc2626'; // rojo (baja proporción)
+                                  }
+
+                                  return (
+                                    <>
+                                      <Box css={{ color, fontWeight: '600' }}>
+                                        {localityName} ({activeCredits}/{totalClients})
+                                      </Box>
+                                      {activeCredits > 0 && (
+                                        <Box
+                                          css={{
+                                            cursor: 'help',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            width: '12px',
+                                            height: '12px',
+                                            backgroundColor: '#10b981',
+                                            color: 'white',
+                                            borderRadius: '50%',
+                                            fontSize: '10px',
+                                            fontWeight: 'bold'
+                                          }}
+                                          onMouseEnter={(e) => handleTooltipMouseEnter('locality', localityName, createBreakdownTooltip(loanAmountBreakdown[localityName]), e)}
+                                          onMouseLeave={handleTooltipMouseLeave}
+                                        >
+                                          i
+                                        </Box>
+                                      )}
+                                    </>
+                                  );
+                                })()}
+                              </Box>
                             </Box>
                             <Box css={{
                               backgroundColor: '#e2e8f0',
@@ -652,6 +933,33 @@ const AdministrarRutasPage = () => {
                   </Button>
                 </Box>
               </Box>
+            </Box>
+          )}
+
+          {/* Tooltip personalizado */}
+          {hoveredTooltip && (
+            <Box
+              css={{
+                position: 'fixed',
+                top: hoveredTooltip.y,
+                left: hoveredTooltip.x,
+                transform: 'translateX(-50%)',
+                backgroundColor: '#1f2937',
+                color: 'white',
+                padding: '12px 16px',
+                borderRadius: '8px',
+                fontSize: '13px',
+                fontWeight: '400',
+                zIndex: 1000,
+                maxWidth: '350px',
+                whiteSpace: 'pre-line',
+                boxShadow: '0 10px 25px rgba(0, 0, 0, 0.2), 0 4px 6px rgba(0, 0, 0, 0.1)',
+                pointerEvents: 'none',
+                border: '1px solid #374151',
+                lineHeight: '1.4'
+              }}
+            >
+              {hoveredTooltip.content}
             </Box>
           )}
         </Box>
