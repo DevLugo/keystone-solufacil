@@ -1306,12 +1306,7 @@ export const CreatePaymentForm = ({
         // Caso: Hay pagos nuevos - usar totalByPaymentMethod de la UI
         expectedCashAmount = totalByPaymentMethod.cashTotal - bankPaidAmount;
       } else if (state.groupedPayments) {
-        // Caso: Solo pagos existentes editados - calcular desde groupedPayments
-        const { payments: groupedPaymentsList } = Object.values(state.groupedPayments)[0];
-        const cashFromGrouped = (groupedPaymentsList as any[])
-          .filter((p: any) => p.paymentMethod === 'CASH')
-          .reduce((sum: number, p: any) => sum + parseFloat(p.amount || '0'), 0);
-        expectedCashAmount = cashFromGrouped - bankPaidAmount;
+        expectedCashAmount = totalByPaymentMethod.cashTotal - bankPaidAmount;
       } else {
         expectedCashAmount = 0 - bankPaidAmount;
       }
@@ -3018,11 +3013,22 @@ export const CreatePaymentForm = ({
                           ?.filter(loan => loan.borrower && loan.borrower.personalData)
                           ?.map(loan => ({
                             value: loan.id,
-                            label: loan.borrower?.personalData?.fullName || 'Sin nombre'
+                            label: `${loan.borrower?.personalData?.fullName || 'Sin nombre'} (${loan.signDate ? new Date(loan.signDate).toLocaleDateString('es-MX', {
+                              year: 'numeric',
+                              month: '2-digit',
+                              day: '2-digit'
+                            }) : 'Sin fecha'})`
                           })) || []}
                         value={loansData?.loans.find(loan => loan.id === payment.loanId) ? {
                           value: payment.loanId,
-                          label: loansData.loans.find(loan => loan.id === payment.loanId)?.borrower?.personalData?.fullName || 'Sin nombre'
+                          label: (() => {
+                            const selectedLoan = loansData.loans.find(loan => loan.id === payment.loanId);
+                            return `${selectedLoan?.borrower?.personalData?.fullName || 'Sin nombre'} (${selectedLoan?.signDate ? new Date(selectedLoan.signDate).toLocaleDateString('es-MX', {
+                              year: 'numeric',
+                              month: '2-digit',
+                              day: '2-digit'
+                            }) : 'Sin fecha'})`;
+                          })()
                         } : null}
                         onChange={(option) => handleChange(index, 'loanId', (option as Option).value)}
                         isDisabled={isStrikethrough || isDeceased}
