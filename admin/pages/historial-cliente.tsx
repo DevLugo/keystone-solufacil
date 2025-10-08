@@ -1004,42 +1004,42 @@ const HistorialClientePage: React.FC = () => {
             {/* Summary Stats */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))',
-              gap: isMobile ? '12px' : '16px',
-              marginBottom: isMobile ? '24px' : '32px'
+              gridTemplateColumns: isMobile ? '1fr' : 'repeat(5, 1fr)',
+              gap: isMobile ? '8px' : '12px',
+              marginBottom: isMobile ? '16px' : '24px'
             }}>
               <div style={{
                 backgroundColor: historyResult.summary.hasBeenClient ? '#e6fffa' : '#f7fafc',
-                padding: isMobile ? '16px' : '20px',
-                borderRadius: '8px',
-                border: `2px solid ${historyResult.summary.hasBeenClient ? '#38b2ac' : '#cbd5e0'}`,
+                padding: isMobile ? '10px' : '12px',
+                borderRadius: '6px',
+                border: `1px solid ${historyResult.summary.hasBeenClient ? '#38b2ac' : '#cbd5e0'}`,
                 textAlign: 'center'
               }}>
-                <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: '#2d3748' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '2px', color: '#2d3748', textAlign: 'center' }}>
                   👤 Como Cliente
                 </h3>
-                <p style={{ fontSize: '24px', fontWeight: 'bold', color: '#38b2ac' }}>
+                <p style={{ fontSize: '22px', fontWeight: '700', color: '#38b2ac', margin: 0, textAlign: 'center' }}>
                   {historyResult.summary.totalLoansAsClient}
                 </p>
-                <p style={{ fontSize: '12px', color: '#718096' }}>
+                <p style={{ fontSize: '10px', color: '#718096', margin: 0, textAlign: 'center', marginTop: '2px' }}>
                   Activos: {historyResult.summary.activeLoansAsClient}
                 </p>
               </div>
 
               <div style={{
                 backgroundColor: historyResult.summary.hasBeenCollateral ? '#fff5f5' : '#f7fafc',
-                padding: '20px',
-                borderRadius: '8px',
-                border: `2px solid ${historyResult.summary.hasBeenCollateral ? '#f56565' : '#cbd5e0'}`,
+                padding: '12px',
+                borderRadius: '6px',
+                border: `1px solid ${historyResult.summary.hasBeenCollateral ? '#f56565' : '#cbd5e0'}`,
                 textAlign: 'center'
               }}>
-                <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: '#2d3748' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '2px', color: '#2d3748', textAlign: 'center' }}>
                   🤝 Como Aval
                 </h3>
-                <p style={{ fontSize: '24px', fontWeight: 'bold', color: '#f56565' }}>
+                <p style={{ fontSize: '22px', fontWeight: '700', color: '#f56565', margin: 0, textAlign: 'center' }}>
                   {historyResult.summary.totalLoansAsCollateral}
                 </p>
-                <p style={{ fontSize: '12px', color: '#718096' }}>
+                <p style={{ fontSize: '10px', color: '#718096', margin: 0, textAlign: 'center', marginTop: '2px' }}>
                   Activos: {historyResult.summary.activeLoansAsCollateral}
                 </p>
               </div>
@@ -1048,30 +1048,30 @@ const HistorialClientePage: React.FC = () => {
                 <>
                   <div style={{
                     backgroundColor: '#f0fff4',
-                    padding: '20px',
-                    borderRadius: '8px',
-                    border: '2px solid #48bb78',
+                    padding: '12px',
+                    borderRadius: '6px',
+                    border: '1px solid #48bb78',
                     textAlign: 'center'
                   }}>
-                    <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: '#2d3748' }}>
+                    <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '4px', color: '#2d3748' }}>
                       💰 Total Prestado
                     </h3>
-                    <p style={{ fontSize: '20px', fontWeight: 'bold', color: '#48bb78' }}>
+                    <p style={{ fontSize: '18px', fontWeight: '700', color: '#48bb78', margin: 0 }}>
                       {formatCurrency(historyResult.summary.totalAmountRequestedAsClient)}
                     </p>
                   </div>
 
                   <div style={{
                     backgroundColor: '#fffbf0',
-                    padding: '20px',
-                    borderRadius: '8px',
-                    border: '2px solid #ed8936',
+                    padding: '12px',
+                    borderRadius: '6px',
+                    border: '1px solid #ed8936',
                     textAlign: 'center'
                   }}>
-                    <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: '#2d3748' }}>
+                    <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '4px', color: '#2d3748' }}>
                       💳 Total Pagado
                     </h3>
-                    <p style={{ fontSize: '20px', fontWeight: 'bold', color: '#ed8936' }}>
+                    <p style={{ fontSize: '18px', fontWeight: '700', color: '#ed8936', margin: 0 }}>
                       {formatCurrency(historyResult.summary.totalAmountPaidAsClient)}
                     </p>
                   </div>
@@ -1080,15 +1080,15 @@ const HistorialClientePage: React.FC = () => {
 
               <div style={{
                 backgroundColor: historyResult.summary.currentPendingDebtAsClient > 0 ? '#fed7e2' : '#f0fff4',
-                padding: '20px',
-                borderRadius: '8px',
-                border: `2px solid ${historyResult.summary.currentPendingDebtAsClient > 0 ? '#f56565' : '#48bb78'}`,
+                padding: '12px',
+                borderRadius: '6px',
+                border: `1px solid ${historyResult.summary.currentPendingDebtAsClient > 0 ? '#f56565' : '#48bb78'}`,
                 textAlign: 'center'
               }}>
-                <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: '#2d3748' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '4px', color: '#2d3748' }}>
                   💰 Deuda Pendiente Total
                 </h3>
-                <p style={{ fontSize: '20px', fontWeight: 'bold', color: historyResult.summary.currentPendingDebtAsClient > 0 ? '#f56565' : '#48bb78' }}>
+                <p style={{ fontSize: '18px', fontWeight: '700', color: historyResult.summary.currentPendingDebtAsClient > 0 ? '#f56565' : '#48bb78', margin: 0 }}>
                   {formatCurrency(historyResult.summary.currentPendingDebtAsClient)}
                 </p>
               </div>
@@ -1258,201 +1258,290 @@ const HistorialClientePage: React.FC = () => {
                     display: 'flex',
                     gap: '12px',
                     alignItems: 'center',
-                    marginBottom: '8px',
-                    flexWrap: 'wrap'
+                    marginBottom: '16px',
+                    flexWrap: 'wrap',
+                    padding: '12px',
+                    backgroundColor: '#f8fafc',
+                    borderRadius: '8px',
+                    border: '1px solid #e2e8f0'
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ display: 'inline-block', width: 14, height: 14, backgroundColor: '#E0F2FE', border: '1px solid #bae6fd', borderRadius: 3 }} />
-                      <span style={{ fontSize: 12, color: '#334155' }}>Cubierto por sobrepago</span>
+                      <span style={{ display: 'inline-block', width: 16, height: 16, backgroundColor: '#E0F2FE', border: '1px solid #bae6fd', borderRadius: 4 }} />
+                      <span style={{ fontSize: 12, color: '#334155', fontWeight: '500' }}>Cubierto por sobrepago</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ display: 'inline-block', width: 14, height: 14, backgroundColor: '#FEF9C3', border: '1px solid #fde68a', borderRadius: 3 }} />
-                      <span style={{ fontSize: 12, color: '#334155' }}>Pago parcial</span>
+                      <span style={{ display: 'inline-block', width: 16, height: 16, backgroundColor: '#FEF9C3', border: '1px solid #fde68a', borderRadius: 4 }} />
+                      <span style={{ fontSize: 12, color: '#334155', fontWeight: '500' }}>Pago parcial</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ display: 'inline-block', width: 14, height: 14, backgroundColor: '#FEE2E2', border: '1px solid #fecaca', borderRadius: 3 }} />
-                      <span style={{ fontSize: 12, color: '#334155' }}>Falta (sin pago)</span>
+                      <span style={{ display: 'inline-block', width: 16, height: 16, backgroundColor: '#FEE2E2', border: '1px solid #fecaca', borderRadius: 4 }} />
+                      <span style={{ fontSize: 12, color: '#334155', fontWeight: '500' }}>Falta (sin pago)</span>
                     </div>
                   </div>
-                  <table style={{ 
-                    width: '100%', 
-                    borderCollapse: 'collapse', 
+                  
+                  {/* Contenedor de créditos con separación visual */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                    {historyResult.loansAsClient.map((loan, index) => (
+                      <div key={loan.id} style={{
                     backgroundColor: 'white', 
-                    borderRadius: '8px', 
+                        borderRadius: '12px',
+                        border: '2px solid #e2e8f0',
                     overflow: 'hidden', 
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                    minWidth: isMobile ? '800px' : 'auto'
-                  }}>
-                    <thead>
-                      <tr style={{ backgroundColor: '#f7fafc' }}>
-                        <th style={{ 
-                          padding: isMobile ? '8px' : '12px', 
-                          textAlign: 'left', 
-                          borderBottom: '2px solid #e2e8f0', 
-                          fontSize: isMobile ? '10px' : '12px', 
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                        position: 'relative'
+                      }}>
+                        {/* Header del crédito con color distintivo - COMPACTO */}
+                        <div style={{
+                          backgroundColor: index % 2 === 0 ? '#f0f9ff' : '#fef7ff',
+                          borderBottom: `2px solid ${index % 2 === 0 ? '#0ea5e9' : '#a855f7'}`,
+                          padding: '10px 12px',
+                          position: 'relative'
+                        }}>
+                          <div style={{
+                            position: 'absolute',
+                            top: '8px',
+                            right: '16px',
+                            backgroundColor: index % 2 === 0 ? '#0ea5e9' : '#a855f7',
+                            color: 'white',
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                            fontSize: '10px',
                           fontWeight: '600' 
-                        }}>FECHA</th>
-                        <th style={{ 
-                          padding: isMobile ? '8px' : '12px', 
-                          textAlign: 'left', 
-                          borderBottom: '2px solid #e2e8f0', 
-                          fontSize: isMobile ? '10px' : '12px', 
-                          fontWeight: '600' 
-                        }}>TIPO</th>
-                        <th style={{ 
-                          padding: isMobile ? '8px' : '12px', 
-                          textAlign: 'right', 
-                          borderBottom: '2px solid #e2e8f0', 
-                          fontSize: isMobile ? '10px' : '12px', 
-                          fontWeight: '600' 
-                        }}>PRESTADO</th>
-                        <th style={{ 
-                          padding: isMobile ? '8px' : '12px', 
-                          textAlign: 'right', 
-                          borderBottom: '2px solid #e2e8f0', 
-                          fontSize: isMobile ? '10px' : '12px', 
-                          fontWeight: '600' 
-                        }}>TOTAL A PAGAR</th>
-                        <th style={{ 
-                          padding: isMobile ? '8px' : '12px', 
-                          textAlign: 'right', 
-                          borderBottom: '2px solid #e2e8f0', 
-                          fontSize: isMobile ? '10px' : '12px', 
-                          fontWeight: '600' 
-                        }}>PAGADO</th>
-                        <th style={{ 
-                          padding: isMobile ? '8px' : '12px', 
-                          textAlign: 'right', 
-                          borderBottom: '2px solid #e2e8f0', 
-                          fontSize: isMobile ? '10px' : '12px', 
-                          fontWeight: '600' 
-                        }}>DEUDA PENDIENTE</th>
-                        <th style={{ 
-                          padding: isMobile ? '8px' : '12px', 
-                          textAlign: 'center', 
-                          borderBottom: '2px solid #e2e8f0', 
-                          fontSize: isMobile ? '10px' : '12px', 
-                          fontWeight: '600' 
-                        }}>ESTADO</th>
-                        <th style={{ 
-                          padding: isMobile ? '8px' : '12px', 
-                          textAlign: 'left', 
-                          borderBottom: '2px solid #e2e8f0', 
-                          fontSize: isMobile ? '10px' : '12px', 
-                          fontWeight: '600' 
-                        }}>AVAL</th>
-                        <th style={{ 
-                          padding: isMobile ? '8px' : '12px', 
-                          textAlign: 'center', 
-                          borderBottom: '2px solid #e2e8f0', 
-                          fontSize: isMobile ? '10px' : '12px', 
-                          fontWeight: '600' 
-                        }}>DÍAS</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {historyResult.loansAsClient.map((loan, index) => (
-                        <React.Fragment key={loan.id}>
-                          <tr style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
-                              onClick={() => {
-                                const expandedRows = (document.querySelector(`#loan-details-${loan.id}`) as HTMLElement);
-                                if (expandedRows) {
-                                  expandedRows.style.display = expandedRows.style.display === 'none' ? 'table-row' : 'none';
-                                }
-                              }}>
-                            <td style={{ padding: '12px', fontSize: '13px' }}>
-                              <div>{loan.signDateFormatted || formatDate(loan.signDate)}</div>
-                              {loan.finishedDateFormatted && (
-                                <div style={{ fontSize: '11px', color: '#718096' }}>
-                                  Fin: {loan.finishedDateFormatted}
+                          }}>
+                            #{index + 1}
                                 </div>
-                              )}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '13px' }}>{loan.loanType}</td>
-                            <td style={{ padding: '12px', fontSize: '13px', textAlign: 'right', fontWeight: '600', color: '#2b6cb0' }}>
-                              {formatCurrency(loan.amountRequested)}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '13px', textAlign: 'right' }}>
-                              {formatCurrency(loan.totalAmountDue)}
-                              {loan.interestAmount > 0 && (
-                                <div style={{ fontSize: '10px', color: '#805ad5' }}>
-                                  +{formatCurrency(loan.interestAmount)} interés ({loan.rate}%)
+                          
+                          {/* Información principal en una sola línea */}
+                          <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '12px',
+                            marginBottom: '8px',
+                            flexWrap: 'wrap'
+                          }}>
+                            <div style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b' }}>
+                              {loan.signDateFormatted || formatDate(loan.signDate)}
                                 </div>
-                              )}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '13px', textAlign: 'right', fontWeight: '600', color: '#38a169' }}>
-                              {formatCurrency(loan.totalPaid)}
-                              {loan.paymentsCount > 0 && (
-                                <div style={{ fontSize: '10px', color: '#718096' }}>
-                                  {loan.paymentsCount} pagos
-                                </div>
-                              )}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '13px', textAlign: 'right', fontWeight: '600', color: loan.pendingDebt > 0 ? '#e53e3e' : '#38a169' }}>
-                              {formatCurrency(loan.pendingDebt)}
-                            </td>
-                            <td style={{ padding: '12px', textAlign: 'center' }}>
-                              <span style={{
-                                padding: '4px 8px',
+                            <div style={{
+                              padding: '2px 6px',
+                              backgroundColor: 'white',
                                 borderRadius: '4px',
-                                fontSize: '11px',
+                              fontSize: '9px',
+                              fontWeight: '600',
+                              color: '#475569',
+                              border: '1px solid #e2e8f0'
+                            }}>
+                              {loan.loanType}
+                            </div>
+                            <div style={{
+                              padding: '3px 8px',
+                              borderRadius: '12px',
+                              fontSize: '10px',
                                 fontWeight: '600',
                                 color: 'white',
                                 backgroundColor: getStatusColor(loan.status)
                               }}>
                                 {loan.status}
-                              </span>
+                            </div>
                               {loan.wasRenewed && (
-                                <div style={{ fontSize: '10px', color: '#805ad5', marginTop: '2px' }}>
+                              <div style={{ 
+                                fontSize: '9px', 
+                                color: '#7c3aed', 
+                                fontWeight: '500',
+                                backgroundColor: 'white',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                border: '1px solid #e2e8f0'
+                              }}>
                                   🔄 Renovado
                                 </div>
                               )}
-                              {loan.statusDescription && (
-                                <div style={{ fontSize: '10px', color: '#718096', marginTop: '2px', maxWidth: '100px', lineHeight: '1.2' }}>
-                                  {loan.statusDescription}
+                                </div>
+                          
+                          {/* Información financiera ultra compacta */}
+                          <div style={{ 
+                            display: 'flex', 
+                            flexDirection: 'column',
+                            gap: '4px',
+                            paddingBottom: '2px'
+                          }}>
+                            {/* Primera fila - Información financiera principal */}
+                            <div style={{ 
+                              display: 'grid', 
+                              gridTemplateColumns: 'repeat(2, 1fr)', 
+                              gap: '4px'
+                            }}>
+                              <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '3px',
+                                backgroundColor: 'white',
+                                padding: '4px 6px',
+                                borderRadius: '4px',
+                                border: '1px solid #e2e8f0',
+                                minHeight: '24px'
+                              }}>
+                                <span style={{ fontSize: '8px', color: '#64748b', fontWeight: '500' }}>PRESTADO:</span>
+                                <span style={{ fontSize: '10px', fontWeight: '700', color: '#0f172a' }}>
+                                  {formatCurrency(loan.amountRequested)}
+                                </span>
+                              </div>
+                              
+                              <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '3px',
+                                backgroundColor: 'white',
+                                padding: '4px 6px',
+                                borderRadius: '4px',
+                                border: '1px solid #e2e8f0',
+                                minHeight: '24px'
+                              }}>
+                                <span style={{ fontSize: '8px', color: '#64748b', fontWeight: '500' }}>TOTAL:</span>
+                                <span style={{ fontSize: '10px', fontWeight: '700', color: '#0f172a' }}>
+                                  {formatCurrency(loan.totalAmountDue)}
+                                </span>
+                              </div>
+                            </div>
+                            
+                            {/* Segunda fila - Pagos y deuda */}
+                            <div style={{ 
+                              display: 'grid', 
+                              gridTemplateColumns: 'repeat(2, 1fr)', 
+                              gap: '4px'
+                            }}>
+                              <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '3px',
+                                backgroundColor: 'white',
+                                padding: '4px 6px',
+                                borderRadius: '4px',
+                                border: '1px solid #e2e8f0',
+                                minHeight: '24px'
+                              }}>
+                                <span style={{ fontSize: '8px', color: '#64748b', fontWeight: '500' }}>PAGADO:</span>
+                                <span style={{ fontSize: '10px', fontWeight: '700', color: '#059669' }}>
+                                  {formatCurrency(loan.totalPaid)}
+                                </span>
+                              </div>
+                              
+                              <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '3px',
+                                backgroundColor: 'white',
+                                padding: '4px 6px',
+                                borderRadius: '4px',
+                                border: '1px solid #e2e8f0',
+                                minHeight: '24px'
+                              }}>
+                                <span style={{ fontSize: '8px', color: '#64748b', fontWeight: '500' }}>PENDIENTE:</span>
+                                <span style={{ 
+                                  fontSize: '10px', 
+                                  fontWeight: '700', 
+                                  color: loan.pendingDebt > 0 ? '#dc2626' : '#059669'
+                                }}>
+                                  {formatCurrency(loan.pendingDebt)}
+                                </span>
+                              </div>
+                            </div>
+                            
+                            {/* Tercera fila - Información adicional (solo AVAL) */}
+                            <div style={{ 
+                              display: 'flex', 
+                              gap: '4px'
+                            }}>
+                              {loan.avalName && (
+                                <div style={{ 
+                                  display: 'flex', 
+                                  flexDirection: 'column',
+                                  gap: '2px',
+                                  backgroundColor: '#f0f9ff',
+                                  padding: '4px 6px',
+                                  borderRadius: '4px',
+                                  border: '1px solid #0ea5e9',
+                                  cursor: 'pointer',
+                                  position: 'relative',
+                                  minHeight: '32px',
+                                  transition: 'all 0.2s ease',
+                                  flex: 1
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#e0f2fe';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#f0f9ff';
+                                }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                    <span style={{ fontSize: '8px', color: '#0ea5e9', fontWeight: '600' }}>AVAL:</span>
+                                    <span style={{ fontSize: '9px', fontWeight: '600', color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {loan.avalName}
+                                    </span>
+                                  </div>
+                                  {loan.avalPhone && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginLeft: '20px' }}>
+                                      <span style={{ fontSize: '8px', color: '#0ea5e9', fontWeight: '600' }}>📞</span>
+                                      <span style={{ fontSize: '8px', color: '#0ea5e9', fontWeight: '600' }}>{loan.avalPhone}</span>
+                                    </div>
+                                  )}
                                 </div>
                               )}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '12px', color: '#718096' }}>
-                              {loan.avalName ? (
-                                <>
-                                  <div style={{ fontWeight: '600', color: '#2d3748' }}>{loan.avalName}</div>
-                                  {loan.avalPhone && (
-                                    <div style={{ fontSize: '10px', color: '#4a5568' }}>📞 {loan.avalPhone}</div>
-                                  )}
-                                </>
-                              ) : (
-                                <div style={{ fontSize: '10px', color: '#a0aec0', fontStyle: 'italic' }}>Sin aval</div>
-                              )}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '13px', textAlign: 'center' }}>
-                              {loan.daysSinceSign}
-                              <div style={{ fontSize: '10px', color: '#718096' }}>días</div>
-                            </td>
-                          </tr>
-                          
-                          {/* Detalles expandibles de pagos */}
-                          <tr id={`loan-details-${loan.id}`} style={{ display: 'none', backgroundColor: '#f8fafc' }}>
-                            <td colSpan={9} style={{ padding: '16px' }}>
-                              <div style={{ maxWidth: '100%' }}>
-                                <h4 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '12px', color: '#2d3748' }}>
-                                  📋 Detalle de Pagos - Préstamo #{loan.id.slice(-8)}
-                                </h4>
-                                
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Tabla de pagos expandible */}
+                        <div style={{ 
+                          cursor: 'pointer',
+                          padding: '12px 20px',
+                          backgroundColor: '#f8fafc',
+                          borderTop: '1px solid #e2e8f0',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}
+                        onClick={() => {
+                          const expandedRows = (document.querySelector(`#loan-details-${loan.id}`) as HTMLElement);
+                          const expandButton = document.querySelector(`#expand-button-${loan.id}`) as HTMLElement;
+                          if (expandedRows && expandButton) {
+                            const isExpanded = expandedRows.style.display !== 'none';
+                            expandedRows.style.display = isExpanded ? 'none' : 'block';
+                            expandButton.innerHTML = isExpanded ? '▼ Click para expandir' : '▲ Click para contraer';
+                          }
+                        }}>
+                          <span style={{ fontSize: '11px', fontWeight: '600', color: '#475569' }}>
+                            📋 Ver detalle de pagos - Préstamo #{loan.id.slice(-8)}
+                          </span>
+                          <span id={`expand-button-${loan.id}`} style={{ fontSize: '10px', color: '#64748b' }}>
+                            ▼ Click para expandir
+                          </span>
+                        </div>
+                        
+                        {/* Contenido expandible */}
+                        <div id={`loan-details-${loan.id}`} style={{ display: 'none', padding: '16px 20px', backgroundColor: '#fafbfc' }}>
                                 {(() => {
                                   const chronology = generatePaymentChronology(loan);
                                   return chronology.length > 0 ? (
                                     <div style={{ overflowX: 'auto' }}>
-                                      <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
+                                <table style={{ 
+                                  width: '100%', 
+                                  fontSize: '12px', 
+                                  borderCollapse: 'collapse',
+                                  backgroundColor: 'white',
+                                  borderRadius: '8px',
+                                  overflow: 'hidden',
+                                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                                }}>
                                         <thead>
-                                          <tr style={{ backgroundColor: '#e2e8f0' }}>
-                                            <th style={{ padding: '8px', textAlign: 'left' }}>#</th>
-                                            <th style={{ padding: '8px', textAlign: 'left' }}>Fecha</th>
-                                            <th style={{ padding: '8px', textAlign: 'left' }}>Descripción</th>
-                                            <th style={{ padding: '8px', textAlign: 'right' }}>Monto</th>
-                                            <th style={{ padding: '8px', textAlign: 'left' }}>Método</th>
-                                            <th style={{ padding: '8px', textAlign: 'right' }}>Deuda Antes</th>
-                                            <th style={{ padding: '8px', textAlign: 'right' }}>Deuda Después</th>
+                                    <tr style={{ backgroundColor: '#f1f5f9' }}>
+                                      <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>#</th>
+                                      <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Fecha</th>
+                                      <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Descripción</th>
+                                      <th style={{ padding: '10px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Monto</th>
+                                      <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Método</th>
+                                      <th style={{ padding: '10px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Deuda Antes</th>
+                                      <th style={{ padding: '10px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Deuda Después</th>
                                           </tr>
                                         </thead>
                                         <tbody>
@@ -1468,15 +1557,15 @@ const HistorialClientePage: React.FC = () => {
                                             const textColor = item.coverageType === 'MISS' && item.type === 'NO_PAYMENT' ? '#b91c1c' : '#2d3748';
                                             return (
                                             <tr key={item.id} style={{ 
-                                              borderBottom: '1px solid #e2e8f0',
+                                        borderBottom: '1px solid #f1f5f9',
                                               backgroundColor: bgColor
                                             }}>
-                                              <td style={{ padding: '6px' }}>
+                                        <td style={{ padding: '8px', fontSize: '11px', fontWeight: '500' }}>
                                                 {item.type === 'PAYMENT' ? (item.paymentNumber || index + 1) : '-'}
                                               </td>
-                                              <td style={{ padding: '6px' }}>{item.dateFormatted}</td>
+                                        <td style={{ padding: '8px', fontSize: '11px' }}>{item.dateFormatted}</td>
                                               <td style={{ 
-                                                padding: '6px',
+                                          padding: '8px',
                                                 color: textColor,
                                                 fontWeight: item.type === 'NO_PAYMENT' ? '600' : 'normal'
                                               }}>
@@ -1488,26 +1577,26 @@ const HistorialClientePage: React.FC = () => {
                                                 )}
                                               </td>
                                               <td style={{ 
-                                                padding: '6px', 
+                                          padding: '8px', 
                                                 textAlign: 'right', 
                                                 fontWeight: '600', 
-                                                color: item.type === 'PAYMENT' ? '#38a169' : '#e53e3e'
+                                          color: item.type === 'PAYMENT' ? '#059669' : '#dc2626'
                                               }}>
                                                 {item.type === 'PAYMENT' ? formatCurrency(item.amount || 0) : '-'}
                                               </td>
-                                              <td style={{ padding: '6px' }}>
+                                        <td style={{ padding: '8px', fontSize: '11px' }}>
                                                 {item.type === 'PAYMENT' ? item.paymentMethod : '-'}
                                               </td>
-                                              <td style={{ padding: '6px', textAlign: 'right' }}>
+                                        <td style={{ padding: '8px', textAlign: 'right', fontSize: '11px' }}>
                                                 {item.type === 'PAYMENT' ? formatCurrency(item.balanceBefore || 0) : '-'}
                                               </td>
                                               <td style={{ 
-                                                padding: '6px', 
+                                          padding: '8px', 
                                                 textAlign: 'right', 
                                                 fontWeight: '600', 
                                                 color: item.type === 'PAYMENT' 
-                                                  ? (item.balanceAfter === 0 ? '#38a169' : '#e53e3e')
-                                                  : '#e53e3e'
+                                            ? (item.balanceAfter === 0 ? '#059669' : '#dc2626')
+                                            : '#dc2626'
                                               }}>
                                                 {item.type === 'PAYMENT' ? formatCurrency(item.balanceAfter || 0) : '-'}
                                               </td>
@@ -1517,35 +1606,66 @@ const HistorialClientePage: React.FC = () => {
                                       </table>
                                     </div>
                                   ) : (
-                                    <p style={{ color: '#718096', fontStyle: 'italic' }}>Sin pagos registrados</p>
+                              <p style={{ color: '#64748b', fontStyle: 'italic', textAlign: 'center', padding: '20px' }}>Sin pagos registrados</p>
                                   );
                                 })()}
 
-
                                 {/* Información adicional */}
-                                <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px', fontSize: '11px', color: '#4a5568' }}>
+                          <div style={{ 
+                            marginTop: '16px', 
+                            display: 'grid', 
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                            gap: '12px', 
+                            fontSize: '11px', 
+                            color: '#475569',
+                            padding: '16px',
+                            backgroundColor: '#f8fafc',
+                            borderRadius: '8px',
+                            border: '1px solid #e2e8f0'
+                          }}>
                                   {loan.avalName && (
-                                    <div>👥 <strong>Aval:</strong> {loan.avalName}</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span>👥</span>
+                                <span><strong>Aval:</strong> {loan.avalName}</span>
+                              </div>
                                   )}
                                   {loan.renewedFrom && (
-                                    <div>🔄 <strong>Renovación de:</strong> {loan.renewedFrom}</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span>🔄</span>
+                                <span><strong>Renovación de:</strong> {loan.renewedFrom}</span>
+                              </div>
                                   )}
                                   {loan.renewedTo && (
-                                    <div>➡️ <strong>Renovado como:</strong> {loan.renewedTo}</div>
-                                  )}
-                                  <div>💰 <strong>Prestado:</strong> {formatCurrency(loan.amountRequested)}</div>
-                                  <div>💸 <strong>Total a pagar:</strong> {formatCurrency(loan.totalAmountDue)}</div>
-                                  <div>📊 <strong>Intereses:</strong> {formatCurrency(loan.interestAmount)}</div>
-                                  <div>⏱️ <strong>Duración:</strong> {loan.weekDuration} semanas</div>
-                                  <div>📈 <strong>Tasa:</strong> {loan.rate}%</div>
-                                </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span>➡️</span>
+                                <span><strong>Renovado como:</strong> {loan.renewedTo}</span>
                               </div>
-                            </td>
-                          </tr>
-                        </React.Fragment>
-                      ))}
-                    </tbody>
-                  </table>
+                            )}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>💰</span>
+                              <span><strong>Prestado:</strong> {formatCurrency(loan.amountRequested)}</span>
+                                </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>💸</span>
+                              <span><strong>Total a pagar:</strong> {formatCurrency(loan.totalAmountDue)}</span>
+                              </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>📊</span>
+                              <span><strong>Intereses:</strong> {formatCurrency(loan.interestAmount)}</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>⏱️</span>
+                              <span><strong>Duración:</strong> {loan.weekDuration} semanas</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>📈</span>
+                              <span><strong>Tasa:</strong> {loan.rate}%</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
@@ -1570,194 +1690,384 @@ const HistorialClientePage: React.FC = () => {
                   marginBottom: '16px',
                   fontStyle: 'italic'
                 }}>
-                  💡 Haz clic en cualquier fila para ver el detalle completo de pagos del préstamo donde fuiste aval
+                  💡 Haz clic en cualquier tarjeta para ver el detalle completo de pagos del préstamo donde fuiste aval
                 </p>
                 
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-                    <thead>
-                      <tr style={{ backgroundColor: '#fed7e2' }}>
-                        <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>CLIENTE</th>
-                        <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>FECHA</th>
-                        <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>TIPO</th>
-                        <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>PRESTADO</th>
-                        <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>PAGADO</th>
-                        <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>DEUDA PENDIENTE</th>
-                        <th style={{ padding: '12px', textAlign: 'center', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>ESTADO</th>
-                        <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>AVAL</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {historyResult.loansAsCollateral.map((loan) => (
-                        <React.Fragment key={loan.id}>
-                          <tr style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
-                              onClick={() => {
-                                const expandedRows = (document.querySelector(`#collateral-loan-details-${loan.id}`) as HTMLElement);
-                                if (expandedRows) {
-                                  expandedRows.style.display = expandedRows.style.display === 'none' ? 'table-row' : 'none';
-                                }
-                              }}>
-                            <td style={{ padding: '12px', fontSize: '13px', fontWeight: '600' }}>
-                              {loan.clientName}
-                              <div style={{ fontSize: '11px', color: '#718096' }}>Clave: {loan.clientDui}</div>
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '13px' }}>
-                              <div>{loan.signDateFormatted || formatDate(loan.signDate)}</div>
-                              {loan.finishedDateFormatted && (
-                                <div style={{ fontSize: '11px', color: '#718096' }}>
-                                  Fin: {loan.finishedDateFormatted}
+                <div style={{ 
+                  overflowX: 'auto',
+                  fontSize: isMobile ? '12px' : 'inherit'
+                }}>
+                  {/* Contenedor de créditos como aval con separación visual */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                    {historyResult.loansAsCollateral.map((loan, index) => (
+                      <div key={loan.id} style={{
+                        backgroundColor: 'white',
+                        borderRadius: '12px',
+                        border: '2px solid #e2e8f0',
+                        overflow: 'hidden',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                        position: 'relative'
+                      }}>
+                        {/* Header del crédito como aval con color distintivo - COMPACTO */}
+                        <div style={{
+                          backgroundColor: index % 2 === 0 ? '#fef2f2' : '#f0fdf4',
+                          borderBottom: `2px solid ${index % 2 === 0 ? '#f56565' : '#22c55e'}`,
+                          padding: '10px 12px',
+                          position: 'relative'
+                        }}>
+                          <div style={{
+                            position: 'absolute',
+                            top: '8px',
+                            right: '16px',
+                            backgroundColor: index % 2 === 0 ? '#f56565' : '#22c55e',
+                            color: 'white',
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                            fontSize: '10px',
+                            fontWeight: '600'
+                          }}>
+                            Aval #{index + 1}
                                 </div>
-                              )}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '13px' }}>{loan.loanType}</td>
-                            <td style={{ padding: '12px', fontSize: '13px', textAlign: 'right', fontWeight: '600', color: '#2b6cb0' }}>
-                              {formatCurrency(loan.amountRequested)}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '13px', textAlign: 'right', fontWeight: '600', color: '#38a169' }}>
-                              {formatCurrency(loan.totalPaid)}
-                              {loan.paymentsCount > 0 && (
-                                <div style={{ fontSize: '10px', color: '#718096' }}>
-                                  {loan.paymentsCount} pagos
+                          
+                          {/* Información principal en una sola línea */}
+                          <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '12px',
+                            marginBottom: '8px',
+                            flexWrap: 'wrap'
+                          }}>
+                            <div style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b' }}>
+                              👤 {loan.clientName}
                                 </div>
-                              )}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '13px', textAlign: 'right', fontWeight: '600', color: loan.pendingDebt > 0 ? '#e53e3e' : '#38a169' }}>
-                              {formatCurrency(loan.pendingDebt)}
-                            </td>
-                            <td style={{ padding: '12px', textAlign: 'center' }}>
-                              <span style={{
-                                padding: '4px 8px',
+                            <div style={{
+                              padding: '2px 6px',
+                              backgroundColor: 'white',
                                 borderRadius: '4px',
-                                fontSize: '11px',
+                              fontSize: '9px',
+                              fontWeight: '600',
+                              color: '#475569',
+                              border: '1px solid #e2e8f0'
+                            }}>
+                              {loan.clientDui}
+                            </div>
+                            <div style={{
+                              padding: '3px 8px',
+                              borderRadius: '12px',
+                              fontSize: '10px',
                                 fontWeight: '600',
                                 color: 'white',
                                 backgroundColor: getStatusColor(loan.status)
                               }}>
                                 {loan.status}
-                              </span>
+                            </div>
                               {loan.wasRenewed && (
-                                <div style={{ fontSize: '10px', color: '#805ad5', marginTop: '2px' }}>
+                              <div style={{ 
+                                fontSize: '9px', 
+                                color: '#7c3aed', 
+                                fontWeight: '500',
+                                backgroundColor: 'white',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                border: '1px solid #e2e8f0'
+                              }}>
                                   🔄 Renovado
                                 </div>
                               )}
-                              {loan.statusDescription && (
-                                <div style={{ fontSize: '10px', color: '#718096', marginTop: '2px', maxWidth: '100px', lineHeight: '1.2' }}>
-                                  {loan.statusDescription}
+                                </div>
+                          
+                          {/* Información financiera en múltiples filas optimizadas */}
+                          <div style={{ 
+                            display: 'flex', 
+                            flexDirection: 'column',
+                            gap: '8px',
+                            paddingBottom: '4px'
+                          }}>
+                            {/* Primera fila - Información financiera principal */}
+                            <div style={{ 
+                              display: 'grid', 
+                              gridTemplateColumns: 'repeat(2, 1fr)', 
+                              gap: '8px'
+                            }}>
+                              <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '4px',
+                                backgroundColor: 'white',
+                                padding: '8px 12px',
+                                borderRadius: '6px',
+                                border: '1px solid #e2e8f0',
+                                minHeight: '36px'
+                              }}>
+                                <span style={{ fontSize: '10px', color: '#64748b', fontWeight: '500' }}>PRESTADO:</span>
+                                <span style={{ fontSize: '12px', fontWeight: '700', color: '#0f172a' }}>
+                                  {formatCurrency(loan.amountRequested)}
+                                </span>
+                              </div>
+                              
+                              <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '4px',
+                                backgroundColor: 'white',
+                                padding: '8px 12px',
+                                borderRadius: '6px',
+                                border: '1px solid #e2e8f0',
+                                minHeight: '36px'
+                              }}>
+                                <span style={{ fontSize: '10px', color: '#64748b', fontWeight: '500' }}>PAGADO:</span>
+                                <span style={{ fontSize: '12px', fontWeight: '700', color: '#059669' }}>
+                                  {formatCurrency(loan.totalPaid)}
+                                </span>
+                              </div>
+                            </div>
+                            
+                            {/* Segunda fila - Deuda (quitamos DÍAS) */}
+                            <div style={{ 
+                              display: 'grid', 
+                              gridTemplateColumns: '1fr', 
+                              gap: '8px'
+                            }}>
+                              <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '4px',
+                                backgroundColor: 'white',
+                                padding: '8px 12px',
+                                borderRadius: '6px',
+                                border: '1px solid #e2e8f0',
+                                minHeight: '36px'
+                              }}>
+                                <span style={{ fontSize: '10px', color: '#64748b', fontWeight: '500' }}>PENDIENTE:</span>
+                                <span style={{ 
+                                  fontSize: '12px', 
+                                  fontWeight: '700', 
+                                  color: loan.pendingDebt > 0 ? '#dc2626' : '#059669'
+                                }}>
+                                  {formatCurrency(loan.pendingDebt)}
+                                </span>
+                              </div>
+                              
+                              
+                            </div>
+                            
+                            {/* Tercera fila - Información adicional (solo AVAL) */}
+                            <div style={{ 
+                              display: 'flex', 
+                              gap: '8px'
+                            }}>
+                              {loan.avalName && (
+                                <div style={{ 
+                                  display: 'flex', 
+                                  flexDirection: 'column',
+                                  gap: '3px',
+                                  backgroundColor: '#fef2f2',
+                                  padding: '6px 8px',
+                                  borderRadius: '4px',
+                                  border: '1px solid #f56565',
+                                  cursor: 'pointer',
+                                  position: 'relative',
+                                  minHeight: '40px',
+                                  transition: 'all 0.2s ease',
+                                  flex: 1
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#fee2e2';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#fef2f2';
+                                }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <span style={{ fontSize: '8px', color: '#f56565', fontWeight: '600' }}>AVAL:</span>
+                                    <span style={{ fontSize: '9px', fontWeight: '600', color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {loan.avalName}
+                                    </span>
+                                  </div>
+                                  {loan.avalPhone && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '20px' }}>
+                                      <span style={{ fontSize: '8px', color: '#f56565', fontWeight: '600' }}>📞</span>
+                                      <span style={{ fontSize: '8px', color: '#f56565', fontWeight: '600' }}>{loan.avalPhone}</span>
+                                    </div>
+                                  )}
                                 </div>
                               )}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '12px', color: '#718096' }}>
-                              {loan.avalName ? (
-                                <>
-                                  <div style={{ fontWeight: '600', color: '#2d3748' }}>{loan.avalName}</div>
-                                  {loan.avalPhone && (
-                                    <div style={{ fontSize: '10px', color: '#4a5568' }}>📞 {loan.avalPhone}</div>
-                                  )}
-                                </>
-                              ) : (
-                                <div style={{ fontSize: '10px', color: '#a0aec0', fontStyle: 'italic' }}>Sin aval</div>
-                              )}
-                            </td>
-                          </tr>
-                          
-                          {/* Detalles expandibles de pagos para préstamos como aval */}
-                          <tr id={`collateral-loan-details-${loan.id}`} style={{ display: 'none', backgroundColor: '#f8fafc' }}>
-                            <td colSpan={8} style={{ padding: '16px' }}>
-                              <div style={{ maxWidth: '100%' }}>
-                                <h4 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '12px', color: '#2d3748' }}>
-                                  🤝 Detalle de Pagos (Como Aval) - Préstamo #{loan.id.slice(-8)}
-                                </h4>
-                                
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Tabla de pagos expandible */}
+                        <div style={{ 
+                          cursor: 'pointer',
+                          padding: '12px 20px',
+                          backgroundColor: '#f8fafc',
+                          borderTop: '1px solid #e2e8f0',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}
+                        onClick={() => {
+                          const expandedRows = (document.querySelector(`#collateral-loan-details-${loan.id}`) as HTMLElement);
+                          const expandButton = document.querySelector(`#collateral-expand-button-${loan.id}`) as HTMLElement;
+                          if (expandedRows && expandButton) {
+                            const isExpanded = expandedRows.style.display !== 'none';
+                            expandedRows.style.display = isExpanded ? 'none' : 'block';
+                            expandButton.innerHTML = isExpanded ? '▼ Click para expandir' : '▲ Click para contraer';
+                          }
+                        }}>
+                          <span style={{ fontSize: '11px', fontWeight: '600', color: '#475569' }}>
+                            🤝 Ver detalle de pagos (Como Aval) - Préstamo #{loan.id.slice(-8)}
+                          </span>
+                          <span id={`collateral-expand-button-${loan.id}`} style={{ fontSize: '10px', color: '#64748b' }}>
+                            ▼ Click para expandir
+                          </span>
+                        </div>
+                        
+                        {/* Contenido expandible */}
+                        <div id={`collateral-loan-details-${loan.id}`} style={{ display: 'none', padding: '16px 20px', backgroundColor: '#fafbfc' }}>
                                 {(() => {
                                   const chronology = generatePaymentChronology(loan);
                                   return chronology.length > 0 ? (
                                     <div style={{ overflowX: 'auto' }}>
-                                      <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
+                                <table style={{ 
+                                  width: '100%', 
+                                  fontSize: '12px', 
+                                  borderCollapse: 'collapse',
+                                  backgroundColor: 'white',
+                                  borderRadius: '8px',
+                                  overflow: 'hidden',
+                                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                                }}>
                                         <thead>
-                                          <tr style={{ backgroundColor: '#e2e8f0' }}>
-                                            <th style={{ padding: '8px', textAlign: 'left' }}>#</th>
-                                            <th style={{ padding: '8px', textAlign: 'left' }}>Fecha</th>
-                                            <th style={{ padding: '8px', textAlign: 'left' }}>Descripción</th>
-                                            <th style={{ padding: '8px', textAlign: 'right' }}>Monto</th>
-                                            <th style={{ padding: '8px', textAlign: 'left' }}>Método</th>
-                                            <th style={{ padding: '8px', textAlign: 'right' }}>Deuda Antes</th>
-                                            <th style={{ padding: '8px', textAlign: 'right' }}>Deuda Después</th>
+                                    <tr style={{ backgroundColor: '#f1f5f9' }}>
+                                      <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>#</th>
+                                      <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Fecha</th>
+                                      <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Descripción</th>
+                                      <th style={{ padding: '10px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Monto</th>
+                                      <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Método</th>
+                                      <th style={{ padding: '10px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Deuda Antes</th>
+                                      <th style={{ padding: '10px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Deuda Después</th>
                                           </tr>
                                         </thead>
                                         <tbody>
-                                          {chronology.map((item, index) => (
+                                    {chronology.map((item, index) => {
+                                      const bgColor = (() => {
+                                        if (item.coverageType === 'COVERED_BY_SURPLUS') return '#E0F2FE'; // azul claro
+                                        if (item.coverageType === 'PARTIAL') return '#FEF9C3'; // amarillo claro
+                                        if (item.coverageType === 'MISS' && item.type === 'NO_PAYMENT') return '#FEE2E2'; // rojo claro
+                                        if (item.coverageType === 'FULL') return 'white';
+                                        // fallback previo
+                                        return item.type === 'NO_PAYMENT' ? '#fed7e2' : 'white';
+                                      })();
+                                      const textColor = item.coverageType === 'MISS' && item.type === 'NO_PAYMENT' ? '#b91c1c' : '#2d3748';
+                                      return (
                                             <tr key={item.id} style={{ 
-                                              borderBottom: '1px solid #e2e8f0',
-                                              backgroundColor: item.type === 'NO_PAYMENT' ? '#fed7e2' : 'white'
+                                        borderBottom: '1px solid #f1f5f9',
+                                        backgroundColor: bgColor
                                             }}>
-                                              <td style={{ padding: '6px' }}>
+                                        <td style={{ padding: '8px', fontSize: '11px', fontWeight: '500' }}>
                                                 {item.type === 'PAYMENT' ? (item.paymentNumber || index + 1) : '-'}
                                               </td>
-                                              <td style={{ padding: '6px' }}>{item.dateFormatted}</td>
+                                        <td style={{ padding: '8px', fontSize: '11px' }}>{item.dateFormatted}</td>
                                               <td style={{ 
-                                                padding: '6px',
-                                                color: item.type === 'NO_PAYMENT' ? '#e53e3e' : '#2d3748',
+                                          padding: '8px',
+                                          color: textColor,
                                                 fontWeight: item.type === 'NO_PAYMENT' ? '600' : 'normal'
                                               }}>
-                                                {item.type === 'NO_PAYMENT' ? '⚠️ Sin pago' : item.description}
+                                          {item.type === 'NO_PAYMENT' ? (item.description || '⚠️ Sin pago') : item.description}
+                                          {item.weeklyExpected != null && (
+                                            <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                                              Esperado: {formatCurrency(item.weeklyExpected || 0)} | Pagado: {formatCurrency(item.weeklyPaid || 0)} | Excedente previo: {formatCurrency(item.surplusBefore || 0)}
+                                            </div>
+                                          )}
                                               </td>
                                               <td style={{ 
-                                                padding: '6px', 
+                                          padding: '8px', 
                                                 textAlign: 'right', 
                                                 fontWeight: '600', 
-                                                color: item.type === 'PAYMENT' ? '#38a169' : '#e53e3e'
+                                          color: item.type === 'PAYMENT' ? '#059669' : '#dc2626'
                                               }}>
                                                 {item.type === 'PAYMENT' ? formatCurrency(item.amount || 0) : '-'}
                                               </td>
-                                              <td style={{ padding: '6px' }}>
+                                        <td style={{ padding: '8px', fontSize: '11px' }}>
                                                 {item.type === 'PAYMENT' ? item.paymentMethod : '-'}
                                               </td>
-                                              <td style={{ padding: '6px', textAlign: 'right' }}>
+                                        <td style={{ padding: '8px', textAlign: 'right', fontSize: '11px' }}>
                                                 {item.type === 'PAYMENT' ? formatCurrency(item.balanceBefore || 0) : '-'}
                                               </td>
                                               <td style={{ 
-                                                padding: '6px', 
+                                          padding: '8px', 
                                                 textAlign: 'right', 
                                                 fontWeight: '600', 
                                                 color: item.type === 'PAYMENT' 
-                                                  ? (item.balanceAfter === 0 ? '#38a169' : '#e53e3e')
-                                                  : '#e53e3e'
+                                            ? (item.balanceAfter === 0 ? '#059669' : '#dc2626')
+                                            : '#dc2626'
                                               }}>
                                                 {item.type === 'PAYMENT' ? formatCurrency(item.balanceAfter || 0) : '-'}
                                               </td>
                                             </tr>
-                                          ))}
+                                    )})}
                                         </tbody>
                                       </table>
                                     </div>
                                   ) : (
-                                    <p style={{ color: '#718096', fontStyle: 'italic' }}>Sin pagos registrados</p>
+                              <p style={{ color: '#64748b', fontStyle: 'italic', textAlign: 'center', padding: '20px' }}>Sin pagos registrados</p>
                                   );
                                 })()}
 
-
                                 {/* Información adicional para préstamos como aval */}
-                                <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px', fontSize: '11px', color: '#4a5568' }}>
-                                  <div>👤 <strong>Cliente Principal:</strong> {loan.clientName}</div>
+                          <div style={{ 
+                            marginTop: '16px', 
+                            display: 'grid', 
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                            gap: '12px', 
+                            fontSize: '11px', 
+                            color: '#475569',
+                            padding: '16px',
+                            backgroundColor: '#f8fafc',
+                            borderRadius: '8px',
+                            border: '1px solid #e2e8f0'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>👤</span>
+                              <span><strong>Cliente Principal:</strong> {loan.clientName}</span>
+                            </div>
                                   {loan.renewedFrom && (
-                                    <div>🔄 <strong>Renovación de:</strong> {loan.renewedFrom}</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span>🔄</span>
+                                <span><strong>Renovación de:</strong> {loan.renewedFrom}</span>
+                              </div>
                                   )}
                                   {loan.renewedTo && (
-                                    <div>➡️ <strong>Renovado como:</strong> {loan.renewedTo}</div>
-                                  )}
-                                  <div>💰 <strong>Prestado:</strong> {formatCurrency(loan.amountRequested)}</div>
-                                  <div>💸 <strong>Total a pagar:</strong> {formatCurrency(loan.totalAmountDue)}</div>
-                                  <div>📊 <strong>Intereses:</strong> {formatCurrency(loan.interestAmount)}</div>
-                                  <div>⏱️ <strong>Duración:</strong> {loan.weekDuration} semanas</div>
-                                  <div>📈 <strong>Tasa:</strong> {loan.rate}%</div>
-                                </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span>➡️</span>
+                                <span><strong>Renovado como:</strong> {loan.renewedTo}</span>
                               </div>
-                            </td>
-                          </tr>
-                        </React.Fragment>
-                      ))}
-                    </tbody>
-                  </table>
+                            )}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>💰</span>
+                              <span><strong>Prestado:</strong> {formatCurrency(loan.amountRequested)}</span>
+                                </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>💸</span>
+                              <span><strong>Total a pagar:</strong> {formatCurrency(loan.totalAmountDue)}</span>
+                              </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>📊</span>
+                              <span><strong>Intereses:</strong> {formatCurrency(loan.interestAmount)}</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>⏱️</span>
+                              <span><strong>Duración:</strong> {loan.weekDuration} semanas</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>📈</span>
+                              <span><strong>Tasa:</strong> {loan.rate}%</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
