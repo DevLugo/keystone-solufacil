@@ -2913,60 +2913,68 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
               // 1.2 Actualizar balance de cuenta EMPLOYEE_CASH_FUND según delta de montos (usar originalLoan)
               try {
-
                 if (originalLoan) {
-                  const lead = await context.db.Employee.findOne({ where: { id: (originalLoan as any).leadId } });
-                  const account = await context.prisma.account.findFirst({
-                    where: {
-                      routes: { 
-                        some: { id: (lead as any)?.routesId }
-                      },
-                      type: 'EMPLOYEE_CASH_FUND'
+                  const parseAmountNum = (v: any) => parseFloat((v ?? '0').toString());
+
+                  const oldAmount = parseAmountNum((originalLoan as any).amountGived);
+                  const oldCommission = parseAmountNum((originalLoan as any).comissionAmount);
+                  const newAmount = parseAmountNum((data as any).amountGived ?? updatedLoan.amountGived);
+                  const newCommission = parseAmountNum((data as any).comissionAmount ?? updatedLoan.comissionAmount);
+
+                  // ✅ VERIFICAR: Solo actualizar balance si los montos realmente cambiaron
+                  const amountsChanged = (oldAmount !== newAmount) || (oldCommission !== newCommission);
+                  
+                  if (amountsChanged) {
+                    console.log('💰 Detectado cambio en montos, actualizando balance de cuenta...');
+                    
+                    const lead = await context.db.Employee.findOne({ where: { id: (originalLoan as any).leadId } });
+                    const account = await context.prisma.account.findFirst({
+                      where: {
+                        routes: { 
+                          some: { id: (lead as any)?.routesId }
+                        },
+                        type: 'EMPLOYEE_CASH_FUND'
+                      }
+                    });
+
+                    if (account) {
+                      const oldTotal = oldAmount + oldCommission;
+                      const newTotal = newAmount + newCommission;
+                      const balanceChange = oldTotal - newTotal; // mismo criterio que schema.ts
+
+                      const currentAmount = parseFloat(account.amount.toString());
+                      const updatedAmount = currentAmount + balanceChange;
+
+                      console.log('💰 Calculando actualización de cuenta:', {
+                        oldAmount,
+                        oldCommission,
+                        newAmount,
+                        newCommission,
+                        oldTotal,
+                        newTotal,
+                        balanceChange,
+                        currentAmount,
+                        updatedAmount
+                      });
+
+                      const updateResult = await context.db.Account.updateOne({
+                        where: { id: account.id },
+                        data: { amount: updatedAmount.toString() }
+                      });
+
+                      console.log('💰 Cuenta EMPLOYEE_CASH_FUND actualizada:', {
+                        accountId: account.id,
+                        oldTotal,
+                        newTotal,
+                        balanceChange,
+                        updatedAmount,
+                        updateResult
+                      });
+                    } else {
+                      console.log('⚠️ No se encontró cuenta EMPLOYEE_CASH_FUND para la ruta:', (lead as any)?.routesId);
                     }
-                  });
-
-                  if (account) {
-                    const parseAmountNum = (v: any) => parseFloat((v ?? '0').toString());
-
-                    const oldAmount = parseAmountNum((originalLoan as any).amountGived);
-                    const oldCommission = parseAmountNum((originalLoan as any).comissionAmount);
-                    const newAmount = parseAmountNum((data as any).amountGived ?? updatedLoan.amountGived);
-                    const newCommission = parseAmountNum((data as any).comissionAmount ?? updatedLoan.comissionAmount);
-
-                    const oldTotal = oldAmount + oldCommission;
-                    const newTotal = newAmount + newCommission;
-                    const balanceChange = oldTotal - newTotal; // mismo criterio que schema.ts
-
-                    const currentAmount = parseFloat(account.amount.toString());
-                    const updatedAmount = currentAmount + balanceChange;
-
-                    console.log('💰 Calculando actualización de cuenta:', {
-                      oldAmount,
-                      oldCommission,
-                      newAmount,
-                      newCommission,
-                      oldTotal,
-                      newTotal,
-                      balanceChange,
-                      currentAmount,
-                      updatedAmount
-                    });
-
-                    const updateResult = await context.db.Account.updateOne({
-                      where: { id: account.id },
-                      data: { amount: updatedAmount.toString() }
-                    });
-
-                    console.log('💰 Cuenta EMPLOYEE_CASH_FUND actualizada:', {
-                      accountId: account.id,
-                      oldTotal,
-                      newTotal,
-                      balanceChange,
-                      updatedAmount,
-                      updateResult
-                    });
                   } else {
-                    console.log('⚠️ No se encontró cuenta EMPLOYEE_CASH_FUND para la ruta:', (lead as any)?.routesId);
+                    console.log('ℹ️ No hay cambios en los montos, manteniendo balance de cuenta sin cambios');
                   }
                 }
               } catch (e) {
