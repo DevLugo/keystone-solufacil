@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useQuery, useLazyQuery } from '@apollo/client';
 import { Select } from '@keystone-ui/fields';
 import { GET_LEADS_SIMPLE, GET_ROUTES_SIMPLE } from '../graphql/queries/routes-optimized';
+import { PageContainer } from '@keystone-6/core/admin-ui/components';
+import ProtectedRoute from '../components/ProtectedRoute';
 
 interface DeadDebtLoan {
   id: string;
@@ -466,6 +468,8 @@ export default function CarteraMuertaPage() {
   };
 
   return (
+    <ProtectedRoute requiredRole="ADMIN">
+      <PageContainer header="Cartera Muerta">
     <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
       <h1 style={{ marginBottom: '2rem', color: '#1a1a1a' }}>Cartera Muerta</h1>
       
@@ -1359,5 +1363,7 @@ export default function CarteraMuertaPage() {
         </div>
       )}
     </div>
+      </PageContainer>
+    </ProtectedRoute>
   );
 }
