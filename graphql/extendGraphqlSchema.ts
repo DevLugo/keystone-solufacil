@@ -2533,14 +2533,14 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 // ✅ AGREGAR: Finalizar préstamo previo si existe
                 if (loanData.previousLoanId) {
                   await tx.loan.update({
-                    where: { id: loanData.previousLoanId },
-                    data: {
-                      status: 'RENOVATED',
-                      finishedDate: new Date(loanData.signDate)
-                      // ✅ NUEVA FUNCIONALIDAD: Establecer fecha de renovación (descomentado después de migración)
-                      // renewedDate: new Date(loanData.signDate)
-                    }
-                  });
+                      where: { id: loanData.previousLoanId },
+                      data: {
+                        status: 'RENOVATED',
+                        finishedDate: new Date(loanData.signDate)
+                        // ✅ NUEVA FUNCIONALIDAD: Establecer fecha de renovación (descomentado después de migración)
+                        // renewedDate: new Date(loanData.signDate)
+                      }
+                    });
                 }
 
                 // ✅ AGREGAR: Recalcular métricas del préstamo
@@ -5835,7 +5835,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   const expectedBefore = weeksElapsed > 0 ? weeksElapsed * (expectedWeekly || 0) : 0;
                   const surplusBefore = paidBeforeWeek - expectedBefore;
 
-                  // Aplicar reglas de contribución (considerando excedente previo)
+                  // ✅ CORRECCIÓN: Aplicar la misma lógica de sobrepago que se usa en historial-cliente.tsx
+                  // Usar la lógica de coverageType de generatePaymentChronology
+                  const coversWithSurplus = (surplusBefore + weeklyPaid) >= expectedWeekly && expectedWeekly > 0;
+                  let coverageType: 'FULL' | 'COVERED_BY_SURPLUS' | 'PARTIAL' | 'MISS' = 'MISS';
+                  if (weeklyPaid >= expectedWeekly) coverageType = 'FULL';
+                  else if (coversWithSurplus && weeklyPaid > 0) coverageType = 'COVERED_BY_SURPLUS';
+                  else if (coversWithSurplus && weeklyPaid === 0) coverageType = 'COVERED_BY_SURPLUS';
+                  else if (weeklyPaid > 0) coverageType = 'PARTIAL';
+
+                  // Aplicar reglas de contribución basadas en coverageType
                   let cvContribution = 0;
                   let cvReason = '';
                   
@@ -5848,15 +5857,20 @@ export const extendGraphqlSchema = graphql.extend(base => {
                         cvReason = 'Semana de otorgamiento (no se espera pago)';
                       } else {
                         // Primera semana de pago: SÍ se espera pago
-                        cvContribution = 1;
-                        cvReason = 'Sin pago en primera semana';
-                        data.cv += 1;
-                        data.cvAmount += Number(loan.amountGived || 0);
+                        if (coverageType === 'COVERED_BY_SURPLUS') {
+                          cvContribution = 0;
+                          cvReason = 'Sin pago (cubierto por sobrepago)';
+                        } else {
+                          cvContribution = 1;
+                          cvReason = 'Sin pago en primera semana';
+                          data.cv += 1;
+                          data.cvAmount += Number(loan.amountGived || 0);
+                        }
                       }
                     } else {
-                      if (surplusBefore >= (expectedWeekly || 0)) {
+                      if (coverageType === 'COVERED_BY_SURPLUS') {
                         cvContribution = 0;
-                        cvReason = 'Excedente previo';
+                        cvReason = 'Sin pago (cubierto por sobrepago)';
                       } else {
                         cvContribution = 1;
                         cvReason = 'Sin pago';
@@ -5865,21 +5879,29 @@ export const extendGraphqlSchema = graphql.extend(base => {
                       }
                     }
                   } else if (expectedWeekly > 0) {
-                    if (weeklyPaid >= expectedWeekly) {
+                    if (coverageType === 'FULL') {
                       cvContribution = 0;
                       cvReason = 'Pago completo';
-                    } else if (surplusBefore >= expectedWeekly) {
+                    } else if (coverageType === 'COVERED_BY_SURPLUS') {
                       cvContribution = 0;
-                      cvReason = 'Excedente previo';
-                    } else if (weeklyPaid < 0.5 * expectedWeekly) {
+                      cvReason = 'Pago parcial (cubierto por sobrepago)';
+                    } else if (coverageType === 'PARTIAL') {
+                      if (weeklyPaid < 0.5 * expectedWeekly) {
+                        cvContribution = 1;
+                        cvReason = 'Pago < 50%';
+                        data.cv += 1;
+                        data.cvAmount += Number(loan.amountGived || 0);
+                      } else {
+                        cvContribution = 0.5;
+                        cvReason = 'Pago 50-100%';
+                        data.cv += 0.5;
+                      }
+                    } else {
+                      // MISS - no hay pago y no hay sobrepago
                       cvContribution = 1;
-                      cvReason = 'Pago < 50%';
+                      cvReason = 'Sin pago';
                       data.cv += 1;
                       data.cvAmount += Number(loan.amountGived || 0);
-                    } else {
-                      cvContribution = 0.5;
-                      cvReason = 'Pago 50-100%';
-                      data.cv += 0.5;
                     }
                   }
 
@@ -6474,10 +6496,43 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     const requested = parseFloat(loan.requestedAmount?.toString?.() || `${loan.requestedAmount || 0}`);
                     if (duration > 0) expectedWeekly = (requested * (1 + rate)) / duration;
                   } catch {}
-                  if (weeklyPaid === 0) cvPrev += 1;
-                  else if (expectedWeekly > 0) {
-                    if (weeklyPaid < 0.5 * expectedWeekly) cvPrev += 1;
-                    else if (weeklyPaid < expectedWeekly) cvPrev += 0.5;
+                  // Calcular sobrepago previo
+                  let paidBeforeWeekPrev = 0;
+                  for (const p of loan.payments || []) {
+                    const pd = new Date(p.receivedAt || p.createdAt);
+                    if (pd < weekStartPrev) paidBeforeWeekPrev += Number(p.amount || 0);
+                  }
+                  
+                  // Calcular semanas transcurridas desde la firma hasta la semana anterior
+                  const sign = new Date(loan.signDate);
+                  const signWeekStartPrev = new Date(sign);
+                  while (signWeekStartPrev.getDay() !== 1) {
+                    signWeekStartPrev.setDate(signWeekStartPrev.getDate() - 1);
+                  }
+                  signWeekStartPrev.setHours(0, 0, 0, 0);
+                  
+                  const weeksSinceSignPrev = Math.floor((weekStartPrev.getTime() - signWeekStartPrev.getTime()) / (7 * 24 * 60 * 60 * 1000));
+                  const weeksElapsedPrev = Math.max(0, weeksSinceSignPrev - 1);
+                  const expectedBeforePrev = weeksElapsedPrev > 0 ? weeksElapsedPrev * expectedWeekly : 0;
+                  const surplusBeforePrev = paidBeforeWeekPrev - expectedBeforePrev;
+                  
+                  // Aplicar lógica de coverageType
+                  const coversWithSurplusPrev = (surplusBeforePrev + weeklyPaid) >= expectedWeekly && expectedWeekly > 0;
+                  let coverageTypePrev: 'FULL' | 'COVERED_BY_SURPLUS' | 'PARTIAL' | 'MISS' = 'MISS';
+                  if (weeklyPaid >= expectedWeekly) coverageTypePrev = 'FULL';
+                  else if (coversWithSurplusPrev && weeklyPaid > 0) coverageTypePrev = 'COVERED_BY_SURPLUS';
+                  else if (coversWithSurplusPrev && weeklyPaid === 0) coverageTypePrev = 'COVERED_BY_SURPLUS';
+                  else if (weeklyPaid > 0) coverageTypePrev = 'PARTIAL';
+                  
+                  // Solo contar como CV si NO está cubierto por sobrepago
+                  if (coverageTypePrev === 'MISS') {
+                    cvPrev += 1;
+                  } else if (coverageTypePrev === 'PARTIAL' && expectedWeekly > 0) {
+                    if (weeklyPaid < 0.5 * expectedWeekly) {
+                      cvPrev += 1;
+                    } else if (weeklyPaid < expectedWeekly) {
+                      cvPrev += 0.5;
+                    }
                   }
                 });
                 payingClientsPrevMonth = Math.max(0, activePrevEnd - cvPrev);
