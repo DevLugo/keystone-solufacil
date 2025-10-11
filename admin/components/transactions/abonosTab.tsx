@@ -728,11 +728,7 @@ export const CreatePaymentForm = ({
     const regularPayments = paymentsData?.loanPayments || [];
     const migratedPayments = migratedPaymentsData?.loanPayments || [];
     
-    console.log('🚀 CONSULTA COMPLETADA');
-    console.log('📅 Fecha seleccionada:', selectedDate);
-    console.log('👤 Lead seleccionado:', selectedLead?.id);
-    console.log('🔍 Pagos regulares encontrados:', regularPayments.length);
-    console.log('🔍 Pagos migrados encontrados:', migratedPayments.length);
+    
     
     if (regularPayments.length > 0 || migratedPayments.length > 0) {
       // Marcar los pagos migrados para identificarlos en la UI
@@ -836,6 +832,56 @@ export const CreatePaymentForm = ({
   // Estados para modal de edición de cliente
   const [isEditClientModalOpen, setIsEditClientModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<any>(null);
+
+  // ✅ MOVIDO: Hooks useCallback al principio para evitar problemas de orden
+  // Función para determinar si un préstamo tiene sobrepago que cubre la falta de pago
+  // Usa exactamente la misma lógica que historial-cliente.tsx
+  const hasSurplusCoverage = useCallback((loan: any) => {
+    if (!loan || !selectedDate) return false;
+    
+    try {
+      const clientId = loan.borrower?.personalData?.id;
+      const clientHistory = clientHistories[clientId];
+      
+      // Si tenemos el historial del cliente, buscar el préstamo en los datos procesados
+      if (clientHistory) {
+        const processedLoan = clientHistory.loansAsClient?.find((l: any) => l.id === loan.id);
+        if (processedLoan) {
+          // Usar generatePaymentChronology con los datos procesados (igual que historial-cliente.tsx)
+          const chronology = generatePaymentChronology(processedLoan);
+          
+          // Buscar si hay algún período sin pago que esté cubierto por sobrepago
+          const hasCoveredNoPayment = chronology.some((item: PaymentChronologyItem) => 
+            item.type === 'NO_PAYMENT' && item.coverageType === 'COVERED_BY_SURPLUS'
+          );
+          
+          console.log(`Préstamo ${loan.id} (${loan.borrower?.personalData?.fullName}): hasCoveredNoPayment = ${hasCoveredNoPayment}`);
+          console.log('Cronología períodos sin pago:', chronology.filter(item => item.type === 'NO_PAYMENT'));
+          
+          return hasCoveredNoPayment;
+        }
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Error al calcular sobrepago para préstamo:', loan.id, error);
+      return false;
+    }
+  }, [selectedDate, clientHistories]);
+
+  // Función separada para solicitar historiales (evita bucle infinito)
+  const requestClientHistory = useCallback((clientId: string, clientName: string) => {
+    if (!clientHistories[clientId]) {
+      console.log(`Solicitando historial para cliente ${clientId} (${clientName})`);
+      getClientHistory({
+        variables: {
+          clientId: clientId,
+          routeId: null,
+          locationId: null
+        }
+      });
+    }
+  }, [clientHistories, getClientHistory]);
 
   const router = useRouter();
 
@@ -1117,9 +1163,36 @@ export const CreatePaymentForm = ({
 
   const handleSaveAllChanges = async () => {
     try {
+      
+        // ✅ VERIFICACIÓN: Verificar si los pagos tachados realmente existen en existingPayments
+        const nonExistentTachados = strikethroughPaymentIds.filter(id => 
+          !existingPayments.some((payment: any) => payment.id === id)
+        );
+        
+        if (nonExistentTachados.length > 0) {
+          // Refrescar los datos
+          await refetchPayments();
+          await refetchMigratedPayments();
+          
+          // Limpiar el estado de eliminación ya que los datos están actualizados
+          setStrikethroughPaymentIds([]);
+          setStrikethroughNewPaymentIndices([]);
+          
+          return; // Salir de la función para que se ejecute con datos frescos
+        }
+      
       // Agrupar los pagos por leadPaymentReceived (excluyendo los tachados y migrados, incluyendo los marcados como pagados)
-      const paymentsByLeadPayment = existingPayments
-        .filter((payment: any) => !strikethroughPaymentIds.includes(payment.id) && !payment.isMigrated)
+      const filteredPayments = existingPayments.filter((payment: any) => {
+        const isStrikethrough = strikethroughPaymentIds.includes(payment.id);
+        const isMigrated = payment.isMigrated;
+        const shouldInclude = !isStrikethrough && !isMigrated;
+        
+        
+        return shouldInclude;
+      });
+      
+      
+      const paymentsByLeadPayment = filteredPayments
         .reduce((acc: Record<string, {
           payments: Array<{
             amount: number;
@@ -1367,8 +1440,55 @@ export const CreatePaymentForm = ({
         return;
       }
 
-      // Si hay pagos nuevos, crear un nuevo LeadPaymentReceived
-      if (filteredNewPayments.length > 0) {
+      // ✅ CORREGIDO: Lógica para determinar si crear nuevo o actualizar existente
+      if (state.groupedPayments) {
+        // Si ya existen pagos para este día, solo actualizar (incluyendo pagos nuevos)
+        console.log('✅ Ejecutando updateCustomLeadPaymentReceived para pagos existentes:', state.groupedPayments);
+        for (const [leadPaymentId, data] of Object.entries(state.groupedPayments)) {
+          const { payments, paymentDate } = data;
+          const { cashPaidAmount, bankPaidAmount } = loadPaymentDistribution;
+          
+          // ✅ AGREGAR: Incluir pagos nuevos en la actualización
+          const allPayments = [...(payments as any[])];
+          if (filteredNewPayments.length > 0) {
+            console.log('✅ Agregando pagos nuevos a la actualización existente:', filteredNewPayments);
+            allPayments.push(...filteredNewPayments.map(payment => ({
+              amount: parseFloat(payment.amount || '0'),
+              comission: parseFloat(payment.comission?.toString() || '0'),
+              loanId: payment.loanId,
+              type: payment.type,
+              paymentMethod: payment.paymentMethod
+            })));
+          }
+          
+          // Limpiar pagos 0/0 antes de enviar actualización
+          const cleanedPayments = allPayments.filter((p: any) => {
+            const amt = parseFloat(p.amount || '0');
+            const com = parseFloat(p.comission?.toString() || '0');
+            return !(amt === 0 && com === 0);
+          });
+          const cleanedExpected = cleanedPayments.reduce((sum: number, p: any) => sum + parseFloat(p.amount || '0'), 0);
+
+          await updateCustomLeadPaymentReceived({
+            variables: {
+              id: leadPaymentId,
+              expectedAmount: cleanedExpected,
+              cashPaidAmount,
+              bankPaidAmount,
+              falcoAmount: 0, // ✅ ELIMINADO: Falco se maneja por separado
+              paymentDate,
+              payments: cleanedPayments.map((payment: any) => ({
+                amount: parseFloat(payment.amount || '0'),
+                comission: parseFloat(payment.comission?.toString() || '0'),
+                loanId: payment.loanId,
+                type: payment.type,
+                paymentMethod: payment.paymentMethod
+              }))
+            }
+          });
+        }
+      } else if (filteredNewPayments.length > 0) {
+        // Si no existen pagos para este día, crear nuevo
         console.log('✅ Ejecutando createCustomLeadPaymentReceived con:', {
           expectedAmount: expectedTotalAmount,
           cashPaidAmount,
@@ -1396,40 +1516,6 @@ export const CreatePaymentForm = ({
               }))
           }
         });
-      }
-
-      // Si hay pagos existentes editados, actualizarlos
-      if (state.groupedPayments) {
-        console.log('✅ Ejecutando updateCustomLeadPaymentReceived para pagos existentes:', state.groupedPayments);
-        for (const [leadPaymentId, data] of Object.entries(state.groupedPayments)) {
-          const { payments, paymentDate } = data;
-          const { cashPaidAmount, bankPaidAmount } = loadPaymentDistribution;
-          // Limpiar pagos 0/0 antes de enviar actualización
-          const cleanedPayments = (payments as any[]).filter((p: any) => {
-            const amt = parseFloat(p.amount || '0');
-            const com = parseFloat(p.comission?.toString() || '0');
-            return !(amt === 0 && com === 0);
-          });
-          const cleanedExpected = cleanedPayments.reduce((sum: number, p: any) => sum + parseFloat(p.amount || '0'), 0);
-
-          await updateCustomLeadPaymentReceived({
-            variables: {
-              id: leadPaymentId,
-              expectedAmount: cleanedExpected,
-              cashPaidAmount,
-              bankPaidAmount,
-              falcoAmount: 0, // ✅ ELIMINADO: Falco se maneja por separado
-              paymentDate,
-              payments: cleanedPayments.map((payment: any) => ({
-                amount: parseFloat(payment.amount || '0'),
-                comission: parseFloat(payment.comission?.toString() || '0'),
-                loanId: payment.loanId,
-                type: payment.type,
-                paymentMethod: payment.paymentMethod
-              }))
-            }
-          });
-        }
       }
 
       // ✅ CORREGIDO: Refrescar todos los datos para obtener el balance real de la DB
@@ -1486,8 +1572,14 @@ export const CreatePaymentForm = ({
   };
 
   useEffect(() => {
+    console.log('🔍 [DEBUG] useEffect loansData/existingPayments ejecutándose...');
+    console.log('   - loansData?.loans?.length:', loansData?.loans?.length);
+    console.log('   - existingPayments.length:', existingPayments.length);
+    console.log('   - payments.length (actual):', payments.length);
+    
     // Si no hay pagos existentes y tenemos datos de préstamos, cargar los pagos semanales
     if (loansData?.loans && existingPayments.length === 0) {
+      console.log('✅ [DEBUG] Creando pagos automáticamente desde loansData...');
       const newPayments = loansData.loans.map(loan => ({
         amount: loan.weeklyPaymentAmount,
         // ✅ MODIFICAR: Usar comisión por defecto del loanType si existe
@@ -1512,15 +1604,19 @@ export const CreatePaymentForm = ({
         return dateA.getTime() - dateB.getTime(); // Ascendente: crédito más viejo arriba
       });
       
-      console.log('Pagos semanales creados con comisiones por defecto del loanType:', sortedNewPayments);
+      console.log('✅ [DEBUG] Pagos semanales creados con comisiones por defecto del loanType:', sortedNewPayments.length);
       sortedNewPayments.forEach((payment, index) => {
-        console.log(`Pago ${index + 1}: ${payment.loan?.borrower?.personalData?.fullName} - Comisión: ${payment.comission} (del loanType: ${payment.loan?.loantype?.name}) - Fecha Crédito: ${payment.loan?.signDate ? new Date(payment.loan.signDate).toLocaleDateString('es-MX') : 'N/A'}`);
+        console.log(`   ${index + 1}. ${payment.loan?.borrower?.personalData?.fullName} - Comisión: ${payment.comission} (del loanType: ${payment.loan?.loantype?.name}) - Fecha Crédito: ${payment.loan?.signDate ? new Date(payment.loan.signDate).toLocaleDateString('es-MX') : 'N/A'}`);
       });
       
       updateState({ payments: sortedNewPayments });
     } else if (existingPayments.length > 0) {
       // Si hay pagos existentes, limpiar los pagos nuevos
+      console.log('🧹 [DEBUG] Limpiando pagos automáticos porque hay pagos existentes...');
+      console.log('   - Pagos que se van a limpiar:', payments.length);
       updateState({ payments: [] });
+    } else {
+      console.log('ℹ️ [DEBUG] No se ejecuta ninguna acción - no hay loansData o existingPayments');
     }
   }, [loansData, comission, existingPayments.length]);
 
@@ -1771,55 +1867,6 @@ export const CreatePaymentForm = ({
     
     return missingPayments;
   };
-
-  // Función para determinar si un préstamo tiene sobrepago que cubre la falta de pago
-  // Usa exactamente la misma lógica que historial-cliente.tsx
-  const hasSurplusCoverage = useCallback((loan: any) => {
-    if (!loan || !selectedDate) return false;
-    
-    try {
-      const clientId = loan.borrower?.personalData?.id;
-      const clientHistory = clientHistories[clientId];
-      
-      // Si tenemos el historial del cliente, buscar el préstamo en los datos procesados
-      if (clientHistory) {
-        const processedLoan = clientHistory.loansAsClient?.find((l: any) => l.id === loan.id);
-        if (processedLoan) {
-          // Usar generatePaymentChronology con los datos procesados (igual que historial-cliente.tsx)
-          const chronology = generatePaymentChronology(processedLoan);
-          
-          // Buscar si hay algún período sin pago que esté cubierto por sobrepago
-          const hasCoveredNoPayment = chronology.some((item: PaymentChronologyItem) => 
-            item.type === 'NO_PAYMENT' && item.coverageType === 'COVERED_BY_SURPLUS'
-          );
-          
-          console.log(`Préstamo ${loan.id} (${loan.borrower?.personalData?.fullName}): hasCoveredNoPayment = ${hasCoveredNoPayment}`);
-          console.log('Cronología períodos sin pago:', chronology.filter(item => item.type === 'NO_PAYMENT'));
-          
-          return hasCoveredNoPayment;
-        }
-      }
-      
-      return false;
-    } catch (error) {
-      console.error('Error al calcular sobrepago para préstamo:', loan.id, error);
-      return false;
-    }
-  }, [selectedDate, clientHistories]);
-
-  // Función separada para solicitar historiales (evita bucle infinito)
-  const requestClientHistory = useCallback((clientId: string, clientName: string) => {
-    if (!clientHistories[clientId]) {
-      console.log(`Solicitando historial para cliente ${clientId} (${clientName})`);
-      getClientHistory({
-        variables: {
-          clientId: clientId,
-          routeId: null,
-          locationId: null
-        }
-      });
-    }
-  }, [clientHistories, getClientHistory]);
 
   // ✅ SIMPLIFICADO: Los datos ya vienen ordenados por signDate desde la query GraphQL
   // Solo necesitamos mantener el orden que viene de la base de datos
@@ -3032,12 +3079,19 @@ export const CreatePaymentForm = ({
                               size="small"
                               onClick={() => {
                                 // Marcar como tachado (eliminado visualmente)
-                                console.log('Marcando como tachado:', payment.id);
-                                setStrikethroughPaymentIds(prev => {
-                                  const newIds = [...prev, payment.id];
-                                  console.log('Nuevos IDs tachados:', newIds);
-                                  return newIds;
+                                console.log('🗑️ [FRONTEND DEBUG] Marcando como tachado:', payment.id);
+                                console.log('🗑️ [FRONTEND DEBUG] Detalles del pago:', {
+                                  id: payment.id,
+                                  loanId: payment.loan?.id,
+                                  amount: payment.amount,
+                                  clientName: payment.loan?.borrower?.personalData?.fullName,
+                                  receivedAt: payment.receivedAt,
+                                  paymentMethod: payment.paymentMethod
                                 });
+                                
+                                
+                                setStrikethroughPaymentIds(prev => [...prev, payment.id]);
+                                
                                 // También eliminar del estado editedPayments
                                 const newEditedPayments = { ...editedPayments };
                                 delete newEditedPayments[payment.id];
