@@ -437,7 +437,8 @@ const RouteSelector = React.memo(({ onRouteSelect, value }: { onRouteSelect: (ro
 const LeadSelector = React.memo(({ routeId, onLeadSelect, value }: { routeId: string | undefined, onLeadSelect: (lead: Option | null) => void, value: Option | null }) => {
   const { data: leadsData, loading: leadsLoading, error: leadsError } = useQuery<{ employees: Lead[] }>(GET_LEADS, {
     variables: { routeId: routeId || '' },
-    skip: !routeId,
+    // Removido skip para evitar el error "Rendered more hooks than during the previous render"
+    // El query se ejecutará siempre pero puede retornar datos vacíos si routeId es undefined
   });
 
   const leadOptions = useMemo(() => 
@@ -834,40 +835,6 @@ export const CreatePaymentForm = ({
   const [editingClient, setEditingClient] = useState<any>(null);
 
   // ✅ MOVIDO: Hooks useCallback al principio para evitar problemas de orden
-  // Función para determinar si un préstamo tiene sobrepago que cubre la falta de pago
-  // Usa exactamente la misma lógica que historial-cliente.tsx
-  const hasSurplusCoverage = useCallback((loan: any) => {
-    if (!loan || !selectedDate) return false;
-    
-    try {
-      const clientId = loan.borrower?.personalData?.id;
-      const clientHistory = clientHistories[clientId];
-      
-      // Si tenemos el historial del cliente, buscar el préstamo en los datos procesados
-      if (clientHistory) {
-        const processedLoan = clientHistory.loansAsClient?.find((l: any) => l.id === loan.id);
-        if (processedLoan) {
-          // Usar generatePaymentChronology con los datos procesados (igual que historial-cliente.tsx)
-          const chronology = generatePaymentChronology(processedLoan);
-          
-          // Buscar si hay algún período sin pago que esté cubierto por sobrepago
-          const hasCoveredNoPayment = chronology.some((item: PaymentChronologyItem) => 
-            item.type === 'NO_PAYMENT' && item.coverageType === 'COVERED_BY_SURPLUS'
-          );
-          
-          console.log(`Préstamo ${loan.id} (${loan.borrower?.personalData?.fullName}): hasCoveredNoPayment = ${hasCoveredNoPayment}`);
-          console.log('Cronología períodos sin pago:', chronology.filter(item => item.type === 'NO_PAYMENT'));
-          
-          return hasCoveredNoPayment;
-        }
-      }
-      
-      return false;
-    } catch (error) {
-      console.error('Error al calcular sobrepago para préstamo:', loan.id, error);
-      return false;
-    }
-  }, [selectedDate, clientHistories]);
 
   // Función separada para solicitar historiales (evita bucle infinito)
   const requestClientHistory = useCallback((clientId: string, clientName: string) => {
@@ -1807,7 +1774,53 @@ export const CreatePaymentForm = ({
   const existingPaymentsCount = useMemo(() => {
     return existingPayments.filter((payment: any) => !strikethroughPaymentIds.includes(payment.id)).length;
   }, [existingPayments, strikethroughPaymentIds]);
+// Calcular créditos que debían pagar pero no aparecen registrados
+const calculateMissingPayments = () => {
+  // Solo mostrar si ya hay pagos registrados para esta fecha
+  if (!loansData?.loans || !selectedDate || existingPayments.length === 0) return [];
+  
+  const selectedDateObj = new Date(selectedDate);
+  
+  // Obtener IDs de préstamos que SÍ tienen pagos registrados (excluyendo los marcados como pagados temporalmente)
+  // Incluir también los marcados temporalmente como pagados (isMissingPayment)
+  const paidLoanIds = new Set(
+    existingPayments
+      .map((payment: any) => payment.loanId || payment.loan?.id)
+      .filter(Boolean)
+  );
+  
+  // Filtrar préstamos que debían pagar en esta fecha pero no tienen pago registrado
+  const missingPayments = loansData.loans.filter((loan: any) => {
+    // Verificar que el préstamo está activo (no terminado)
+    if (loan.finishedDate) return false;
+    
+    // Verificar que el préstamo ya había comenzado antes de la fecha seleccionada
+    const signDate = new Date(loan.signDate);
+    if (signDate >= selectedDateObj) return false;
+    
+    // Verificar que no tiene pago registrado para esta fecha
+    return !paidLoanIds.has(loan.id);
+  });
+  
+  return missingPayments;
+};
 
+// ✅ SIMPLIFICADO: Los datos ya vienen ordenados por signDate desde la query GraphQL
+// Solo necesitamos mantener el orden que viene de la base de datos
+const missingPayments = calculateMissingPayments();
+
+// Solicitar historiales de clientes que aparecen como "sin pago" (sin causar bucles infinitos)
+useEffect(() => {
+  if (missingPayments.length > 0) {
+    missingPayments.forEach((loan: any) => {
+      const clientId = loan.borrower?.personalData?.id;
+      const clientName = loan.borrower?.personalData?.fullName;
+      if (clientId && clientName) {
+        requestClientHistory(clientId, clientName);
+      }
+    });
+  }
+}, [missingPayments, requestClientHistory]);
 
 
   // Contar pagos migrados para mostrar información (debe estar antes de los returns condicionales)
@@ -1837,53 +1850,7 @@ export const CreatePaymentForm = ({
     );
   }
 
-  // Calcular créditos que debían pagar pero no aparecen registrados
-  const calculateMissingPayments = () => {
-    // Solo mostrar si ya hay pagos registrados para esta fecha
-    if (!loansData?.loans || !selectedDate || existingPayments.length === 0) return [];
-    
-    const selectedDateObj = new Date(selectedDate);
-    
-    // Obtener IDs de préstamos que SÍ tienen pagos registrados (excluyendo los marcados como pagados temporalmente)
-    // Incluir también los marcados temporalmente como pagados (isMissingPayment)
-    const paidLoanIds = new Set(
-      existingPayments
-        .map((payment: any) => payment.loanId || payment.loan?.id)
-        .filter(Boolean)
-    );
-    
-    // Filtrar préstamos que debían pagar en esta fecha pero no tienen pago registrado
-    const missingPayments = loansData.loans.filter((loan: any) => {
-      // Verificar que el préstamo está activo (no terminado)
-      if (loan.finishedDate) return false;
-      
-      // Verificar que el préstamo ya había comenzado antes de la fecha seleccionada
-      const signDate = new Date(loan.signDate);
-      if (signDate >= selectedDateObj) return false;
-      
-      // Verificar que no tiene pago registrado para esta fecha
-      return !paidLoanIds.has(loan.id);
-    });
-    
-    return missingPayments;
-  };
-
-  // ✅ SIMPLIFICADO: Los datos ya vienen ordenados por signDate desde la query GraphQL
-  // Solo necesitamos mantener el orden que viene de la base de datos
-  const missingPayments = calculateMissingPayments();
-
-  // Solicitar historiales de clientes que aparecen como "sin pago" (sin causar bucles infinitos)
-  useEffect(() => {
-    if (missingPayments.length > 0) {
-      missingPayments.forEach((loan: any) => {
-        const clientId = loan.borrower?.personalData?.id;
-        const clientName = loan.borrower?.personalData?.fullName;
-        if (clientId && clientName) {
-          requestClientHistory(clientId, clientName);
-        }
-      });
-    }
-  }, [missingPayments, requestClientHistory]);
+  
 
   if (loansLoading || paymentsLoading || migratedPaymentsLoading || falcosLoading) return <LoadingDots label="Loading data" size="large" />;
   if (loansError) return <GraphQLErrorNotice errors={loansError?.graphQLErrors || []} networkError={loansError?.networkError} />;
@@ -2647,13 +2614,13 @@ export const CreatePaymentForm = ({
               {/* Créditos Sin Pago (siempre que haya pagos existentes) */}
               {missingPayments.map((loan: any, index: number) => (
                 <tr key={`missing-${loan.id}`} style={{ 
-                  backgroundColor: hasSurplusCoverage(loan) ? '#E0F2FE' : '#FEF2F2',
-                  borderLeft: hasSurplusCoverage(loan) ? '4px solid #0ea5e9' : '4px solid #FCA5A5'
+                  backgroundColor: '#FEF2F2',
+                  borderLeft: '4px solid #FCA5A5'
                 }}>
                   <td style={{ 
                     textAlign: 'center',
                     fontWeight: 'bold',
-                    color: hasSurplusCoverage(loan) ? '#0ea5e9' : '#DC2626',
+                    color: '#DC2626',
                     fontSize: FONT_SYSTEM.table
                   }}>
                     {existingPayments.length + index + 1}
@@ -2663,18 +2630,18 @@ export const CreatePaymentForm = ({
                       display: 'inline-flex',
                       alignItems: 'center',
                       padding: '4px 8px',
-                      backgroundColor: hasSurplusCoverage(loan) ? '#E0F2FE' : '#FEE2E2',
-                      color: hasSurplusCoverage(loan) ? '#0ea5e9' : '#DC2626',
+                      backgroundColor: '#FEE2E2',
+                      color: '#DC2626',
                       borderRadius: '4px',
                       fontSize: '12px',
                       fontWeight: '600',
-                      border: hasSurplusCoverage(loan) ? '1px solid #0ea5e9' : '1px solid #FCA5A5',
+                      border: '1px solid #FCA5A5',
                     }}>
-                      {hasSurplusCoverage(loan) ? '✅ CUBIERTO' : '⚠️ SIN PAGO'}
+                      ⚠️ SIN PAGO
                     </span>
                   </td>
                   <td style={{ 
-                    color: hasSurplusCoverage(loan) ? '#0ea5e9' : '#DC2626', 
+                    color: '#DC2626', 
                     fontWeight: '500',
                     display: 'flex',
                     alignItems: 'center',
@@ -2759,12 +2726,12 @@ export const CreatePaymentForm = ({
                       </Button>
                     ) : (
                       <span style={{
-                        color: hasSurplusCoverage(loan) ? '#0ea5e9' : '#dc2626',
+                        color: '#dc2626',
                         fontSize: '12px',
                         fontStyle: 'italic',
-                        fontWeight: hasSurplusCoverage(loan) ? '500' : '600'
+                        fontWeight: '600'
                       }}>
-                        {hasSurplusCoverage(loan) ? 'Sin pago (cubierto por sobrepago)' : 'Sin pago registrado'}
+                        Sin pago registrado
                       </span>
                     )}
                   </td>
