@@ -1774,7 +1774,53 @@ export const CreatePaymentForm = ({
   const existingPaymentsCount = useMemo(() => {
     return existingPayments.filter((payment: any) => !strikethroughPaymentIds.includes(payment.id)).length;
   }, [existingPayments, strikethroughPaymentIds]);
+// Calcular créditos que debían pagar pero no aparecen registrados
+const calculateMissingPayments = () => {
+  // Solo mostrar si ya hay pagos registrados para esta fecha
+  if (!loansData?.loans || !selectedDate || existingPayments.length === 0) return [];
+  
+  const selectedDateObj = new Date(selectedDate);
+  
+  // Obtener IDs de préstamos que SÍ tienen pagos registrados (excluyendo los marcados como pagados temporalmente)
+  // Incluir también los marcados temporalmente como pagados (isMissingPayment)
+  const paidLoanIds = new Set(
+    existingPayments
+      .map((payment: any) => payment.loanId || payment.loan?.id)
+      .filter(Boolean)
+  );
+  
+  // Filtrar préstamos que debían pagar en esta fecha pero no tienen pago registrado
+  const missingPayments = loansData.loans.filter((loan: any) => {
+    // Verificar que el préstamo está activo (no terminado)
+    if (loan.finishedDate) return false;
+    
+    // Verificar que el préstamo ya había comenzado antes de la fecha seleccionada
+    const signDate = new Date(loan.signDate);
+    if (signDate >= selectedDateObj) return false;
+    
+    // Verificar que no tiene pago registrado para esta fecha
+    return !paidLoanIds.has(loan.id);
+  });
+  
+  return missingPayments;
+};
 
+// ✅ SIMPLIFICADO: Los datos ya vienen ordenados por signDate desde la query GraphQL
+// Solo necesitamos mantener el orden que viene de la base de datos
+const missingPayments = calculateMissingPayments();
+
+// Solicitar historiales de clientes que aparecen como "sin pago" (sin causar bucles infinitos)
+useEffect(() => {
+  if (missingPayments.length > 0) {
+    missingPayments.forEach((loan: any) => {
+      const clientId = loan.borrower?.personalData?.id;
+      const clientName = loan.borrower?.personalData?.fullName;
+      if (clientId && clientName) {
+        requestClientHistory(clientId, clientName);
+      }
+    });
+  }
+}, [missingPayments, requestClientHistory]);
 
 
   // Contar pagos migrados para mostrar información (debe estar antes de los returns condicionales)
@@ -1804,53 +1850,7 @@ export const CreatePaymentForm = ({
     );
   }
 
-  // Calcular créditos que debían pagar pero no aparecen registrados
-  const calculateMissingPayments = () => {
-    // Solo mostrar si ya hay pagos registrados para esta fecha
-    if (!loansData?.loans || !selectedDate || existingPayments.length === 0) return [];
-    
-    const selectedDateObj = new Date(selectedDate);
-    
-    // Obtener IDs de préstamos que SÍ tienen pagos registrados (excluyendo los marcados como pagados temporalmente)
-    // Incluir también los marcados temporalmente como pagados (isMissingPayment)
-    const paidLoanIds = new Set(
-      existingPayments
-        .map((payment: any) => payment.loanId || payment.loan?.id)
-        .filter(Boolean)
-    );
-    
-    // Filtrar préstamos que debían pagar en esta fecha pero no tienen pago registrado
-    const missingPayments = loansData.loans.filter((loan: any) => {
-      // Verificar que el préstamo está activo (no terminado)
-      if (loan.finishedDate) return false;
-      
-      // Verificar que el préstamo ya había comenzado antes de la fecha seleccionada
-      const signDate = new Date(loan.signDate);
-      if (signDate >= selectedDateObj) return false;
-      
-      // Verificar que no tiene pago registrado para esta fecha
-      return !paidLoanIds.has(loan.id);
-    });
-    
-    return missingPayments;
-  };
-
-  // ✅ SIMPLIFICADO: Los datos ya vienen ordenados por signDate desde la query GraphQL
-  // Solo necesitamos mantener el orden que viene de la base de datos
-  const missingPayments = calculateMissingPayments();
-
-  // Solicitar historiales de clientes que aparecen como "sin pago" (sin causar bucles infinitos)
-  useEffect(() => {
-    if (missingPayments.length > 0) {
-      missingPayments.forEach((loan: any) => {
-        const clientId = loan.borrower?.personalData?.id;
-        const clientName = loan.borrower?.personalData?.fullName;
-        if (clientId && clientName) {
-          requestClientHistory(clientId, clientName);
-        }
-      });
-    }
-  }, [missingPayments, requestClientHistory]);
+  
 
   if (loansLoading || paymentsLoading || migratedPaymentsLoading || falcosLoading) return <LoadingDots label="Loading data" size="large" />;
   if (loansError) return <GraphQLErrorNotice errors={loansError?.graphQLErrors || []} networkError={loansError?.networkError} />;
