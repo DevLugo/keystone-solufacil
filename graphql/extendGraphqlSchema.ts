@@ -946,18 +946,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
                 // Preparar datos de transacción para la COMISIÓN (EXPENSE)
                 if (comissionAmount > 0) {
-                  console.log('🔍 DEBUG - Creando transacción de comisión:', {
-                    amount: comissionAmount.toFixed(2),
-                    date: new Date(paymentDate),
-                    type: 'EXPENSE',
-                    expenseSource: 'LOAN_PAYMENT_COMISSION',
-                    sourceAccountId: cashAccount.id,
-                    loanPaymentId: payment.id,
-                    loanId: payment.loanId,
-                    leadId: leadId,
-                    description: `Comisión por pago de préstamo - ${payment.id}`,
-                  });
-                  
                   transactionData.push({
                     amount: comissionAmount.toFixed(2),
                     date: new Date(paymentDate),
@@ -1593,6 +1581,13 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
             }
             
+            console.log(`🔍 [DEBUG] Análisis de pagos:`);
+            console.log(`   - Total pagos enviados: ${payments.length}`);
+            console.log(`   - Pagos existentes encontrados: ${allPaymentsOfDay.length}`);
+            console.log(`   - Pagos a mantener: ${paymentsToKeep.length}`);
+            console.log(`   - Pagos a eliminar: ${paymentsToDelete.length}`);
+            console.log(`   - Pagos nuevos a crear: ${paymentsToCreate.length}`);
+            
             if (paymentsToCreate.length > 0) {
               console.log(`💾 Creando ${paymentsToCreate.length} pagos realmente nuevos...`);
               
@@ -1615,10 +1610,22 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 await tx.loanPayment.createMany({ data: paymentData });
               }
 
-              // Obtener los pagos creados para crear las transacciones
+              // ✅ CORREGIDO: Obtener solo los pagos que acabamos de crear
               const allCreatedPayments = await tx.loanPayment.findMany({
-                where: { leadPaymentReceivedId: leadPaymentReceived.id }
+                where: { 
+                  leadPaymentReceivedId: leadPaymentReceived.id,
+                  // Solo obtener pagos que coincidan con los que acabamos de crear
+                  OR: paymentsToCreate.map(payment => ({
+                    loanId: payment.loanId,
+                    amount: payment.amount.toFixed(2),
+                    comission: payment.comission.toFixed(2),
+                    paymentMethod: payment.paymentMethod
+                  }))
+                }
               });
+              
+              console.log(`🔍 [DEBUG] Pagos obtenidos para crear transacciones: ${allCreatedPayments.length}`);
+              console.log(`🔍 [DEBUG] Pagos a crear: ${paymentsToCreate.length}`);
 
               // ✅ OPTIMIZADO: Obtener todos los datos necesarios en una sola consulta
               const loanIds = allCreatedPayments.map(p => p.loanId);
@@ -1707,11 +1714,18 @@ export const extendGraphqlSchema = graphql.extend(base => {
               // ✅ OPTIMIZADO: Crear transacciones en lotes para evitar timeouts
               if (transactionData.length > 0) {
                 console.log(`💾 Creando ${transactionData.length} transacciones en lotes...`);
-                for (let i = 0; i < transactionData.length; i += transactionBatchSize) {
-                  const batch = transactionData.slice(i, i + transactionBatchSize);
-                  await tx.transaction.createMany({ data: batch });
+                // ✅ CORREGIDO: Deshabilitar hooks temporalmente para evitar duplicación de balance
+                (context as any).skipTransactionHooks = true;
+                try {
+                  for (let i = 0; i < transactionData.length; i += transactionBatchSize) {
+                    const batch = transactionData.slice(i, i + transactionBatchSize);
+                    await tx.transaction.createMany({ data: batch });
+                  }
+                  console.log(`✅ Creadas ${transactionData.length} transacciones exitosamente`);
+                } finally {
+                  // ✅ CORREGIDO: Rehabilitar hooks después de crear transacciones
+                  (context as any).skipTransactionHooks = false;
                 }
-                console.log(`✅ Creadas ${transactionData.length} transacciones exitosamente`);
               }
             }
 
@@ -1736,11 +1750,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
               console.log(`   Cambio en transferencia automática: $${bankPaidAmountChange} (se resta porque va al banco)`);
               console.log(`   Cambio neto EFECTIVO: $${cashPaymentChange} - ($${commissionChange}) - ($${bankPaidAmountChange}) = $${netCashChange}`);
               console.log(`   Balance final EFECTIVO: $${currentCashAmount} + ($${netCashChange}) = $${newCashAmount}`);
-                  
-                  await tx.account.update({
-                    where: { id: cashAccount.id },
-                    data: { amount: newCashAmount.toString() }
-                  });
               
               console.log('✅ Cuenta de efectivo actualizada exitosamente');
             }
