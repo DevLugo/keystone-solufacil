@@ -921,7 +921,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
                 
                 // Preparar datos de transacción para el PAGO (INCOME)
-                transactionData.push({
+                const incomeTransactionData: any = {
                   amount: paymentAmount.toFixed(2),
                   date: new Date(paymentDate),
                   type: 'INCOME',
@@ -933,7 +933,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   snapshotRouteId: agent?.routes?.id,
                   returnToCapital: returnToCapital.toFixed(2),
                   profitAmount: profitAmount.toFixed(2),
-                });
+                };
+
+                // ✅ CORREGIDO: Agregar destinationAccount para pagos en efectivo
+                if (payment.paymentMethod === 'CASH') {
+                  incomeTransactionData.destinationAccountId = cashAccount.id;
+                } else if (payment.paymentMethod === 'MONEY_TRANSFER') {
+                  incomeTransactionData.destinationAccountId = bankAccount.id;
+                }
+
+                transactionData.push(incomeTransactionData);
 
                 // Preparar datos de transacción para la COMISIÓN (EXPENSE)
                 if (comissionAmount > 0) {
@@ -1654,7 +1663,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
                 
                 // Preparar datos de transacción para el pago principal
-                transactionData.push({
+                const incomeTransactionData: any = {
                   amount: (payment.amount || 0).toString(),
                   date: new Date(paymentDate),
                   type: 'INCOME',
@@ -1666,7 +1675,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   snapshotRouteId: agent?.routes?.id,
                   returnToCapital: returnToCapital.toFixed(2),
                   profitAmount: profitAmount.toFixed(2),
-                });
+                };
+
+                // ✅ CORREGIDO: Agregar destinationAccount para pagos en efectivo
+                if (payment.paymentMethod === 'CASH') {
+                  incomeTransactionData.destinationAccountId = cashAccount.id;
+                } else if (payment.paymentMethod === 'MONEY_TRANSFER') {
+                  incomeTransactionData.destinationAccountId = bankAccount.id;
+                }
+
+                transactionData.push(incomeTransactionData);
 
                 // Crear transacción separada para la comisión si existe
                 if (comissionAmount > 0) {
@@ -1746,12 +1764,12 @@ export const extendGraphqlSchema = graphql.extend(base => {
               console.log(`   Cambio neto BANCO: $${bankPaymentChange} + ($${bankPaidAmountChange}) = $${netBankChange}`);
               console.log(`   Balance final BANCO: $${currentBankAmount} + ($${netBankChange}) = $${newBankAmount}`);
               
-              await tx.account.update({
+              const bankUpdateResult = await tx.account.update({
                 where: { id: bankAccount.id },
                 data: { amount: newBankAmount.toString() }
               });
               
-              console.log(`🏦 [DEBUG] Balance bancario actualizado exitosamente: ${updateResult.amount}`);
+              console.log(`🏦 [DEBUG] Balance bancario actualizado exitosamente: ${bankUpdateResult.amount}`);
             } else {
               console.log(`🏦 [DEBUG] No hay cambio en balance bancario (netBankChange = ${netBankChange})`);
             }
