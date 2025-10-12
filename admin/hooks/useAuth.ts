@@ -51,7 +51,9 @@ export function useAuth() {
   }, []);
 
   const isAdmin = user?.role === 'ADMIN';
+  const isCaptura = user?.role === 'CAPTURA';
+  const canMergeClients = isAdmin || isCaptura; // Permitir fusionar a ADMIN y CAPTURA
   const isAuthenticated = !!user;
 
-  return { user, loading, isAdmin, isAuthenticated };
+  return { user, loading, isAdmin, isCaptura, canMergeClients, isAuthenticated };
 }

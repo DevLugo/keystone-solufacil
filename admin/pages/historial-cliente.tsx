@@ -287,7 +287,7 @@ const HistorialClientePage: React.FC = () => {
     };
   }, []);
 
-  const { isAdmin } = useAuth();
+  const { isAdmin, canMergeClients } = useAuth();
   const [selectedRoute, setSelectedRoute] = useState<any>(null);
   const [selectedLocation, setSelectedLocation] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -941,7 +941,7 @@ const HistorialClientePage: React.FC = () => {
               🗑️ Limpiar
             </Button>
 
-            {isAdmin && (
+            {canMergeClients && (
               <Button 
                 onClick={handleOpenMergeModal}
                 style={{
@@ -1202,7 +1202,7 @@ const HistorialClientePage: React.FC = () => {
                 </p>
               </div>
 
-              {isAdmin && (
+              {canMergeClients && (
                 <>
                   <div style={{
                     backgroundColor: '#f0fff4',
