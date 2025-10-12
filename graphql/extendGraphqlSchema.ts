@@ -3346,6 +3346,138 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         }
       }),
+
+      // Mutación para fusionar clientes
+      mergeClients: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        args: {
+          primaryClientId: graphql.arg({ type: graphql.nonNull(graphql.ID) }),
+          secondaryClientId: graphql.arg({ type: graphql.nonNull(graphql.ID) })
+        },
+        resolve: async (root, { primaryClientId, secondaryClientId }, context: Context) => {
+          try {
+            // Verificar que los IDs sean diferentes
+            if (primaryClientId === secondaryClientId) {
+              return 'Error: No se puede fusionar un cliente consigo mismo';
+            }
+
+            // Verificar que ambos clientes existan
+            const primaryClient = await context.prisma.personalData.findUnique({
+              where: { id: primaryClientId },
+              include: {
+                borrower: true,
+                employee: true
+              }
+            });
+
+            const secondaryClient = await context.prisma.personalData.findUnique({
+              where: { id: secondaryClientId },
+              include: {
+                borrower: true,
+                employee: true
+              }
+            });
+
+            if (!primaryClient) {
+              return 'Error: Cliente principal no encontrado';
+            }
+
+            if (!secondaryClient) {
+              return 'Error: Cliente secundario no encontrado';
+            }
+
+            // El cliente secundario puede no tener registros de préstamos como cliente,
+            // pero puede estar registrado solo como aval, lo cual es válido
+
+            // Si el cliente principal no tiene borrower, crear uno
+            if (!primaryClient.borrower) {
+              await context.prisma.borrower.create({
+                data: {
+                  personalDataId: primaryClientId
+                }
+              });
+            }
+
+            // Obtener el borrower del cliente principal
+            const primaryBorrower = await context.prisma.borrower.findUnique({
+              where: { personalDataId: primaryClientId }
+            });
+
+            if (!primaryBorrower) {
+              return 'Error: No se pudo obtener el registro de borrower del cliente principal';
+            }
+
+            // Transferir todos los préstamos del cliente secundario al principal (solo si tiene borrower)
+            if (secondaryClient.borrower) {
+              await context.prisma.loan.updateMany({
+                where: { borrowerId: secondaryClient.borrower.id },
+                data: { borrowerId: primaryBorrower.id }
+              });
+            }
+
+            // Transferir todos los préstamos donde el cliente secundario es aval
+            // Primero encontrar todos los préstamos donde el cliente secundario es aval
+            const loansWithSecondaryAsCollateral = await context.prisma.loan.findMany({
+              where: {
+                collaterals: {
+                  some: {
+                    id: secondaryClientId
+                  }
+                }
+              }
+            });
+
+            // Para cada préstamo, remover el cliente secundario como aval y agregar el principal
+            for (const loan of loansWithSecondaryAsCollateral) {
+              await context.prisma.loan.update({
+                where: { id: loan.id },
+                data: {
+                  collaterals: {
+                    disconnect: { id: secondaryClientId },
+                    connect: { id: primaryClientId }
+                  }
+                }
+              });
+            }
+
+            // Transferir documentos personales
+            await context.prisma.documentPhoto.updateMany({
+              where: { personalDataId: secondaryClientId },
+              data: { personalDataId: primaryClientId }
+            });
+
+            // Transferir direcciones
+            await context.prisma.address.updateMany({
+              where: { personalDataId: secondaryClientId },
+              data: { personalDataId: primaryClientId }
+            });
+
+            // Transferir teléfonos
+            await context.prisma.phone.updateMany({
+              where: { personalDataId: secondaryClientId },
+              data: { personalDataId: primaryClientId }
+            });
+
+            // Eliminar el borrower del cliente secundario
+            if (secondaryClient.borrower) {
+              await context.prisma.borrower.delete({
+                where: { id: secondaryClient.borrower.id }
+              });
+            }
+
+            // Eliminar el cliente secundario
+            await context.prisma.personalData.delete({
+              where: { id: secondaryClientId }
+            });
+
+            return `Clientes fusionados exitosamente. Cliente principal: ${primaryClient.fullName} (${primaryClient.clientCode}), Cliente eliminado: ${secondaryClient.fullName} (${secondaryClient.clientCode})`;
+
+          } catch (error) {
+            console.error('Error al fusionar clientes:', error);
+            return `Error al fusionar clientes: ${error instanceof Error ? error.message : 'Error desconocido'}`;
+          }
+        }
+      }),
     },
     query: {
       // ✅ NUEVA FUNCIONALIDAD: Obtener cumpleaños de líderes por mes
@@ -7587,6 +7719,12 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     contains: searchTerm,
                     mode: 'insensitive'
                   }
+                },
+                {
+                  clientCode: {
+                    contains: searchTerm,
+                    mode: 'insensitive'
+                  }
                 }
               ]
             };
@@ -7636,10 +7774,20 @@ export const extendGraphqlSchema = graphql.extend(base => {
               where: {
                 collaterals: {
                   some: {
-                    fullName: {
-                      contains: searchTerm,
-                      mode: 'insensitive'
-                    }
+                    OR: [
+                      {
+                        fullName: {
+                          contains: searchTerm,
+                          mode: 'insensitive'
+                        }
+                      },
+                      {
+                        clientCode: {
+                          contains: searchTerm,
+                          mode: 'insensitive'
+                        }
+                      }
+                    ]
                   }
                 }
               },
@@ -9211,19 +9359,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
             return `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
           }
         }
-      }),
-
-      // Mutación para fusionar clientes
-      mergeClients: graphql.field({
-        type: graphql.nonNull(graphql.String),
-        args: {
-          primaryClientId: graphql.arg({ type: graphql.nonNull(graphql.ID) }),
-          secondaryClientId: graphql.arg({ type: graphql.nonNull(graphql.ID) })
-        },
-        resolve: async (root, { primaryClientId, secondaryClientId }, context: Context) => {
-          return `Fusión de clientes: ${primaryClientId} + ${secondaryClientId}`;
-        }
-      }),
+      })
     }
   };
 });
