@@ -94,6 +94,7 @@ const GET_LOANS_BY_LEAD = gql`
         personalData{
           id
           fullName
+          clientCode
         }
       }
       payments {
@@ -125,7 +126,9 @@ const GET_LEAD_PAYMENTS = gql`
         signDate
         borrower {
           personalData {
+            id
             fullName
+            clientCode
           }
         }
       }
@@ -242,6 +245,7 @@ const GET_CLIENT_DATA = gql`
     personalData(where: { id: $id }) {
       id
       fullName
+      clientCode
       phones {
         id
         number
@@ -2322,6 +2326,97 @@ useEffect(() => {
                 </div>
               );
             })()
+          },
+          {
+            label: 'Distribución Líder',
+            value: (() => {
+              const { cashPaidAmount, bankPaidAmount } = computedLoadPaymentDistribution;
+              if (cashPaidAmount === 0 && bankPaidAmount === 0) {
+                return 'Sin distribución';
+              }
+              return `E:$${cashPaidAmount.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} T:$${bankPaidAmount.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+            })(),
+            color: '#7C2D12',
+            backgroundColor: '#FEF3C7',
+            borderColor: '#FDE68A',
+            showTooltip: true,
+            tooltipContent: (() => {
+              const { cashPaidAmount, bankPaidAmount } = computedLoadPaymentDistribution;
+              const totalDistributed = cashPaidAmount + bankPaidAmount;
+              const availableCash = totalByPaymentMethod.cashTotal;
+              
+              return (
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+                    Distribución del Pago de la Líder
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '4px 0',
+                    borderBottom: '1px solid #F3F4F6',
+                    fontSize: '11px'
+                  }}>
+                    <span style={{ color: '#374151' }}>
+                      💵 Efectivo en Caja
+                    </span>
+                    <span style={{ fontWeight: '600', color: '#7C2D12' }}>
+                      ${cashPaidAmount.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '4px 0',
+                    borderBottom: '1px solid #F3F4F6',
+                    fontSize: '11px'
+                  }}>
+                    <span style={{ color: '#374151' }}>
+                      🏦 Transferencia al Banco
+                    </span>
+                    <span style={{ fontWeight: '600', color: '#7C2D12' }}>
+                      ${bankPaidAmount.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '4px 0',
+                    borderBottom: '1px solid #F3F4F6',
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    backgroundColor: '#FEF3C7',
+                    margin: '4px -8px',
+                    padding: '6px 8px',
+                    borderRadius: '4px'
+                  }}>
+                    <span style={{ color: '#7C2D12' }}>
+                      Total Distribuido
+                    </span>
+                    <span style={{ color: '#7C2D12' }}>
+                      ${totalDistributed.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                  {totalDistributed > availableCash && (
+                    <div style={{
+                      color: '#DC2626',
+                      fontSize: '10px',
+                      textAlign: 'center',
+                      padding: '4px',
+                      backgroundColor: '#FEE2E2',
+                      border: '1px solid #FECACA',
+                      borderRadius: '4px',
+                      marginTop: '8px'
+                    }}>
+                      ⚠️ La distribución excede el efectivo disponible
+                    </div>
+                  )}
+                </div>
+              );
+            })()
           }
         ]}
         buttons={[]}
@@ -2597,6 +2692,7 @@ useEffect(() => {
                   #
                 </th>
                 <th>Estado</th>
+                <th>Código</th>
                 <th>Cliente</th>
                 <th style={{ 
                   position: 'relative',
@@ -2639,6 +2735,36 @@ useEffect(() => {
                     }}>
                       ⚠️ SIN PAGO
                     </span>
+                  </td>
+                  <td style={{
+                    textAlign: 'center'
+                  }}>
+                    {(() => {
+                      // Función para generar código corto a partir del id (igual que en generar-listados)
+                      const shortCodeFromId = (id?: string): string => {
+                        if (!id) return '';
+                        const base = id.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+                        return base.slice(-6);
+                      };
+
+                      const clientCode = loan.borrower?.personalData?.clientCode || 
+                                       shortCodeFromId(loan.borrower?.personalData?.id);
+                      
+                      return (
+                        <span style={{
+                          display: 'inline-block',
+                          padding: '2px 6px',
+                          backgroundColor: '#FEE2E2',
+                          color: '#DC2626',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          border: '1px solid #FCA5A5'
+                        }}>
+                          {clientCode || 'N/A'}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td style={{ 
                     color: '#DC2626', 
@@ -2865,6 +2991,39 @@ useEffect(() => {
                           </span>
                         )}
                       </div>
+                    </td>
+                    <td style={{
+                      textDecoration: isStrikethrough ? 'line-through' : 'none',
+                      color: isStrikethrough ? '#dc2626' : 'inherit',
+                      fontWeight: isStrikethrough ? '500' : 'inherit',
+                      textAlign: 'center'
+                    }}>
+                      {(() => {
+                        // Función para generar código corto a partir del id (igual que en generar-listados)
+                        const shortCodeFromId = (id?: string): string => {
+                          if (!id) return '';
+                          const base = id.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+                          return base.slice(-6);
+                        };
+
+                        const clientCode = payment.loan?.borrower?.personalData?.clientCode || 
+                                         shortCodeFromId(payment.loan?.borrower?.personalData?.id);
+                        
+                        return (
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '2px 6px',
+                            backgroundColor: '#EFF6FF',
+                            color: '#1E40AF',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: '600',
+                            border: '1px solid #BFDBFE'
+                          }}>
+                            {clientCode || 'N/A'}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td style={{
                       textDecoration: isStrikethrough ? 'line-through' : 'none',
@@ -3122,6 +3281,40 @@ useEffect(() => {
                     }}>
                       {isDeceased ? 'Deceso' : 'Abono'}
                     </span>
+                  </td>
+                  <td style={{
+                    textDecoration: isStrikethrough ? 'line-through' : 'none',
+                    color: isStrikethrough ? '#dc2626' : 'inherit',
+                    fontWeight: isStrikethrough ? '500' : 'inherit',
+                    textAlign: 'center'
+                  }}>
+                    {(() => {
+                      // Función para generar código corto a partir del id (igual que en generar-listados)
+                      const shortCodeFromId = (id?: string): string => {
+                        if (!id) return '';
+                        const base = id.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+                        return base.slice(-6);
+                      };
+
+                      const selectedLoan = loansData?.loans?.find(loan => loan.id === payment.loanId);
+                      const clientCode = selectedLoan?.borrower?.personalData?.clientCode || 
+                                       shortCodeFromId(selectedLoan?.borrower?.personalData?.id);
+                      
+                      return (
+                        <span style={{
+                          display: 'inline-block',
+                          padding: '2px 6px',
+                          backgroundColor: '#EFF6FF',
+                          color: '#1E40AF',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          border: '1px solid #BFDBFE'
+                        }}>
+                          {clientCode || 'N/A'}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td style={{
                     textDecoration: isStrikethrough ? 'line-through' : 'none',

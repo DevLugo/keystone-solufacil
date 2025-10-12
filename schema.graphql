@@ -2815,6 +2815,7 @@ type Mutation {
   sendTestTelegramMessage(chatId: String!, message: String!): String!
   sendReportWithPDF(chatId: String!, reportType: String!): String!
   markLoansDeadDebt(loanIds: [ID!]!, deadDebtDate: String!): String!
+  mergeClients(primaryClientId: ID!, secondaryClientId: ID!): String!
 }
 
 input TokaAssignmentInput {

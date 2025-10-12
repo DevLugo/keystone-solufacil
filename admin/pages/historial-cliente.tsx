@@ -265,7 +265,29 @@ const getStatusColor = (status: string): string => {
 
 // Main Component
 const HistorialClientePage: React.FC = () => {
-  const { isAdmin } = useAuth();
+  // Agregar estilos CSS para animaciones
+  React.useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes modalSlideIn {
+        from {
+          opacity: 0;
+          transform: scale(0.9) translateY(-20px);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1) translateY(0);
+        }
+      }
+    `;
+    document.head.appendChild(style);
+    
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
+
+  const { isAdmin, canMergeClients } = useAuth();
   const [selectedRoute, setSelectedRoute] = useState<any>(null);
   const [selectedLocation, setSelectedLocation] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -299,11 +321,23 @@ const HistorialClientePage: React.FC = () => {
 
   // Estados para fusión de clientes
   const [showMergeModal, setShowMergeModal] = useState(false);
-  const [primaryClient, setPrimaryClient] = useState<ClientSearchResult | null>(null);
-  const [secondaryClient, setSecondaryClient] = useState<ClientSearchResult | null>(null);
+  const [mergeClientsList, setMergeClientsList] = useState<ClientSearchResult[]>([]);
   const [mergeSearchTerm, setMergeSearchTerm] = useState<string>('');
   const [mergeClientResults, setMergeClientResults] = useState<ClientSearchResult[]>([]);
   const [showMergeAutocomplete, setShowMergeAutocomplete] = useState<boolean>(false);
+  const [selectedPrimaryId, setSelectedPrimaryId] = useState<string | null>(null);
+
+  // Estados para modal de confirmación
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmData, setConfirmData] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    onCancel?: () => void;
+    confirmText?: string;
+    cancelText?: string;
+    type?: 'warning' | 'danger' | 'info';
+  } | null>(null);
 
   // Detectar tamaño de pantalla
   useEffect(() => {
@@ -325,7 +359,7 @@ const HistorialClientePage: React.FC = () => {
   
   const [getClientDocuments, { data: documentsData, loading: documentsLoading }] = useLazyQuery(GET_CLIENT_DOCUMENTS);
   
-  const [mergeClients, { loading: mergeLoading }] = useMutation(MERGE_CLIENTS);
+  const [mergeClientsMutation, { loading: mergeLoading }] = useMutation(MERGE_CLIENTS);
 
   // Debug: Log cuando cambian los datos de documentos
   useEffect(() => {
@@ -484,9 +518,41 @@ const HistorialClientePage: React.FC = () => {
 
   // Handlers para fusión de clientes
   const handleOpenMergeModal = () => {
+    if (!selectedClient) {
+      showConfirmation({
+        title: 'Error',
+        message: 'No hay cliente seleccionado para fusionar',
+        onConfirm: () => {},
+        confirmText: 'Entendido',
+        type: 'warning'
+      });
+      return;
+    }
+
+    // Convertir el cliente seleccionado al formato ClientSearchResult
+    const currentClient: ClientSearchResult = {
+      id: selectedClient.id,
+      name: selectedClient.name,
+      clientCode: selectedClient.clientCode,
+      phone: selectedClient.phone || 'N/A',
+      address: selectedClient.address || 'N/A',
+      route: selectedClient.route || 'N/A',
+      location: selectedClient.location || 'N/A',
+      municipality: selectedClient.municipality || 'N/A',
+      state: selectedClient.state || 'N/A',
+      city: selectedClient.city || 'N/A',
+      latestLoanDate: selectedClient.latestLoanDate || null,
+      hasLoans: selectedClient.hasLoans || false,
+      hasBeenCollateral: selectedClient.hasBeenCollateral || false,
+      totalLoans: selectedClient.totalLoans || 0,
+      activeLoans: selectedClient.activeLoans || 0,
+      finishedLoans: selectedClient.finishedLoans || 0,
+      collateralLoans: selectedClient.collateralLoans || 0
+    };
+
     setShowMergeModal(true);
-    setPrimaryClient(null);
-    setSecondaryClient(null);
+    setMergeClientsList([currentClient]); // Cargar el cliente actual por defecto
+    setSelectedPrimaryId(currentClient.id); // Marcarlo como principal por defecto
     setMergeSearchTerm('');
     setMergeClientResults([]);
     setShowMergeAutocomplete(false);
@@ -494,47 +560,120 @@ const HistorialClientePage: React.FC = () => {
 
   const handleCloseMergeModal = () => {
     setShowMergeModal(false);
-    setPrimaryClient(null);
-    setSecondaryClient(null);
+    setMergeClientsList([]);
     setMergeSearchTerm('');
     setMergeClientResults([]);
     setShowMergeAutocomplete(false);
+    setSelectedPrimaryId(null);
   };
 
   const handleMergeClientSelect = (client: ClientSearchResult) => {
-    if (!primaryClient) {
-      setPrimaryClient(client);
-      setMergeSearchTerm(client.name);
-    } else if (!secondaryClient) {
-      setSecondaryClient(client);
-      setMergeSearchTerm(client.name);
+    // Verificar si el cliente ya está seleccionado
+    const isAlreadySelected = mergeClientsList.some(c => c.id === client.id);
+    
+    if (!isAlreadySelected && mergeClientsList.length < 2) {
+      setMergeClientsList([...mergeClientsList, client]);
+      setMergeSearchTerm('');
     }
     setMergeClientResults([]);
     setShowMergeAutocomplete(false);
   };
 
+  const handleRemoveMergeClient = (clientId: string) => {
+    setMergeClientsList(mergeClientsList.filter(c => c.id !== clientId));
+    if (selectedPrimaryId === clientId) {
+      setSelectedPrimaryId(null);
+    }
+  };
+
+  const handleSetPrimaryClient = (clientId: string) => {
+    setSelectedPrimaryId(clientId);
+  };
+
+  // Funciones para modal de confirmación
+  const showConfirmation = (data: {
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    onCancel?: () => void;
+    confirmText?: string;
+    cancelText?: string;
+    type?: 'warning' | 'danger' | 'info';
+  }) => {
+    setConfirmData(data);
+    setShowConfirmModal(true);
+  };
+
+  const handleConfirm = () => {
+    if (confirmData?.onConfirm) {
+      confirmData.onConfirm();
+    }
+    setShowConfirmModal(false);
+    setConfirmData(null);
+  };
+
+  const handleCancel = () => {
+    if (confirmData?.onCancel) {
+      confirmData.onCancel();
+    }
+    setShowConfirmModal(false);
+    setConfirmData(null);
+  };
+
   const handleExecuteMerge = async () => {
+    if (mergeClientsList.length !== 2) {
+      showConfirmation({
+        title: 'Error de Validación',
+        message: 'Por favor selecciona exactamente 2 clientes para fusionar',
+        onConfirm: () => {},
+        confirmText: 'Entendido',
+        type: 'warning'
+      });
+      return;
+    }
+
+    if (!selectedPrimaryId) {
+      showConfirmation({
+        title: 'Error de Validación',
+        message: 'Por favor selecciona cuál cliente se mantendrá como principal',
+        onConfirm: () => {},
+        confirmText: 'Entendido',
+        type: 'warning'
+      });
+      return;
+    }
+
+    const primaryClient = mergeClientsList.find(c => c.id === selectedPrimaryId);
+    const secondaryClient = mergeClientsList.find(c => c.id !== selectedPrimaryId);
+
     if (!primaryClient || !secondaryClient) {
-      alert('Por favor selecciona ambos clientes para fusionar');
+      showConfirmation({
+        title: 'Error',
+        message: 'Error al identificar los clientes para fusionar',
+        onConfirm: () => {},
+        confirmText: 'Entendido',
+        type: 'danger'
+      });
       return;
     }
 
-    if (primaryClient.id === secondaryClient.id) {
-      alert('No puedes fusionar un cliente consigo mismo');
-      return;
-    }
+    showConfirmation({
+      title: 'Confirmar Fusión de Clientes',
+      message: `¿Estás seguro de que quieres fusionar los clientes?\n\n` +
+               `Cliente Principal (se mantiene): ${primaryClient.name} (${primaryClient.clientCode})\n` +
+               `Cliente Secundario (se elimina): ${secondaryClient.name} (${secondaryClient.clientCode})\n\n` +
+               `El cliente secundario será eliminado y todos sus datos se transferirán al cliente principal.`,
+      onConfirm: () => executeMerge(primaryClient, secondaryClient),
+      confirmText: 'Sí, Fusionar',
+      cancelText: 'Cancelar',
+      type: 'danger'
+    });
+  };
 
-    const confirmMerge = window.confirm(
-      `¿Estás seguro de que quieres fusionar los clientes?\n\n` +
-      `Cliente Principal: ${primaryClient.name} (${primaryClient.clientCode})\n` +
-      `Cliente Secundario: ${secondaryClient.name} (${secondaryClient.clientCode})\n\n` +
-      `El cliente secundario será eliminado y todos sus datos se transferirán al cliente principal.`
-    );
-
-    if (!confirmMerge) return;
+  const executeMerge = async (primaryClient: ClientSearchResult, secondaryClient: ClientSearchResult) => {
 
     try {
-      const result = await mergeClients({
+      const result = await mergeClientsMutation({
         variables: {
           primaryClientId: primaryClient.id,
           secondaryClientId: secondaryClient.id
@@ -543,18 +682,37 @@ const HistorialClientePage: React.FC = () => {
 
       const message = result.data?.mergeClients;
       if (message && !message.includes('Error')) {
-        alert(message);
-        handleCloseMergeModal();
-        // Refrescar la búsqueda actual si uno de los clientes fusionados está seleccionado
-        if (selectedClient && (selectedClient.id === primaryClient.id || selectedClient.id === secondaryClient.id)) {
-          handleClearSearch();
-        }
+        showConfirmation({
+          title: 'Fusión Exitosa',
+          message: message,
+          onConfirm: () => {
+            handleCloseMergeModal();
+            // Refrescar la búsqueda actual si uno de los clientes fusionados está seleccionado
+            if (selectedClient && (selectedClient.id === primaryClient.id || selectedClient.id === secondaryClient.id)) {
+              handleClearSearch();
+            }
+          },
+          confirmText: 'Entendido',
+          type: 'info'
+        });
       } else {
-        alert(message || 'Error desconocido al fusionar clientes');
+        showConfirmation({
+          title: 'Error en la Fusión',
+          message: message || 'Error desconocido al fusionar clientes',
+          onConfirm: () => {},
+          confirmText: 'Entendido',
+          type: 'danger'
+        });
       }
     } catch (error) {
       console.error('Error al fusionar clientes:', error);
-      alert('Error al fusionar clientes. Intenta nuevamente.');
+      showConfirmation({
+        title: 'Error en la Fusión',
+        message: 'Error al fusionar clientes. Intenta nuevamente.',
+        onConfirm: () => {},
+        confirmText: 'Entendido',
+        type: 'danger'
+      });
     }
   };
 
@@ -670,7 +828,7 @@ const HistorialClientePage: React.FC = () => {
                 setShowAutocomplete(true); // Activar autocomplete cuando se escribe
               }}
               onFocus={() => setShowAutocomplete(true)} // Activar autocomplete al hacer focus
-              placeholder="Escriba nombre o DUI del cliente..."
+              placeholder="Escriba nombre o clave única del cliente..."
               style={{
                 width: '100%',
                 padding: '12px',
@@ -710,7 +868,7 @@ const HistorialClientePage: React.FC = () => {
                   >
                     <div style={{ fontWeight: '600', color: '#2d3748', marginBottom: '4px' }}>{client.name}</div>
                     <div style={{ fontSize: '12px', color: '#4a5568', marginBottom: '2px' }}>
-                      📍 <strong>Localidad:</strong> {client.location} | 🏘️ <strong>Municipio:</strong> {client.municipality} | 🏛️ <strong>Estado:</strong> {client.state}
+                      🔑 <strong>Clave:</strong> {client.clientCode} | 📍 <strong>Localidad:</strong> {client.location} | 🏘️ <strong>Municipio:</strong> {client.municipality} | 🏛️ <strong>Estado:</strong> {client.state}
                     </div>
                     <div style={{ fontSize: '12px', color: '#4a5568', marginBottom: '2px' }}>
                       🗺️ <strong>Ruta:</strong> {client.route} | 📞 <strong>Teléfono:</strong> {client.phone}
@@ -783,7 +941,7 @@ const HistorialClientePage: React.FC = () => {
               🗑️ Limpiar
             </Button>
 
-            {isAdmin && (
+            {canMergeClients && (
               <Button 
                 onClick={handleOpenMergeModal}
                 style={{
@@ -1044,7 +1202,7 @@ const HistorialClientePage: React.FC = () => {
                 </p>
               </div>
 
-              {isAdmin && (
+              {canMergeClients && (
                 <>
                   <div style={{
                     backgroundColor: '#f0fff4',
@@ -2101,7 +2259,7 @@ const HistorialClientePage: React.FC = () => {
           personType={imageModal.personType}
         />
 
-        {/* Modal de fusión de clientes */}
+        {/* Modal de fusión de clientes mejorado */}
         {showMergeModal && (
           <div style={{
             position: 'fixed',
@@ -2141,37 +2299,26 @@ const HistorialClientePage: React.FC = () => {
                 marginBottom: '24px',
                 textAlign: 'center'
               }}>
-                Selecciona dos clientes para fusionar. El cliente principal mantendrá sus datos y el secundario será eliminado.
+                {mergeClientsList.length === 0 
+                  ? 'Busca y selecciona 2 clientes para fusionar. Luego elige cuál se mantiene como principal.'
+                  : mergeClientsList.length === 1
+                    ? 'Cliente actual cargado. Busca otro cliente para fusionar.'
+                    : 'Selecciona cuál cliente se mantiene como principal.'
+                }
               </p>
 
-              {/* Cliente Principal */}
-              <div style={{ marginBottom: '24px' }}>
-                <label style={{ 
-                  display: 'block', 
-                  fontSize: '14px', 
-                  fontWeight: '600', 
-                  marginBottom: '8px', 
-                  color: '#374151' 
-                }}>
-                  Cliente Principal (se mantiene)
-                </label>
-                {primaryClient ? (
-                  <div style={{
-                    padding: '12px',
-                    backgroundColor: '#F0FDF4',
-                    border: '2px solid #22C55E',
-                    borderRadius: '6px',
-                    marginBottom: '8px'
+              {/* Input de búsqueda */}
+              {mergeClientsList.length < 2 && (
+                <div style={{ marginBottom: '24px' }}>
+                  <label style={{ 
+                    display: 'block', 
+                    fontSize: '14px', 
+                    fontWeight: '600', 
+                    marginBottom: '8px', 
+                    color: '#374151' 
                   }}>
-                    <div style={{ fontWeight: '600', color: '#166534' }}>{primaryClient.name}</div>
-                    <div style={{ fontSize: '12px', color: '#16A34A' }}>
-                      Clave: {primaryClient.clientCode} | Teléfono: {primaryClient.phone}
-                    </div>
-                    <div style={{ fontSize: '11px', color: '#16A34A' }}>
-                      📍 {primaryClient.location} | 🏘️ {primaryClient.municipality}
-                    </div>
-                  </div>
-                ) : (
+                    Buscar Cliente
+                  </label>
                   <div style={{ position: 'relative' }}>
                     <input
                       type="text"
@@ -2181,7 +2328,10 @@ const HistorialClientePage: React.FC = () => {
                         setShowMergeAutocomplete(true);
                       }}
                       onFocus={() => setShowMergeAutocomplete(true)}
-                      placeholder="Buscar cliente principal..."
+                      placeholder={mergeClientsList.length === 0 
+                        ? "Escriba nombre o clave única del cliente..." 
+                        : "Buscar segundo cliente para fusionar..."
+                      }
                       style={{
                         width: '100%',
                         padding: '12px',
@@ -2192,8 +2342,8 @@ const HistorialClientePage: React.FC = () => {
                       }}
                     />
                     
-                    {/* Resultados de búsqueda para cliente principal */}
-                    {showMergeAutocomplete && mergeClientResults.length > 0 && !primaryClient && (
+                    {/* Resultados de búsqueda */}
+                    {showMergeAutocomplete && mergeClientResults.length > 0 && (
                       <div style={{
                         position: 'absolute',
                         top: '100%',
@@ -2207,7 +2357,9 @@ const HistorialClientePage: React.FC = () => {
                         zIndex: 1000,
                         boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
                       }}>
-                        {mergeClientResults.map((client: ClientSearchResult) => (
+                        {mergeClientResults
+                          .filter((client: ClientSearchResult) => !mergeClientsList.some(c => c.id === client.id))
+                          .map((client: ClientSearchResult) => (
                           <div
                             key={client.id}
                             onClick={() => handleMergeClientSelect(client)}
@@ -2221,108 +2373,252 @@ const HistorialClientePage: React.FC = () => {
                           >
                             <div style={{ fontWeight: '600', color: '#1F2937' }}>{client.name}</div>
                             <div style={{ fontSize: '12px', color: '#6B7280' }}>
-                              Clave: {client.clientCode} | Teléfono: {client.phone}
-                            </div>
-                            <div style={{ fontSize: '11px', color: '#9CA3AF' }}>
-                              📍 {client.location} | 🏘️ {client.municipality}
+                              🔑 <strong>Clave:</strong> {client.clientCode} | 📍 <strong>Localidad:</strong> {client.location} | 🏘️ <strong>Municipio:</strong> {client.municipality} | 🏛️ <strong>Estado:</strong> {client.state}
                             </div>
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
-              {/* Cliente Secundario */}
-              <div style={{ marginBottom: '24px' }}>
-                <label style={{ 
-                  display: 'block', 
-                  fontSize: '14px', 
-                  fontWeight: '600', 
-                  marginBottom: '8px', 
-                  color: '#374151' 
-                }}>
-                  Cliente Secundario (se eliminará)
-                </label>
-                {secondaryClient ? (
-                  <div style={{
-                    padding: '12px',
-                    backgroundColor: '#FEF2F2',
-                    border: '2px solid #EF4444',
-                    borderRadius: '6px',
-                    marginBottom: '8px'
+              {/* Clientes seleccionados */}
+              {mergeClientsList.length > 0 && (
+                <div style={{ marginBottom: '24px' }}>
+                  <h3 style={{
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    color: '#374151',
+                    marginBottom: '16px'
                   }}>
-                    <div style={{ fontWeight: '600', color: '#DC2626' }}>{secondaryClient.name}</div>
-                    <div style={{ fontSize: '12px', color: '#EF4444' }}>
-                      Clave: {secondaryClient.clientCode} | Teléfono: {secondaryClient.phone}
-                    </div>
-                    <div style={{ fontSize: '11px', color: '#EF4444' }}>
-                      📍 {secondaryClient.location} | 🏘️ {secondaryClient.municipality}
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ position: 'relative' }}>
-                    <input
-                      type="text"
-                      value={mergeSearchTerm}
-                      onChange={(e) => {
-                        setMergeSearchTerm(e.target.value);
-                        setShowMergeAutocomplete(true);
-                      }}
-                      onFocus={() => setShowMergeAutocomplete(true)}
-                      placeholder="Buscar cliente secundario..."
-                      style={{
-                        width: '100%',
-                        padding: '12px',
-                        border: '1px solid #D1D5DB',
-                        borderRadius: '6px',
-                        fontSize: '14px',
-                        backgroundColor: 'white'
-                      }}
-                    />
-                    
-                    {/* Resultados de búsqueda para cliente secundario */}
-                    {showMergeAutocomplete && mergeClientResults.length > 0 && primaryClient && !secondaryClient && (
-                      <div style={{
-                        position: 'absolute',
-                        top: '100%',
-                        left: 0,
-                        right: 0,
-                        backgroundColor: 'white',
-                        border: '1px solid #D1D5DB',
-                        borderRadius: '6px',
-                        maxHeight: '200px',
-                        overflowY: 'auto',
-                        zIndex: 1000,
-                        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
-                      }}>
-                        {mergeClientResults.filter((client: ClientSearchResult) => client.id !== primaryClient.id).map((client: ClientSearchResult) => (
-                          <div
-                            key={client.id}
-                            onClick={() => handleMergeClientSelect(client)}
-                            style={{
-                              padding: '12px',
-                              borderBottom: '1px solid #F3F4F6',
-                              cursor: 'pointer'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F9FAFB'}
-                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
-                          >
-                            <div style={{ fontWeight: '600', color: '#1F2937' }}>{client.name}</div>
-                            <div style={{ fontSize: '12px', color: '#6B7280' }}>
-                              Clave: {client.clientCode} | Teléfono: {client.phone}
+                    Clientes Seleccionados ({mergeClientsList.length}/2)
+                  </h3>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {mergeClientsList.map((client, index) => (
+                      <div
+                        key={client.id}
+                        style={{
+                          padding: '16px',
+                          border: selectedPrimaryId === client.id ? '3px solid #22C55E' : '2px solid #E5E7EB',
+                          borderRadius: '8px',
+                          backgroundColor: selectedPrimaryId === client.id ? '#F0FDF4' : '#F9FAFB',
+                          position: 'relative',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onClick={() => handleSetPrimaryClient(client.id)}
+                      >
+                        {/* Botón de eliminar */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveMergeClient(client.id);
+                          }}
+                          style={{
+                            position: 'absolute',
+                            top: '8px',
+                            right: '8px',
+                            background: '#EF4444',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '50%',
+                            width: '24px',
+                            height: '24px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '14px',
+                            fontWeight: 'bold'
+                          }}
+                        >
+                          ×
+                        </button>
+
+                        {/* Indicador de cliente principal */}
+                        {selectedPrimaryId === client.id && (
+                          <div style={{
+                            position: 'absolute',
+                            top: '8px',
+                            left: '8px',
+                            background: '#22C55E',
+                            color: 'white',
+                            padding: '4px 8px',
+                            borderRadius: '12px',
+                            fontSize: '11px',
+                            fontWeight: '600'
+                          }}>
+                            PRINCIPAL
+                          </div>
+                        )}
+
+                        {/* Indicador de cliente actual */}
+                        {index === 0 && mergeClientsList.length === 1 && (
+                          <div style={{
+                            position: 'absolute',
+                            top: '8px',
+                            left: selectedPrimaryId === client.id ? '80px' : '8px',
+                            background: '#3B82F6',
+                            color: 'white',
+                            padding: '4px 8px',
+                            borderRadius: '12px',
+                            fontSize: '11px',
+                            fontWeight: '600'
+                          }}>
+                            CLIENTE ACTUAL
+                          </div>
+                        )}
+
+                        <div style={{ 
+                          marginTop: selectedPrimaryId === client.id ? '24px' : '0',
+                          marginRight: '32px'
+                        }}>
+                          <div style={{ 
+                            fontWeight: '600', 
+                            color: selectedPrimaryId === client.id ? '#166534' : '#1F2937',
+                            fontSize: '16px',
+                            marginBottom: '8px'
+                          }}>
+                            {client.name}
+                          </div>
+                          <div style={{ 
+                            fontSize: '12px', 
+                            color: selectedPrimaryId === client.id ? '#16A34A' : '#6B7280',
+                            marginBottom: '4px'
+                          }}>
+                            🔑 <strong>Clave:</strong> {client.clientCode} | 📞 <strong>Teléfono:</strong> {client.phone}
+                          </div>
+                          <div style={{ 
+                            fontSize: '11px', 
+                            color: selectedPrimaryId === client.id ? '#16A34A' : '#9CA3AF',
+                            marginBottom: '4px'
+                          }}>
+                            📍 {client.location} | 🏘️ {client.municipality} | 🏛️ {client.state}
+                          </div>
+                          
+                          {/* Conteo de créditos */}
+                          <div style={{
+                            display: 'flex',
+                            gap: '12px',
+                            marginTop: '8px',
+                            padding: '8px',
+                            backgroundColor: selectedPrimaryId === client.id ? '#ECFDF5' : '#F3F4F6',
+                            borderRadius: '6px',
+                            border: `1px solid ${selectedPrimaryId === client.id ? '#D1FAE5' : '#E5E7EB'}`
+                          }}>
+                            {/* Créditos como Cliente */}
+                            <div style={{
+                              flex: 1,
+                              textAlign: 'center',
+                              padding: '4px',
+                              backgroundColor: selectedPrimaryId === client.id ? '#DCFCE7' : '#E5E7EB',
+                              borderRadius: '4px'
+                            }}>
+                              <div style={{
+                                fontSize: '10px',
+                                color: selectedPrimaryId === client.id ? '#166534' : '#6B7280',
+                                fontWeight: '600',
+                                marginBottom: '2px'
+                              }}>
+                                👤 Como Cliente
+                              </div>
+                              <div style={{
+                                fontSize: '14px',
+                                fontWeight: '700',
+                                color: selectedPrimaryId === client.id ? '#16A34A' : '#374151'
+                              }}>
+                                {client.totalLoans || 0}
+                              </div>
+                              <div style={{
+                                fontSize: '9px',
+                                color: selectedPrimaryId === client.id ? '#16A34A' : '#6B7280'
+                              }}>
+                                Activos: {client.activeLoans || 0}
+                              </div>
                             </div>
-                            <div style={{ fontSize: '11px', color: '#9CA3AF' }}>
-                              📍 {client.location} | 🏘️ {client.municipality}
+
+                            {/* Créditos como Aval */}
+                            <div style={{
+                              flex: 1,
+                              textAlign: 'center',
+                              padding: '4px',
+                              backgroundColor: selectedPrimaryId === client.id ? '#FEE2E2' : '#E5E7EB',
+                              borderRadius: '4px'
+                            }}>
+                              <div style={{
+                                fontSize: '10px',
+                                color: selectedPrimaryId === client.id ? '#DC2626' : '#6B7280',
+                                fontWeight: '600',
+                                marginBottom: '2px'
+                              }}>
+                                🤝 Como Aval
+                              </div>
+                              <div style={{
+                                fontSize: '14px',
+                                fontWeight: '700',
+                                color: selectedPrimaryId === client.id ? '#DC2626' : '#374151'
+                              }}>
+                                {client.collateralLoans || 0}
+                              </div>
+                              <div style={{
+                                fontSize: '9px',
+                                color: selectedPrimaryId === client.id ? '#DC2626' : '#6B7280'
+                              }}>
+                                Total avales
+                              </div>
                             </div>
                           </div>
-                        ))}
+                        </div>
+
+                        {/* Botón para seleccionar como principal */}
+                        {selectedPrimaryId !== client.id && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSetPrimaryClient(client.id);
+                            }}
+                            style={{
+                              marginTop: '12px',
+                              padding: '8px 16px',
+                              background: '#3B82F6',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                              fontWeight: '600'
+                            }}
+                          >
+                            Seleccionar como Principal
+                          </button>
+                        )}
                       </div>
-                    )}
+                    ))}
                   </div>
-                )}
-              </div>
+
+                  {/* Instrucciones */}
+                  {mergeClientsList.length === 2 && !selectedPrimaryId && (
+                    <div style={{
+                      padding: '12px',
+                      backgroundColor: '#FEF3C7',
+                      border: '1px solid #F59E0B',
+                      borderRadius: '6px',
+                      marginTop: '16px'
+                    }}>
+                      <p style={{
+                        margin: 0,
+                        fontSize: '14px',
+                        color: '#92400E',
+                        textAlign: 'center'
+                      }}>
+                        ⚠️ Haz clic en el cliente que quieres mantener como principal
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Botones de acción */}
               <div style={{
@@ -2346,17 +2642,155 @@ const HistorialClientePage: React.FC = () => {
                 </Button>
                 <Button
                   onClick={handleExecuteMerge}
-                  disabled={!primaryClient || !secondaryClient || mergeLoading}
+                  disabled={mergeClientsList.length !== 2 || !selectedPrimaryId || mergeLoading}
                   style={{
                     padding: '10px 20px',
-                    backgroundColor: (!primaryClient || !secondaryClient || mergeLoading) ? '#9CA3AF' : '#DC2626',
+                    backgroundColor: (mergeClientsList.length !== 2 || !selectedPrimaryId || mergeLoading) ? '#9CA3AF' : '#DC2626',
                     color: 'white',
                     border: 'none',
                     borderRadius: '6px',
-                    cursor: (!primaryClient || !secondaryClient || mergeLoading) ? 'not-allowed' : 'pointer'
+                    cursor: (mergeClientsList.length !== 2 || !selectedPrimaryId || mergeLoading) ? 'not-allowed' : 'pointer'
                   }}
                 >
                   {mergeLoading ? 'Fusionando...' : 'Fusionar Clientes'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal de confirmación personalizado */}
+        {showConfirmModal && confirmData && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10001
+          }}>
+            <div style={{
+              backgroundColor: 'white',
+              borderRadius: '12px',
+              padding: '24px',
+              minWidth: isMobile ? '90%' : '400px',
+              maxWidth: isMobile ? '95%' : '500px',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: '0 20px 25px rgba(0, 0, 0, 0.3)',
+              animation: 'modalSlideIn 0.3s ease-out'
+            }}>
+              {/* Icono según el tipo */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '64px',
+                height: '64px',
+                borderRadius: '50%',
+                margin: '0 auto 16px',
+                backgroundColor: confirmData.type === 'danger' ? '#FEE2E2' : 
+                                confirmData.type === 'warning' ? '#FEF3C7' : '#EFF6FF',
+                border: `3px solid ${confirmData.type === 'danger' ? '#FECACA' : 
+                                  confirmData.type === 'warning' ? '#FDE68A' : '#BFDBFE'}`
+              }}>
+                <span style={{
+                  fontSize: '32px',
+                  color: confirmData.type === 'danger' ? '#DC2626' : 
+                         confirmData.type === 'warning' ? '#D97706' : '#2563EB'
+                }}>
+                  {confirmData.type === 'danger' ? '⚠️' : 
+                   confirmData.type === 'warning' ? '⚠️' : 'ℹ️'}
+                </span>
+              </div>
+
+              {/* Título */}
+              <h2 style={{
+                margin: '0 0 16px 0',
+                fontSize: '20px',
+                fontWeight: '600',
+                color: '#1F2937',
+                textAlign: 'center'
+              }}>
+                {confirmData.title}
+              </h2>
+
+              {/* Mensaje */}
+              <div style={{
+                fontSize: '14px',
+                color: '#6B7280',
+                lineHeight: '1.6',
+                marginBottom: '24px',
+                textAlign: 'center',
+                whiteSpace: 'pre-line'
+              }}>
+                {confirmData.message}
+              </div>
+
+              {/* Botones */}
+              <div style={{
+                display: 'flex',
+                gap: '12px',
+                justifyContent: 'center'
+              }}>
+                {confirmData.cancelText && (
+                  <Button
+                    onClick={handleCancel}
+                    style={{
+                      padding: '12px 24px',
+                      backgroundColor: '#6B7280',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#4B5563';
+                      e.currentTarget.style.transform = 'translateY(-1px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#6B7280';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                    }}
+                  >
+                    {confirmData.cancelText}
+                  </Button>
+                )}
+                <Button
+                  onClick={handleConfirm}
+                  style={{
+                    padding: '12px 24px',
+                    backgroundColor: confirmData.type === 'danger' ? '#DC2626' : 
+                                   confirmData.type === 'warning' ? '#D97706' : '#2563EB',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    const baseColor = confirmData.type === 'danger' ? '#B91C1C' : 
+                                     confirmData.type === 'warning' ? '#B45309' : '#1D4ED8';
+                    e.currentTarget.style.backgroundColor = baseColor;
+                    e.currentTarget.style.transform = 'translateY(-1px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    const baseColor = confirmData.type === 'danger' ? '#DC2626' : 
+                                     confirmData.type === 'warning' ? '#D97706' : '#2563EB';
+                    e.currentTarget.style.backgroundColor = baseColor;
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
+                >
+                  {confirmData.confirmText || 'Confirmar'}
                 </Button>
               </div>
             </div>
