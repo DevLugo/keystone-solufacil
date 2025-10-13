@@ -361,6 +361,12 @@ const UNMARK_LOAN_AS_DECEASED = gql`
   }
 `;
 
+const PROMOTE_TO_LEAD = gql`
+  mutation PromoteToLead($clientId: ID!, $currentLeadId: ID!) {
+    promoteToLead(clientId: $clientId, currentLeadId: $currentLeadId)
+  }
+`;
+
 type Lead = {
   id: string;
   personalData: {
@@ -679,6 +685,19 @@ export const CreatePaymentForm = ({
     clientName: ''
   });
 
+  // Estado para el modal de promoción a líder
+  const [promoteModal, setPromoteModal] = useState<{
+    isOpen: boolean;
+    clientId: string | null;
+    clientName: string;
+    currentLeadId: string | null;
+  }>({
+    isOpen: false,
+    clientId: null,
+    clientName: '',
+    currentLeadId: null
+  });
+
   // Estado para trackear préstamos marcados como deceso
   const [deceasedLoanIds, setDeceasedLoanIds] = useState<Set<string>>(new Set());
 
@@ -792,6 +811,7 @@ export const CreatePaymentForm = ({
   const [createFalcoPayment, { loading: falcoPaymentLoading }] = useMutation(CREATE_FALCO_PAYMENT);
   const [markLoanAsDeceased, { loading: markDeceasedLoading }] = useMutation(MARK_LOAN_AS_DECEASED);
   const [unmarkLoanAsDeceased, { loading: unmarkDeceasedLoading }] = useMutation(UNMARK_LOAN_AS_DECEASED);
+  const [promoteToLead, { loading: promoteLoading }] = useMutation(PROMOTE_TO_LEAD);
 
   // Hook para obtener datos completos del cliente
   const [getClientData, { loading: clientDataLoading }] = useLazyQuery(GET_CLIENT_DATA, {
@@ -1082,6 +1102,36 @@ export const CreatePaymentForm = ({
     } catch (error) {
       console.error('Error revirtiendo deceso:', error);
       alert('No se pudo eliminar la marcación de deceso');
+    }
+  };
+
+  // Función para manejar la promoción a líder
+  const handlePromoteToLead = async () => {
+    if (!promoteModal.clientId || !promoteModal.currentLeadId) return;
+    
+    try {
+      const result = await promoteToLead({
+        variables: {
+          clientId: promoteModal.clientId,
+          currentLeadId: promoteModal.currentLeadId
+        }
+      });
+
+      // La respuesta es un objeto JSON directamente
+      const response = result.data?.promoteToLead;
+      
+      if (response?.success) {
+        alert('Cliente promovido a líder exitosamente');
+        // Recargar los datos para reflejar los cambios
+        window.location.reload();
+      } else {
+        alert(response?.message || 'Error al promover a líder');
+      }
+    } catch (error) {
+      console.error('Error promoviendo a líder:', error);
+      alert('Error al promover a líder');
+    } finally {
+      setPromoteModal({ isOpen: false, clientId: null, clientName: '', currentLeadId: null });
     }
   };
 
@@ -3501,6 +3551,39 @@ useEffect(() => {
                                 >
                                   💀 Registrar deceso
                                 </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const selectedLoan = loansData?.loans?.find(loan => loan.id === (payment.loanId || payment.loan?.id));
+                                    if (selectedLoan?.borrower?.personalData) {
+                                      setPromoteModal({
+                                        isOpen: true,
+                                        clientId: selectedLoan.borrower.personalData.id,
+                                        clientName: selectedLoan.borrower.personalData.fullName || 'Cliente',
+                                        currentLeadId: selectedLead?.id || ''
+                                      });
+                                    }
+                                    setShowMenuForPayment(null);
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: 'none',
+                                    backgroundColor: 'transparent',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    color: '#059669',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    borderBottom: '1px solid #e5e7eb'
+                                  }}
+                                  onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#f0fdf4'}
+                                  onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
+                                >
+                                  👑 Promover a lider
+                                </button>
                               </>
                             ) : (
                               <>
@@ -4200,6 +4283,78 @@ useEffect(() => {
           }}>
             <strong>💡 Información:</strong> Al confirmar, el préstamo se marcará como deceso 
             con fecha {selectedDate?.toLocaleDateString('es-MX')} y se establecerá como finalizado.
+          </div>
+        </Box>
+      </AlertDialog>
+
+      {/* Modal de confirmación de promoción a líder */}
+      <AlertDialog 
+        title="Promover a Líder" 
+        isOpen={promoteModal.isOpen} 
+        actions={{
+          confirm: { 
+            label: 'Promover a Líder', 
+            action: handlePromoteToLead, 
+            loading: promoteLoading 
+          },
+          cancel: { 
+            label: 'Cancelar', 
+            action: () => setPromoteModal({ isOpen: false, clientId: null, clientName: '', currentLeadId: null }) 
+          }
+        }}
+      >
+        <Box padding="large">
+          <div style={{
+            backgroundColor: '#F0FDF4',
+            border: '1px solid #BBF7D0',
+            borderRadius: '8px',
+            padding: '16px',
+            marginBottom: '16px'
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              marginBottom: '12px',
+              color: '#059669',
+              fontWeight: '600'
+            }}>
+              👑 Promoción a Líder
+            </div>
+            <p style={{ margin: 0, fontSize: '14px', color: '#047857' }}>
+              ¿Seguro que deseas promover a <strong>{promoteModal.clientName}</strong> a líder?
+            </p>
+          </div>
+          
+          <div style={{ marginBottom: '16px' }}>
+            <h4 style={{ margin: '0 0 8px 0', color: '#374151' }}>Acciones que se realizarán:</h4>
+            <div style={{ 
+              backgroundColor: '#F9FAFB', 
+              padding: '12px', 
+              borderRadius: '6px',
+              border: '1px solid #E5E7EB'
+            }}>
+              <div style={{ marginBottom: '8px' }}>
+                <strong>1.</strong> Se creará un nuevo registro de Employee para {promoteModal.clientName}
+              </div>
+              <div style={{ marginBottom: '8px' }}>
+                <strong>2.</strong> Todos los clientes activos del líder actual serán transferidos al nuevo líder
+              </div>
+              <div>
+                <strong>3.</strong> La información del líder anterior (dirección) se mantendrá idéntica
+              </div>
+            </div>
+          </div>
+          
+          <div style={{
+            backgroundColor: '#EFF6FF',
+            border: '1px solid #BFDBFE',
+            borderRadius: '6px',
+            padding: '12px',
+            fontSize: '13px',
+            color: '#1E40AF'
+          }}>
+            <strong>💡 Información:</strong> Esta acción creará un nuevo líder y transferirá toda la cartera de clientes activos.
           </div>
         </Box>
       </AlertDialog>

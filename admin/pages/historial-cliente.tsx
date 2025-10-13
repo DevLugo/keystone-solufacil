@@ -288,6 +288,71 @@ const HistorialClientePage: React.FC = () => {
   }, []);
 
   const { isAdmin, canMergeClients } = useAuth();
+
+  // Función para calcular la distancia de Levenshtein (diferencias entre strings)
+  const levenshteinDistance = (str1: string, str2: string): number => {
+    const matrix = [];
+    const len1 = str1.length;
+    const len2 = str2.length;
+
+    // Inicializar matriz
+    for (let i = 0; i <= len2; i++) {
+      matrix[i] = [i];
+    }
+    for (let j = 0; j <= len1; j++) {
+      matrix[0][j] = j;
+    }
+
+    // Llenar matriz
+    for (let i = 1; i <= len2; i++) {
+      for (let j = 1; j <= len1; j++) {
+        if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1, // sustitución
+            matrix[i][j - 1] + 1,     // inserción
+            matrix[i - 1][j] + 1      // eliminación
+          );
+        }
+      }
+    }
+
+    return matrix[len2][len1];
+  };
+
+  // Función para detectar posibles duplicados
+  const findPotentialDuplicates = (clients: ClientSearchResult[]): Array<{client1: ClientSearchResult, client2: ClientSearchResult, similarity: number}> => {
+    const duplicates: Array<{client1: ClientSearchResult, client2: ClientSearchResult, similarity: number}> = [];
+    
+    for (let i = 0; i < clients.length; i++) {
+      for (let j = i + 1; j < clients.length; j++) {
+        const client1 = clients[i];
+        const client2 = clients[j];
+        
+        // Normalizar nombres (remover acentos, convertir a mayúsculas)
+        const name1 = client1.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+        const name2 = client2.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+        
+        // Calcular distancia de Levenshtein
+        const distance = levenshteinDistance(name1, name2);
+        const maxLength = Math.max(name1.length, name2.length);
+        const similarity = ((maxLength - distance) / maxLength) * 100;
+        
+        // Considerar duplicado si la similitud es >= 85% (máximo 2-3 diferencias en nombres cortos)
+        if (similarity >= 85 && distance <= 3) {
+          duplicates.push({
+            client1,
+            client2,
+            similarity: Math.round(similarity)
+          });
+        }
+      }
+    }
+    
+    // Ordenar por similitud descendente
+    return duplicates.sort((a, b) => b.similarity - a.similarity);
+  };
   const [selectedRoute, setSelectedRoute] = useState<any>(null);
   const [selectedLocation, setSelectedLocation] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -295,6 +360,8 @@ const HistorialClientePage: React.FC = () => {
   const [clientResults, setClientResults] = useState<ClientSearchResult[]>([]);
   const [showClientHistory, setShowClientHistory] = useState<boolean>(false);
   const [showAutocomplete, setShowAutocomplete] = useState<boolean>(false);
+  const [potentialDuplicates, setPotentialDuplicates] = useState<Array<{client1: ClientSearchResult, client2: ClientSearchResult, similarity: number}>>([]);
+  const [showDuplicates, setShowDuplicates] = useState<boolean>(false);
   
   // Estado para el modal de imagen
   const [imageModal, setImageModal] = useState<{
@@ -437,6 +504,8 @@ const HistorialClientePage: React.FC = () => {
   useEffect(() => {
     if (searchData?.searchClients) {
       setClientResults(searchData.searchClients);
+      // Analizar duplicados cuando se obtienen resultados de búsqueda
+      analyzeDuplicates(searchData.searchClients);
     }
   }, [searchData]);
 
@@ -471,6 +540,16 @@ const HistorialClientePage: React.FC = () => {
     setSearchTerm(client.name); // Mantener el nombre del cliente seleccionado en el input
     setClientResults([]);
     setShowAutocomplete(false); // Desactivar el autocomplete después de seleccionar
+  };
+
+  // Función para analizar duplicados en los resultados de búsqueda
+  const analyzeDuplicates = (results: ClientSearchResult[]) => {
+    if (results.length > 1) {
+      const duplicates = findPotentialDuplicates(results);
+      setPotentialDuplicates(duplicates);
+    } else {
+      setPotentialDuplicates([]);
+    }
   };
 
   const handleGenerateReport = () => {
@@ -899,6 +978,123 @@ const HistorialClientePage: React.FC = () => {
               </div>
             )}
 
+            {/* Sección de duplicados detectados */}
+            {showDuplicates && potentialDuplicates.length > 0 && (
+              <div style={{
+                marginTop: '20px',
+                padding: '16px',
+                backgroundColor: '#fef3c7',
+                border: '1px solid #f59e0b',
+                borderRadius: '8px'
+              }}>
+                <h3 style={{
+                  margin: '0 0 12px 0',
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  color: '#92400e',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  🔍 Posibles Duplicados Detectados ({potentialDuplicates.length})
+                </h3>
+                <p style={{
+                  margin: '0 0 16px 0',
+                  fontSize: '14px',
+                  color: '#92400e'
+                }}>
+                  Se encontraron clientes con nombres muy similares. Revisa si son duplicados y considera fusionarlos.
+                </p>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {potentialDuplicates.map((duplicate, index) => (
+                    <div key={index} style={{
+                      padding: '12px',
+                      backgroundColor: 'white',
+                      border: '1px solid #f59e0b',
+                      borderRadius: '6px',
+                      display: 'flex',
+                      flexDirection: isMobile ? 'column' : 'row',
+                      gap: '12px',
+                      alignItems: isMobile ? 'stretch' : 'center'
+                    }}>
+                      {/* Cliente 1 */}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: '600', color: '#374151', marginBottom: '4px' }}>
+                          {duplicate.client1.name}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                          🔑 {duplicate.client1.clientCode} | 📍 {duplicate.client1.location}
+                        </div>
+                      </div>
+                      
+                      {/* Similitud */}
+                      <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        padding: '8px',
+                        backgroundColor: duplicate.similarity >= 95 ? '#fef2f2' : '#f0f9ff',
+                        borderRadius: '4px',
+                        minWidth: '80px'
+                      }}>
+                        <div style={{
+                          fontSize: '14px',
+                          fontWeight: '700',
+                          color: duplicate.similarity >= 95 ? '#dc2626' : '#2563eb'
+                        }}>
+                          {duplicate.similarity}%
+                        </div>
+                        <div style={{
+                          fontSize: '10px',
+                          color: '#6b7280'
+                        }}>
+                          similitud
+                        </div>
+                      </div>
+                      
+                      {/* Cliente 2 */}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: '600', color: '#374151', marginBottom: '4px' }}>
+                          {duplicate.client2.name}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                          🔑 {duplicate.client2.clientCode} | 📍 {duplicate.client2.location}
+                        </div>
+                      </div>
+                      
+                      {/* Botón de fusión rápida */}
+                      {canMergeClients && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <Button
+                            onClick={() => {
+                              // Pre-cargar ambos clientes en el modal de fusión
+                              setMergeClientsList([duplicate.client1, duplicate.client2]);
+                              setSelectedPrimaryId(duplicate.client1.id);
+                              setShowMergeModal(true);
+                              setShowDuplicates(false);
+                            }}
+                            style={{
+                              backgroundColor: '#dc2626',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              padding: '6px 12px',
+                              fontSize: '12px',
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap'
+                            }}
+                          >
+                            🔗 Fusionar
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
 
           </div>
 
@@ -955,6 +1151,25 @@ const HistorialClientePage: React.FC = () => {
                 }}
               >
                 🔗 Fusionar Clientes
+              </Button>
+            )}
+
+            {potentialDuplicates.length > 0 && (
+              <Button 
+                onClick={() => setShowDuplicates(!showDuplicates)}
+                style={{
+                  backgroundColor: showDuplicates ? '#f59e0b' : '#f97316',
+                  color: 'white',
+                  padding: isMobile ? '12px 16px' : '10px 20px',
+                  border: 'none',
+                  borderRadius: '6px',
+                  width: isMobile ? '100%' : 'auto',
+                  fontSize: isMobile ? '14px' : 'inherit',
+                  marginLeft: isMobile ? '0' : '8px',
+                  marginTop: isMobile ? '8px' : '0'
+                }}
+              >
+                🔍 {showDuplicates ? 'Ocultar' : 'Mostrar'} Duplicados ({potentialDuplicates.length})
               </Button>
             )}
 

@@ -4,6 +4,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { telegramGraphQLExtensions, telegramResolvers } from './telegramExtensions';
 import { getFinancialReport } from './resolvers/financialReportResolvers';
 import { calculatePaymentProfitAmount, calculateProfitAndReturnToCapital } from '../utils/loanPayment';
+import { promoteToLeadResolver, createNewLeaderResolver } from './resolvers/leaderResolvers';
 
 // Import fetch for Telegram API calls
 const fetch = require('node-fetch');
@@ -3478,6 +3479,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         }
       }),
+
+      promoteToLead: promoteToLeadResolver,
+
+      createNewLeader: createNewLeaderResolver
     },
     query: {
       // ✅ NUEVA FUNCIONALIDAD: Obtener cumpleaños de líderes por mes

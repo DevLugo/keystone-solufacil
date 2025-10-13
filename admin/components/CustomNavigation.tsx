@@ -51,6 +51,11 @@ const menuSections: MenuSection[] = [
         label: 'Listados de Rutas',
         href: '/generar-listados',
         roles: ['NORMAL', 'ADMIN']
+      },
+      {
+        label: 'Nuevo Líder',
+        href: '/nuevo-lider',
+        roles: ['ADMIN', 'CAPTURA']
       }
     ]
   },
