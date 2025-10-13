@@ -5,6 +5,7 @@ import { telegramGraphQLExtensions, telegramResolvers } from './telegramExtensio
 import { getFinancialReport } from './resolvers/financialReportResolvers';
 import { calculatePaymentProfitAmount, calculateProfitAndReturnToCapital } from '../utils/loanPayment';
 import { promoteToLeadResolver, createNewLeaderResolver } from './resolvers/leaderResolvers';
+import { getBankIncomeTransactionsResolver } from './resolvers/bankIncomeResolvers';
 
 // Import fetch for Telegram API calls
 const fetch = require('node-fetch');
@@ -3485,6 +3486,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
       createNewLeader: createNewLeaderResolver
     },
     query: {
+      // ✅ NUEVA FUNCIONALIDAD: Obtener entradas al banco con filtros
+      getBankIncomeTransactions: getBankIncomeTransactionsResolver,
+      
       // ✅ NUEVA FUNCIONALIDAD: Obtener cumpleaños de líderes por mes
       previewBulkPortfolioCleanup: graphql.field({
         type: graphql.nonNull(graphql.JSON),

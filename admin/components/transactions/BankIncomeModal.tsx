@@ -2,7 +2,7 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { jsx, Box } from '@keystone-ui/core';
 
 interface BankIncomeData {
@@ -26,6 +26,20 @@ interface BankIncomeModalProps {
   totalTransactions: number;
   totalAmount: number;
   loading?: boolean;
+  // NUEVAS PROPS PARA FILTROS:
+  onlyAbonos?: boolean;
+  onOnlyAbonosChange?: (value: boolean) => void;
+  startDate?: string;
+  onStartDateChange?: (value: string) => void;
+  endDate?: string;
+  onEndDateChange?: (value: string) => void;
+  selectedRouteIds?: string[];
+  onRouteIdsChange?: (value: string[]) => void;
+  availableRoutes?: Array<{ id: string; name: string }>;
+  onRefresh?: () => void;
+  customStartDate?: string;
+  customEndDate?: string;
+  onResetFilters?: () => void;
 }
 
 export const BankIncomeModal = ({ 
@@ -34,13 +48,61 @@ export const BankIncomeModal = ({
   bankIncomes, 
   totalTransactions, 
   totalAmount,
-  loading = false
+  loading = false,
+  // NUEVAS PROPS:
+  onlyAbonos = false,
+  onOnlyAbonosChange,
+  startDate = '',
+  onStartDateChange,
+  endDate = '',
+  onEndDateChange,
+  selectedRouteIds = [],
+  onRouteIdsChange,
+  availableRoutes = [],
+  onRefresh,
+  customStartDate = '',
+  customEndDate = '',
+  onResetFilters
 }: BankIncomeModalProps) => {
   const [copied, setCopied] = useState(false);
+  const [confirmedTransactions, setConfirmedTransactions] = useState<Set<string>>(new Set());
+
+  // Función para manejar la confirmación de transacciones
+  const handleConfirmTransaction = (transactionId: string, confirmed: boolean) => {
+    setConfirmedTransactions(prev => {
+      const newSet = new Set(prev);
+      if (confirmed) {
+        newSet.add(transactionId);
+      } else {
+        newSet.delete(transactionId);
+      }
+      return newSet;
+    });
+  };
+
+  // Función para confirmar todas las transacciones
+  const handleConfirmAll = (confirmed: boolean) => {
+    if (confirmed) {
+      const allIds = new Set(bankIncomes.map(income => income.id));
+      setConfirmedTransactions(allIds);
+    } else {
+      setConfirmedTransactions(new Set());
+    }
+  };
+
+  // Contar transacciones confirmadas
+  const confirmedCount = confirmedTransactions.size;
+  const allConfirmed = bankIncomes.length > 0 && confirmedCount === bankIncomes.length;
+
+  // Limpiar confirmaciones cuando cambien los datos
+  useEffect(() => {
+    setConfirmedTransactions(new Set());
+  }, [bankIncomes]);
 
   const formatForCopy = () => {
     let text = `ENTRADAS AL BANCO - RESUMEN\n`;
-    text += `Total: $${totalAmount.toFixed(2)} (${totalTransactions} transacciones)\n\n`;
+    text += `Total: $${totalAmount.toFixed(2)} (${totalTransactions} transacciones)\n`;
+    text += `Confirmadas: ${confirmedCount}/${totalTransactions}\n\n`;
 
     text += `Entradas al Banco\n`;
     bankIncomes.forEach(income => {
@@ -48,7 +110,8 @@ export const BankIncomeModal = ({
       const employee = income.employeeName ? ` (${income.employeeName}` : '';
       const leaderLocality = income.leaderLocality ? ` - ${income.leaderLocality}` : '';
       const employeeInfo = income.employeeName ? `${employee}${leaderLocality})` : '';
-      text += `-${income.name}${employeeInfo}, ${date}, $${income.amount.toFixed(2)}\n`;
+      const confirmed = confirmedTransactions.has(income.id) ? ' ✅' : '';
+      text += `-${income.name}${employeeInfo}, ${date}, $${income.amount.toFixed(2)}${confirmed}\n`;
     });
 
     return text;
@@ -171,6 +234,375 @@ export const BankIncomeModal = ({
           </Box>
         </Box>
 
+        {/* Controles de Filtro */}
+        <Box css={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '16px',
+          marginBottom: '20px',
+          padding: '16px',
+          backgroundColor: '#f8fafc',
+          borderRadius: '8px',
+          border: '1px solid #e2e8f0'
+        }}>
+          {/* Checkbox para solo abonos */}
+          <Box css={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <input
+              type="checkbox"
+              id="onlyAbonos"
+              checked={onlyAbonos}
+              onChange={(e) => onOnlyAbonosChange?.(e.target.checked)}
+              css={{
+                width: '16px',
+                height: '16px',
+                accentColor: '#22c55e'
+              }}
+            />
+            <label 
+              htmlFor="onlyAbonos"
+              css={{
+                fontSize: '14px',
+                fontWeight: '500',
+                color: '#374151',
+                cursor: 'pointer'
+              }}
+            >
+              Solo mostrar abonos (pagos de préstamos)
+            </label>
+          </Box>
+
+          {/* Selectores de fecha y ruta */}
+          <Box css={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr 1fr auto',
+            gap: '12px',
+            alignItems: 'end'
+          }}>
+            <Box>
+              <label css={{
+                display: 'block',
+                fontSize: '12px',
+                fontWeight: '500',
+                color: '#6b7280',
+                marginBottom: '4px'
+              }}>
+                Fecha inicio
+              </label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => onStartDateChange?.(e.target.value)}
+                css={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  '&:focus': {
+                    outline: 'none',
+                    borderColor: '#22c55e',
+                    boxShadow: '0 0 0 3px rgba(34, 197, 94, 0.1)'
+                  }
+                }}
+              />
+            </Box>
+
+            <Box>
+              <label css={{
+                display: 'block',
+                fontSize: '12px',
+                fontWeight: '500',
+                color: '#6b7280',
+                marginBottom: '4px'
+              }}>
+                Fecha fin
+              </label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => onEndDateChange?.(e.target.value)}
+                css={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  '&:focus': {
+                    outline: 'none',
+                    borderColor: '#22c55e',
+                    boxShadow: '0 0 0 3px rgba(34, 197, 94, 0.1)'
+                  }
+                }}
+              />
+            </Box>
+
+            <Box>
+              <label css={{
+                display: 'block',
+                fontSize: '12px',
+                fontWeight: '500',
+                color: '#6b7280',
+                marginBottom: '4px'
+              }}>
+                Rutas ({selectedRouteIds.length}/{availableRoutes.length})
+              </label>
+              <Box css={{
+                maxHeight: '120px',
+                overflowY: 'auto',
+                border: '1px solid #d1d5db',
+                borderRadius: '6px',
+                padding: '8px',
+                backgroundColor: 'white'
+              }}>
+                {/* Opción para seleccionar todas las rutas */}
+                <Box css={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  marginBottom: '8px',
+                  paddingBottom: '8px',
+                  borderBottom: '1px solid #e5e7eb'
+                }}>
+                  <input
+                    type="checkbox"
+                    id="select-all-routes"
+                    checked={selectedRouteIds.length === availableRoutes.length && availableRoutes.length > 0}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        onRouteIdsChange?.(availableRoutes.map(route => route.id));
+                      } else {
+                        onRouteIdsChange?.([]);
+                      }
+                    }}
+                    css={{
+                      width: '14px',
+                      height: '14px',
+                      accentColor: '#22c55e'
+                    }}
+                  />
+                  <label 
+                    htmlFor="select-all-routes"
+                    css={{
+                      fontSize: '12px',
+                      color: '#374151',
+                      cursor: 'pointer',
+                      flex: 1,
+                      fontWeight: '600'
+                    }}
+                  >
+                    📋 Seleccionar todas
+                  </label>
+                </Box>
+                
+                {availableRoutes.map((route) => (
+                  <Box key={route.id} css={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    marginBottom: '4px'
+                  }}>
+                    <input
+                      type="checkbox"
+                      id={`route-${route.id}`}
+                      checked={selectedRouteIds.includes(route.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          onRouteIdsChange?.([...selectedRouteIds, route.id]);
+                        } else {
+                          onRouteIdsChange?.(selectedRouteIds.filter(id => id !== route.id));
+                        }
+                      }}
+                      css={{
+                        width: '14px',
+                        height: '14px',
+                        accentColor: '#22c55e'
+                      }}
+                    />
+                    <label 
+                      htmlFor={`route-${route.id}`}
+                      css={{
+                        fontSize: '12px',
+                        color: '#374151',
+                        cursor: 'pointer',
+                        flex: 1
+                      }}
+                    >
+                      {route.name}
+                    </label>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+
+            <Box css={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px'
+            }}>
+              <button
+                onClick={onRefresh}
+                css={{
+                  padding: '8px 16px',
+                  backgroundColor: '#22c55e',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  '&:hover': {
+                    backgroundColor: '#16a34a'
+                  }
+                }}
+              >
+                🔄 Actualizar
+              </button>
+              
+              {onResetFilters && (
+                <button
+                  onClick={onResetFilters}
+                  css={{
+                    padding: '6px 12px',
+                    backgroundColor: '#6b7280',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    '&:hover': {
+                      backgroundColor: '#4b5563'
+                    }
+                  }}
+                >
+                  🔄 Reset
+                </button>
+              )}
+            </Box>
+          </Box>
+        </Box>
+
+        {/* Sumatoria de Filtros Aplicados */}
+        <Box css={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '20px',
+          padding: '20px',
+          backgroundColor: selectedRouteIds.length === 0 ? '#fef2f2' : '#f0f9ff',
+          borderRadius: '12px',
+          border: selectedRouteIds.length === 0 ? '2px solid #ef4444' : '2px solid #0ea5e9',
+          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+        }}>
+          <Box css={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px'
+          }}>
+            <Box css={{
+              fontSize: '16px',
+              fontWeight: '700',
+              color: selectedRouteIds.length === 0 ? '#dc2626' : '#0c4a6e'
+            }}>
+              {selectedRouteIds.length === 0 ? '⚠️ Sin rutas seleccionadas' : '📊 Resumen de Filtros Aplicados'}
+            </Box>
+            <Box css={{
+              fontSize: '13px',
+              color: selectedRouteIds.length === 0 ? '#b91c1c' : '#0369a1'
+            }}>
+              {selectedRouteIds.length === 0 ? 
+                'Selecciona al menos una ruta para ver los datos' :
+                `${onlyAbonos ? 'Solo abonos' : 'Todos los tipos'} • 
+                ${selectedRouteIds.length} ruta${selectedRouteIds.length !== 1 ? 's' : ''} • 
+                ${customStartDate && customEndDate ? 
+                  `${new Date(customStartDate).toLocaleDateString('es-MX')} - ${new Date(customEndDate).toLocaleDateString('es-MX')}` : 
+                  'Semana actual'
+                }`
+              }
+            </Box>
+          </Box>
+          
+          {selectedRouteIds.length > 0 && (
+            <>
+              <Box css={{
+                textAlign: 'right',
+                padding: '8px 16px',
+                backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                borderRadius: '8px',
+                border: '1px solid rgba(14, 165, 233, 0.3)'
+              }}>
+                <Box css={{
+                  fontSize: '11px',
+                  color: '#0369a1',
+                  marginBottom: '2px',
+                  fontWeight: '500'
+                }}>
+                  Total de transacciones
+                </Box>
+                <Box css={{
+                  fontSize: '24px',
+                  fontWeight: '800',
+                  color: '#0c4a6e'
+                }}>
+                  {totalTransactions}
+                </Box>
+              </Box>
+              
+              <Box css={{
+                textAlign: 'right',
+                padding: '8px 16px',
+                backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                borderRadius: '8px',
+                border: '1px solid rgba(14, 165, 233, 0.3)'
+              }}>
+                <Box css={{
+                  fontSize: '11px',
+                  color: '#0369a1',
+                  marginBottom: '2px',
+                  fontWeight: '500'
+                }}>
+                  Confirmadas
+                </Box>
+                <Box css={{
+                  fontSize: '24px',
+                  fontWeight: '800',
+                  color: confirmedCount === totalTransactions && totalTransactions > 0 ? '#059669' : '#0c4a6e'
+                }}>
+                  {confirmedCount}/{totalTransactions}
+                </Box>
+              </Box>
+              
+              <Box css={{
+                textAlign: 'right',
+                padding: '8px 16px',
+                backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                borderRadius: '8px',
+                border: '1px solid rgba(14, 165, 233, 0.3)'
+              }}>
+                <Box css={{
+                  fontSize: '11px',
+                  color: '#0369a1',
+                  marginBottom: '2px',
+                  fontWeight: '500'
+                }}>
+                  Suma total
+                </Box>
+                <Box css={{
+                  fontSize: '24px',
+                  fontWeight: '800',
+                  color: '#0c4a6e'
+                }}>
+                  ${totalAmount.toFixed(2)}
+                </Box>
+              </Box>
+            </>
+          )}
+        </Box>
+
         {/* Content */}
         <Box css={{ maxHeight: '60vh', overflow: 'auto' }}>
           {loading ? (
@@ -200,17 +632,55 @@ export const BankIncomeModal = ({
             </Box>
           ) : (
             <Box css={{ marginBottom: '24px' }}>
+              {/* Header con checkbox para confirmar todas */}
               <Box css={{
-                fontSize: '18px',
-                fontWeight: '700',
-                color: '#374151',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
                 marginBottom: '12px',
-                padding: '8px 12px',
+                padding: '12px 16px',
                 backgroundColor: '#f9fafb',
-                borderRadius: '6px',
-                borderLeft: '4px solid #3b82f6'
+                borderRadius: '8px',
+                border: '1px solid #e5e7eb'
               }}>
-                Entradas al Banco
+                <Box css={{
+                  fontSize: '18px',
+                  fontWeight: '700',
+                  color: '#374151'
+                }}>
+                  💰 Entradas al Banco
+                </Box>
+                
+                {bankIncomes.length > 0 && (
+                  <Box css={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <input
+                      type="checkbox"
+                      id="confirm-all-transactions"
+                      checked={allConfirmed}
+                      onChange={(e) => handleConfirmAll(e.target.checked)}
+                      css={{
+                        width: '16px',
+                        height: '16px',
+                        accentColor: '#22c55e'
+                      }}
+                    />
+                    <label 
+                      htmlFor="confirm-all-transactions"
+                      css={{
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        color: '#374151',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      ✅ Confirmar todas
+                    </label>
+                  </Box>
+                )}
               </Box>
               {bankIncomes.map((income) => {
                 // Determinar el tipo de pago y colores
@@ -221,17 +691,41 @@ export const BankIncomeModal = ({
                 const paymentTypeIcon = isClientPayment ? '👤' : isLeaderPayment ? '👨‍💼' : '💰';
                 const paymentTypeLabel = isClientPayment ? 'Pago de Cliente' : isLeaderPayment ? 'Pago de Líder' : 'Otro Ingreso';
 
+                const isConfirmed = confirmedTransactions.has(income.id);
+
                 return (
                   <Box key={income.id} css={{
                     marginBottom: '6px',
-                    backgroundColor: 'white',
+                    backgroundColor: isConfirmed ? '#f0fdf4' : 'white',
                     borderRadius: '6px',
-                    border: `1px solid ${paymentTypeColor}`,
+                    border: `2px solid ${isConfirmed ? '#22c55e' : paymentTypeColor}`,
                     overflow: 'hidden',
-                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                    boxShadow: isConfirmed ? '0 2px 4px rgba(34, 197, 94, 0.2)' : '0 1px 3px rgba(0, 0, 0, 0.1)',
+                    position: 'relative'
                   }}>
+                    {/* Checkbox de confirmación */}
+                    <Box css={{
+                      position: 'absolute',
+                      top: '8px',
+                      right: '8px',
+                      zIndex: 1
+                    }}>
+                      <input
+                        type="checkbox"
+                        id={`confirm-${income.id}`}
+                        checked={isConfirmed}
+                        onChange={(e) => handleConfirmTransaction(income.id, e.target.checked)}
+                        css={{
+                          width: '18px',
+                          height: '18px',
+                          accentColor: '#22c55e',
+                          cursor: 'pointer'
+                        }}
+                      />
+                    </Box>
+
                     {/* Contenido compacto */}
-                    <Box css={{ padding: '10px 12px' }}>
+                    <Box css={{ padding: '10px 12px', paddingRight: '40px' }}>
                       <Box css={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Box css={{ flex: 1 }}>
                           {/* Header compacto con tipo y nombre */}
@@ -250,6 +744,21 @@ export const BankIncomeModal = ({
                               <Box css={{ fontSize: '8px' }}>{paymentTypeIcon}</Box>
                               {paymentTypeLabel === 'Pago de Cliente' ? 'Cliente' : paymentTypeLabel === 'Pago de Líder' ? 'Líder' : 'Otro'}
                             </Box>
+                            {isConfirmed && (
+                              <Box css={{
+                                fontSize: '10px',
+                                fontWeight: '600',
+                                color: '#22c55e',
+                                backgroundColor: '#dcfce7',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}>
+                                ✅ Confirmado
+                              </Box>
+                            )}
                           </Box>
                           
                           {/* Nombre/localidad principal */}
