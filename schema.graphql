@@ -2816,6 +2816,8 @@ type Mutation {
   sendReportWithPDF(chatId: String!, reportType: String!): String!
   markLoansDeadDebt(loanIds: [ID!]!, deadDebtDate: String!): String!
   mergeClients(primaryClientId: ID!, secondaryClientId: ID!): String!
+  promoteToLead(clientId: ID!, currentLeadId: ID!): JSON!
+  createNewLeader(fullName: String!, birthDate: String, phone: String, locationId: ID!, routeId: ID!, replaceExisting: Boolean = false): JSON!
 }
 
 input TokaAssignmentInput {
