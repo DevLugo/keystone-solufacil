@@ -1762,19 +1762,38 @@ export const CreatePaymentForm = ({
     return { cashTotal, transferTotal };
   }, [payments, existingPayments, editedPayments, strikethroughNewPaymentIndices, strikethroughPaymentIds]);
 
-  // ✅ NUEVO ENFOQUE: Calcular loadPaymentDistribution de manera derivada para asegurar sincronización
+  // ✅ NUEVO ENFOQUE: Calcular loadPaymentDistribution priorizando valor persistido en DB
   const computedLoadPaymentDistribution = useMemo(() => {
-    // ✅ VALIDAR: Limitar bankPaidAmount al efectivo disponible
     const availableCash = totalByPaymentMethod.cashTotal;
-    const requestedTransfer = loadPaymentDistribution.bankPaidAmount;
-    const validTransfer = Math.min(requestedTransfer, Math.max(0, availableCash));
-    
+
+    // Tomar bankPaidAmount persistido si existe en algún pago existente (leadPaymentReceived)
+    const persistedBank = (() => {
+      const found = existingPayments.find((p: any) => p.leadPaymentReceived?.bankPaidAmount !== undefined);
+      if (!found) return undefined;
+      const raw = found.leadPaymentReceived?.bankPaidAmount;
+      if (raw === null || raw === undefined) return undefined;
+      const num = parseFloat(raw.toString());
+      return isFinite(num) ? num : undefined;
+    })();
+
+    const requestedTransfer = persistedBank !== undefined
+      ? persistedBank
+      : loadPaymentDistribution.bankPaidAmount;
+
+    // Limitar transferencia al efectivo disponible y a valores no negativos
+    const validTransfer = Math.min(Math.max(0, requestedTransfer || 0), Math.max(0, availableCash));
+
     return {
       totalPaidAmount: totalAmount,
-      bankPaidAmount: validTransfer, // Limitado al efectivo disponible
-      cashPaidAmount: availableCash - validTransfer, // Efectivo menos lo transferido
+      bankPaidAmount: validTransfer,
+      cashPaidAmount: Math.max(0, availableCash - validTransfer)
     };
-  }, [totalAmount, totalByPaymentMethod.cashTotal, loadPaymentDistribution.bankPaidAmount]);
+  }, [
+    totalAmount,
+    totalByPaymentMethod.cashTotal,
+    loadPaymentDistribution.bankPaidAmount,
+    existingPayments
+  ]);
 
   // Actualizar estado solo cuando sea necesario
   useEffect(() => {
