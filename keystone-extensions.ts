@@ -1443,20 +1443,11 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
           const week = weeks[weekIndex];
           
           const now = new Date();
+          // ✅ CORRECCIÓN: Solo evaluar semanas que ya terminaron completamente
+          // Una semana termina cuando el domingo ya pasó
           if (week.sunday > now) {
-            break; // No evaluar semanas futuras
+            break; // No evaluar semanas futuras o en curso
           }
-          
-          // Calcular pagado antes de esta semana
-          const paidBeforeWeek = (loan.payments || []).reduce((sum: number, p: any) => {
-            const paymentDate = new Date(p.receivedAt || p.createdAt);
-            return paymentDate < week.monday ? sum + parseFloat((p.amount || 0).toString()) : sum;
-          }, 0);
-          
-          const expectedBefore = weekIndex * expectedWeeklyPayment;
-          
-          // Calcular sobrepago acumulado antes de esta semana
-          surplusAccumulated = paidBeforeWeek - expectedBefore;
           
           // Buscar pagos en esta semana específica
           const paymentsInWeek = (loan.payments || []).filter((p: any) => {
@@ -1468,16 +1459,22 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
             sum + parseFloat((p.amount || 0).toString()), 0
           );
           
-          // Verificar si la semana está cubierta (pago directo + sobrepago)
-          const isWeekCovered = (surplusAccumulated + weeklyPaid) >= expectedWeeklyPayment && expectedWeeklyPayment > 0;
+          // ✅ LÓGICA CORREGIDA: Verificar si la semana está cubierta
+          // Una semana está cubierta si se pagó al menos el monto esperado
+          // El sobrepago negativo se "cancela" con el pago de la semana
+          const totalAvailableForWeek = Math.max(0, surplusAccumulated) + weeklyPaid;
+          const isWeekCovered = totalAvailableForWeek >= expectedWeeklyPayment && expectedWeeklyPayment > 0;
+          
           
           // Solo contar como falta si NO está cubierta
           if (!isWeekCovered) {
             weeksWithoutPayment++;
           }
           
-          // Actualizar sobrepago para la siguiente semana
-          surplusAccumulated = surplusAccumulated + weeklyPaid - expectedWeeklyPayment;
+          // ✅ CORRECCIÓN FUNDAMENTAL: Actualizar sobrepago para la siguiente semana
+          // Si hay sobrepago positivo, se mantiene; si hay déficit, se reduce con el pago
+          const newSurplus = surplusAccumulated + weeklyPaid - expectedWeeklyPayment;
+          surplusAccumulated = newSurplus;
         }
         
         // Calcular PAGO VDO = semanas sin pago × pago semanal esperado
