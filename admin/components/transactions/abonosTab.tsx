@@ -621,6 +621,7 @@ export const CreatePaymentForm = ({
     editedPayments: { [key: string]: any };
     isEditing: boolean;
     showSuccessMessage: boolean;
+    hasUserEditedDistribution: boolean;
     groupedPayments?: Record<string, {
       payments: Array<{
         amount: number;
@@ -654,6 +655,7 @@ export const CreatePaymentForm = ({
     editedPayments: {},
     isEditing: false,
     showSuccessMessage: false,
+    hasUserEditedDistribution: false,
   });
 
   // ✅ AGREGAR: Estado para comisión masiva
@@ -662,7 +664,7 @@ export const CreatePaymentForm = ({
   const { 
     payments, comission, isModalOpen, isFalcoModalOpen, isCreateFalcoModalOpen, isMovePaymentsModalOpen, falcoPaymentAmount, 
     selectedFalcoId, createFalcoAmount, loadPaymentDistribution, existingPayments, editedPayments, 
-    isEditing, showSuccessMessage, groupedPayments
+    isEditing, showSuccessMessage, groupedPayments, hasUserEditedDistribution
   } = state;
 
   // Estado separado para trackear pagos tachados (eliminados visualmente)
@@ -1776,9 +1778,10 @@ export const CreatePaymentForm = ({
       return isFinite(num) ? num : undefined;
     })();
 
-    const requestedTransfer = persistedBank !== undefined
-      ? persistedBank
-      : loadPaymentDistribution.bankPaidAmount;
+    // Si el usuario ya editó manualmente la distribución, respetar su entrada y NO sobrescribir con persistidos
+    const requestedTransfer = hasUserEditedDistribution
+      ? loadPaymentDistribution.bankPaidAmount
+      : (persistedBank !== undefined ? persistedBank : loadPaymentDistribution.bankPaidAmount);
 
     // Limitar transferencia al efectivo disponible y a valores no negativos
     const validTransfer = Math.min(Math.max(0, requestedTransfer || 0), Math.max(0, availableCash));
@@ -1792,7 +1795,8 @@ export const CreatePaymentForm = ({
     totalAmount,
     totalByPaymentMethod.cashTotal,
     loadPaymentDistribution.bankPaidAmount,
-    existingPayments
+    existingPayments,
+    hasUserEditedDistribution
   ]);
 
   // Actualizar estado solo cuando sea necesario
@@ -4179,8 +4183,9 @@ useEffect(() => {
                 type="number"
                 min="0"
                 max={totalByPaymentMethod.cashTotal} // Limitar solo al efectivo real
-                value={loadPaymentDistribution.bankPaidAmount}
+                value={loadPaymentDistribution.bankPaidAmount.toString()}
                 onChange={(e) => {
+                  updateState({ hasUserEditedDistribution: true });
                   const transferAmount = Math.max(0, Math.min(parseFloat(e.target.value) || 0, totalByPaymentMethod.cashTotal));
                   // ✅ CORREGIDO: El efectivo disponible para distribución es solo el efectivo real menos la transferencia
                   const cashAmount = totalByPaymentMethod.cashTotal - transferAmount;

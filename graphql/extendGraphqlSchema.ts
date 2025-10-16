@@ -751,13 +751,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
             cashPaidAmount = cashPaidAmount ?? 0;
             bankPaidAmount = bankPaidAmount ?? 0;
 
-            // ✅ Si no hay pagos, forzar montos en 0 para limpiar correctamente el día
-            // Evita recrear transferencias automáticas y deja el registro en estado sin cobros
-            if (!payments || payments.length === 0) {
-              console.log('🔄 [UPDATE] Lista de pagos vacía: forzando cashPaidAmount=0 y bankPaidAmount=0');
-              cashPaidAmount = 0;
-              bankPaidAmount = 0;
-            }
+            // ✅ Si no hay pagos, permitir registro de transferencia (bankPaidAmount) sin forzar a 0
+            // Esto permite crear solo la transferencia de efectivo->banco cuando se requiera
             const totalPaidAmount = cashPaidAmount + bankPaidAmount;
             // ✅ ELIMINADO: Lógica de Falco - ahora se maneja por separado
             let paymentStatus = 'COMPLETE';
@@ -1156,10 +1151,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   }
                 });
 
-                // ✅ NOTA: No es necesario actualizar el balance bancario aquí porque
-                // ya se actualizó arriba en las líneas 1035-1052 con netBankChange
-                // que incluye el bankPaidAmount. Actualizarlo aquí causaría doble contabilización.
-
                 console.log('✅ Transferencia automática creada exitosamente');
               }
 
@@ -1168,6 +1159,31 @@ export const extendGraphqlSchema = graphql.extend(base => {
             }
 
             // ✅ ELIMINADO: Lógica de transacciones de falco - ahora se maneja por separado
+
+            // 🆕 Si NO hubo pagos pero SÍ hubo bankPaidAmount, crear SOLO transacción de TRANSFERENCIA
+            if ((!payments || payments.length === 0) && bankPaidAmount > 0) {
+              console.log('🔄 Creando transferencia automática (solo transferencia, sin pagos):', {
+                amount: bankPaidAmount,
+                from: 'EMPLOYEE_CASH_FUND',
+                to: 'BANK'
+              });
+
+              await tx.transaction.create({
+                data: {
+                  amount: bankPaidAmount.toFixed(2),
+                  date: new Date(paymentDate),
+                  type: 'TRANSFER',
+                  sourceAccountId: cashAccount.id,
+                  destinationAccountId: bankAccount.id,
+                  leadId: leadId,
+                  leadPaymentReceivedId: leadPaymentReceived.id,
+                  routeId: agent?.routes?.id,
+                  snapshotRouteId: agent?.routes?.id,
+                  description: `Transferencia automática por pago mixto - Líder: ${agentId}`,
+                }
+              });
+              console.log('✅ Transferencia creada (sin pagos)');
+            }
 
             return {
               id: leadPaymentReceived.id,
@@ -1305,6 +1321,93 @@ export const extendGraphqlSchema = graphql.extend(base => {
               throw new Error('Pago no encontrado');
             }
 
+          // ✅ EARLY EXIT: Si no hay cambios, no tocar balances ni transacciones (pero garantizar TRANSFER de auditoría)
+          {
+            const round2 = (n: any) => parseFloat(parseFloat((n ?? 0).toString()).toFixed(2));
+            const sameBank = round2(existingPayment.bankPaidAmount) === round2(bankPaidAmount);
+            const sameExpected = round2(existingPayment.expectedAmount) === round2(expectedAmount);
+            // Normalizar pagos entrantes
+            const incoming = (payments || []).map(p => ({
+              loanId: p.loanId,
+              amount: round2(p.amount),
+              comission: round2(p.comission),
+              paymentMethod: p.paymentMethod
+            }));
+            // Normalizar pagos existentes (del registro principal)
+            const existing = (existingPayment.payments || []).map((p: any) => ({
+              loanId: p.loanId,
+              amount: round2(p.amount),
+              comission: round2(p.comission),
+              paymentMethod: p.paymentMethod
+            }));
+            const keyOf = (p: any) => `${p.loanId}|${p.amount}|${p.comission}|${p.paymentMethod}`;
+            const setA = new Set(incoming.map(keyOf));
+            const setB = new Set(existing.map(keyOf));
+            const samePayments = setA.size === setB.size && [...setA].every(k => setB.has(k));
+            if (sameBank && sameExpected && samePayments) {
+              // 🔎 Garantizar que exista transferencia automática si bankPaidAmount > 0
+              try {
+                const existingTransfers = await context.prisma.transaction.findMany({
+                  where: {
+                    leadPaymentReceivedId: id,
+                    type: 'TRANSFER',
+                    description: { contains: 'Transferencia automática por pago mixto' }
+                  }
+                });
+                if ((bankPaidAmount ?? 0) > 0 && existingTransfers.length === 0) {
+                  // Buscar cuentas del agente para registrar la transferencia
+                  const agentForEarly = await context.prisma.employee.findUnique({
+                    where: { id: existingPayment.agentId || '' },
+                    include: { routes: { include: { accounts: true } } }
+                  });
+                  const cashAccEarly = agentForEarly?.routes?.accounts?.find((a: any) => a.type === 'EMPLOYEE_CASH_FUND');
+                  const bankAccEarly = agentForEarly?.routes?.accounts?.find((a: any) => a.type === 'BANK');
+                  if (cashAccEarly && bankAccEarly) {
+                    await context.prisma.transaction.create({
+                      data: {
+                        amount: round2(bankPaidAmount).toFixed(2),
+                        date: new Date(paymentDate),
+                        type: 'TRANSFER',
+                        sourceAccountId: cashAccEarly.id,
+                        destinationAccountId: bankAccEarly.id,
+                        leadId: existingPayment.leadId || '',
+                        leadPaymentReceivedId: id,
+                        routeId: agentForEarly?.routes?.id,
+                        snapshotRouteId: agentForEarly?.routes?.id,
+                        description: `Transferencia automática por pago mixto (early-exit) - Líder: ${existingPayment.agentId}`,
+                      }
+                    });
+                    console.log('✅ [EARLY EXIT] Transferencia automática creada para auditoría');
+                  }
+                }
+              } catch (txErr) {
+                console.warn('⚠️ [EARLY EXIT] No se pudo garantizar la transferencia automática:', txErr);
+              }
+              const totalPaidAmount = round2((existingPayment.cashPaidAmount || 0)) + round2((existingPayment.bankPaidAmount || 0));
+              const paymentStatus = totalPaidAmount < round2(expectedAmount) ? 'PARTIAL' : 'COMPLETE';
+              return {
+                id: existingPayment.id,
+                expectedAmount: round2(existingPayment.expectedAmount),
+                paidAmount: round2(existingPayment.paidAmount),
+                cashPaidAmount: round2(existingPayment.cashPaidAmount),
+                bankPaidAmount: round2(existingPayment.bankPaidAmount),
+                falcoAmount: 0,
+                paymentStatus,
+                payments: existing.map((p, index) => ({
+                  id: existingPayment.payments[index]?.id || `temp-${index}`,
+                  amount: p.amount,
+                  comission: p.comission,
+                  loanId: p.loanId,
+                  type: existingPayment.payments[index]?.type || 'PAYMENT',
+                  paymentMethod: p.paymentMethod,
+                })),
+                paymentDate,
+                agentId: existingPayment.agentId || '',
+                leadId: existingPayment.leadId || '',
+              } as any;
+            }
+          }
+
 
             // ✅ NUEVO: Buscar TODOS los LeadPaymentReceived del mismo día y lead
             const paymentDateObj = new Date(paymentDate);
@@ -1431,10 +1534,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   if (t.incomeSource === 'BANK_LOAN_PAYMENT') oldBankChange += amount;
                 } else if (t.type === 'EXPENSE' && t.expenseSource === 'LOAN_PAYMENT_COMISSION') {
                   oldCashChange -= amount;
-                } else if (t.type === 'TRANSFER' && (t.description || '').includes('Transferencia automática por pago mixto')) {
-                  // efectivo -> banco
-                  oldCashChange -= amount;
-                  oldBankChange += amount;
                 }
               }
 
@@ -1446,9 +1545,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   if (t.incomeSource === 'BANK_LOAN_PAYMENT') oldBankChange += amount;
                 } else if (t.type === 'EXPENSE' && t.expenseSource === 'LOAN_PAYMENT_COMISSION') {
                   oldCashChange -= amount;
-                } else if (t.type === 'TRANSFER' && (t.description || '').includes('Transferencia automática por pago mixto')) {
-                  oldCashChange -= amount;
-                  oldBankChange += amount;
                 }
               }
 
@@ -1583,23 +1679,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
               }
 
-              // Transferencia automática por bankPaidAmount
-              if (bankPaidAmount > 0) {
-                transactionsToCreate.push({
-                  amount: bankPaidAmount.toFixed(2),
-                  date: new Date(paymentDate),
-                  type: 'TRANSFER',
-                  sourceAccountId: cashAccount.id,
-                  destinationAccountId: bankAccount.id,
-                  leadId: leadId,
-                  leadPaymentReceivedId: id,
-                  routeId: agent?.routes?.id,
-                  snapshotRouteId: agent?.routes?.id,
-                  description: `Transferencia automática por pago mixto actualizado - Líder: ${agentId}`,
-                });
-                newCashChange -= bankPaidAmount;
-                newBankChange += bankPaidAmount;
-              }
+              // Transferencia automática: crear registro SOLO para auditoría después; no ajustar balances aquí
 
               // 6) Crear transacciones (deshabilitar hooks para evitar doble conteo)
               (context as any).skipTransactionHooks = true;
@@ -1635,8 +1715,27 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }
 
               // 7) Ajustar balances de cuentas por diferencia neta (nuevo - viejo)
-              const netCashDelta = newCashChange - oldCashChange;
-              const netBankDelta = newBankChange - oldBankChange;
+              // Incluir explícitamente el cambio en bankPaidAmount (transferencia automática efectivo -> banco)
+              const oldBankPaidAmountValue = parseFloat(existingPayment.bankPaidAmount?.toString() || '0');
+              const newBankPaidAmountValue = bankPaidAmount;
+              const bankPaidAmountChange = newBankPaidAmountValue - oldBankPaidAmountValue;
+
+              // Efectivo: pagos CASH - comisiones ya se reflejan en newCashChange/oldCashChange; resta transferencia automática
+              // Banco: pagos TRANSFER ya en newBankChange/oldBankChange; suma transferencia automática
+              const netCashDelta = (newCashChange - oldCashChange) - bankPaidAmountChange;
+              const netBankDelta = (newBankChange - oldBankChange) + bankPaidAmountChange;
+
+              console.log('🔍 [REBUILD] Aplicando deltas de balance con transferencia automática:', {
+                oldCashChange,
+                newCashChange,
+                oldBankChange,
+                newBankChange,
+                oldBankPaidAmountValue,
+                newBankPaidAmountValue,
+                bankPaidAmountChange,
+                netCashDelta,
+                netBankDelta,
+              });
 
               if (netCashDelta !== 0) {
                 const current = parseFloat((cashAccount.amount || 0).toString());
@@ -1645,6 +1744,42 @@ export const extendGraphqlSchema = graphql.extend(base => {
               if (netBankDelta !== 0) {
                 const current = parseFloat((bankAccount.amount || 0).toString());
                 await tx.account.update({ where: { id: bankAccount.id }, data: { amount: (current + netBankDelta).toString() } });
+              }
+
+              // 🆕 GARANTIZAR TRANSFERENCIA DE AUDITORÍA DENTRO DE REBUILD (antes del return)
+              // Eliminar transferencias previas de este LPR y recrear según bankPaidAmount
+              try {
+                const existingTransferTransactions = await tx.transaction.findMany({
+                  where: {
+                    leadPaymentReceivedId: id,
+                    type: 'TRANSFER',
+                    description: { contains: 'Transferencia automática por pago mixto' }
+                  }
+                });
+                if (existingTransferTransactions.length > 0) {
+                  await tx.transaction.deleteMany({
+                    where: { id: { in: existingTransferTransactions.map(t => t.id) } }
+                  });
+                }
+
+                if (newBankPaidAmountValue > 0) {
+                  await tx.transaction.create({
+                    data: {
+                      amount: newBankPaidAmountValue.toFixed(2),
+                      date: new Date(paymentDate),
+                      type: 'TRANSFER',
+                      sourceAccountId: cashAccount.id,
+                      destinationAccountId: bankAccount.id,
+                      leadId: leadId,
+                      leadPaymentReceivedId: id,
+                      routeId: agent?.routes?.id,
+                      snapshotRouteId: agent?.routes?.id,
+                      description: `Transferencia automática por pago mixto actualizado - Líder: ${agentId}`,
+                    }
+                  });
+                }
+              } catch (txErr) {
+                console.warn('⚠️ [REBUILD] No se pudo recrear la transferencia automática:', txErr);
               }
 
               // 8) Recalcular préstamos afectados
@@ -2225,7 +2360,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
             }
 
-            // Crear nueva transferencia si hay monto bancario
+            // Crear nueva transferencia si hay monto bancario (SIEMPRE registrar la transacción para auditoría)
             if (newBankPaidAmount > 0) {
 
               // Crear transacción de transferencia desde efectivo hacia banco
@@ -2244,7 +2379,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
               });
 
-              // ✅ CORREGIDO: No actualizar balances aquí, netBankChange ya los maneja correctamente
+              // Nota: Los balances ya se actualizaron vía netCashDelta/netBankDelta; aquí solo dejamos rastro auditable
             }
 
             // ✅ ELIMINADO: Lógica de transacciones de falco - ahora se maneja por separado
@@ -4494,84 +4629,96 @@ export const extendGraphqlSchema = graphql.extend(base => {
               // Determinar si es un gasto en efectivo o bancario
               const isBankExpense = sourceAccount?.type === 'BANK';
               
-              if (isBankExpense) {
-                console.log(`💰 Gasto bancario: ${transaction.expenseSource} - $${amount} para ${leaderKey}`);
-                console.log(`   - Balance banco antes: ${localidades[transactionDate][leaderKey].BANK_BALANCE}`);
-                console.log(`   - NOTA: Los gastos bancarios NO se descuentan del balance bancario (solo se suman ingresos)`);
-                console.log(`   - Balance banco después: ${localidades[transactionDate][leaderKey].BANK_BALANCE}`);
-              }
-              
-              // CORREGIDO: Verificar el tipo de gasto según expenseSource
-              // IMPORTANTE: Los gastos bancarios NO se descuentan del BANK_BALANCE
-              // El BANK_BALANCE solo suma ingresos bancarios
+              // CORREGIDO: Los gastos deben descontar del balance de la cuenta de origen
               if (transaction.expenseSource === 'GASOLINE') {
                 localidades[transactionDate][leaderKey].GASOLINE += amount;
-                // Solo descontar del balance de efectivo si es gasto en efectivo
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'VIATIC') {
                 localidades[transactionDate][leaderKey].VIATIC += amount;
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'ACCOMMODATION') {
                 localidades[transactionDate][leaderKey].ACCOMMODATION += amount;
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'VEHICULE_MAINTENANCE') {
                 localidades[transactionDate][leaderKey].VEHICULE_MAINTENANCE += amount;
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'NOMINA_SALARY') {
                 localidades[transactionDate][leaderKey].NOMINA_SALARY += amount;
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'EXTERNAL_SALARY') {
                 localidades[transactionDate][leaderKey].EXTERNAL_SALARY += amount;
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'CREDITO') {
                 localidades[transactionDate][leaderKey].CREDITO += amount;
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'LOAN_GRANTED') {
                 localidades[transactionDate][leaderKey].LOAN_GRANTED += amount;
-                console.log(`💰 Préstamo otorgado: ${amount} - isBankExpense: ${isBankExpense} para ${leaderKey}`);
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
-                  console.log(`   - CASH_BALANCE después: ${localidades[transactionDate][leaderKey].CASH_BALANCE}`);
                 }
               } else if (transaction.expenseSource === 'LOAN_GRANTED_COMISSION') {
                 localidades[transactionDate][leaderKey].LOAN_GRANTED_COMISSION += amount;
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'LOAN_PAYMENT_COMISSION') {
                 localidades[transactionDate][leaderKey].LOAN_PAYMENT_COMISSION += amount;
-                console.log(`💰 Comisión pago: ${amount} - isBankExpense: ${isBankExpense} para ${leaderKey}`);
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
-                  console.log(`   - CASH_BALANCE después: ${localidades[transactionDate][leaderKey].CASH_BALANCE}`);
                 }
               } else if (transaction.expenseSource === 'LEAD_COMISSION') {
                 localidades[transactionDate][leaderKey].LEAD_COMISSION += amount;
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'LEAD_EXPENSE') {
                 localidades[transactionDate][leaderKey].LEAD_EXPENSE += amount;
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else {
                 localidades[transactionDate][leaderKey].OTRO += amount;
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               }
