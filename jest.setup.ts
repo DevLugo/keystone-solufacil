@@ -1,13 +1,8 @@
-//import { PrismaClient } from '@prisma/client';
-
-//const prisma = new PrismaClient();
-
+// Setup básico para tests
 beforeAll(async () => {
-  //await prisma.$connect();
+  // Setup global test environment
 });
 
 afterAll(async () => {
-  //await prisma.$disconnect();
+  // Cleanup global test environment
 });
-
-//export default prisma;

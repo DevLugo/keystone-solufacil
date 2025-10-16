@@ -1,5 +1,5 @@
 import { calculatePaymentProfitAmount } from "../loanPayment";
-import '@testing-library/jest-dom';
+// Nota: Para entorno Node no usamos jest-dom
 
 describe('LoanPayment Tests', () => {
     const testCases = [
