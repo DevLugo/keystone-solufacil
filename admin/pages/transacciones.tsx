@@ -117,6 +117,14 @@ function TransaccionesPageContent() {
     skip: activeTab !== 'summary'
   });
 
+  // Escuchar disparos de refresh de balance y forzar refetch del resumen
+  const { refreshTrigger } = useBalanceRefresh();
+  useEffect(() => {
+    if (activeTab === 'summary') {
+      refetchSummary();
+    }
+  }, [refreshTrigger]);
+
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
     setRefreshKey(prev => prev + 1);
