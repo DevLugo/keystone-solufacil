@@ -750,6 +750,14 @@ export const extendGraphqlSchema = graphql.extend(base => {
             
             cashPaidAmount = cashPaidAmount ?? 0;
             bankPaidAmount = bankPaidAmount ?? 0;
+
+            // ✅ Si no hay pagos, forzar montos en 0 para limpiar correctamente el día
+            // Evita recrear transferencias automáticas y deja el registro en estado sin cobros
+            if (!payments || payments.length === 0) {
+              console.log('🔄 [UPDATE] Lista de pagos vacía: forzando cashPaidAmount=0 y bankPaidAmount=0');
+              cashPaidAmount = 0;
+              bankPaidAmount = 0;
+            }
             const totalPaidAmount = cashPaidAmount + bankPaidAmount;
             // ✅ ELIMINADO: Lógica de Falco - ahora se maneja por separado
             let paymentStatus = 'COMPLETE';
@@ -1379,8 +1387,320 @@ export const extendGraphqlSchema = graphql.extend(base => {
               throw new Error('Cuentas del agente no encontradas en su ruta');
             }
 
-            // ✅ NUEVA LÓGICA: Usar exactamente el mismo approach que createCustomLeadPaymentReceived
-            // Eliminar toda la lógica manual compleja de comisiones, usar la lógica probada de create
+            // ✅ MODO RECONSTRUCCIÓN SIMPLE: eliminar y recrear todo para este LeadPaymentReceived
+            {
+              console.log('♻️ [REBUILD] Reconstruyendo completamente pagos y transacciones para LeadPaymentReceived:', id);
+
+              // 0) Consolidar: eliminar otros LeadPaymentReceived del MISMO DÍA para este líder
+              if (allLeadPaymentsOfDay.length > 1) {
+                console.log(`♻️ [REBUILD] Consolidando ${allLeadPaymentsOfDay.length - 1} LeadPaymentReceived adicionales del día`);
+                const additionalLeadPayments = allLeadPaymentsOfDay.filter(lp => lp.id !== id);
+                for (const additionalLp of additionalLeadPayments) {
+                  await tx.transaction.deleteMany({ where: { leadPaymentReceivedId: additionalLp.id } });
+                  await tx.loanPayment.deleteMany({ where: { leadPaymentReceivedId: additionalLp.id } });
+                  await tx.leadPaymentReceived.delete({ where: { id: additionalLp.id } });
+                }
+              }
+
+              // 1) Calcular efecto neto anterior para ajustar balances
+              const existingAllTransactions = await tx.transaction.findMany({
+                where: { leadPaymentReceivedId: id }
+              });
+
+              // 1.a) Además, detectar transacciones del mismo día para este líder
+              // que afecten balances pero que no estén ligadas al LPR (huérfanas)
+              const dayLeadAffectingTransactions = await tx.transaction.findMany({
+                where: {
+                  leadId: leadId,
+                  date: { gte: startOfDay, lte: endOfDay },
+                  OR: [
+                    { type: 'INCOME', incomeSource: { in: ['CASH_LOAN_PAYMENT', 'BANK_LOAN_PAYMENT'] } },
+                    { type: 'EXPENSE', expenseSource: 'LOAN_PAYMENT_COMISSION' },
+                    { type: 'TRANSFER', description: { contains: 'Transferencia automática por pago mixto' } },
+                  ],
+                }
+              });
+
+              let oldCashChange = 0;
+              let oldBankChange = 0;
+
+              for (const t of existingAllTransactions) {
+                const amount = parseFloat((t.amount || 0).toString());
+                if (t.type === 'INCOME') {
+                  if (t.incomeSource === 'CASH_LOAN_PAYMENT') oldCashChange += amount;
+                  if (t.incomeSource === 'BANK_LOAN_PAYMENT') oldBankChange += amount;
+                } else if (t.type === 'EXPENSE' && t.expenseSource === 'LOAN_PAYMENT_COMISSION') {
+                  oldCashChange -= amount;
+                } else if (t.type === 'TRANSFER' && (t.description || '').includes('Transferencia automática por pago mixto')) {
+                  // efectivo -> banco
+                  oldCashChange -= amount;
+                  oldBankChange += amount;
+                }
+              }
+
+              // 1.b) Sumar también las huérfanas del día (se eliminarán más abajo si corresponde)
+              for (const t of dayLeadAffectingTransactions) {
+                const amount = parseFloat((t.amount || 0).toString());
+                if (t.type === 'INCOME') {
+                  if (t.incomeSource === 'CASH_LOAN_PAYMENT') oldCashChange += amount;
+                  if (t.incomeSource === 'BANK_LOAN_PAYMENT') oldBankChange += amount;
+                } else if (t.type === 'EXPENSE' && t.expenseSource === 'LOAN_PAYMENT_COMISSION') {
+                  oldCashChange -= amount;
+                } else if (t.type === 'TRANSFER' && (t.description || '').includes('Transferencia automática por pago mixto')) {
+                  oldCashChange -= amount;
+                  oldBankChange += amount;
+                }
+              }
+
+              console.log('♻️ [REBUILD] Efecto previo:', { oldCashChange, oldBankChange, transactions: existingAllTransactions.length });
+
+              // 2) Eliminar todas las transacciones y pagos del LPR
+              await tx.transaction.deleteMany({ where: { leadPaymentReceivedId: id } });
+              await tx.loanPayment.deleteMany({ where: { leadPaymentReceivedId: id } });
+
+              // 2.a) Eliminar transacciones del día para este líder que afectan balances
+              // (huérfanas no ligadas al LPR) ANTES de recrear, para evitar duplicados en SummaryTab
+              if (dayLeadAffectingTransactions.length > 0) {
+                console.log(`🧹 [REBUILD] Eliminando ${dayLeadAffectingTransactions.length} transacciones huérfanas del día para el líder`);
+                await tx.transaction.deleteMany({
+                  where: {
+                    leadId: leadId,
+                    date: { gte: startOfDay, lte: endOfDay },
+                    OR: [
+                      { type: 'INCOME', incomeSource: { in: ['CASH_LOAN_PAYMENT', 'BANK_LOAN_PAYMENT'] } },
+                      { type: 'EXPENSE', expenseSource: 'LOAN_PAYMENT_COMISSION' },
+                      { type: 'TRANSFER', description: { contains: 'Transferencia automática por pago mixto' } },
+                    ],
+                  }
+                });
+              }
+
+              // 3) Actualizar encabezado con nuevos montos/fecha
+              const updatedLpr = await tx.leadPaymentReceived.update({
+                where: { id },
+                data: {
+                  expectedAmount: expectedAmount.toFixed(2),
+                  paidAmount: (cashPaidAmount + bankPaidAmount).toFixed(2),
+                  cashPaidAmount: cashPaidAmount.toFixed(2),
+                  bankPaidAmount: bankPaidAmount.toFixed(2),
+                  falcoAmount: '0.00',
+                  createdAt: new Date(paymentDate),
+                  paymentStatus: (cashPaidAmount + bankPaidAmount) < expectedAmount ? 'PARTIAL' : 'COMPLETE',
+                }
+              });
+
+              // 4) Crear pagos (si hay)
+              if (payments.length > 0) {
+                const paymentData = payments.map(p => ({
+                  amount: p.amount.toFixed(2),
+                  comission: p.comission.toFixed(2),
+                  loanId: p.loanId,
+                  type: p.type,
+                  paymentMethod: p.paymentMethod,
+                  receivedAt: new Date(paymentDate),
+                  leadPaymentReceivedId: id,
+                }));
+                await tx.loanPayment.createMany({ data: paymentData });
+              }
+
+              // 5) Crear transacciones a partir de los pagos recién creados
+              const createdPayments = await tx.loanPayment.findMany({ where: { leadPaymentReceivedId: id } });
+
+              const transactionsToCreate: any[] = [];
+              let newCashChange = 0;
+              let newBankChange = 0;
+
+              // Mapa de loans para cálculo (optimizado: una sola consulta)
+              const loanIdsForCalc = Array.from(new Set(createdPayments.map(p => p.loanId).filter(Boolean)));
+              const loansForCalc = loanIdsForCalc.length > 0
+                ? await tx.loan.findMany({ where: { id: { in: loanIdsForCalc } }, include: { loantype: true } })
+                : [];
+              const loanMapForCalc = new Map(loansForCalc.map(l => [l.id, l]));
+
+              for (const p of createdPayments) {
+                const payAmount = parseFloat((p.amount || 0).toString());
+                const comAmount = parseFloat((p.comission || 0).toString());
+
+                // Calcular returnToCapital y profitAmount
+                let returnToCapital = 0;
+                let profitAmount = 0;
+                const loan = p.loanId ? loanMapForCalc.get(p.loanId) : null;
+                if (loan && (loan as any).loantype) {
+                  const requestedAmount = safeToNumber((loan as any).requestedAmount);
+                  const interestRate = safeToNumber((loan as any).loantype.rate);
+                  const currentProfit = safeToNumber((loan as any).profitAmount);
+                  const baseProfit = requestedAmount * interestRate;
+                  const profitPendingFromPreviousLoan = Math.max(0, currentProfit - baseProfit);
+                  const calc = calculateProfitAndReturnToCapital({
+                    paymentAmount: payAmount,
+                    requestedAmount,
+                    interestRate,
+                    badDebtDate: (loan as any).badDebtDate,
+                    paymentDate: new Date(paymentDate),
+                    profitPendingFromPreviousLoan,
+                  });
+                  returnToCapital = calc.returnToCapital;
+                  profitAmount = calc.profitAmount;
+                }
+
+                const incomeTx: any = {
+                  amount: payAmount.toFixed(2),
+                  date: new Date(paymentDate),
+                  type: 'INCOME',
+                  incomeSource: p.paymentMethod === 'CASH' ? 'CASH_LOAN_PAYMENT' : 'BANK_LOAN_PAYMENT',
+                  loanPaymentId: p.id,
+                  loanId: p.loanId,
+                  leadId: leadId,
+                  routeId: agent?.routes?.id,
+                  snapshotRouteId: agent?.routes?.id,
+                  returnToCapital: returnToCapital.toFixed(2),
+                  profitAmount: profitAmount.toFixed(2),
+                };
+                if (p.paymentMethod === 'CASH') {
+                  incomeTx.destinationAccountId = cashAccount.id;
+                  newCashChange += payAmount;
+                } else if (p.paymentMethod === 'MONEY_TRANSFER') {
+                  incomeTx.destinationAccountId = bankAccount.id;
+                  newBankChange += payAmount;
+                }
+                transactionsToCreate.push(incomeTx);
+
+                if (comAmount > 0) {
+                  transactionsToCreate.push({
+                    amount: comAmount.toFixed(2),
+                    date: new Date(paymentDate),
+                    type: 'EXPENSE',
+                    expenseSource: 'LOAN_PAYMENT_COMISSION',
+                    sourceAccountId: cashAccount.id,
+                    loanPaymentId: p.id,
+                    loanId: p.loanId,
+                    leadId: leadId,
+                    routeId: agent?.routes?.id,
+                    snapshotRouteId: agent?.routes?.id,
+                    description: `Comisión por pago de préstamo - ${p.id}`,
+                  });
+                  newCashChange -= comAmount; // comisión siempre afecta efectivo
+                }
+              }
+
+              // Transferencia automática por bankPaidAmount
+              if (bankPaidAmount > 0) {
+                transactionsToCreate.push({
+                  amount: bankPaidAmount.toFixed(2),
+                  date: new Date(paymentDate),
+                  type: 'TRANSFER',
+                  sourceAccountId: cashAccount.id,
+                  destinationAccountId: bankAccount.id,
+                  leadId: leadId,
+                  leadPaymentReceivedId: id,
+                  routeId: agent?.routes?.id,
+                  snapshotRouteId: agent?.routes?.id,
+                  description: `Transferencia automática por pago mixto actualizado - Líder: ${agentId}`,
+                });
+                newCashChange -= bankPaidAmount;
+                newBankChange += bankPaidAmount;
+              }
+
+              // 6) Crear transacciones (deshabilitar hooks para evitar doble conteo)
+              (context as any).skipTransactionHooks = true;
+              try {
+                if (transactionsToCreate.length > 0) {
+                  const batchSize = 50;
+                  for (let i = 0; i < transactionsToCreate.length; i += batchSize) {
+                    const batch = transactionsToCreate.slice(i, i + batchSize);
+                    await tx.transaction.createMany({ data: batch });
+                  }
+                }
+              } finally {
+                (context as any).skipTransactionHooks = false;
+              }
+
+              // 6.1) Si NO hay pagos y bankPaidAmount = 0, asegurar limpieza total de transacciones de este LPR
+              if (payments.length === 0 && bankPaidAmount === 0) {
+                console.log('🧹 [REBUILD] No hay pagos ni transferencia: limpiando cualquier transacción residual del día para este líder');
+                // Eliminar las del propio LPR
+                await tx.transaction.deleteMany({ where: { leadPaymentReceivedId: id } });
+                // Eliminar transacciones del día que afectan balances (huérfanas) para este líder
+                await tx.transaction.deleteMany({
+                  where: {
+                    leadId: leadId,
+                    date: { gte: startOfDay, lte: endOfDay },
+                    OR: [
+                      { type: 'INCOME', incomeSource: { in: ['CASH_LOAN_PAYMENT', 'BANK_LOAN_PAYMENT'] } },
+                      { type: 'EXPENSE', expenseSource: 'LOAN_PAYMENT_COMISSION' },
+                      { type: 'TRANSFER', description: { contains: 'Transferencia automática por pago mixto' } },
+                    ],
+                  }
+                });
+              }
+
+              // 7) Ajustar balances de cuentas por diferencia neta (nuevo - viejo)
+              const netCashDelta = newCashChange - oldCashChange;
+              const netBankDelta = newBankChange - oldBankChange;
+
+              if (netCashDelta !== 0) {
+                const current = parseFloat((cashAccount.amount || 0).toString());
+                await tx.account.update({ where: { id: cashAccount.id }, data: { amount: (current + netCashDelta).toString() } });
+              }
+              if (netBankDelta !== 0) {
+                const current = parseFloat((bankAccount.amount || 0).toString());
+                await tx.account.update({ where: { id: bankAccount.id }, data: { amount: (current + netBankDelta).toString() } });
+              }
+
+              // 8) Recalcular préstamos afectados
+              try {
+                const affectedIds = Array.from(new Set(createdPayments.map(p => p.loanId).filter(Boolean)));
+                if (affectedIds.length > 0) {
+                  const loansToUpdate = await tx.loan.findMany({ where: { id: { in: affectedIds } }, include: { loantype: true } });
+                  const paymentTotals = await tx.loanPayment.groupBy({ by: ['loanId'], _sum: { amount: true }, where: { loanId: { in: affectedIds } } });
+                  const totalsMap = new Map(paymentTotals.map(pt => [pt.loanId, safeToNumber(pt._sum.amount || 0)]));
+                  await Promise.all(loansToUpdate.map(async (loan) => {
+                    const totalPaid = totalsMap.get(loan.id) || 0;
+                    const rate = safeToNumber((loan as any).loantype?.rate);
+                    const requested = safeToNumber((loan as any).requestedAmount);
+                    const weekDuration = Number((loan as any).loantype?.weekDuration || 0);
+                    const totalDebt = requested * (1 + rate);
+                    const expectedWeekly = weekDuration > 0 ? (totalDebt / weekDuration) : 0;
+                    const pending = Math.max(0, totalDebt - totalPaid);
+                    const isCompleted = totalPaid >= totalDebt - 0.005;
+                    await tx.loan.update({
+                      where: { id: loan.id },
+                      data: {
+                        totalDebtAcquired: totalDebt.toFixed(2),
+                        expectedWeeklyPayment: expectedWeekly.toFixed(2),
+                        totalPaid: totalPaid.toFixed(2),
+                        pendingAmountStored: pending.toFixed(2),
+                        ...(isCompleted ? { status: 'FINISHED', finishedDate: new Date(paymentDate) } : { status: 'ACTIVE', finishedDate: null })
+                      }
+                    });
+                  }));
+                }
+              } catch (recalcErr) {
+                console.error('⚠️ [REBUILD] Error recalculando préstamos:', recalcErr);
+              }
+
+              // 9) Respuesta
+              return {
+                id: updatedLpr.id,
+                expectedAmount: parseFloat(updatedLpr.expectedAmount?.toString() || '0'),
+                paidAmount: parseFloat(updatedLpr.paidAmount?.toString() || '0'),
+                cashPaidAmount: parseFloat(updatedLpr.cashPaidAmount?.toString() || '0'),
+                bankPaidAmount: parseFloat(updatedLpr.bankPaidAmount?.toString() || '0'),
+                falcoAmount: 0,
+                paymentStatus: updatedLpr.paymentStatus || 'COMPLETE',
+                payments: payments.map((p, index) => ({
+                  id: `temp-${index}`,
+                  amount: p.amount,
+                  comission: p.comission,
+                  loanId: p.loanId,
+                  type: p.type,
+                  paymentMethod: p.paymentMethod
+                })),
+                paymentDate,
+                agentId,
+                leadId,
+              };
+            }
 
             // ✅ CORREGIDO: Lógica inteligente para eliminar solo pagos que ya no están en la lista
             
@@ -1438,14 +1758,30 @@ export const extendGraphqlSchema = graphql.extend(base => {
               const paymentIdsToDelete = paymentsToDelete.map(p => p.id);
               const paymentTransactionIds = paymentsToDelete
                 .flatMap((payment: any) => payment.transactions.map((t: any) => t.id));
+              
+              // ✅ CORREGIDO: Filtrar transferencias bancarias de las transacciones a eliminar
               const allTransactionIds = [...paymentTransactionIds, ...directTransactions.map(t => t.id)];
               const transactionIds = [...new Set(allTransactionIds)]; // Eliminar duplicados
               
-            // ✅ OPTIMIZADO: Eliminar transacciones en lotes más pequeños para evitar timeouts
-            if (transactionIds.length > 0) {
+              // ✅ CORREGIDO: Obtener las transacciones para filtrar transferencias bancarias
+              const transactionsToCheck = await tx.transaction.findMany({
+                where: { id: { in: transactionIds } },
+                select: { id: true, type: true, description: true }
+              });
+              
+              // ✅ CORREGIDO: Excluir transferencias bancarias de la eliminación
+              const transactionsToDelete = transactionsToCheck.filter(t => 
+                !(t.type === 'TRANSFER' && t.description?.includes('Transferencia automática por pago mixto'))
+              ).map(t => t.id);
+              
+              console.log(`🔍 [DEBUG] Transacciones a eliminar: ${transactionsToDelete.length} (excluyendo transferencias bancarias)`);
+              console.log(`🔍 [DEBUG] Transferencias bancarias preservadas: ${transactionIds.length - transactionsToDelete.length}`);
+              
+            // ✅ OPTIMIZADO: Eliminar solo transacciones no-bancarias en lotes más pequeños para evitar timeouts
+            if (transactionsToDelete.length > 0) {
               const batchSize = 50; // Procesar en lotes de 50 transacciones
-              for (let i = 0; i < transactionIds.length; i += batchSize) {
-                const batch = transactionIds.slice(i, i + batchSize);
+              for (let i = 0; i < transactionsToDelete.length; i += batchSize) {
+                const batch = transactionsToDelete.slice(i, i + batchSize);
                 
                 await tx.transaction.deleteMany({
                   where: { id: { in: batch } }
@@ -1919,27 +2255,48 @@ export const extendGraphqlSchema = graphql.extend(base => {
               where: { leadPaymentReceivedId: id }
             });
 
-            // ✅ VALIDACIÓN FINAL: Verificar que no queden transacciones huérfanas
+            // ✅ VALIDACIÓN FINAL: Verificar que no queden transacciones huérfanas (EXCEPTO transferencias bancarias)
             console.log(`🔍 [DEBUG] Verificando transacciones restantes para LeadPaymentReceived: ${id}`);
             const remainingTransactions = await tx.transaction.findMany({
               where: { leadPaymentReceivedId: id }
             });
 
             if (remainingTransactions.length > 0) {
-              console.warn(`⚠️ [DEBUG] ADVERTENCIA: Quedan ${remainingTransactions.length} transacciones huérfanas para LeadPaymentReceived ${id}`);
-              console.warn(`⚠️ [DEBUG] Transacciones restantes:`, remainingTransactions.map(t => ({ id: t.id, type: t.type, amount: t.amount, paymentMethod: t.incomeSource || t.expenseSource })));
+              // ✅ CORREGIDO: Separar transferencias bancarias de transacciones huérfanas
+              const transferTransactions = remainingTransactions.filter(t => 
+                t.type === 'TRANSFER' && 
+                t.description?.includes('Transferencia automática por pago mixto')
+              );
               
-              // ✅ CORREGIDO: Eliminar transacciones huérfanas automáticamente
-              console.log(`🗑️ [DEBUG] Eliminando ${remainingTransactions.length} transacciones huérfanas...`);
-              const orphanTransactionIds = remainingTransactions.map(t => t.id);
+              const orphanTransactions = remainingTransactions.filter(t => 
+                !(t.type === 'TRANSFER' && t.description?.includes('Transferencia automática por pago mixto'))
+              );
+
+              console.log(`🔍 [DEBUG] Transacciones restantes: ${remainingTransactions.length}`);
+              console.log(`🔍 [DEBUG] - Transferencias bancarias (mantener): ${transferTransactions.length}`);
+              console.log(`🔍 [DEBUG] - Transacciones huérfanas (eliminar): ${orphanTransactions.length}`);
+
+              if (orphanTransactions.length > 0) {
+                console.warn(`⚠️ [DEBUG] ADVERTENCIA: Quedan ${orphanTransactions.length} transacciones huérfanas para LeadPaymentReceived ${id}`);
+                console.warn(`⚠️ [DEBUG] Transacciones huérfanas:`, orphanTransactions.map(t => ({ id: t.id, type: t.type, amount: t.amount, paymentMethod: t.incomeSource || t.expenseSource })));
+                
+                // ✅ CORREGIDO: Eliminar solo transacciones huérfanas (NO transferencias bancarias)
+                console.log(`🗑️ [DEBUG] Eliminando ${orphanTransactions.length} transacciones huérfanas...`);
+                const orphanTransactionIds = orphanTransactions.map(t => t.id);
               
               const deleteOrphanResult = await tx.transaction.deleteMany({
                 where: { id: { in: orphanTransactionIds } }
               });
               
               console.log(`✅ [DEBUG] Eliminadas ${deleteOrphanResult.count} transacciones huérfanas`);
+              }
+
+              if (transferTransactions.length > 0) {
+                console.log(`✅ [DEBUG] Manteniendo ${transferTransactions.length} transferencias bancarias:`, 
+                  transferTransactions.map(t => ({ id: t.id, amount: t.amount, description: t.description })));
+              }
             } else {
-              console.log(`✅ [DEBUG] Verificación exitosa: No quedan transacciones huérfanas`);
+              console.log(`✅ [DEBUG] Verificación exitosa: No quedan transacciones restantes`);
             }
 
             // ✅ REACTIVAR: Hooks de LoanPayment
