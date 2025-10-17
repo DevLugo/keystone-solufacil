@@ -46,6 +46,21 @@ interface Loan {
       phones: Array<{ id: string; number: string }>;
     };
   };
+  collaterals: Array<{
+    id: string;
+    fullName: string;
+    phones: Array<{ id: string; number: string }>;
+    addresses: Array<{
+      location: {
+        name: string;
+        municipality: {
+          state: {
+            name: string;
+          };
+        };
+      };
+    }>;
+  }>;
   documentPhotos: DocumentPhoto[];
 }
 
@@ -109,8 +124,9 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
   const borrowerDocuments = loan.documentPhotos.filter(doc => 
     doc.personalData.id === loan.borrower.personalData.id
   );
-  const leadDocuments = loan.documentPhotos.filter(doc => 
-    doc.personalData.id === loan.lead.personalData.id
+  // Los documentos del aval son los que pertenecen a los collaterals
+  const collateralDocuments = loan.documentPhotos.filter(doc => 
+    loan.collaterals.some(collateral => collateral.id === doc.personalData.id)
   );
 
   const handleUploadClick = (
@@ -132,7 +148,6 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
     <AlertDialog
       isOpen={isOpen}
       title=""
-      tone="positive"
       actions={{
         confirm: {
           label: 'Cerrar',
@@ -244,7 +259,7 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
                   </Text>
                   <InlineEditField
                     value={loan.borrower.personalData.fullName}
-                    onSave={(newValue) => onNameEdit(loan.borrower.personalData.id, newValue)}
+                    onSave={async (newValue) => await onNameEdit(loan.borrower.personalData.id, newValue)}
                     placeholder="Nombre del titular"
                   />
                 </Box>
@@ -255,7 +270,7 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
                   </Text>
                   <InlineEditField
                     value={loan.borrower.personalData.phones[0]?.number || ''}
-                    onSave={(newValue) => onPhoneEdit(
+                    onSave={async (newValue) => await onPhoneEdit(
                       loan.borrower.personalData.id,
                       loan.borrower.personalData.phones[0]?.id,
                       newValue
@@ -339,116 +354,153 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
           ) : (
             <Box>
               {/* Información del Aval */}
-              <Box
-                css={{
-                  padding: '16px',
-                  backgroundColor: '#f8fafc',
-                  borderRadius: '12px',
-                  border: '1px solid #e2e8f0',
-                  marginBottom: '20px'
-                }}
-              >
-                <Text weight="semibold" size="medium" marginBottom="small" color="neutral900">
-                  🤝 Aval
-                </Text>
-                
-                <Box marginBottom="small">
-                  <Text size="small" color="neutral700" marginBottom="xsmall">
-                    Nombre
+              {loan.collaterals.length > 0 ? (
+                <Box
+                  css={{
+                    padding: '16px',
+                    backgroundColor: '#f8fafc',
+                    borderRadius: '12px',
+                    border: '1px solid #e2e8f0',
+                    marginBottom: '20px'
+                  }}
+                >
+                  <Text weight="semibold" size="medium" marginBottom="small" color="neutral900">
+                    🤝 Aval
                   </Text>
-                  <InlineEditField
-                    value={loan.lead.personalData.fullName}
-                    onSave={(newValue) => onNameEdit(loan.lead.personalData.id, newValue)}
-                    placeholder="Nombre del aval"
-                  />
-                </Box>
+                  
+                  <Box marginBottom="small">
+                    <Text size="small" color="neutral700" marginBottom="xsmall">
+                      Nombre
+                    </Text>
+                    <InlineEditField
+                      value={loan.collaterals[0].fullName}
+                      onSave={async (newValue) => await onNameEdit(loan.collaterals[0].id, newValue)}
+                      placeholder="Nombre del aval"
+                    />
+                  </Box>
 
-                <Box marginBottom="small">
-                  <Text size="small" color="neutral700" marginBottom="xsmall">
-                    Teléfono
-                  </Text>
-                  <InlineEditField
-                    value={loan.lead.personalData.phones[0]?.number || ''}
-                    onSave={(newValue) => onPhoneEdit(
-                      loan.lead.personalData.id,
-                      loan.lead.personalData.phones[0]?.id,
-                      newValue
-                    )}
-                    placeholder="Agregar teléfono"
-                  />
+                  <Box marginBottom="small">
+                    <Text size="small" color="neutral700" marginBottom="xsmall">
+                      Teléfono
+                    </Text>
+                    <InlineEditField
+                      value={loan.collaterals[0].phones[0]?.number || ''}
+                      onSave={async (newValue) => await onPhoneEdit(
+                        loan.collaterals[0].id,
+                        loan.collaterals[0].phones[0]?.id,
+                        newValue
+                      )}
+                      placeholder="Agregar teléfono"
+                    />
+                  </Box>
                 </Box>
-              </Box>
+              ) : (
+                <Box
+                  css={{
+                    padding: '16px',
+                    backgroundColor: '#fef3c7',
+                    borderRadius: '12px',
+                    border: '1px solid #f59e0b',
+                    marginBottom: '20px'
+                  }}
+                >
+                  <Text weight="semibold" size="medium" color="neutral900">
+                    🤝 Aval
+                  </Text>
+                  <Text size="small" color="neutral600">
+                    No hay aval asignado a este préstamo
+                  </Text>
+                </Box>
+              )}
 
               {/* Documentos del Aval */}
-              <Box
-                css={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-                  gap: '20px',
-                  alignItems: 'start',
-                  '@media (max-width: 1024px)': {
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-                    gap: '16px'
-                  },
-                  '@media (max-width: 768px)': {
-                    gridTemplateColumns: 'repeat(2, 1fr)',
-                    gap: '12px'
-                  }
-                }}
-              >
-                {DOCUMENT_TYPES_AVAL.map((type) => {
-                  const document = getDocumentByTypeAndPerson(
-                    leadDocuments,
-                    type,
-                    loan.lead.personalData.id
-                  );
+              {loan.collaterals.length > 0 ? (
+                <Box
+                  css={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                    gap: '20px',
+                    alignItems: 'start',
+                    '@media (max-width: 1024px)': {
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                      gap: '16px'
+                    },
+                    '@media (max-width: 768px)': {
+                      gridTemplateColumns: 'repeat(2, 1fr)',
+                      gap: '12px'
+                    }
+                  }}
+                >
+                  {DOCUMENT_TYPES_AVAL.map((type) => {
+                    // Usar el primer collateral (aval principal)
+                    const primaryCollateral = loan.collaterals[0];
+                    const document = getDocumentByTypeAndPerson(
+                      collateralDocuments,
+                      type,
+                      primaryCollateral.id
+                    );
 
-                  return (
-                    <Box
-                      key={`aval-${type}`}
-                      css={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        gap: '8px'
-                      }}
-                    >
-                      <Text size="small" weight="semibold" color="neutral700">
-                        {getTypeLabel(type)}
-                      </Text>
-                      <DocumentThumbnail
-                        type={type}
-                        personType="AVAL"
-                        imageUrl={document?.photoUrl}
-                        publicId={document?.publicId}
-                        isError={document?.isError || false}
-                        errorDescription={document?.errorDescription || ''}
-                        isMissing={document?.isMissing || false}
-                        onImageClick={() => document && window.open(document.photoUrl, '_blank')}
-                        onUploadClick={() => handleUploadClick(
-                          type,
-                          'AVAL',
-                          loan.lead.personalData.id,
-                          loan.lead.personalData.fullName
-                        )}
-                        onMarkAsError={(isError, errorDescription) => 
-                          document && onDocumentError(document.id, isError, errorDescription)
-                        }
-                        onMarkAsMissing={(isMissing) => {
-                          if (document) {
-                            onDocumentMissing(document.id, isMissing);
-                          } else if (isMissing) {
-                            // Si no hay documento y queremos marcarlo como faltante, crear uno
-                            onCreateMissingDocument(type, loan.lead.personalData.id, loan.id, loan.lead.personalData.fullName);
-                          }
+                    return (
+                      <Box
+                        key={`aval-${type}`}
+                        css={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '8px'
                         }}
-                        onDelete={() => document && onDocumentDelete(document.id, document.title)}
-                        size="large"
-                      />
-                    </Box>
-                  );
-                })}
-              </Box>
+                      >
+                        <Text size="small" weight="semibold" color="neutral700">
+                          {getTypeLabel(type)}
+                        </Text>
+                        <DocumentThumbnail
+                          type={type}
+                          personType="AVAL"
+                          imageUrl={document?.photoUrl}
+                          publicId={document?.publicId}
+                          isError={document?.isError || false}
+                          errorDescription={document?.errorDescription || ''}
+                          isMissing={document?.isMissing || false}
+                          onImageClick={() => document && window.open(document.photoUrl, '_blank')}
+                          onUploadClick={() => handleUploadClick(
+                            type,
+                            'AVAL',
+                            primaryCollateral.id,
+                            primaryCollateral.fullName
+                          )}
+                          onMarkAsError={(isError, errorDescription) => 
+                            document && onDocumentError(document.id, isError, errorDescription)
+                          }
+                          onMarkAsMissing={(isMissing) => {
+                            if (document) {
+                              onDocumentMissing(document.id, isMissing);
+                            } else if (isMissing) {
+                              // Si no hay documento y queremos marcarlo como faltante, crear uno
+                              onCreateMissingDocument(type, primaryCollateral.id, loan.id, primaryCollateral.fullName);
+                            }
+                          }}
+                          onDelete={() => document && onDocumentDelete(document.id, document.title)}
+                          size="large"
+                        />
+                      </Box>
+                    );
+                  })}
+                </Box>
+              ) : (
+                <Box
+                  css={{
+                    padding: '20px',
+                    backgroundColor: '#fef3c7',
+                    borderRadius: '12px',
+                    border: '1px solid #f59e0b',
+                    textAlign: 'center'
+                  }}
+                >
+                  <Text size="small" color="neutral600">
+                    No se pueden mostrar documentos del aval porque no hay aval asignado
+                  </Text>
+                </Box>
+              )}
             </Box>
           )}
         </Box>

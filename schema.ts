@@ -2387,6 +2387,43 @@ export const DocumentPhoto = list({
     updatedAt: timestamp(),
   },
   hooks: {
+    beforeOperation: async ({ operation, item, context }) => {
+      // Eliminar imagen de Cloudinary antes de eliminar el registro de la base de datos
+      if (operation === 'delete' && item?.publicId) {
+        try {
+          console.log(`🗑️ [DocumentPhoto.beforeOperation] Eliminando imagen de Cloudinary: ${item.publicId}`);
+          
+          // Importar Cloudinary directamente
+          const cloudinary = require('cloudinary').v2;
+          
+          // Configurar Cloudinary si no está configurado
+          if (!cloudinary.config().cloud_name) {
+            cloudinary.config({
+              cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+              api_key: process.env.CLOUDINARY_API_KEY,
+              api_secret: process.env.CLOUDINARY_API_SECRET,
+            });
+          }
+          
+          // Eliminar de Cloudinary directamente
+          await new Promise((resolve, reject) => {
+            cloudinary.uploader.destroy(item.publicId, (error: any, result: any) => {
+              if (error) {
+                reject(error);
+              } else {
+                resolve(result);
+              }
+            });
+          });
+          
+          console.log(`✅ [DocumentPhoto.beforeOperation] Imagen eliminada exitosamente de Cloudinary: ${item.publicId}`);
+        } catch (error) {
+          console.error(`❌ [DocumentPhoto.beforeOperation] Error eliminando imagen de Cloudinary:`, error);
+          // No lanzar el error para no bloquear la eliminación del registro
+          // La imagen puede no existir en Cloudinary o haber otros problemas de conectividad
+        }
+      }
+    },
     afterOperation: async (args) => {
       try {
         const { operation, item, context, resolvedData } = args as any;
@@ -2496,7 +2533,7 @@ export const DocumentPhoto = list({
           where: { platformUserId: routeLead.userId, isActive: true }
         });
         if (!telegramUser?.chatId) {
-          console.log('⚠️ [DocumentPhoto.afterOperation] líder sin Telegram activo', { userId: lead.userId });
+          console.log('⚠️ [DocumentPhoto.afterOperation] líder sin Telegram activo', { userId: routeLead.userId });
           return;
         }
 
