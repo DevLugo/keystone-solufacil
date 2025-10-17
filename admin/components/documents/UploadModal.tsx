@@ -102,9 +102,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       setIsError(false);
       setErrorDescription('');
       setMessage({ text: 'Documento subido exitosamente', tone: 'success' });
+      // Mantener el modal abierto para subir/seguir editando; limpiar campos
       setTimeout(() => {
         setMessage(null);
-        onClose();
       }, 1500);
     } catch (error) {
       console.error('Error al subir documento:', error);

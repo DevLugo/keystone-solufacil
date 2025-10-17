@@ -1,5 +1,6 @@
 import { TelegramService } from './telegramService';
-import { generateCreditsWithDocumentErrorsReport } from './reportGenerationService';
+// Unificar lógica con el envío manual: usar la misma función del backend
+import { generatePDFWithStreams } from '../../graphql/extendGraphqlSchema';
 
 // Función para calcular la semana anterior basada en semanas activas (lunes-domingo)
 const calculatePreviousWeek = () => {
@@ -189,14 +190,14 @@ export const sendCronReportToTelegram = async (
         return result.ok || false;
       }
     }
-    // Para créditos con errores, generar y enviar PDF REAL usando función unificada
+    // Para créditos con errores, generar y enviar PDF usando EXACTAMENTE la misma función que el envío manual
     else if (reportType === 'creditos_con_errores') {
       console.log(`📊 [CRON] Generando reporte de créditos con errores usando función unificada...`);
       
       try {
-        // ✅ GENERAR PDF USANDO LA FUNCIÓN UNIFICADA MEJORADA
+        // ✅ GENERAR PDF USANDO LA MISMA FUNCIÓN QUE USA el botón "Enviar"
         const routeIds = reportConfig.routes?.map(r => r.id) || [];
-        const pdfBuffer = await generateCreditsWithDocumentErrorsReport({ prisma }, routeIds);
+        const pdfBuffer = await generatePDFWithStreams('creditos_con_errores', { prisma }, routeIds);
         
         if (pdfBuffer && pdfBuffer.length > 0) {
           console.log(`📱 [CRON] PDF moderno generado exitosamente (${pdfBuffer.length} bytes), enviando archivo a Telegram...`);

@@ -10082,7 +10082,7 @@ function generateTestPDF(reportType: string, data: any = {}): Buffer {
 }
 
 // ✅ FUNCIÓN ALTERNATIVA PARA GENERAR PDF (USANDO STREAMS)
-async function generatePDFWithStreams(reportType: string, context: Context, routeIds: string[] = []): Promise<Buffer> {
+export async function generatePDFWithStreams(reportType: string, context: Context, routeIds: string[] = []): Promise<Buffer> {
   return new Promise(async (resolve, reject) => {
     try {
       const PDFDocument = require('pdfkit');

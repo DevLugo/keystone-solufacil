@@ -269,8 +269,13 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
               <Box
                 css={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-                  gap: '16px',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                  gap: '20px',
+                  alignItems: 'start',
+                  '@media (max-width: 1024px)': {
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                    gap: '16px'
+                  },
                   '@media (max-width: 768px)': {
                     gridTemplateColumns: 'repeat(2, 1fr)',
                     gap: '12px'
@@ -378,8 +383,13 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
               <Box
                 css={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-                  gap: '16px',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                  gap: '20px',
+                  alignItems: 'start',
+                  '@media (max-width: 1024px)': {
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                    gap: '16px'
+                  },
                   '@media (max-width: 768px)': {
                     gridTemplateColumns: 'repeat(2, 1fr)',
                     gap: '12px'
