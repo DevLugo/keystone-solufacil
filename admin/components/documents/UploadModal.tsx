@@ -71,10 +71,13 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   };
 
   const handleSubmit = async () => {
+    // Permitir subir sin imagen si está marcado como error
     if (!photoUrl || !publicId) {
-      setMessage({ text: 'Por favor sube una imagen del documento', tone: 'warning' });
-      setTimeout(() => setMessage(null), 3000);
-      return;
+      if (!isError) {
+        setMessage({ text: 'Por favor sube una imagen del documento o márcalo como error', tone: 'warning' });
+        setTimeout(() => setMessage(null), 3000);
+        return;
+      }
     }
 
     setIsUploading(true);
@@ -102,9 +105,11 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       setIsError(false);
       setErrorDescription('');
       setMessage({ text: 'Documento subido exitosamente', tone: 'success' });
-      // Mantener el modal abierto para subir/seguir editando; limpiar campos
+      
+      // Cerrar el modal después de un breve delay para mostrar el mensaje de éxito
       setTimeout(() => {
         setMessage(null);
+        onClose(); // Cerrar el modal de subir y regresar al modal de documentos
       }, 1500);
     } catch (error) {
       console.error('Error al subir documento:', error);
@@ -369,7 +374,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             <Button
               size="medium"
               onClick={handleSubmit}
-              disabled={isUploading || !photoUrl || !publicId}
+              disabled={isUploading || (!photoUrl && !isError)}
               css={{
                 backgroundColor: '#059669',
                 color: 'white',
