@@ -2801,7 +2801,6 @@ type Mutation {
   endSession: Boolean!
   authenticateUserWithPassword(email: String!, password: String!): UserAuthenticationWithPasswordResult
   createInitialUser(data: CreateInitialUserInput!): UserAuthenticationWithPasswordSuccess!
-  sendDocumentIssueNotification(documentId: ID!, issueType: String!, description: String): String!
   moveLoansToDate(leadId: ID!, fromDate: String!, toDate: String!): JSON!
   movePaymentsToDate(leadId: ID!, fromDate: String!, toDate: String!): JSON!
   moveExpensesToDate(leadId: ID, routeId: ID, fromDate: String!, toDate: String!): JSON!
