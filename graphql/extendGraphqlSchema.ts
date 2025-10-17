@@ -3763,6 +3763,38 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         }
       }),
+      // ✅ NUEVA MUTATION: Generar reporte PDF para descarga
+      generateReportPDF: graphql.field({
+        type: graphql.nonNull(graphql.String), // Retorna base64 del PDF
+        args: { 
+          reportType: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          routeIds: graphql.arg({ type: graphql.list(graphql.String) })
+        },
+        resolve: async (root, { reportType, routeIds = [] }, context: Context) => {
+          try {
+            console.log('📥 Generando reporte PDF para descarga:', { reportType, routeIds });
+            
+            // Generar PDF del reporte usando la función con streams y datos reales
+            const pdfBuffer = await generatePDFWithStreams(reportType, context, routeIds);
+            console.log('📥 PDF generado para descarga, tamaño:', pdfBuffer.length, 'bytes');
+            
+            // Verificar que el PDF se generó correctamente
+            if (pdfBuffer.length === 0) {
+              console.error('❌ PDF generado con 0 bytes');
+              throw new Error('No se pudo generar el PDF (0 bytes)');
+            }
+            
+            // Convertir a base64 para enviar al frontend
+            const base64PDF = pdfBuffer.toString('base64');
+            return base64PDF;
+            
+          } catch (error) {
+            console.error('❌ Error generando reporte PDF para descarga:', error);
+            throw new Error(`Error generando reporte: ${error.message}`);
+          }
+        }
+      }),
+
       // ✅ NUEVA MUTATION: Enviar reporte con PDF a Telegram (versión temporal sin routeIds)
       sendReportWithPDF: graphql.field({
         type: graphql.nonNull(graphql.String),
@@ -10192,6 +10224,8 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
     console.log(`📊 Encontrados ${allRecentCredits.length} créditos en los últimos 2 meses`);
 
     // Procesar y organizar datos para la tabla
+    // IMPORTANTE: Solo se incluyen documentos que YA FUERON REVISADOS y marcados como problemáticos
+    // (isError: true o isMissing: true). Los documentos sin revisar NO aparecen en el reporte.
     const tableData: any[] = [];
     
     for (const credit of allRecentCredits) {
@@ -10203,36 +10237,64 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
       const clientName = credit.borrower?.personalData?.fullName || 'Sin nombre';
       const signDate = new Date(credit.signDate);
       
-      // Analizar documentos del cliente
+      // Analizar documentos del cliente - SOLO los que ya fueron revisados y tienen problemas
       const clientDocuments = credit.documentPhotos || [];
-      const clientDocErrors = clientDocuments.filter(doc => doc.isError);
+      const clientDocErrors = clientDocuments.filter(doc => doc.isError === true);
+      const clientMissingDocs = clientDocuments.filter(doc => doc.isMissing === true);
       
-      // Verificar documentos faltantes del cliente
-      const requiredDocTypes = ['INE', 'DOMICILIO', 'PAGARE'];
-      const clientAvailableTypes = clientDocuments.map(doc => doc.documentType);
-      const clientMissingDocs = requiredDocTypes.filter(type => !clientAvailableTypes.includes(type));
-      
-      // Analizar documentos del aval (si existe)
+      // Analizar documentos del aval (si existe) - SOLO los que ya fueron revisados y tienen problemas
       const avalDocuments = credit.collaterals?.[0]?.documentPhotos || [];
-      const avalDocErrors = avalDocuments.filter(doc => doc.isError);
-      const avalAvailableTypes = avalDocuments.map(doc => doc.documentType);
-      const avalMissingDocs = requiredDocTypes.filter(type => !avalAvailableTypes.includes(type));
+      const avalDocErrors = avalDocuments.filter(doc => doc.isError === true);
+      const avalMissingDocs = avalDocuments.filter(doc => doc.isMissing === true);
       
-      // Solo incluir si hay problemas
+      // Solo incluir si hay problemas REALES (documentos ya revisados con errores o faltantes)
       const hasClientProblems = clientDocErrors.length > 0 || clientMissingDocs.length > 0;
       const hasAvalProblems = avalDocErrors.length > 0 || avalMissingDocs.length > 0;
+      
+      // Log para debugging
+      if (clientDocuments.length > 0 || avalDocuments.length > 0) {
+        console.log(`🔍 Crédito ${credit.id} - Cliente: ${clientName}`);
+        console.log(`   📄 Documentos cliente: ${clientDocuments.length} total`);
+        console.log(`   ❌ Con error: ${clientDocErrors.length}`);
+        console.log(`   ⚠️ Faltantes: ${clientMissingDocs.length}`);
+        console.log(`   📄 Documentos aval: ${avalDocuments.length} total`);
+        console.log(`   ❌ Con error aval: ${avalDocErrors.length}`);
+        console.log(`   ⚠️ Faltantes aval: ${avalMissingDocs.length}`);
+        console.log(`   ✅ Incluir en reporte: ${hasClientProblems || hasAvalProblems}`);
+        
+        // Log detallado de documentos para debugging
+        if (clientDocuments.length > 0) {
+          console.log(`   📋 Detalles documentos cliente:`);
+          clientDocuments.forEach((doc, index) => {
+            console.log(`      ${index + 1}. ${doc.documentType} - isError: ${doc.isError}, isMissing: ${doc.isMissing}`);
+          });
+        }
+        if (avalDocuments.length > 0) {
+          console.log(`   📋 Detalles documentos aval:`);
+          avalDocuments.forEach((doc, index) => {
+            console.log(`      ${index + 1}. ${doc.documentType} - isError: ${doc.isError}, isMissing: ${doc.isMissing}`);
+          });
+        }
+      }
       
       if (hasClientProblems || hasAvalProblems) {
         // Agregar fila para problemas del cliente
         if (hasClientProblems) {
-          const errorDescriptions = clientDocErrors.map(doc => `${doc.documentType} con error`);
-          const missingDescriptions = clientMissingDocs.map(type => `${type} faltante`);
+          // Generar descripciones con observaciones entre paréntesis
+          const errorDescriptions = clientDocErrors.map(doc => {
+            const observation = doc.errorDescription ? ` (${doc.errorDescription})` : '';
+            return `${doc.documentType} con error${observation}`;
+          });
+          const missingDescriptions = clientMissingDocs.map(doc => {
+            return `${doc.documentType} faltante`;
+          });
           const allProblems = [...errorDescriptions, ...missingDescriptions];
           
-          const detailedObservations = clientDocErrors
-            .map(doc => doc.errorDescription)
-            .filter(Boolean)
-            .join('; ') || 'Sin observaciones específicas';
+          // Log detallado para debugging
+          console.log(`   🔧 Generando descripciones para ${clientName}:`);
+          console.log(`      📝 Error descriptions: [${errorDescriptions.join(', ')}]`);
+          console.log(`      📝 Missing descriptions: [${missingDescriptions.join(', ')}]`);
+          console.log(`      📝 All problems: [${allProblems.join(', ')}]`);
           
           tableData.push({
             locality,
@@ -10240,22 +10302,22 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
             clientName,
             signDate,
             problemType: 'CLIENTE',
-            problemDescription: allProblems.join('; '),
-            observations: detailedObservations
+            problemDescription: allProblems.join('; ')
           });
         }
         
         // Agregar fila para problemas del aval
         if (hasAvalProblems && credit.collaterals?.[0]) {
           const avalName = credit.collaterals[0].fullName || 'Aval sin nombre';
-          const avalErrorDescriptions = avalDocErrors.map(doc => `${doc.documentType} con error`);
-          const avalMissingDescriptions = avalMissingDocs.map(type => `${type} faltante`);
+          // Generar descripciones con observaciones entre paréntesis
+          const avalErrorDescriptions = avalDocErrors.map(doc => {
+            const observation = doc.errorDescription ? ` (${doc.errorDescription})` : '';
+            return `${doc.documentType} con error${observation}`;
+          });
+          const avalMissingDescriptions = avalMissingDocs.map(doc => {
+            return `${doc.documentType} faltante`;
+          });
           const allAvalProblems = [...avalErrorDescriptions, ...avalMissingDescriptions];
-          
-          const avalDetailedObservations = avalDocErrors
-            .map(doc => doc.errorDescription)
-            .filter(Boolean)
-            .join('; ') || 'Sin observaciones específicas';
           
           tableData.push({
             locality,
@@ -10263,8 +10325,7 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
             clientName: `${clientName} (Aval: ${avalName})`,
             signDate,
             problemType: 'AVAL',
-            problemDescription: allAvalProblems.join('; '),
-            observations: avalDetailedObservations
+            problemDescription: allAvalProblems.join('; ')
           });
         }
       }
@@ -10282,22 +10343,7 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
     });
     doc.moveDown(1.5);
     
-    // Información del período
-    const reportStartDate = new Date();
-    reportStartDate.setMonth(reportStartDate.getMonth() - 2);
-    doc.fontSize(12).fillColor('#64748b').text(`Período de Análisis: ${reportStartDate.toLocaleDateString('es-ES')} - ${new Date().toLocaleDateString('es-ES')}`, 50, doc.y, { 
-      width: 500, 
-      align: 'center' 
-    });
-    
-    // Información de rutas
-    if (routeIds.length > 0) {
-      doc.fontSize(10).fillColor('#64748b').text(`Rutas analizadas: ${routeIds.length} ruta(s) específica(s)`, { align: 'center' });
-    } else {
-      doc.fontSize(10).fillColor('#64748b').text('Análisis: Todas las rutas del sistema', { align: 'center' });
-    }
-    
-    doc.moveDown(2);
+    doc.moveDown(1);
 
     // Si no hay datos reales, mostrar mensaje de éxito
     if (tableData.length === 0) {
@@ -10325,10 +10371,7 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
 
     console.log(`📊 Generando tabla moderna con ${tableData.length} registros...`);
     
-    // Generar estadísticas de resumen antes de la tabla
-    await generateExecutiveSummary(doc, tableData);
-    
-    // Generar tabla moderna mejorada
+    // Generar tabla moderna directamente
     await generateModernDocumentErrorTable(doc, tableData);
     
     console.log('✅ Reporte de créditos con errores generado exitosamente');
@@ -10467,17 +10510,16 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
     const pageWidth = 512; // Ancho total disponible (612 - 100 márgenes)
     const startX = 50;
     const headerHeight = 35;
-    const rowHeight = 50;
+    const rowHeight = 120; // Altura significativamente mayor para acomodar observaciones completas
     let currentY = doc.y;
     
-    // Configuración de columnas con más espacio para observaciones
+    // Configuración de columnas sin observaciones (se incluyen en problemas)
     const columns = [
-      { header: 'RUTA', width: 60, align: 'left' },
-      { header: 'LOCALIDAD', width: 90, align: 'left' },
-      { header: 'CLIENTE', width: 130, align: 'left' },
-      { header: 'TIPO', width: 50, align: 'center' },
-      { header: 'PROBLEMAS', width: 90, align: 'left' },
-      { header: 'OBSERVACIONES', width: 192, align: 'left' }
+      { header: 'RUTA', width: 80, align: 'left' },
+      { header: 'LOCALIDAD', width: 100, align: 'left' },
+      { header: 'CLIENTE', width: 150, align: 'left' },
+      { header: 'TIPO', width: 60, align: 'center' },
+      { header: 'PROBLEMAS', width: 180, align: 'left' } // Reducir aún más para evitar corte
     ];
     
     // Función para dibujar header moderno
@@ -10529,8 +10571,7 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
         data.locality || 'N/A', 
         data.clientName || 'N/A',
         data.problemType || 'N/A',
-        data.problemDescription || 'N/A',
-        data.observations || 'N/A'
+        data.problemDescription || 'N/A'
       ];
       
       // Dibujar celdas con contenido optimizado
@@ -10556,32 +10597,98 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
             align: 'center' 
           });
         }
-        // Columna de problemas con formato especial
+        // Columna de problemas con formato especial y manejo de observaciones
         else if (index === 4) {
           const problems = cellText.split(';').filter(p => p.trim());
+          
+          // Log para debugging del renderizado
+          console.log(`   🎨 Renderizando problemas para ${data.clientName}:`);
+          console.log(`      📝 Cell text: "${cellText}"`);
+          console.log(`      📝 Problems array: [${problems.map(p => `"${p}"`).join(', ')}]`);
+          console.log(`      📝 Problems count: ${problems.length}`);
+          
           doc.fontSize(8);
           let textY = y + 8;
           
           for (let i = 0; i < Math.min(problems.length, 3); i++) {
             const problem = problems[i].trim();
+            
+            // Log para debugging del bucle de renderizado
+            console.log(`      🔄 Procesando problema ${i + 1}: "${problem}"`);
+            
+            // Log para debugging del espacio disponible
+            console.log(`         📏 Espacio disponible: textY=${textY}, y=${y}, rowHeight=${rowHeight}, límite=${y + rowHeight - 10}`);
+            
             if (textY < y + rowHeight - 10) {
-                          if (problem.includes('con error')) {
-              doc.fillColor('#dc2626');
-              doc.text(`ERROR: ${problem.replace('con error', '').trim()}`, x + 4, textY, { width: col.width - 8 });
-            } else if (problem.includes('faltante')) {
-              doc.fillColor('#ea580c');
-              doc.text(`FALTA: ${problem.replace('faltante', '').trim()}`, x + 4, textY, { width: col.width - 8 });
+              if (problem.includes('con error')) {
+                console.log(`         ✅ Detectado como ERROR: "${problem}"`);
+                // Separar el tipo de documento de la observación
+                const parts = problem.split(' (');
+                const docType = parts[0].replace('con error', '').trim();
+                const observation = parts.length > 1 ? parts[1].replace(')', '').trim() : '';
+                
+                doc.fillColor('#dc2626');
+                doc.text(`ERROR: ${docType}`, x + 4, textY, { width: col.width - 20 });
+                textY += 12;
+                
+                // Si hay observación, mostrarla en la siguiente línea
+                if (observation && textY < y + rowHeight - 15) {
+                  doc.fontSize(7).fillColor('#dc2626');
+                  // Mostrar observación con salto de línea automático y ancho más conservador
+                  const observationText = `(${observation})`;
+                  const availableWidth = col.width - 24; // Margen muy generoso para evitar corte
+                  
+                  // Renderizar observación con cálculo manual de líneas
+                  const lineHeight = 8;
+                  const maxCharsPerLine = Math.floor(availableWidth / 4); // Aproximación de caracteres por línea
+                  const words = observationText.split(' ');
+                  let currentLine = '';
+                  let lineCount = 0;
+                  
+                  for (const word of words) {
+                    const testLine = currentLine + (currentLine ? ' ' : '') + word;
+                    if (testLine.length > maxCharsPerLine && currentLine) {
+                        // Renderizar línea actual
+                        doc.text(currentLine, x + 8, textY + (lineCount * lineHeight), { width: availableWidth });
+                        currentLine = word;
+                        lineCount++;
+                    } else {
+                        currentLine = testLine;
+                    }
+                  }
+                  
+                  // Renderizar última línea
+                  if (currentLine) {
+                    doc.text(currentLine, x + 8, textY + (lineCount * lineHeight), { width: availableWidth });
+                    lineCount++;
+                  }
+                  
+                  // Ajustar textY basado en el número de líneas generadas
+                  textY += lineCount * lineHeight + 4; // Espacio adicional entre problemas
+                  
+                  // Log para debugging del cálculo de textY
+                  console.log(`         📐 Cálculo textY: lineCount=${lineCount}, lineHeight=${lineHeight}, textY anterior=${textY - (lineCount * lineHeight + 4)}, textY nuevo=${textY}`);
+                }
+              } else if (problem.includes('faltante')) {
+                console.log(`         ⚠️ Detectado como FALTANTE: "${problem}"`);
+                const docType = problem.replace('faltante', '').trim();
+                doc.fillColor('#ea580c');
+                doc.text(`FALTA: ${docType}`, x + 4, textY, { width: col.width - 20 });
+                textY += 12;
               } else {
+                console.log(`         ❓ Detectado como OTRO: "${problem}"`);
                 doc.fillColor('#374151');
-                doc.text(`• ${problem}`, x + 4, textY, { width: col.width - 8 });
+                doc.text(`• ${problem}`, x + 4, textY, { width: col.width - 20 });
+                textY += 12;
               }
-              textY += 12;
+            } else {
+              console.log(`         ❌ NO HAY ESPACIO SUFICIENTE para renderizar: "${problem}"`);
             }
           }
           
           if (problems.length > 3) {
             doc.fontSize(7).fillColor('#64748b');
-            doc.text(`+${problems.length - 3} más...`, x + 4, textY, { width: col.width - 8 });
+            doc.text(`+${problems.length - 3} más...`, x + 4, textY, { width: col.width - 20 });
           }
         }
         // Otras columnas con formato estándar
@@ -10627,7 +10734,9 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
     // Agrupar datos por semana para mejor organización
     const weekGroups = new Map<string, any[]>();
     tableData.forEach(row => {
-      const weekStart = getWeekStart(row.signDate);
+      // Usar la fecha del crédito para calcular la semana correcta
+      const creditDate = new Date(row.signDate);
+      const weekStart = getWeekStart(creditDate);
       const weekKey = weekStart.toISOString().split('T')[0];
       if (!weekGroups.has(weekKey)) {
         weekGroups.set(weekKey, []);
@@ -10644,8 +10753,8 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
       const weekData = weekGroups.get(weekKey) || [];
       const weekStart = new Date(weekKey);
       
-      // Nueva página si es necesario
-      if (currentY > 650) {
+      // Nueva página si es necesario (considerando la altura de las filas)
+      if (currentY > 500) {
         doc.addPage();
         await addModernCompanyHeader(doc);
         doc.fontSize(16).fillColor('#1e40af').text('REPORTE DE CRÉDITOS (Continuación)', 50, doc.y, { align: 'center' });
@@ -10660,16 +10769,22 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
       doc.strokeColor('#0284c7').lineWidth(1).rect(startX, weekHeaderY, pageWidth, 25).stroke();
       
       doc.fontSize(11).fillColor('#0284c7');
-      doc.text(`Semana del ${weekStart.toLocaleDateString('es-ES')}`, startX + 10, weekHeaderY + 8);
+      const weekEnd = getWeekEnd(weekStart);
+      const weekStartFormatted = weekStart.toLocaleDateString('es-ES');
+      const weekEndFormatted = weekEnd.toLocaleDateString('es-ES');
+      doc.text(`Semana del ${weekStartFormatted} - ${weekEndFormatted}`, startX + 10, weekHeaderY + 8);
       doc.text(`(${weekData.length} registro${weekData.length !== 1 ? 's' : ''})`, startX + 300, weekHeaderY + 8);
       
       currentY = weekHeaderY + 25;
       
       // Dibujar filas de la semana
       for (const rowData of weekData) {
-        if (currentY > 650) {
+        // Verificar si hay espacio suficiente para la fila (considerando la altura aumentada)
+        if (currentY + rowHeight > 700) {
           doc.addPage();
           await addModernCompanyHeader(doc);
+          doc.fontSize(16).fillColor('#1e40af').text('REPORTE DE CRÉDITOS (Continuación)', 50, doc.y, { align: 'center' });
+          doc.moveDown(2);
           currentY = doc.y;
           currentY = drawModernTableHeader(currentY);
         }
@@ -10815,6 +10930,25 @@ function sanitizeText(text: string): string {
     .trim()
     .substring(0, 80); // Limitar longitud
 }
+
+// ✅ FUNCIÓN PARA TRUNCAR TEXTO DE MANERA INTELIGENTE
+function truncateText(text: string, maxLength: number): string {
+  if (!text) return '';
+  if (text.length <= maxLength) return text;
+  
+  // Buscar el último espacio antes del límite para no cortar palabras
+  const truncated = text.substring(0, maxLength - 3);
+  const lastSpace = truncated.lastIndexOf(' ');
+  
+  if (lastSpace > maxLength * 0.7) {
+    // Si el último espacio está cerca del final, cortar ahí
+    return text.substring(0, lastSpace) + '...';
+  } else {
+    // Si no, cortar directamente
+    return truncated + '...';
+  }
+}
+
 // ✅ FUNCIÓN PARA GENERAR TABLA REAL DE DOCUMENTOS CON ERROR (VERSIÓN LIMPIA)
 async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGroups: Map<string, any[]>) {
   console.log('🎨 Iniciando generación de tabla real...');
@@ -10963,7 +11097,10 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
     
     // Header de semana
     doc.fontSize(10).fillColor('#1e40af');
-    doc.text(`Semana del ${weekStart.toLocaleDateString('es-ES')} (${weekData.length} registros)`, startX, currentY + 5);
+    const weekEnd = getWeekEnd(weekStart);
+    const weekStartFormatted = weekStart.toLocaleDateString('es-ES');
+    const weekEndFormatted = weekEnd.toLocaleDateString('es-ES');
+    doc.text(`Semana del ${weekStartFormatted} - ${weekEndFormatted} (${weekData.length} registros)`, startX, currentY + 5);
     doc.fillColor('black');
     currentY += 18;
     
@@ -11129,7 +11266,10 @@ async function generateDocumentErrorTableContent(doc: any, tableData: any[], wee
       
       // Header de semana con estilo profesional
       doc.fontSize(10).fillColor('#1e40af');
-      const weekText = `Semana del ${weekStart.toLocaleDateString('es-ES')} (${weekData.length} registros)`;
+      const weekEnd = getWeekEnd(weekStart);
+      const weekStartFormatted = weekStart.toLocaleDateString('es-ES');
+      const weekEndFormatted = weekEnd.toLocaleDateString('es-ES');
+      const weekText = `Semana del ${weekStartFormatted} - ${weekEndFormatted} (${weekData.length} registros)`;
       doc.text(weekText, startX, currentY + 5);
       doc.fillColor('black');
       currentY += 20;
@@ -11175,6 +11315,15 @@ function getWeekStart(date: Date): Date {
   d.setDate(diff);
   d.setHours(0, 0, 0, 0);
   return d;
+}
+
+// ✅ FUNCIÓN AUXILIAR PARA OBTENER EL FIN DE LA SEMANA (DOMINGO)
+function getWeekEnd(date: Date): Date {
+  const weekStart = getWeekStart(date);
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6); // Agregar 6 días para llegar al domingo
+  weekEnd.setHours(23, 59, 59, 999);
+  return weekEnd;
 }
 
 // ✅ FUNCIÓN PARA ENVIAR ARCHIVO A TELEGRAM

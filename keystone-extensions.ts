@@ -6,6 +6,8 @@ import { generatePaymentChronology, PaymentChronologyItem } from './admin/utils/
 const prisma = new PrismaClient();
 
 export const extendExpressApp = (app: express.Express) => {
+  // Endpoint para generar reportes
+  
   // Endpoint para recibir webhooks de Telegram
   app.post('/api/telegram-webhook', express.json(), async (req, res) => {
     try {
@@ -1137,45 +1139,43 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         }
 
         try {
-          const folder = (req as any).body?.folder || 'documentos-personales';
+          // Obtener parámetros del body
+          const body = (req as any).body || {};
+          const folder = body.folder;
+          const loanData = body.loan ? JSON.parse(body.loan) : null;
+          const documentType = body.documentType;
 
-          // Subir a Cloudinary usando upload_stream
-          const result = await new Promise((resolve, reject) => {
-            const stream = cloudinary.uploader.upload_stream(
-              {
-                folder: folder,
-                resource_type: 'image',
-                transformation: [
-                  { quality: 'auto:good' },
-                  { fetch_format: 'auto' }
-                ],
-                allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
-                max_bytes: 10 * 1024 * 1024,
-              },
-              (error: any, result: any) => {
-                if (error) {
-                  reject(error);
-                } else {
-                  resolve({
-                    public_id: result.public_id,
-                    secure_url: result.secure_url,
-                    url: result.url,
-                    format: result.format,
-                    width: result.width,
-                    height: result.height,
-                    bytes: result.bytes,
-                  });
-                }
+          // Usar el sistema de almacenamiento simplificado
+          const { simpleUploadDocument } = await import('./utils/storage/simple');
+          
+          // Subir usando el sistema de almacenamiento configurable
+          const result = await simpleUploadDocument(
+            file.buffer,
+            loanData,
+            documentType || 'general',
+            {
+              customConfig: body.customConfig,
+              metadata: {
+                originalName: file.originalname,
+                mimeType: file.mimetype,
+                fileSize: file.size // Cambiar 'size' por 'fileSize' para evitar conflicto
               }
-            );
+            }
+          );
 
-            // Convertir buffer a stream
-            const { Readable } = require('stream');
-            const readable = Readable.from(file.buffer);
-            readable.pipe(stream);
-          });
+          // Convertir resultado al formato esperado por el frontend
+          const response = {
+            public_id: result.public_id,
+            secure_url: result.secure_url,
+            url: result.url,
+            format: result.format,
+            width: result.width,
+            height: result.height,
+            bytes: result.bytes,
+            provider: result.provider
+          };
 
-          res.status(200).json(result);
+          res.status(200).json(response);
         } catch (error) {
           console.error('Error al subir a Cloudinary:', error);
           res.status(500).json({

@@ -2,11 +2,12 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Stack, Text } from '@keystone-ui/core';
 import { gql, useQuery, useMutation } from '@apollo/client';
 import { telegramConfig } from '../config/telegram.config';
-import { FaCog, FaTelegram, FaClock, FaRoute, FaUsers, FaPaperPlane, FaSave, FaTrash, FaPlay, FaPause, FaCalendarAlt } from 'react-icons/fa';
+import { FaCog, FaTelegram, FaClock, FaRoute, FaUsers, FaPaperPlane, FaSave, FaTrash, FaPlay, FaPause, FaCalendarAlt, FaDownload } from 'react-icons/fa';
 import { PageContainer } from '@keystone-6/core/admin-ui/components';
 import { createExecutionLog, updateExecutionLog } from '../services/reportExecutionService';
 import { useCronControl } from '../hooks/useCronControl';
 import { TimePicker } from '../components/TimePicker';
+import { Toast, ToastProps } from '../components/Toast';
 
 // Componente Box personalizado
 const CustomBox = ({ children, css, ...props }) => {
@@ -272,6 +273,13 @@ const SEND_TEST_TELEGRAM = gql`
   }
 `;
 
+// Mutation para generar reporte PDF para descarga
+const GENERATE_REPORT_PDF = gql`
+  mutation GenerateReportPDF($reportType: String!, $routeIds: [String!]) {
+    generateReportPDF(reportType: $reportType, routeIds: $routeIds)
+  }
+`;
+
 // Mutation para enviar reporte con PDF a Telegram (versión temporal sin routeIds)
 const SEND_REPORT_WITH_PDF = gql`
   mutation SendReportWithPDF($chatId: String!, $reportType: String!) {
@@ -336,6 +344,24 @@ export default function ConfiguracionReportesPage() {
   const [nextExecution, setNextExecution] = useState<Date | null>(null);
   const [lastExecution, setLastExecution] = useState<Date | null>(null);
   
+  // Estados para toasts
+  const [toasts, setToasts] = useState<ToastProps[]>([]);
+
+  // Funciones para manejar toasts
+  const addToast = (toast: Omit<ToastProps, 'id' | 'onClose'>) => {
+    const id = Date.now().toString();
+    const newToast: ToastProps = {
+      ...toast,
+      id,
+      onClose: removeToast
+    };
+    setToasts(prev => [...prev, newToast]);
+  };
+
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id));
+  };
+  
   // Hook para controlar el sistema de cron
   const {
     isLoading: cronLoading,
@@ -375,6 +401,7 @@ export default function ConfiguracionReportesPage() {
   const [sendReportNow] = useMutation(SEND_REPORT_NOW);
   const [sendTestTelegram] = useMutation(SEND_TEST_TELEGRAM);
   const [sendReportWithPDF] = useMutation(SEND_REPORT_WITH_PDF);
+  const [generateReportPDF] = useMutation(GENERATE_REPORT_PDF);
 
   // Datos procesados
   const routes = routesData?.routes || [];
@@ -646,6 +673,87 @@ export default function ConfiguracionReportesPage() {
     } catch (error) {
       console.error('Error enviando a Telegram:', error);
       return false;
+    }
+  };
+
+  // Función para descargar reporte
+  const handleDownloadReport = async (configId: string) => {
+    try {
+      const config = configs.find(c => c.id === configId);
+      
+      if (!config) { 
+        addToast({
+          type: 'error',
+          title: 'Error',
+          message: 'Configuración no encontrada'
+        });
+        return; 
+      }
+      
+      console.log('📥 Descargando reporte:', config.name, 'Tipo:', config.reportType);
+      
+      // Mostrar toast de carga
+      const loadingToastId = Date.now().toString();
+      addToast({
+        type: 'info',
+        title: 'Generando reporte',
+        message: `Preparando "${config.name}" para descarga...`
+      });
+      
+      // Generar el reporte PDF usando la mutation real
+      const result = await generateReportPDF({
+        variables: {
+          reportType: config.reportType,
+          routeIds: config.routes.map(r => r.id)
+        }
+      });
+      
+      if (result.data?.generateReportPDF) {
+        // Convertir base64 a blob
+        const base64Data = result.data.generateReportPDF;
+        const byteCharacters = atob(base64Data);
+        const byteNumbers = new Array(byteCharacters.length);
+        
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'application/pdf' });
+        
+        // Crear enlace temporal para descarga
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${config.name}_${new Date().toISOString().split('T')[0]}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Limpiar URL temporal
+        URL.revokeObjectURL(url);
+        
+        // Mostrar toast de éxito
+        addToast({
+          type: 'success',
+          title: 'Descarga exitosa',
+          message: `Reporte "${config.name}" descargado correctamente`
+        });
+      } else {
+        addToast({
+          type: 'error',
+          title: 'Error al generar reporte',
+          message: 'No se pudo generar el archivo PDF'
+        });
+      }
+      
+    } catch (error) {
+      console.error('Error downloading report:', error);
+      addToast({
+        type: 'error',
+        title: 'Error al descargar',
+        message: error instanceof Error ? error.message : 'Error desconocido'
+      });
     }
   };
 
@@ -1960,6 +2068,30 @@ export default function ConfiguracionReportesPage() {
                         )}
                       </CustomButton>
                       <CustomButton
+                        onClick={() => handleDownloadReport(config.id)}
+                        css={{
+                          padding: '8px 16px',
+                          borderRadius: '8px',
+                          border: '1px solid #10b981',
+                          backgroundColor: 'white',
+                          color: '#10b981',
+                          cursor: 'pointer',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          '&:hover': { 
+                            backgroundColor: '#f0fdf4',
+                            borderColor: '#059669',
+                            color: '#059669'
+                          },
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px'
+                        }}
+                      >
+                        <FaDownload style={{ marginRight: '8px' }} />
+                        Descargar
+                      </CustomButton>
+                      <CustomButton
                         onClick={() => handleEditConfig(config)}
                         css={{
                           padding: '8px 16px',
@@ -2089,6 +2221,28 @@ export default function ConfiguracionReportesPage() {
           )}
                  </CustomBox>
        </CustomBox>
+
+       {/* Toast Container */}
+       <div style={{
+         position: 'fixed',
+         top: '20px',
+         right: '20px',
+         zIndex: 1000,
+         display: 'flex',
+         flexDirection: 'column',
+         alignItems: 'flex-end',
+         gap: '10px',
+         '@media (max-width: 768px)': {
+           top: '10px',
+           right: '10px',
+           left: '10px',
+           alignItems: 'center',
+         }
+       }}>
+         {toasts.map(toast => (
+           <Toast key={toast.id} {...toast} />
+         ))}
+       </div>
      </PageContainer>
    );
  }
