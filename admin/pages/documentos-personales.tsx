@@ -576,7 +576,7 @@ export default function DocumentosPersonalesPage() {
             isOpen: true,
             temporarilyClosed: false
           }));
-        }, 100); // Pequeño delay para asegurar que el modal de subir se cierre primero
+        }, 200); // Delay un poco más largo para asegurar que el modal de subir se cierre completamente
       }
     } catch (error) {
       console.error('Error al crear documento:', error);
@@ -800,21 +800,40 @@ export default function DocumentosPersonalesPage() {
         isOpen: false,
         temporarilyClosed: true
       }));
+      
+      // Pequeño delay para asegurar que el modal de documentos se cierre antes de abrir el de subir
+      setTimeout(() => {
+        setUploadModal({
+          isOpen: true,
+          documentType,
+          personType,
+          personalDataId,
+          loanId,
+          personName,
+          loan
+        });
+      }, 100);
+    } else {
+      // Si el modal de documentos no está abierto, abrir directamente el modal de subir
+      setUploadModal({
+        isOpen: true,
+        documentType,
+        personType,
+        personalDataId,
+        loanId,
+        personName,
+        loan
+      });
     }
-    
-    setUploadModal({
-      isOpen: true,
-      documentType,
-      personType,
-      personalDataId,
-      loanId,
-      personName,
-      loan
-    });
   };
 
   // Función para abrir modal de documentos
   const openDocumentsModal = (loan: Loan) => {
+    // Cerrar el modal de subir si está abierto
+    if (uploadModal.isOpen) {
+      setUploadModal({ ...uploadModal, isOpen: false });
+    }
+    
     setDocumentsModal({
       isOpen: true,
       loan,
@@ -2198,7 +2217,7 @@ export default function DocumentosPersonalesPage() {
                 isOpen: true,
                 temporarilyClosed: false
               }));
-            }, 100);
+            }, 200); // Delay consistente con el de handleDocumentUpload
           }
         }}
         onUpload={handleDocumentUpload}
