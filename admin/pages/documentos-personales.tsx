@@ -341,9 +341,11 @@ export default function DocumentosPersonalesPage() {
   const [documentsModal, setDocumentsModal] = useState<{
     isOpen: boolean;
     loan: Loan | null;
+    temporarilyClosed: boolean; // Para manejar el cierre temporal cuando se abre el modal de subir
   }>({
     isOpen: false,
-    loan: null
+    loan: null,
+    temporarilyClosed: false
   });
 
   const [errorModal, setErrorModal] = useState<{
@@ -532,6 +534,17 @@ export default function DocumentosPersonalesPage() {
 
       // Refrescar datos
       refetch();
+
+      // Reabrir el modal de documentos si estaba temporalmente cerrado
+      if (documentsModal.temporarilyClosed && documentsModal.loan) {
+        setTimeout(() => {
+          setDocumentsModal(prev => ({
+            ...prev,
+            isOpen: true,
+            temporarilyClosed: false
+          }));
+        }, 100); // Pequeño delay para asegurar que el modal de subir se cierre primero
+      }
     } catch (error) {
       console.error('Error al crear documento:', error);
       
@@ -747,6 +760,15 @@ export default function DocumentosPersonalesPage() {
     personName: string,
     loan?: any
   ) => {
+    // Cerrar temporalmente el modal de documentos si está abierto
+    if (documentsModal.isOpen) {
+      setDocumentsModal(prev => ({
+        ...prev,
+        isOpen: false,
+        temporarilyClosed: true
+      }));
+    }
+    
     setUploadModal({
       isOpen: true,
       documentType,
@@ -762,7 +784,8 @@ export default function DocumentosPersonalesPage() {
   const openDocumentsModal = (loan: Loan) => {
     setDocumentsModal({
       isOpen: true,
-      loan
+      loan,
+      temporarilyClosed: false
     });
   };
 
@@ -770,7 +793,8 @@ export default function DocumentosPersonalesPage() {
   const closeDocumentsModal = () => {
     setDocumentsModal({
       isOpen: false,
-      loan: null
+      loan: null,
+      temporarilyClosed: false
     });
   };
 
@@ -2068,19 +2092,6 @@ export default function DocumentosPersonalesPage() {
         personType={imageModal.personType}
       />
 
-      {/* Modal de subida */}
-      <UploadModal
-        isOpen={uploadModal.isOpen}
-        onClose={() => setUploadModal({ ...uploadModal, isOpen: false })}
-        onUpload={handleDocumentUpload}
-        documentType={uploadModal.documentType}
-        personType={uploadModal.personType}
-        personalDataId={uploadModal.personalDataId}
-        loanId={uploadModal.loanId}
-        personName={uploadModal.personName}
-        loan={uploadModal.loan}
-      />
-
       {/* Modal de confirmación de eliminación */}
       <AlertDialog
         isOpen={deleteConfirmDialog.isOpen}
@@ -2109,16 +2120,15 @@ export default function DocumentosPersonalesPage() {
         onClose={closeDocumentsModal}
         loan={documentsModal.loan}
         onDocumentUpload={(data) => {
-          // Abrir modal de subida sin cerrar el modal de documentos
-          setUploadModal({
-            isOpen: true,
-            documentType: data.documentType,
-            personType: data.personType,
-            personalDataId: data.personalDataId,
-            loanId: data.loanId,
-            personName: data.personName,
-            loan: documentsModal.loan
-          });
+          // Usar la función openUploadModal que maneja el cierre temporal del modal de documentos
+          openUploadModal(
+            data.documentType,
+            data.personType,
+            data.personalDataId,
+            data.loanId,
+            data.personName,
+            documentsModal.loan
+          );
         }}
         onDocumentError={handleMarkAsError}
         onDocumentMissing={handleDocumentMissing}
@@ -2126,6 +2136,31 @@ export default function DocumentosPersonalesPage() {
         onDocumentDelete={handleDocumentDelete}
         onNameEdit={handleNameEdit}
         onPhoneEdit={handlePhoneEdit}
+      />
+
+      {/* Modal de subida - Renderizado DESPUÉS del modal de documentos para asegurar z-index correcto */}
+      <UploadModal
+        isOpen={uploadModal.isOpen}
+        onClose={() => {
+          setUploadModal({ ...uploadModal, isOpen: false });
+          // Reabrir el modal de documentos si estaba temporalmente cerrado
+          if (documentsModal.temporarilyClosed && documentsModal.loan) {
+            setTimeout(() => {
+              setDocumentsModal(prev => ({
+                ...prev,
+                isOpen: true,
+                temporarilyClosed: false
+              }));
+            }, 100);
+          }
+        }}
+        onUpload={handleDocumentUpload}
+        documentType={uploadModal.documentType}
+        personType={uploadModal.personType}
+        personalDataId={uploadModal.personalDataId}
+        loanId={uploadModal.loanId}
+        personName={uploadModal.personName}
+        loan={uploadModal.loan}
       />
 
       {/* Modal de error */}
