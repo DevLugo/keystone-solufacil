@@ -78,7 +78,10 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
         width: sizeStyles.width,
         height: sizeStyles.height,
         borderRadius: '8px',
-        overflow: 'hidden',
+          overflow: 'hidden',
+          '@media (min-width: 1024px)': {
+            overflow: 'visible' // permitir que los íconos salgan del contenedor en desktop
+          },
         cursor: hasImage ? 'pointer' : 'default',
         transition: 'all 0.2s ease',
         border: '2px solid',
@@ -152,21 +155,32 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
             <Box
               css={{
                 position: 'absolute',
-                top: '4px',
-                left: '4px',
+                top: '6px',
+                left: '6px',
                 backgroundColor: '#ef4444',
                 borderRadius: '50%',
-                width: '18px',
-                height: '18px',
+                width: '22px',
+                height: '22px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer',
                 zIndex: 10,
                 transition: 'all 0.2s ease',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
                 '&:hover': {
                   backgroundColor: '#dc2626',
                   transform: 'scale(1.1)'
+                },
+                '@media (min-width: 1024px)': {
+                  top: '-10px',
+                  left: '-10px'
+                },
+                '@media (max-width: 768px)': {
+                  width: '20px',
+                  height: '20px',
+                  top: '4px',
+                  left: '4px'
                 }
               }}
               onClick={(e) => {
@@ -177,7 +191,7 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
               }}
               title="Eliminar imagen"
             >
-              <FaTrash size={9} color="white" />
+              <FaTrash size={11} color="white" />
             </Box>
           )}
 
@@ -186,21 +200,32 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
             <Box
               css={{
                 position: 'absolute',
-                top: '4px',
-                right: '4px',
+                top: '6px',
+                right: '6px',
                 backgroundColor: isError ? '#ef4444' : '#f59e0b',
                 borderRadius: '50%',
-                width: '18px',
-                height: '18px',
+                width: '22px',
+                height: '22px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer',
                 zIndex: 10,
                 transition: 'all 0.2s ease',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
                 '&:hover': {
                   backgroundColor: isError ? '#dc2626' : '#d97706',
                   transform: 'scale(1.1)'
+                },
+                '@media (min-width: 1024px)': {
+                  top: '-10px',
+                  right: '-10px'
+                },
+                '@media (max-width: 768px)': {
+                  width: '20px',
+                  height: '20px',
+                  top: '4px',
+                  right: '4px'
                 }
               }}
               onClick={(e) => {
@@ -217,7 +242,7 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
               }}
               title={isError ? `Ver/editar error: ${errorDescription || 'Sin descripción'}` : 'Marcar como error'}
             >
-              <FaExclamationTriangle size={9} color="white" />
+              <FaExclamationTriangle size={11} color="white" />
             </Box>
           )}
 

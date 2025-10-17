@@ -2109,8 +2109,7 @@ export default function DocumentosPersonalesPage() {
         onClose={closeDocumentsModal}
         loan={documentsModal.loan}
         onDocumentUpload={(data) => {
-          // Cerrar modal de documentos y abrir modal de subida
-          closeDocumentsModal();
+          // Abrir modal de subida sin cerrar el modal de documentos
           setUploadModal({
             isOpen: true,
             documentType: data.documentType,
