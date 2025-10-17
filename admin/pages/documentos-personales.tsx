@@ -1067,10 +1067,12 @@ export default function DocumentosPersonalesPage() {
         maxWidth: '100%',
         paddingLeft: '8px',
         paddingRight: '8px',
+        paddingBottom: '40px', // Espacio adicional en la parte inferior
         overflow: 'hidden',
         '@media (max-width: 768px)': {
           paddingLeft: '4px',
-          paddingRight: '4px'
+          paddingRight: '4px',
+          paddingBottom: '60px' // Más espacio en móviles para asegurar que el botón se vea completo
         },
         // Animaciones CSS
         '@keyframes bounce': {
@@ -1548,7 +1550,15 @@ export default function DocumentosPersonalesPage() {
         </Box>
 
         {/* Lista de créditos */}
-        <Box css={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <Box css={{ 
+          display: 'flex', 
+          flexDirection: 'column', 
+          gap: '16px',
+          marginBottom: '20px', // Espacio adicional después de la lista
+          '@media (max-width: 768px)': {
+            marginBottom: '30px' // Más espacio en móviles
+          }
+        }}>
           {/* Loader sutil cuando se está cargando nueva información */}
           {(queryLoading || isChangingRoute) && !loading && (
             <Box

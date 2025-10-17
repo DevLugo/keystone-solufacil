@@ -2386,7 +2386,162 @@ export const DocumentPhoto = list({
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),
   },
-  
+  hooks: {
+    afterOperation: async (args) => {
+      try {
+        const { operation, item, context, resolvedData } = args as any;
+        console.log('📨 [DocumentPhoto.afterOperation] llamada', {
+          operation,
+          id: item?.id,
+          isError: item?.isError,
+          isMissing: item?.isMissing
+        });
+        if (!(operation === 'create' || operation === 'update')) return;
+
+        // Solo notificar si el documento está en error o marcado como faltante
+        const isErrored = !!item?.isError;
+        const isMissing = !!item?.isMissing;
+        if (!isErrored && !isMissing) {
+          console.log('ℹ️ [DocumentPhoto.afterOperation] sin cambios relevantes (no error/faltante).');
+          return;
+        }
+
+        const prisma = (context as any).prisma;
+
+        // Cargar documento con relaciones necesarias
+        const document = await prisma.documentPhoto.findUnique({
+          where: { id: item.id },
+          include: {
+            personalData: {
+              include: { addresses: { include: { location: { include: { route: true } } } } }
+            },
+            loan: {
+              include: {
+                lead: {
+                  include: {
+                    personalData: {
+                      include: {
+                        addresses: { include: { location: { include: { route: true } } } }
+                      }
+                    }
+                  }
+                },
+                borrower: {
+                  include: { personalData: { include: { addresses: { include: { location: true } } } } }
+                }
+              }
+            }
+          }
+        });
+
+        if (!document) {
+          console.log('❌ [DocumentPhoto.afterOperation] documento no encontrado', item?.id);
+          return;
+        }
+        console.log('🧾 [DocumentPhoto.afterOperation] documento cargado', {
+          id: document.id,
+          hasLoan: !!document.loan,
+          leadId: document.loan?.lead?.id,
+          leadUserId: document.loan?.lead?.userId,
+          personalDataId: document.personalData?.id
+        });
+
+        // Resolver localidad
+        const borrowerAddress = document.loan?.borrower?.personalData?.addresses?.[0];
+        const documentAddress = document.personalData?.addresses?.[0];
+        const localityName = (borrowerAddress?.location?.name) || (documentAddress?.location?.name) || 'Sin localidad';
+
+        // Calcular semana
+        const getWeekStart = (date: Date) => {
+          const d = new Date(date);
+          const day = d.getDay();
+          const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+          d.setDate(diff);
+          d.setHours(0, 0, 0, 0);
+          return d;
+        };
+        const getWeekEnd = (date: Date) => {
+          const start = getWeekStart(date);
+          const end = new Date(start);
+          end.setDate(start.getDate() + 6);
+          end.setHours(23, 59, 59, 999);
+          return end;
+        };
+        const baseDate = document.createdAt || document.loan?.signDate || new Date();
+        const weekStart = getWeekStart(new Date(baseDate));
+        const weekEnd = getWeekEnd(new Date(baseDate));
+
+        // Resolver líder y su Telegram
+        // Buscar el ROUTE_LEAD asociado a la ruta del préstamo
+        // 1) Intentar por lead -> personalData -> addresses[0] -> location.route.id
+        const leadRouteId = document.loan?.lead?.personalData?.addresses?.[0]?.location?.route?.id || null;
+        // 2) Fallback a snapshotRouteId
+        const routeId = leadRouteId || document.loan?.snapshotRouteId || document.loan?.transactions?.[0]?.routeId || null;
+        if (!routeId) {
+          console.log('⚠️ [DocumentPhoto.afterOperation] no se pudo determinar routeId del préstamo');
+          return;
+        }
+        const routeLead = await prisma.employee.findFirst({
+          where: {
+            type: 'ROUTE_LEAD',
+            //routes: { id: routeId }
+          },
+          include: { user: true }
+        });
+        if (!routeLead?.userId) {
+          console.log('⚠️ [DocumentPhoto.afterOperation] no se encontró ROUTE_LEAD para la ruta', { routeId });
+          return;
+        }
+        const telegramUser = await prisma.telegramUser.findFirst({
+          where: { platformUserId: routeLead.userId, isActive: true }
+        });
+        if (!telegramUser?.chatId) {
+          console.log('⚠️ [DocumentPhoto.afterOperation] líder sin Telegram activo', { userId: lead.userId });
+          return;
+        }
+
+        // Construir mensaje
+        const issueType = isErrored ? 'ERROR' : 'FALTANTE';
+        const title = isErrored ? '🔴 Documento con ERROR' : '🟠 Documento FALTANTE';
+        const personName = document.personalData?.fullName || 'Sin nombre';
+        const docType = String(document.documentType).toUpperCase();
+        const errorDesc = (document.errorDescription || '').trim();
+        const weekLabel = `${weekStart.toLocaleDateString('es-MX')} - ${weekEnd.toLocaleDateString('es-MX')}`;
+
+        const caption = (
+          `${title}\n\n` +
+          `• Tipo: ${docType}\n` +
+          `• Persona: ${personName}\n` +
+          `• Localidad: ${localityName}\n` +
+          `• Semana: ${weekLabel}\n` +
+          (errorDesc ? `• Descripción: ${errorDesc}\n` : '') +
+          `\nID Doc: ${document.id}`
+        );
+
+        const { TelegramService } = require('./admin/services/telegramService');
+        const botToken = process.env.TELEGRAM_BOT_TOKEN;
+        if (!botToken) {
+          console.log('❌ [DocumentPhoto.afterOperation] TELEGRAM_BOT_TOKEN no configurado');
+          return;
+        }
+        const service = new TelegramService({ botToken, chatId: telegramUser.chatId });
+
+        console.log('📤 [DocumentPhoto.afterOperation] enviando Telegram', {
+          chatId: telegramUser.chatId,
+          length: caption.length,
+          preview: caption.slice(0, 120)
+        });
+
+        // Enviar SIEMPRE como mensaje sin adjuntar foto por URL
+        const resp = await service.sendHtmlMessage(telegramUser.chatId, caption);
+        console.log('✅ [DocumentPhoto.afterOperation] Telegram respuesta', resp);
+
+        console.log(`✅ [DocumentPhoto.afterOperation] Telegram enviado por ${issueType}: ${document.id}`);
+      } catch (e) {
+        console.error('❌ [DocumentPhoto.afterOperation] Error enviando Telegram:', e);
+      }
+    }
+  },
 });
 
 // Modelo para configuraciones de reportes automáticos

@@ -44,7 +44,7 @@ const GET_CLIENT_HISTORY = gql`
 `;
 
 const GET_CLIENT_DOCUMENTS = gql`
-  query GetClientDocuments($clientId: String!) {
+  query GetClientDocuments($clientId: ID!) {
     documentPhotos(
       where: {
         OR: [
@@ -82,6 +82,44 @@ const GET_CLIENT_DOCUMENTS = gql`
     }
   }
 `;
+
+// Nueva query para obtener documentos del último préstamo
+const GET_LAST_LOAN_DOCUMENTS = gql`
+  query GetLastLoanDocuments($loanId: ID!) {
+    documentPhotos(
+      where: {
+        loan: { id: { equals: $loanId } }
+      }
+      orderBy: { createdAt: desc }
+    ) {
+      id
+      title
+      description
+      photoUrl
+      publicId
+      documentType
+      createdAt
+      personalData {
+        id
+        fullName
+      }
+      loan {
+        id
+        borrower {
+          personalData {
+            fullName
+          }
+        }
+        lead {
+          personalData {
+            fullName
+          }
+        }
+      }
+    }
+  }
+`;
+
 
 const MERGE_CLIENTS = gql`
   mutation MergeClients($primaryClientId: ID!, $secondaryClientId: ID!) {
@@ -265,6 +303,8 @@ const getStatusColor = (status: string): string => {
 
 // Main Component
 const HistorialClientePage: React.FC = () => {
+  console.log('🚀 COMPONENTE CARGADO: HistorialClientePage');
+  
   // Agregar estilos CSS para animaciones
   React.useEffect(() => {
     const style = document.createElement('style');
@@ -363,25 +403,13 @@ const HistorialClientePage: React.FC = () => {
   const [potentialDuplicates, setPotentialDuplicates] = useState<Array<{client1: ClientSearchResult, client2: ClientSearchResult, similarity: number}>>([]);
   const [showDuplicates, setShowDuplicates] = useState<boolean>(false);
   
-  // Estado para el modal de imagen
-  const [imageModal, setImageModal] = useState<{
-    isOpen: boolean;
-    imageUrl: string;
-    title: string;
-    description: string;
-    documentType: string;
-    personType: string;
-  }>({
-    isOpen: false,
-    imageUrl: '',
-    title: '',
-    description: '',
-    documentType: '',
-    personType: ''
-  });
 
   // Estado para detectar si es mobile
   const [isMobile, setIsMobile] = useState(false);
+  
+  // Estados para documentos
+  const [showDocuments, setShowDocuments] = useState(false);
+  const [activeDocumentTab, setActiveDocumentTab] = useState<'cliente' | 'aval'>('cliente');
   
   // Estado para el toggle de PDF detallado
   const [showDetailedPDF, setShowDetailedPDF] = useState(false);
@@ -425,16 +453,61 @@ const HistorialClientePage: React.FC = () => {
   const [getClientHistory, { data: historyData, loading: historyLoading, error: historyError }] = useLazyQuery(GET_CLIENT_HISTORY);
   
   const [getClientDocuments, { data: documentsData, loading: documentsLoading }] = useLazyQuery(GET_CLIENT_DOCUMENTS);
+  const [getLastLoanDocuments, { data: lastLoanDocumentsData, loading: lastLoanDocumentsLoading }] = useLazyQuery(GET_LAST_LOAN_DOCUMENTS);
   
   const [mergeClientsMutation, { loading: mergeLoading }] = useMutation(MERGE_CLIENTS);
 
-  // Debug: Log cuando cambian los datos de documentos
+  // Declarar historyResult aquí para que esté disponible en los efectos
+  const historyResult: ClientHistoryData | null = historyData?.getClientHistory || null;
+
+  // Debug: Log cuando cambian los datos de documentos del cliente
   useEffect(() => {
+    console.log('🔍 useEffect ejecutado para documentsData');
+    console.log('🔍 documentsData:', documentsData);
+    
     if (documentsData) {
-      console.log('📄 Documentos obtenidos:', documentsData);
+      console.log('📄 Documentos del cliente obtenidos:', documentsData);
       console.log('📊 Total documentos:', documentsData.documentPhotos?.length || 0);
+      if (documentsData.documentPhotos && documentsData.documentPhotos.length > 0) {
+        console.log('📋 Lista de documentos:', documentsData.documentPhotos.map((doc: any) => ({
+          id: doc.id,
+          title: doc.title,
+          documentType: doc.documentType,
+          personalDataId: doc.personalData?.id,
+          personalDataName: doc.personalData?.fullName,
+          loanId: doc.loan?.id,
+          borrowerName: doc.loan?.borrower?.personalData?.fullName,
+          leadName: doc.loan?.lead?.personalData?.fullName
+        })));
+      } else {
+        console.log('❌ No se encontraron documentos para el cliente');
+      }
+    } else {
+      console.log('❌ documentsData es null/undefined');
     }
   }, [documentsData]);
+
+
+  // Efecto para cargar documentos automáticamente cuando se obtiene el historial
+  useEffect(() => {
+    if (historyResult && selectedClient) {
+      const lastLoanId = getLastLoanId();
+      
+      if (lastLoanId) {
+        console.log('🔄 Cargando documentos del último préstamo automáticamente:', lastLoanId);
+        
+        // Usar la nueva query que busca por loan ID
+        getLastLoanDocuments({
+          variables: {
+            loanId: lastLoanId
+          },
+          fetchPolicy: 'cache-and-network'
+        });
+      } else {
+        console.log('❌ No se encontró ningún préstamo para cargar documentos');
+      }
+    }
+  }, [historyResult, selectedClient]);
 
   // Options for selects using useMemo (como en el reporte que funciona)
   const routeOptions = useMemo(() => {
@@ -540,6 +613,10 @@ const HistorialClientePage: React.FC = () => {
     setSearchTerm(client.name); // Mantener el nombre del cliente seleccionado en el input
     setClientResults([]);
     setShowAutocomplete(false); // Desactivar el autocomplete después de seleccionar
+    
+    // Los documentos se cargarán automáticamente cuando se genere el historial
+    // No ejecutar la query aquí porque necesitamos el historial primero
+    console.log('🔍 Cliente seleccionado:', client.id);
   };
 
   // Función para analizar duplicados en los resultados de búsqueda
@@ -562,15 +639,66 @@ const HistorialClientePage: React.FC = () => {
         }
       });
       
-      // Obtener documentos del cliente
-      console.log('🔍 Buscando documentos para cliente:', selectedClient.id);
+      setShowClientHistory(true);
+    }
+  };
+
+  // Función para obtener el último préstamo del cliente
+  const getLastLoanId = () => {
+    console.log('🚀 FUNCIÓN EJECUTADA: getLastLoanId');
+    console.log('🔍 historyResult:', historyResult);
+    
+    if (!historyResult) {
+      console.log('❌ No hay historyResult');
+      return null;
+    }
+    
+    console.log('🔍 loansAsClient.length:', historyResult.loansAsClient?.length);
+    console.log('🔍 loansAsCollateral.length:', historyResult.loansAsCollateral?.length);
+    
+    // Priorizar préstamos como cliente (más recientes)
+    if (historyResult.loansAsClient.length > 0) {
+      const lastClientLoan = historyResult.loansAsClient[historyResult.loansAsClient.length - 1];
+      console.log('📋 Último préstamo como cliente:', lastClientLoan);
+      return lastClientLoan.id;
+    }
+    
+    // Si no hay préstamos como cliente, usar el último como aval
+    if (historyResult.loansAsCollateral.length > 0) {
+      const lastCollateralLoan = historyResult.loansAsCollateral[historyResult.loansAsCollateral.length - 1];
+      console.log('📋 Último préstamo como aval:', lastCollateralLoan);
+      return lastCollateralLoan.id;
+    }
+    
+    console.log('❌ No se encontraron préstamos');
+    return null;
+  };
+
+  const handleRefreshDocuments = () => {
+    console.log('🚀 FUNCIÓN EJECUTADA: handleRefreshDocuments');
+    console.log('🔍 selectedClient:', selectedClient);
+    console.log('🔍 historyResult:', historyResult);
+    
+    if (selectedClient && historyResult) {
+      console.log('🔄 Refrescando documentos del cliente:', selectedClient.name);
+      
+      // Usar la query original que busca por personalDataId (más confiable)
       getClientDocuments({
         variables: {
           clientId: selectedClient.id
-        }
+        },
+        fetchPolicy: 'network-only' // Forzar network request, ignorar cache
       });
-      
-      setShowClientHistory(true);
+    } else {
+      console.log('❌ Faltan datos: selectedClient o historyResult');
+    }
+  };
+
+  const handleShowDocuments = () => {
+    setShowDocuments(true);
+    // Cargar documentos solo cuando se muestren
+    if (selectedClient && historyResult) {
+      handleRefreshDocuments();
     }
   };
 
@@ -795,15 +923,9 @@ const HistorialClientePage: React.FC = () => {
     }
   };
 
-  const openImageModal = (document: ClientDocument, personType: string) => {
-    setImageModal({
-      isOpen: true,
-      imageUrl: document.photoUrl,
-      title: document.title,
-      description: document.description || '',
-      documentType: document.documentType,
-      personType
-    });
+  const openImageInNewTab = (document: ClientDocument, personType: string) => {
+    // Abrir la imagen en una nueva pestaña del navegador
+    window.open(document.photoUrl, '_blank');
   };
 
   const getPersonTypeFromDocument = (document: ClientDocument, clientId: string): 'TITULAR' | 'AVAL' => {
@@ -864,8 +986,6 @@ const HistorialClientePage: React.FC = () => {
       alert('Error al exportar el PDF. Intente nuevamente.');
     }
   };
-
-  const historyResult: ClientHistoryData | null = historyData?.getClientHistory || null;
 
   return (
     <PageContainer header="Historial de Cliente">
@@ -1469,19 +1589,101 @@ const HistorialClientePage: React.FC = () => {
 
             {/* Documentos del Cliente */}
             <div style={{ marginBottom: '32px' }}>
-              <h3 style={{ 
-                fontSize: '20px', 
-                fontWeight: 'bold', 
-                marginBottom: '16px',
-                color: '#2d3748',
-                borderBottom: '2px solid #805ad5',
-                paddingBottom: '8px'
+              <div style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                marginBottom: '16px'
               }}>
-                📷 Documentos del Cliente
-              </h3>
+                <h3 style={{ 
+                  fontSize: '20px', 
+                  fontWeight: 'bold', 
+                  margin: 0,
+                  color: '#2d3748',
+                  borderBottom: '2px solid #805ad5',
+                  paddingBottom: '8px',
+                  flex: 1
+                }}>
+                  📷 Documentos del Cliente
+                </h3>
+                
+                {/* Botón de actualizar documentos */}
+                <div style={{ display: 'flex', gap: '8px', marginLeft: '16px' }}>
+                  <Button 
+                    onClick={handleRefreshDocuments}
+                    isDisabled={!selectedClient}
+                    style={{
+                      backgroundColor: selectedClient ? '#38a169' : '#a0aec0',
+                      color: 'white',
+                      padding: '8px 16px',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: selectedClient ? 'pointer' : 'not-allowed',
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      minWidth: '120px',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    🔄 Actualizar
+                  </Button>
+                </div>
+              </div>
+
+              {/* Botón para mostrar documentos (carga lazy) */}
+              {!showDocuments && (
+                <div style={{
+                  textAlign: 'center',
+                  padding: '32px',
+                  backgroundColor: '#f8fafc',
+                  borderRadius: '8px',
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <div style={{
+                    fontSize: '48px',
+                    marginBottom: '16px',
+                    color: '#a0aec0'
+                  }}>
+                    📷
+                  </div>
+                  <h4 style={{ 
+                    fontSize: '16px', 
+                    fontWeight: '600', 
+                    marginBottom: '8px', 
+                    color: '#4a5568' 
+                  }}>
+                    Documentos del Cliente
+                  </h4>
+                  <p style={{ 
+                    fontSize: '14px', 
+                    color: '#718096', 
+                    marginBottom: '20px',
+                    maxWidth: '400px',
+                    margin: '0 auto 20px auto'
+                  }}>
+                    Haz clic para ver los documentos asociados (INE, comprobante de domicilio, pagarés, etc.)
+                  </p>
+                  <Button 
+                    onClick={handleShowDocuments}
+                    style={{
+                      backgroundColor: '#805ad5',
+                      color: 'white',
+                      padding: '12px 24px',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    📷 Ver Documentos
+                  </Button>
+                </div>
+              )}
 
               {/* Estado de carga */}
-              {documentsLoading && (
+              {showDocuments && documentsLoading && (
                 <div style={{
                   textAlign: 'center',
                   padding: '32px',
@@ -1497,7 +1699,7 @@ const HistorialClientePage: React.FC = () => {
               )}
 
               {/* Documentos encontrados */}
-              {!documentsLoading && documentsData?.documentPhotos && documentsData.documentPhotos.length > 0 && (
+              {showDocuments && !documentsLoading && documentsData?.documentPhotos && documentsData.documentPhotos.length > 0 && (
                 <>
                   <p style={{ 
                     fontSize: '12px', 
@@ -1508,36 +1710,257 @@ const HistorialClientePage: React.FC = () => {
                     💡 Haz clic en cualquier documento para ver la imagen completa
                   </p>
 
-                                  <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(200px, 1fr))',
-                  gap: isMobile ? '12px' : '16px',
-                  padding: isMobile ? '16px' : '20px',
-                  backgroundColor: '#f8fafc',
-                  borderRadius: '8px',
-                  border: '1px solid #e2e8f0'
-                }}>
-                    {documentsData.documentPhotos.map((document: ClientDocument) => {
+                  {(() => {
+                    // Los documentos ya están filtrados por cliente en la query
+                    const clientDocuments = documentsData.documentPhotos;
+                    
+                    // Agrupar documentos por tipo de persona
+                    const documentsByPerson = clientDocuments.reduce((acc: any, document: ClientDocument) => {
                       const personType = getPersonTypeFromDocument(document, historyResult.client.id);
-                      return (
-                        <DocumentThumbnail
-                          key={document.id}
-                          type={document.documentType}
-                          personType={personType}
-                          imageUrl={document.photoUrl}
-                          publicId={document.publicId}
-                          onImageClick={() => openImageModal(document, personType)}
-                          onUploadClick={() => {}} // No permitir subir desde aquí
-                          size="medium"
-                        />
-                      );
-                    })}
-                  </div>
+                      const personKey = personType === 'TITULAR' ? 'cliente' : 'aval';
+                      
+                      if (!acc[personKey]) {
+                        acc[personKey] = [];
+                      }
+                      acc[personKey].push(document);
+                      return acc;
+                    }, {});
+                    
+                    // Mapear tipos de documento a nombres más claros
+                    const getDocumentTypeLabel = (type: string) => {
+                      switch (type) {
+                        case 'INE': return 'INE';
+                        case 'DOMICILIO': return 'Domicilio';
+                        case 'PAGARE': return 'Pagaré';
+                        default: return type;
+                      }
+                    };
+                    
+                    // Solo mostrar tabs si hay documentos de ambos tipos
+                    const hasClientDocs = documentsByPerson.cliente && documentsByPerson.cliente.length > 0;
+                    const hasAvalDocs = documentsByPerson.aval && documentsByPerson.aval.length > 0;
+                    const showTabs = hasClientDocs && hasAvalDocs;
+                    
+                    return (
+                      <div>
+                        {/* Tabs solo si hay documentos de ambos tipos */}
+                        {showTabs && (
+                          <div style={{
+                            display: 'flex',
+                            marginBottom: '16px',
+                            backgroundColor: '#f1f5f9',
+                            borderRadius: '6px',
+                            padding: '4px'
+                          }}>
+                            <button
+                              onClick={() => setActiveDocumentTab('cliente')}
+                              style={{
+                                flex: 1,
+                                padding: '8px 16px',
+                                border: 'none',
+                                borderRadius: '4px',
+                                backgroundColor: activeDocumentTab === 'cliente' ? '#805ad5' : 'transparent',
+                                color: activeDocumentTab === 'cliente' ? 'white' : '#4a5568',
+                                fontSize: '14px',
+                                fontWeight: '500',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '6px'
+                              }}
+                            >
+                              👤 Cliente ({documentsByPerson.cliente.length})
+                            </button>
+                            <button
+                              onClick={() => setActiveDocumentTab('aval')}
+                              style={{
+                                flex: 1,
+                                padding: '8px 16px',
+                                border: 'none',
+                                borderRadius: '4px',
+                                backgroundColor: activeDocumentTab === 'aval' ? '#805ad5' : 'transparent',
+                                color: activeDocumentTab === 'aval' ? 'white' : '#4a5568',
+                                fontSize: '14px',
+                                fontWeight: '500',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '6px'
+                              }}
+                            >
+                              🤝 Aval ({documentsByPerson.aval.length})
+                            </button>
+                          </div>
+                        )}
+                        
+                        {/* Contenido de documentos */}
+                        <div style={{
+                          padding: isMobile ? '12px' : '16px',
+                          backgroundColor: '#f8fafc',
+                          borderRadius: '8px',
+                          border: '1px solid #e2e8f0'
+                        }}>
+                          {showTabs ? (
+                            // Mostrar solo el tab activo
+                            (() => {
+                              const documents = documentsByPerson[activeDocumentTab] || [];
+                              return (
+                                <div>
+                                  <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    marginBottom: '12px',
+                                    paddingBottom: '8px',
+                                    borderBottom: '2px solid #e2e8f0'
+                                  }}>
+                                    <div style={{
+                                      fontSize: '14px',
+                                      fontWeight: '600',
+                                      color: '#4a5568',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '6px'
+                                    }}>
+                                      {activeDocumentTab === 'cliente' ? '👤' : '🤝'}
+                                      {activeDocumentTab === 'cliente' ? 'Cliente' : 'Aval'}
+                                    </div>
+                                    <div style={{
+                                      fontSize: '12px',
+                                      color: '#718096',
+                                      marginLeft: '8px'
+                                    }}>
+                                      ({documents.length} documento{documents.length !== 1 ? 's' : ''})
+                                    </div>
+                                  </div>
+                                  
+                                  {/* Grid de documentos */}
+                                  <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)',
+                                    gap: isMobile ? '8px' : '12px'
+                                  }}>
+                                    {documents.map((document: ClientDocument) => (
+                                      <div key={document.id} style={{
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'center',
+                                        gap: '6px'
+                                      }}>
+                                        <DocumentThumbnail
+                                          type={document.documentType}
+                                          personType={activeDocumentTab === 'cliente' ? 'TITULAR' : 'AVAL'}
+                                          imageUrl={document.photoUrl}
+                                          publicId={document.publicId}
+                                          onImageClick={() => openImageInNewTab(document, activeDocumentTab === 'cliente' ? 'TITULAR' : 'AVAL')}
+                                          onUploadClick={() => {}} // No permitir subir desde aquí
+                                          size="medium"
+                                        />
+                                        <div style={{
+                                          textAlign: 'center',
+                                          fontSize: '11px',
+                                          fontWeight: '500',
+                                          color: '#4a5568',
+                                          backgroundColor: '#ffffff',
+                                          padding: '3px 6px',
+                                          borderRadius: '3px',
+                                          border: '1px solid #e2e8f0',
+                                          minWidth: '80px'
+                                        }}>
+                                          {getDocumentTypeLabel(document.documentType)}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              );
+                            })()
+                          ) : (
+                            // Mostrar todos los documentos sin tabs
+                            Object.entries(documentsByPerson).map(([personType, documents]: [string, any]) => (
+                              <div key={personType} style={{ marginBottom: personType === 'cliente' ? '20px' : '0' }}>
+                                {/* Título de la sección */}
+                                <div style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  marginBottom: '12px',
+                                  paddingBottom: '8px',
+                                  borderBottom: '2px solid #e2e8f0'
+                                }}>
+                                  <div style={{
+                                    fontSize: '14px',
+                                    fontWeight: '600',
+                                    color: '#4a5568',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                  }}>
+                                    {personType === 'cliente' ? '👤' : '🤝'}
+                                    {personType === 'cliente' ? 'Cliente' : 'Aval'}
+                                  </div>
+                                  <div style={{
+                                    fontSize: '12px',
+                                    color: '#718096',
+                                    marginLeft: '8px'
+                                  }}>
+                                    ({documents.length} documento{documents.length !== 1 ? 's' : ''})
+                                  </div>
+                                </div>
+                                
+                                {/* Grid de documentos */}
+                                <div style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)',
+                                  gap: isMobile ? '8px' : '12px'
+                                }}>
+                                  {documents.map((document: ClientDocument) => (
+                                    <div key={document.id} style={{
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      alignItems: 'center',
+                                      gap: '6px'
+                                    }}>
+                                      <DocumentThumbnail
+                                        type={document.documentType}
+                                        personType={personType === 'cliente' ? 'TITULAR' : 'AVAL'}
+                                        imageUrl={document.photoUrl}
+                                        publicId={document.publicId}
+                                        onImageClick={() => openImageInNewTab(document, personType === 'cliente' ? 'TITULAR' : 'AVAL')}
+                                        onUploadClick={() => {}} // No permitir subir desde aquí
+                                        size="medium"
+                                      />
+                                      <div style={{
+                                        textAlign: 'center',
+                                        fontSize: '11px',
+                                        fontWeight: '500',
+                                        color: '#4a5568',
+                                        backgroundColor: '#ffffff',
+                                        padding: '3px 6px',
+                                        borderRadius: '3px',
+                                        border: '1px solid #e2e8f0',
+                                        minWidth: '80px'
+                                      }}>
+                                        {getDocumentTypeLabel(document.documentType)}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </>
               )}
 
+
               {/* Sin documentos */}
-              {!documentsLoading && (!documentsData?.documentPhotos || documentsData.documentPhotos.length === 0) && (
+              {showDocuments && !documentsLoading && (!documentsData?.documentPhotos || documentsData.documentPhotos.length === 0) && (
                 <div style={{
                   textAlign: 'center',
                   padding: '40px',
@@ -2463,16 +2886,6 @@ const HistorialClientePage: React.FC = () => {
           </div>
         )}
 
-        {/* Modal de imagen */}
-        <ImageModal
-          isOpen={imageModal.isOpen}
-          onClose={() => setImageModal({ ...imageModal, isOpen: false })}
-          imageUrl={imageModal.imageUrl}
-          title={imageModal.title}
-          description={imageModal.description}
-          documentType={imageModal.documentType}
-          personType={imageModal.personType}
-        />
 
         {/* Modal de fusión de clientes mejorado */}
         {showMergeModal && (
