@@ -16,6 +16,10 @@ interface ImageUploaderProps {
   currentPublicId?: string;
   disabled?: boolean;
   placeholder?: string;
+  // Nuevos parámetros para estructura de carpetas
+  loan?: any;
+  documentType?: string;
+  customFolder?: string;
 }
 
 interface CloudinaryUploadResult {
@@ -34,7 +38,10 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   currentImageUrl,
   currentPublicId,
   disabled = false,
-  placeholder = 'Subir imagen'
+  placeholder = 'Subir imagen',
+  loan,
+  documentType,
+  customFolder
 }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(currentImageUrl || null);
@@ -54,6 +61,27 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
 
   // Detectar si estamos en un dispositivo móvil
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+  // Función helper para preparar los datos de subida
+  const prepareUploadData = (file: File): FormData => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    // Determinar qué parámetros enviar
+    if (customFolder) {
+      // Si se especifica una carpeta personalizada, usarla
+      formData.append('folder', customFolder);
+    } else if (loan && documentType) {
+      // Si tenemos datos del préstamo y tipo de documento, usar estructura automática
+      formData.append('loan', JSON.stringify(loan));
+      formData.append('documentType', documentType);
+    } else {
+      // Fallback a la configuración por defecto
+      formData.append('folder', 'documentos-personales');
+    }
+    
+    return formData;
+  };
 
   // Función para obtener las cámaras disponibles
   const getAvailableCameras = async () => {
@@ -149,9 +177,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       // Subir a Cloudinary
       setIsUploading(true);
       
-      const formData = new FormData();
-      formData.append('file', compressedResult.file);
-      formData.append('folder', 'documentos-personales');
+      const formData = prepareUploadData(compressedResult.file);
 
       const response = await fetch('/api/upload-image', {
         method: 'POST',
@@ -300,9 +326,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
               // Subir a Cloudinary
               setIsUploading(true);
               
-              const formData = new FormData();
-              formData.append('file', compressedResult.file);
-              formData.append('folder', 'documentos-personales');
+              const formData = prepareUploadData(compressedResult.file);
 
               const response = await fetch('/api/upload-image', {
                 method: 'POST',

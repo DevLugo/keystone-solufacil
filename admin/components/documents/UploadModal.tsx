@@ -27,6 +27,8 @@ interface UploadModalProps {
   personalDataId: string;
   loanId: string;
   personName: string;
+  // Nuevos parámetros para estructura de carpetas
+  loan?: any;
 }
 
 export const UploadModal: React.FC<UploadModalProps> = ({
@@ -37,7 +39,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   personType,
   personalDataId,
   loanId,
-  personName
+  personName,
+  loan
 }) => {
   const [description, setDescription] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
@@ -240,6 +243,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               currentPublicId={publicId}
               placeholder={`Subir ${getTypeLabel(documentType).toLowerCase()}`}
               disabled={isUploading}
+              loan={loan}
+              documentType={documentType}
             />
           </Box>
 

@@ -91,7 +91,12 @@ export const GET_PREVIOUS_LOANS_OPTIMIZED = gql`
 // Para obtener líderes de forma optimizada
 export const GET_LEADS_SIMPLE = gql`
   query LeadsSimple($routeId: ID!) {
-    employees(where: { routes: { id: { equals: $routeId } } }) {
+    employees(where: { 
+      AND: [
+        { routes: { id: { equals: $routeId } } },
+        { type: { equals: "LEAD" } }
+      ]
+    }) {
       id
       type
       personalData {

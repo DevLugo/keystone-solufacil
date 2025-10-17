@@ -3,13 +3,13 @@
 /** @jsxFrag React.Fragment */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Box, jsx, Stack, Text } from '@keystone-ui/core';
+import { Box, jsx, Text } from '@keystone-ui/core';
 import { Button } from '@keystone-ui/button';
 import { TextInput, Select } from '@keystone-ui/fields';
 import { LoadingDots } from '@keystone-ui/loading';
 import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
 import { AlertDialog } from '@keystone-ui/modals';
-import { FaSearch, FaEye, FaEdit, FaTrash, FaUser, FaUserTie, FaMoneyBillWave, FaCalendarAlt, FaMapMarkerAlt, FaFilter } from 'react-icons/fa';
+import { FaSearch, FaUser, FaUserTie, FaCalendarAlt, FaMapMarkerAlt, FaFilter } from 'react-icons/fa';
 import { useQuery, useMutation } from '@apollo/client';
 import { gql } from '@apollo/client';
 import { PageContainer } from '@keystone-6/core/admin-ui/components';
@@ -18,6 +18,7 @@ import { ImageModal } from '../components/documents/ImageModal';
 import { UploadModal } from '../components/documents/UploadModal';
 import { DocumentsModal } from '../components/documents/DocumentsModal';
 import { ErrorModal } from '../components/documents/ErrorModal';
+import { ToastContainer, ToastProps } from '../components/Toast';
 import { UPDATE_PERSONAL_DATA_NAME, UPDATE_PERSONAL_DATA_PHONE, CREATE_PERSONAL_DATA_PHONE, UPDATE_DOCUMENT_PHOTO_MISSING } from '../graphql/mutations/personalData';
 
 // Query para obtener rutas
@@ -235,9 +236,12 @@ export default function DocumentosPersonalesPage() {
   // Estados para el DatePicker de semanas
     const [selectedDate, setSelectedDate] = useState<Date>(() => {
     try {
-      const now = new Date();
-      now.setHours(0, 0, 0, 0);
-      return now;
+      // Inicializar con la semana anterior (no la semana actual)
+      const today = new Date();
+      const weekStart = new Date(today);
+      weekStart.setDate(today.getDate() - (today.getDay() + 6) - 7); // -7 días para ir a la semana anterior
+      weekStart.setHours(0, 0, 0, 0);
+      return weekStart;
     } catch (error) {
       return new Date('2025-01-01T00:00:00.000Z');
     }
@@ -245,10 +249,10 @@ export default function DocumentosPersonalesPage() {
 
   // Estado para el selector de semanas
   const [selectedWeek, setSelectedWeek] = useState<{ label: string; value: string } | null>(() => {
-    // Inicializar con la semana actual
+    // Inicializar con la semana anterior (no la semana actual)
     const today = new Date();
     const weekStart = new Date(today);
-    weekStart.setDate(today.getDate() - (today.getDay() + 6));
+    weekStart.setDate(today.getDate() - (today.getDay() + 6) - 7); // -7 días para ir a la semana anterior
     weekStart.setHours(0, 0, 0, 0);
     
     const weekEnd = new Date(weekStart);
@@ -261,12 +265,12 @@ export default function DocumentosPersonalesPage() {
     return { label, value };
   });
 
-  // Generar opciones de semanas (últimas 12 semanas)
+  // Generar opciones de semanas (últimas 12 semanas, excluyendo la semana en curso)
   const weekOptions = useMemo(() => {
     const options = [];
     const today = new Date();
     
-    for (let i = 0; i < 12; i++) {
+    for (let i = 1; i <= 12; i++) {
       const weekStart = new Date(today);
       weekStart.setDate(today.getDate() - (today.getDay() + 6) - (i * 7));
       weekStart.setHours(0, 0, 0, 0);
@@ -323,13 +327,15 @@ export default function DocumentosPersonalesPage() {
     personalDataId: string;
     loanId: string;
     personName: string;
+    loan?: any;
   }>({
     isOpen: false,
     documentType: 'INE',
     personType: 'TITULAR',
     personalDataId: '',
     loanId: '',
-    personName: ''
+    personName: '',
+    loan: null
   });
 
   const [documentsModal, setDocumentsModal] = useState<{
@@ -360,6 +366,24 @@ export default function DocumentosPersonalesPage() {
     personalDataId: string;
     phoneId?: string;
   } | null>(null);
+
+  // Estados para toasts
+  const [toasts, setToasts] = useState<ToastProps[]>([]);
+
+  // Funciones para manejar toasts
+  const addToast = (toast: Omit<ToastProps, 'id' | 'onClose'>) => {
+    const id = Date.now().toString();
+    const newToast: ToastProps = {
+      ...toast,
+      id,
+      onClose: removeToast
+    };
+    setToasts(prev => [...prev, newToast]);
+  };
+
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id));
+  };
 
   // Función para obtener el fin de la semana (domingo) basada en la fecha de inicio
   const getEndOfWeek = (startDate: Date): Date => {
@@ -498,10 +522,27 @@ export default function DocumentosPersonalesPage() {
         }
       });
 
+      // Mostrar toast de éxito
+      addToast({
+        type: 'success',
+        title: 'Documento subido exitosamente',
+        message: `${data.documentType} de ${data.title} se ha guardado correctamente`,
+        duration: 4000
+      });
+
       // Refrescar datos
       refetch();
     } catch (error) {
       console.error('Error al crear documento:', error);
+      
+      // Mostrar toast de error
+      addToast({
+        type: 'error',
+        title: 'Error al subir documento',
+        message: error instanceof Error ? error.message : 'Ocurrió un error inesperado',
+        duration: 6000
+      });
+      
       throw error;
     }
   };
@@ -511,6 +552,14 @@ export default function DocumentosPersonalesPage() {
     try {
       await deleteDocumentPhoto({
         variables: { id: documentId }
+      });
+
+      // Mostrar toast de éxito
+      addToast({
+        type: 'success',
+        title: 'Documento eliminado',
+        message: 'El documento se ha eliminado correctamente',
+        duration: 3000
       });
 
       // Actualizar estado local inmediatamente
@@ -525,7 +574,14 @@ export default function DocumentosPersonalesPage() {
       refetch();
     } catch (error) {
       console.error('Error al eliminar documento:', error);
-      alert('Error al eliminar el documento');
+      
+      // Mostrar toast de error
+      addToast({
+        type: 'error',
+        title: 'Error al eliminar documento',
+        message: 'No se pudo eliminar el documento. Inténtalo de nuevo.',
+        duration: 5000
+      });
     }
   };
 
@@ -688,7 +744,8 @@ export default function DocumentosPersonalesPage() {
     personType: 'TITULAR' | 'AVAL',
     personalDataId: string,
     loanId: string,
-    personName: string
+    personName: string,
+    loan?: any
   ) => {
     setUploadModal({
       isOpen: true,
@@ -696,7 +753,8 @@ export default function DocumentosPersonalesPage() {
       personType,
       personalDataId,
       loanId,
-      personName
+      personName,
+      loan
     });
   };
 
@@ -2020,6 +2078,7 @@ export default function DocumentosPersonalesPage() {
         personalDataId={uploadModal.personalDataId}
         loanId={uploadModal.loanId}
         personName={uploadModal.personName}
+        loan={uploadModal.loan}
       />
 
       {/* Modal de confirmación de eliminación */}
@@ -2058,7 +2117,8 @@ export default function DocumentosPersonalesPage() {
             personType: data.personType,
             personalDataId: data.personalDataId,
             loanId: data.loanId,
-            personName: data.personName
+            personName: data.personName,
+            loan: documentsModal.loan
           });
         }}
         onDocumentError={handleMarkAsError}
@@ -2077,6 +2137,12 @@ export default function DocumentosPersonalesPage() {
         documentType={errorModal.documentType}
         personType={errorModal.personType}
         existingError={errorModal.existingError}
+      />
+
+      {/* Toast Container */}
+      <ToastContainer
+        toasts={toasts}
+        onClose={removeToast}
       />
     </PageContainer>
   );

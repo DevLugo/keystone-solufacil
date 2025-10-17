@@ -11,7 +11,7 @@ export const GET_ROUTES = gql`
         type
         amount
       }
-      employees {
+      employees(where: { type: { equals: "LEAD" } }) {
         id
         type
       }
@@ -44,7 +44,7 @@ export const GET_ROUTE = gql`
           type
         }
       }
-      employees {
+      employees(where: { type: { equals: "LEAD" } }) {
         id
         type
         LeadManagedLoans(take: 20, orderBy: { signDate: desc }) {
@@ -72,7 +72,12 @@ export const GET_ROUTE = gql`
 
 export const GET_LEADS = gql`
   query GetLeads($routeId: ID!) {
-    employees(where: { routes: { id: { equals: $routeId } } }) {
+    employees(where: { 
+      AND: [
+        { routes: { id: { equals: $routeId } } },
+        { type: { equals: "LEAD" } }
+      ]
+    }) {
       id
       type
       personalData {
@@ -92,7 +97,7 @@ export const GET_ROUTE_LOANS = gql`
   query RouteLoans($routeId: ID!, $first: Int = 10, $skip: Int = 0) {
     route(where: { id: $routeId }) {
       id
-      employees {
+      employees(where: { type: { equals: "LEAD" } }) {
         id
         type
         LeadManagedLoans(first: $first, skip: $skip, orderBy: { signDate: desc }) {
