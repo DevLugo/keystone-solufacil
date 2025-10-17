@@ -84,6 +84,24 @@ const GET_LOANS_WITH_DOCUMENTS = gql`
           name
         }
       }
+      collaterals {
+        id
+        fullName
+        phones {
+          id
+          number
+        }
+        addresses {
+          location {
+            name
+            municipality {
+              state {
+                name
+              }
+            }
+          }
+        }
+      }
       documentPhotos {
         id
         title
@@ -211,6 +229,21 @@ interface Loan {
     };
     routes: Array<{ id: string; name: string }>;
   };
+  collaterals: Array<{
+    id: string;
+    fullName: string;
+    phones: Array<{ id: string; number: string }>;
+    addresses: Array<{
+      location: {
+        name: string;
+        municipality: {
+          state: {
+            name: string;
+          };
+        };
+      };
+    }>;
+  }>;
   documentPhotos: DocumentPhoto[];
 }
 
@@ -898,8 +931,9 @@ export default function DocumentosPersonalesPage() {
     const titularDocs = documents.filter((doc: any) => 
       doc.personalData.id === loan.borrower.personalData.id
     );
+    // Los documentos del aval son los que pertenecen a los collaterals
     const avalDocs = documents.filter((doc: any) => 
-      doc.personalData.id === loan.lead.personalData.id
+      loan.collaterals.some((collateral: any) => collateral.id === doc.personalData.id)
     );
     
     // Función auxiliar para verificar si un tipo de documento está revisado
@@ -1585,8 +1619,9 @@ export default function DocumentosPersonalesPage() {
             const borrowerDocuments = loan.documentPhotos.filter(doc => 
               doc.personalData.id === loan.borrower.personalData.id
             );
-            const leadDocuments = loan.documentPhotos.filter(doc => 
-              doc.personalData.id === loan.lead.personalData.id
+            // Los documentos del aval son los que pertenecen a los collaterals
+            const collateralDocuments = loan.documentPhotos.filter(doc => 
+              loan.collaterals.some(collateral => collateral.id === doc.personalData.id)
             );
 
             return (
@@ -1909,11 +1944,13 @@ export default function DocumentosPersonalesPage() {
                         }
                       }}>
                         {DOCUMENT_TYPES_AVAL.map((type) => {
-                          const document = getDocumentByTypeAndPerson(
-                            leadDocuments,
+                          // Para los avales, necesitamos obtener el primer collateral (aval principal)
+                          const primaryCollateral = loan.collaterals[0];
+                          const document = primaryCollateral ? getDocumentByTypeAndPerson(
+                            collateralDocuments,
                             type,
-                            loan.lead.personalData.id
-                          );
+                            primaryCollateral.id
+                          ) : null;
                           const hasDocument = !!document;
                           const hasError = hasDocument && document.isError;
                           const isMissing = hasDocument && document.isMissing;

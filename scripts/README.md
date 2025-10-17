@@ -117,5 +117,21 @@ LOCAL_DATABASE_URL=postgresql://postgres:test1234@localhost:5432/postgres
 
 0.- ./scripts/upload-local-to-prod-safe.sh opcion 3 --- Only Dev
 1.- ./scripts/copy-prod-to-local.sh
+
+after that you need to execute this queries on your local db:
+
+```sql
+UPDATE "Employee" 
+SET "user" = NULL 
+WHERE "user" NOT IN (SELECT id FROM "User");
+
+UPDATE "TelegramUser" 
+SET "platformUser" = NULL 
+WHERE "platformUser" NOT IN (SELECT id FROM "User");
+
+DELETE FROM "_ReportConfig_recipients" 
+WHERE "B" NOT IN (SELECT id FROM "User");
+```
+
 2.- Execute Seeder without clean db
 3.- ./scripts/upload-data-only.sh
