@@ -26,7 +26,12 @@ import { generatePaymentChronology, PaymentChronologyItem } from '../../utils/pa
 
 const GET_LEADS = gql`
   query GetLeads($routeId: ID!) {
-    employees(where: { routes: { id: { equals: $routeId } } }) {
+    employees(where: { 
+      AND: [
+        { routes: { id: { equals: $routeId } } },
+        { type: { equals: "LEAD" } }
+      ]
+    }) {
       id
       type
       personalData {

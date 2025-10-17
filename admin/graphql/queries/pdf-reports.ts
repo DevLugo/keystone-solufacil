@@ -6,7 +6,7 @@ export const GET_ROUTES_FOR_PDF = gql`
     routes {
       id
       name
-      employees(where: { type: { equals: "ROUTE_LEAD" } }) {
+      employees(where: { type: { equals: "LEAD" } }) {
         id
         personalData {
           id
@@ -30,7 +30,7 @@ export const GET_ROUTE_LOCALITIES = gql`
     route(where: { id: $routeId }) {
       id
       name
-      employees(where: { type: { equals: "ROUTE_LEAD" } }) {
+      employees(where: { type: { equals: "LEAD" } }) {
         id
         personalData {
           id
@@ -112,12 +112,12 @@ export const GET_LOANS_BY_LOCALITY = gql`
 `;
 
 // Consulta para obtener información del líder de la ruta para el PDF
-export const GET_ROUTE_LEAD_INFO = gql`
+export const GET_LEAD_INFO = gql`
   query RouteLeadInfo($routeId: ID!) {
     route(where: { id: $routeId }) {
       id
       name
-      employees(where: { type: { equals: "ROUTE_LEAD" } }) {
+      employees(where: { type: { equals: "LEAD" } }) {
         id
         personalData {
           fullName
@@ -136,7 +136,7 @@ export const GET_PDF_DATA_BY_LOCALITY = gql`
       route {
         id
         name
-        employees(where: { type: { equals: "ROUTE_LEAD" } }) {
+        employees(where: { type: { equals: "LEAD" } }) {
           id
           personalData {
             fullName
