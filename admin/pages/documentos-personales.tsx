@@ -1836,9 +1836,9 @@ export default function DocumentosPersonalesPage() {
                               maxWidth: 'calc(100vw - 120px)'
                             }
                           }}
-                          title={loan.lead.personalData.fullName}
+                          title={loan.collaterals[0]?.fullName || 'Sin aval'}
                         >
-                          {loan.lead.personalData.fullName}
+                          {loan.collaterals[0]?.fullName || 'Sin aval'}
                         </div>
                       </Box>
 
