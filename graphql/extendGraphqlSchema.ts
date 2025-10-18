@@ -3798,23 +3798,25 @@ export const extendGraphqlSchema = graphql.extend(base => {
         }
       }),
 
-      // ✅ NUEVA MUTATION: Enviar reporte con PDF a Telegram (versión temporal sin routeIds)
+      // ✅ NUEVA MUTATION: Enviar reporte con PDF a Telegram (con filtro de rutas)
       sendReportWithPDF: graphql.field({
         type: graphql.nonNull(graphql.String),
         args: { 
           chatId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
-          reportType: graphql.arg({ type: graphql.nonNull(graphql.String) })
+          reportType: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          routeIds: graphql.arg({ type: graphql.list(graphql.String) })
         },
-        resolve: async (root, { chatId, reportType }, context: Context) => {
+        resolve: async (root, { chatId, reportType, routeIds = [] }, context: Context) => {
           try {
             console.log('🚀🚀🚀 MUTACIÓN sendReportWithPDF LLAMADA 🚀🚀🚀');
-            console.log('📋 Parámetros recibidos:', { chatId, reportType });
+            console.log('📋 Parámetros recibidos:', { chatId, reportType, routeIds });
             console.log('📋 Tipo de reporte exacto:', `"${reportType}"`);
             console.log('📋 ¿Es créditos con errores?', reportType === 'creditos_con_errores');
+            console.log('📋 Rutas filtradas:', routeIds);
             
             // Generar PDF del reporte usando la función con streams y datos reales
             console.log('📋 Llamando generatePDFWithStreams...');
-            const pdfBuffer = await generatePDFWithStreams(reportType, context, []);
+            const pdfBuffer = await generatePDFWithStreams(reportType, context, routeIds);
             console.log('📋 PDF generado, tamaño:', pdfBuffer.length, 'bytes');
             const filename = `reporte_${reportType}_${Date.now()}.pdf`;
             const caption = `📊 <b>REPORTE AUTOMÁTICO</b>\n\nTipo: ${reportType}\nGenerado: ${new Date().toLocaleString('es-ES')}\n\n✅ Enviado desde Keystone Admin`;
@@ -10163,10 +10165,6 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
   try {
     console.log('🎯 Iniciando generación de reporte de créditos con documentos con error...');
     
-    // Calcular fecha de hace 2 meses
-    const twoMonthsAgo = new Date();
-    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
-    
     // Filtro de rutas específicas si se proporcionan
     const routeFilter = routeIds.length > 0 ? {
       lead: {
@@ -10176,12 +10174,9 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
       }
     } : {};
     
-    // Obtener todos los créditos de los últimos 2 meses con información completa
+    // Obtener TODOS los créditos con información completa (sin filtro de fecha para incluir histórico completo)
     const allRecentCredits = await context.prisma.loan.findMany({
       where: {
-        signDate: {
-          gte: twoMonthsAgo
-        },
         ...routeFilter
       },
       include: {
@@ -10224,7 +10219,7 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
       ]
     });
 
-    console.log(`📊 Encontrados ${allRecentCredits.length} créditos en los últimos 2 meses`);
+    console.log(`📊 Encontrados ${allRecentCredits.length} créditos en total (histórico completo)`);
 
     // Procesar y organizar datos para la tabla
     // IMPORTANTE: Solo se incluyen documentos que YA FUERON REVISADOS y marcados como problemáticos
@@ -10246,9 +10241,18 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
       const clientMissingDocs = clientDocuments.filter(doc => doc.isMissing === true);
       
       // Analizar documentos del aval (si existe) - SOLO los que ya fueron revisados y tienen problemas
-      const avalDocuments = credit.collaterals?.[0]?.documentPhotos || [];
+      // IMPORTANTE: Los documentos del aval están asociados al PersonalData del aval, no al Loan específico
+      // Por lo tanto, mostramos los documentos del aval solo si están asociados a este crédito específico
+      const avalPersonalDataId = credit.collaterals?.[0]?.id;
+      const avalDocuments = avalPersonalDataId ? 
+        (credit.documentPhotos || []).filter(doc => doc.personalDataId === avalPersonalDataId) : [];
       const avalDocErrors = avalDocuments.filter(doc => doc.isError === true);
       const avalMissingDocs = avalDocuments.filter(doc => doc.isMissing === true);
+      
+      // Log básico solo para créditos con problemas
+      if (clientDocErrors.length > 0 || clientMissingDocs.length > 0 || avalDocErrors.length > 0 || avalMissingDocs.length > 0) {
+        console.log(`🔍 [GraphQL] Crédito con problemas: ${credit.id} (${clientName}) - Errores: ${clientDocErrors.length + avalDocErrors.length}, Faltantes: ${clientMissingDocs.length + avalMissingDocs.length}`);
+      }
       
       // Solo incluir si hay problemas REALES (documentos ya revisados con errores o faltantes)
       const hasClientProblems = clientDocErrors.length > 0 || clientMissingDocs.length > 0;
@@ -10347,6 +10351,15 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
     doc.moveDown(1.5);
     
     doc.moveDown(1);
+
+    // 🔍 DEBUG: Mostrar resumen final
+    console.log(`📊 [GraphQL] Procesamiento completado. Total de registros en tabla: ${tableData.length}`);
+    if (tableData.length === 0) {
+      console.log(`⚠️ [GraphQL] ADVERTENCIA: No se encontraron créditos con documentos problemáticos`);
+      console.log(`📋 [GraphQL] Verificar que existan documentos marcados con isError=true o isMissing=true`);
+    } else {
+      console.log(`✅ [GraphQL] Se encontraron ${tableData.length} créditos con documentos problemáticos`);
+    }
 
     // Si no hay datos reales, mostrar mensaje de éxito
     if (tableData.length === 0) {
@@ -10613,7 +10626,7 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
           doc.fontSize(8);
           let textY = y + 8;
           
-          for (let i = 0; i < Math.min(problems.length, 3); i++) {
+          for (let i = 0; i < problems.length; i++) {
             const problem = problems[i].trim();
             
             // Log para debugging del bucle de renderizado
@@ -10689,10 +10702,7 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
             }
           }
           
-          if (problems.length > 3) {
-            doc.fontSize(7).fillColor('#64748b');
-            doc.text(`+${problems.length - 3} más...`, x + 4, textY, { width: col.width - 20 });
-          }
+          // Ya no mostramos "+X más..." - ahora mostramos todos los problemas
         }
         // Otras columnas con formato estándar
         else {

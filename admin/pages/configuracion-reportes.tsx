@@ -280,10 +280,10 @@ const GENERATE_REPORT_PDF = gql`
   }
 `;
 
-// Mutation para enviar reporte con PDF a Telegram (versión temporal sin routeIds)
+// Mutation para enviar reporte con PDF a Telegram (con filtro de rutas)
 const SEND_REPORT_WITH_PDF = gql`
-  mutation SendReportWithPDF($chatId: String!, $reportType: String!) {
-    sendReportWithPDF(chatId: $chatId, reportType: $reportType)
+  mutation SendReportWithPDF($chatId: String!, $reportType: String!, $routeIds: [String!]) {
+    sendReportWithPDF(chatId: $chatId, reportType: $reportType, routeIds: $routeIds)
   }
 `;
 
@@ -814,7 +814,7 @@ export default function ConfiguracionReportesPage() {
               console.log(`📱 Enviando por Telegram a ${recipient.name} (${telegramUser.chatId})`);
               
               // Enviar reporte por Telegram
-              const sent = await sendReportToTelegram(telegramUser.chatId, config.reportType);
+              const sent = await sendReportToTelegram(telegramUser.chatId, config.reportType, routeIds);
               
               if (sent) {
                 sentCount++;
@@ -861,16 +861,17 @@ export default function ConfiguracionReportesPage() {
   };
 
   // Función simplificada para enviar reporte a Telegram
-  const sendReportToTelegram = async (chatId: string, reportType: string) => {
+  const sendReportToTelegram = async (chatId: string, reportType: string, routeIds: string[] = []) => {
     try {
-      console.log(`📱 Enviando reporte ${reportType} a ${chatId}`);
+      console.log(`📱 Enviando reporte ${reportType} a ${chatId} con rutas:`, routeIds);
       
       // Para créditos con errores, usar PDF
       if (reportType === 'creditos_con_errores') {
         const result = await sendReportWithPDF({
           variables: { 
             chatId: chatId, 
-            reportType: reportType
+            reportType: reportType,
+            routeIds: routeIds
           }
         });
         

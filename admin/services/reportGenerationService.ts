@@ -40,10 +40,6 @@ export async function generateCreditsWithDocumentErrorsReport(
     console.log('🎯🎯🎯 FUNCIÓN UNIFICADA generateCreditsWithDocumentErrorsReport INICIADA 🎯🎯🎯');
     console.log('📋 Generando reporte de créditos con documentos con error para rutas:', routeIds);
     
-    // Calcular fecha de hace 2 meses
-    const twoMonthsAgo = new Date();
-    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
-    
     // Filtro de rutas específicas si se proporcionan
     const routeFilter = routeIds.length > 0 ? {
       lead: {
@@ -53,12 +49,9 @@ export async function generateCreditsWithDocumentErrorsReport(
       }
     } : {};
     
-    // Obtener todos los créditos de los últimos 2 meses con información completa
+    // Obtener TODOS los créditos con información completa (sin filtro de fecha para incluir histórico completo)
     const allRecentCredits = await context.prisma.loan.findMany({
       where: {
-        signDate: {
-          gte: twoMonthsAgo
-        },
         ...routeFilter
       },
       include: {
@@ -101,8 +94,8 @@ export async function generateCreditsWithDocumentErrorsReport(
       ]
     });
 
-    console.log(`📊 Encontrados ${allRecentCredits.length} créditos en los últimos 2 meses`);
-    console.log('🔍 Filtros aplicados:', { twoMonthsAgo: twoMonthsAgo.toISOString(), routeFilter });
+    console.log(`📊 Encontrados ${allRecentCredits.length} créditos en total (histórico completo)`);
+    console.log('🔍 Filtros aplicados:', { routeFilter });
 
     // Procesar y organizar datos para la tabla
     const tableData: DocumentErrorData[] = [];
@@ -126,11 +119,19 @@ export async function generateCreditsWithDocumentErrorsReport(
       const clientMissingDocs = clientDocuments.filter((doc: DocumentPhoto) => doc.isMissing === true);
       
       
-      // Analizar documentos del aval (si existe)
-      const avalDocuments = credit.collaterals?.[0]?.documentPhotos || [];
+      // Analizar documentos del aval (si existe) - SOLO los que ya fueron revisados y tienen problemas
+      // IMPORTANTE: Los documentos del aval están asociados al PersonalData del aval, no al Loan específico
+      // Por lo tanto, mostramos los documentos del aval solo si están asociados a este crédito específico
+      const avalPersonalDataId = credit.collaterals?.[0]?.id;
+      const avalDocuments = avalPersonalDataId ? 
+        (credit.documentPhotos || []).filter((doc: DocumentPhoto) => doc.personalDataId === avalPersonalDataId) : [];
       const avalDocErrors = avalDocuments.filter((doc: DocumentPhoto) => doc.isError === true);
       const avalMissingDocs = avalDocuments.filter((doc: DocumentPhoto) => doc.isMissing === true);
       
+      // Log básico solo para créditos con problemas
+      if (clientDocErrors.length > 0 || clientMissingDocs.length > 0 || avalDocErrors.length > 0 || avalMissingDocs.length > 0) {
+        console.log(`🔍 Crédito con problemas: ${credit.id} (${clientName}) - Errores: ${clientDocErrors.length + avalDocErrors.length}, Faltantes: ${clientMissingDocs.length + avalMissingDocs.length}`);
+      }
       
       // Solo incluir si hay problemas EXPLÍCITOS (isError=true o isMissing=true)
       // NO incluir clientes sin documentos o con documentos sin problemas marcados
@@ -269,6 +270,15 @@ export async function generateCreditsWithDocumentErrorsReport(
       }
       weekGroups.get(weekKey)!.push(row);
     });
+
+    // 🔍 DEBUG: Mostrar resumen final
+    console.log(`📊 Procesamiento completado. Total de registros en tabla: ${tableData.length}`);
+    if (tableData.length === 0) {
+      console.log(`⚠️ ADVERTENCIA: No se encontraron créditos con documentos problemáticos`);
+      console.log(`📋 Verificar que existan documentos marcados con isError=true o isMissing=true`);
+    } else {
+      console.log(`✅ Se encontraron ${tableData.length} créditos con documentos problemáticos`);
+    }
 
     // Generar PDF
     console.log('🎨 Generando PDF del reporte...');
@@ -695,7 +705,7 @@ async function generateRealDocumentErrorTable(
         doc.fontSize(9);
         let textY = y + 8;
         
-        for (let i = 0; i < Math.min(problems.length, 3); i++) {
+        for (let i = 0; i < problems.length; i++) {
           const problem = problems[i].trim();
           if (textY < y + rowHeight - 12) {
             if (problem.includes('con error')) {
@@ -718,11 +728,7 @@ async function generateRealDocumentErrorTable(
           }
         }
         
-        // Indicador si hay más problemas
-        if (problems.length > 3) {
-          doc.fontSize(7).fillColor('#64748b');
-          doc.text(`+${problems.length - 3} más...`, x + 6, textY, { width: col.width - 12 });
-        }
+        // Ya no mostramos "+X más..." - ahora mostramos todos los problemas
       }
       // Otras columnas con formato estándar mejorado
       else {
