@@ -767,6 +767,13 @@ export const CreatePaymentForm = ({
     // Verificar si el clic fue en un elemento interactivo
     const target = event.target as HTMLElement;
     
+    // Verificar si hay texto seleccionado (para evitar activar cuando se selecciona texto)
+    const selection = window.getSelection();
+    if (selection && selection.toString().length > 0) {
+      console.log('🔍 Hay texto seleccionado, ignorando selección de fila:', selection.toString());
+      return;
+    }
+    
     // Verificar si el elemento o sus padres tienen el atributo data-no-select
     const hasNoSelectAttribute = target.closest('[data-no-select="true"]');
     if (hasNoSelectAttribute) {
@@ -2728,7 +2735,6 @@ useEffect(() => {
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
-                    padding: '4px 0',
                     borderBottom: '1px solid #F3F4F6',
                     fontSize: '11px',
                     fontWeight: '600',
@@ -2863,9 +2869,8 @@ useEffect(() => {
                   <span style={{ 
                     fontSize: '14px', 
                     fontWeight: '600', 
-                    color: '#92400E',
-                    backgroundColor: '#F59E0B',
                     color: 'white',
+                    backgroundColor: '#F59E0B',
                     padding: '4px 12px',
                     borderRadius: '20px',
                     display: 'flex',
@@ -3431,7 +3436,7 @@ useEffect(() => {
                     }}>
                       {isEditing && !payment.isMigrated ? (
                         <TextInput
-                          type="number" step="1" step="1"
+                          type="number" step="1"
                           value={editedPayment.amount}
                           onChange={e => handleEditExistingPayment(payment.id, 'amount', e.target.value)}
                           disabled={isStrikethrough}
@@ -3456,7 +3461,7 @@ useEffect(() => {
                       {isEditing && !payment.isMigrated ? (
                         <div style={{ position: 'relative' }}>
                           <TextInput
-                            type="number" step="1" step="1" step="1"
+                            type="number" step="1"
                             value={editedPayment.comission}
                             onChange={e => handleEditExistingPayment(payment.id, 'comission', e.target.value)}
                             disabled={isStrikethrough}
@@ -3836,26 +3841,40 @@ useEffect(() => {
                     color: isStrikethrough ? '#dc2626' : 'inherit',
                     fontWeight: isStrikethrough ? '500' : 'inherit'
                   }}>
-                    <TextInput
-                      type="number" step="1"
-                      value={Math.round(parseFloat(payment.amount || '0'))}
-                      onChange={(e) => handleChange(index, 'amount', e.target.value)}
-                      disabled={isStrikethrough || isDeceased}
-                      style={{ height: HEIGHT_SYSTEM.small, fontSize: FONT_SYSTEM.small }}
-                    />
+                    <div 
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseUp={(e) => e.stopPropagation()}
+                      data-no-select="true"
+                    >
+                      <TextInput
+                        type="number" step="1"
+                        value={Math.round(parseFloat(payment.amount || '0'))}
+                        onChange={(e) => handleChange(index, 'amount', e.target.value)}
+                        disabled={isStrikethrough || isDeceased}
+                        style={{ height: HEIGHT_SYSTEM.small, fontSize: FONT_SYSTEM.small }}
+                      />
+                    </div>
                   </td>
                   <td style={{
                     textDecoration: isStrikethrough ? 'line-through' : 'none',
                     color: isStrikethrough ? '#dc2626' : 'inherit',
                     fontWeight: isStrikethrough ? '500' : 'inherit'
                   }}>
-                    <TextInput
-                      type="number" step="1"
-                      value={Math.round(parseFloat(payment.comission?.toString() || '0'))}
-                      onChange={(e) => handleChange(index, 'comission', e.target.value)}
-                      disabled={isStrikethrough || isDeceased}
-                      style={{ height: HEIGHT_SYSTEM.small, fontSize: FONT_SYSTEM.small }}
-                    />
+                    <div 
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseUp={(e) => e.stopPropagation()}
+                      data-no-select="true"
+                    >
+                      <TextInput
+                        type="number" step="1"
+                        value={Math.round(parseFloat(payment.comission?.toString() || '0'))}
+                        onChange={(e) => handleChange(index, 'comission', e.target.value)}
+                        disabled={isStrikethrough || isDeceased}
+                        style={{ height: HEIGHT_SYSTEM.small, fontSize: FONT_SYSTEM.small }}
+                      />
+                    </div>
                   </td>
                   <td style={{
                     textDecoration: isStrikethrough ? 'line-through' : 'none',
