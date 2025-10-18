@@ -6,6 +6,7 @@ import { getFinancialReport } from './resolvers/financialReportResolvers';
 import { calculatePaymentProfitAmount, calculateProfitAndReturnToCapital } from '../utils/loanPayment';
 import { promoteToLeadResolver, createNewLeaderResolver } from './resolvers/leaderResolvers';
 import { getBankIncomeTransactionsResolver } from './resolvers/bankIncomeResolvers';
+import { sendDocumentIssueNotification } from '../admin/services/documentNotificationService';
 
 // Import fetch for Telegram API calls
 const fetch = require('node-fetch');
@@ -267,6 +268,8 @@ const LeaderBirthdayType = graphql.object<any>()({
 export const extendGraphqlSchema = graphql.extend(base => {
   return {
     mutation: {
+      // Enviar notificación de documento con problema por Telegram al líder de ruta
+      sendDocumentIssueNotification,
       moveLoansToDate: graphql.field({
         type: graphql.nonNull(graphql.JSON),
         args: {

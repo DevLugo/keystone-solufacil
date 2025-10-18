@@ -2431,13 +2431,21 @@ export const DocumentPhoto = list({
           operation,
           id: item?.id,
           isError: item?.isError,
-          isMissing: item?.isMissing
+          isMissing: item?.isMissing,
+          errorDescription: item?.errorDescription
         });
         if (!(operation === 'create' || operation === 'update')) return;
 
         // Solo notificar si el documento está en error o marcado como faltante
         const isErrored = !!item?.isError;
         const isMissing = !!item?.isMissing;
+        
+        console.log('🔍 [DocumentPhoto.afterOperation] verificando condiciones', {
+          isErrored,
+          isMissing,
+          willNotify: isErrored || isMissing
+        });
+        
         if (!isErrored && !isMissing) {
           console.log('ℹ️ [DocumentPhoto.afterOperation] sin cambios relevantes (no error/faltante).');
           return;
@@ -2458,9 +2466,22 @@ export const DocumentPhoto = list({
                   include: {
                     personalData: {
                       include: {
-                        addresses: { include: { location: { include: { route: true } } } }
+                        addresses: { 
+                          include: { 
+                            location: { 
+                              include: { 
+                                municipality: { 
+                                  include: { 
+                                    state: true 
+                                  } 
+                                } 
+                              } 
+                            } 
+                          } 
+                        }
                       }
-                    }
+                    },
+                    routes: true
                   }
                 },
                 borrower: {
@@ -2480,19 +2501,71 @@ export const DocumentPhoto = list({
           hasLoan: !!document.loan,
           leadId: document.loan?.lead?.id,
           leadUserId: document.loan?.lead?.userId,
-          personalDataId: document.personalData?.id
+          personalDataId: document.personalData?.id,
+          isError: document.isError,
+          isMissing: document.isMissing,
+          errorDescription: document.errorDescription
         });
 
-        // Resolver localidad
-        const borrowerAddress = document.loan?.borrower?.personalData?.addresses?.[0];
-        const documentAddress = document.personalData?.addresses?.[0];
-        const localityName = (borrowerAddress?.location?.name) || (documentAddress?.location?.name) || 'Sin localidad';
+        // Resolver localidad, estado, líder y ruta del crédito
+        const lead = document.loan?.lead;
+        let localityName = 'Sin localidad';
+        let stateName = 'Sin estado';
+        let leaderName = 'Sin líder';
+        let routeName = 'Sin ruta';
+        
+        console.log('📍 [DocumentPhoto.afterOperation] obteniendo información del líder', {
+          hasLead: !!lead,
+          hasPersonalData: !!lead?.personalData,
+          hasAddresses: !!lead?.personalData?.addresses,
+          addressesLength: lead?.personalData?.addresses?.length || 0,
+          hasLocation: !!lead?.personalData?.addresses?.[0]?.location,
+          locationName: lead?.personalData?.addresses?.[0]?.location?.name,
+          hasMunicipality: !!lead?.personalData?.addresses?.[0]?.location?.municipality,
+          hasState: !!lead?.personalData?.addresses?.[0]?.location?.municipality?.state,
+          stateName: lead?.personalData?.addresses?.[0]?.location?.municipality?.state?.name,
+          leadName: lead?.personalData?.fullName,
+          hasRoutes: !!lead?.routes,
+          routesType: typeof lead?.routes,
+          routesIsArray: Array.isArray(lead?.routes),
+          routesLength: Array.isArray(lead?.routes) ? lead.routes.length : 0,
+          routesData: lead?.routes,
+          routeName: Array.isArray(lead?.routes) ? lead?.routes?.[0]?.name : (lead?.routes as any)?.name
+        });
+        
+        // Obtener localidad y estado
+        if (lead?.personalData?.addresses?.[0]?.location?.name) {
+          localityName = lead.personalData.addresses[0].location.name;
+          stateName = lead.personalData.addresses[0].location.municipality?.state?.name || 'Sin estado';
+        }
+        
+        // Obtener nombre del líder
+        if (lead?.personalData?.fullName) {
+          leaderName = lead.personalData.fullName;
+        }
+        
+        // Obtener nombre de la ruta (igual que en documentos-personales.tsx)
+        // La ruta puede ser un array o un objeto directo
+        if (lead?.routes) {
+          if (Array.isArray(lead.routes) && lead.routes.length > 0) {
+            routeName = lead.routes[0].name;
+          } else if (typeof lead.routes === 'object' && 'name' in lead.routes) {
+            routeName = (lead.routes as any).name;
+          }
+        }
+        
+        console.log('📍 [DocumentPhoto.afterOperation] información final', { 
+          localityName, 
+          stateName, 
+          leaderName, 
+          routeName 
+        });
 
-        // Calcular semana
+        // Calcular semana (igual que en documentos-personales.tsx)
         const getWeekStart = (date: Date) => {
           const d = new Date(date);
           const day = d.getDay();
-          const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+          const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Lunes
           d.setDate(diff);
           d.setHours(0, 0, 0, 0);
           return d;
@@ -2500,20 +2573,47 @@ export const DocumentPhoto = list({
         const getWeekEnd = (date: Date) => {
           const start = getWeekStart(date);
           const end = new Date(start);
-          end.setDate(start.getDate() + 6);
+          end.setDate(start.getDate() + 6); // Domingo
           end.setHours(23, 59, 59, 999);
           return end;
         };
-        const baseDate = document.createdAt || document.loan?.signDate || new Date();
+        
+        // Usar signDate del préstamo como base para calcular la semana
+        const baseDate = document.loan?.signDate || document.createdAt || new Date();
         const weekStart = getWeekStart(new Date(baseDate));
         const weekEnd = getWeekEnd(new Date(baseDate));
+        
+        console.log('📅 [DocumentPhoto.afterOperation] calculando semana', {
+          baseDate: baseDate.toISOString(),
+          weekStart: weekStart.toISOString(),
+          weekEnd: weekEnd.toISOString(),
+          weekLabel: `${weekStart.toLocaleDateString('es-ES')} - ${weekEnd.toLocaleDateString('es-ES')}`
+        });
 
         // Resolver líder y su Telegram
-        // Buscar el ROUTE_LEAD asociado a la ruta del préstamo
-        // 1) Intentar por lead -> personalData -> addresses[0] -> location.route.id
-        const leadRouteId = document.loan?.lead?.personalData?.addresses?.[0]?.location?.route?.id || null;
-        // 2) Fallback a snapshotRouteId
-        const routeId = leadRouteId || document.loan?.snapshotRouteId || document.loan?.transactions?.[0]?.routeId || null;
+        // Obtener routeId de la ruta del líder
+        let routeId = null;
+        
+        // Intentar obtener routeId de diferentes maneras
+        if (lead?.routes) {
+          if (Array.isArray(lead.routes) && lead.routes.length > 0) {
+            routeId = lead.routes[0].id;
+          } else if (typeof lead.routes === 'object' && 'id' in lead.routes) {
+            routeId = (lead.routes as any).id;
+          }
+        }
+        
+        // Fallback a otras opciones si no se encontró
+        if (!routeId) {
+          routeId = document.loan?.snapshotRouteId || document.loan?.transactions?.[0]?.routeId || null;
+        }
+        
+        console.log('🛣️ [DocumentPhoto.afterOperation] routeId obtenido', { 
+          routeId,
+          leadRoutes: lead?.routes,
+          snapshotRouteId: document.loan?.snapshotRouteId
+        });
+        
         if (!routeId) {
           console.log('⚠️ [DocumentPhoto.afterOperation] no se pudo determinar routeId del préstamo');
           return;
@@ -2537,23 +2637,60 @@ export const DocumentPhoto = list({
           return;
         }
 
-        // Construir mensaje
-        const issueType = isErrored ? 'ERROR' : 'FALTANTE';
-        const title = isErrored ? '🔴 Documento con ERROR' : '🟠 Documento FALTANTE';
-        const personName = document.personalData?.fullName || 'Sin nombre';
+        // Construir mensaje según el tipo de problema
+        let title = '';
+        let issueType = '';
+        let caption = '';
+        
+        // Obtener información del crédito y determinar si es cliente o aval
+        const borrowerName = document.loan?.borrower?.personalData?.fullName || 'Sin nombre';
+        const documentPersonName = document.personalData?.fullName || 'Sin nombre';
+        const isBorrower = document.personalData?.id === document.loan?.borrower?.personalData?.id;
+        const personType = isBorrower ? 'CLIENTE' : 'AVAL';
         const docType = String(document.documentType).toUpperCase();
-        const errorDesc = (document.errorDescription || '').trim();
-        const weekLabel = `${weekStart.toLocaleDateString('es-MX')} - ${weekEnd.toLocaleDateString('es-MX')}`;
+        const weekLabel = `${weekStart.toLocaleDateString('es-ES')} - ${weekEnd.toLocaleDateString('es-ES')}`;
+        
 
-        const caption = (
-          `${title}\n\n` +
-          `• Tipo: ${docType}\n` +
-          `• Persona: ${personName}\n` +
-          `• Localidad: ${localityName}\n` +
-          `• Semana: ${weekLabel}\n` +
-          (errorDesc ? `• Descripción: ${errorDesc}\n` : '') +
-          `\nID Doc: ${document.id}`
-        );
+        if (isErrored) {
+          // Notificación de documento con error
+          title = '🔴 Documento con ERROR';
+          issueType = 'ERROR';
+          const errorDesc = (document.errorDescription || '').trim();
+          caption = (
+            `${title}\n\n` +
+            `• Crédito de: ${borrowerName}\n` +
+            `• Documento: ${docType}-${personType}\n` +
+            `• Persona: ${documentPersonName}\n` +
+            `• Líder: ${leaderName}\n` +
+            `• Ruta: ${routeName}\n` +
+            `• Localidad: ${localityName}\n` +
+            `• Estado: ${stateName}\n` +
+            `• Semana: ${weekLabel}\n` +
+            (errorDesc ? `• Descripción del error: ${errorDesc}` : '• Sin descripción de error')
+          );
+        } else if (isMissing) {
+          // Notificación de documento faltante
+          title = '🟠 Documento FALTANTE';
+          issueType = 'MISSING';
+          caption = (
+            `${title}\n\n` +
+            `• Crédito de: ${borrowerName}\n` +
+            `• Documento: ${docType}-${personType}\n` +
+            `• Persona: ${documentPersonName}\n` +
+            `• Líder: ${leaderName}\n` +
+            `• Ruta: ${routeName}\n` +
+            `• Localidad: ${localityName}\n` +
+            `• Estado: ${stateName}\n` +
+            `• Semana: ${weekLabel}\n` +
+            `• Situación: Documento marcado como faltante`
+          );
+        }
+
+        // Verificar que se construyó el mensaje correctamente
+        if (!caption) {
+          console.log('⚠️ [DocumentPhoto.afterOperation] No se pudo construir el mensaje');
+          return;
+        }
 
         const { TelegramService } = require('./admin/services/telegramService');
         const botToken = process.env.TELEGRAM_BOT_TOKEN;
@@ -2573,7 +2710,7 @@ export const DocumentPhoto = list({
         const resp = await service.sendHtmlMessage(telegramUser.chatId, caption);
         console.log('✅ [DocumentPhoto.afterOperation] Telegram respuesta', resp);
 
-        console.log(`✅ [DocumentPhoto.afterOperation] Telegram enviado por ${issueType}: ${document.id}`);
+        console.log(`✅ [DocumentPhoto.afterOperation] Telegram enviado (${issueType}): ${document.id}`);
       } catch (e) {
         console.error('❌ [DocumentPhoto.afterOperation] Error enviando Telegram:', e);
       }

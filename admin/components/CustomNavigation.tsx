@@ -106,7 +106,7 @@ const menuSections: MenuSection[] = [
       },
       {
         label: 'Usuarios de Telegram',
-        href: '/telegram-users',
+        href: '/telegram-users-admin',
         roles: ['ADMIN']
       },
       {
