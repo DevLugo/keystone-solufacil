@@ -69,6 +69,13 @@ const AvalInputWithAutocomplete: React.FC<AvalInputWithAutocompleteProps> = ({
   // ✅ NUEVO: Estados para modal de edición
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingPerson, setEditingPerson] = useState<PersonalData | null>(null);
+
+  // ✅ NUEVO: Actualizar estados cuando cambien las props
+  useEffect(() => {
+    console.log('🔍 AvalInputWithAutocomplete: actualizando con props:', { currentName, currentPhone });
+    setName(currentName);
+    setPhone(currentPhone);
+  }, [currentName, currentPhone]);
   
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
