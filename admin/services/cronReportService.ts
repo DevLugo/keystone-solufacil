@@ -204,7 +204,7 @@ export const sendCronReportToTelegram = async (
           
           // Enviar el PDF mejorado usando el servicio de Telegram
           const filename = `reporte_creditos_errores_${new Date().toISOString().slice(0, 10)}_${Date.now()}.pdf`;
-          const caption = `📊 <b>REPORTE AUTOMÁTICO - CRÉDITOS CON ERRORES</b>\n\n📅 Generado: ${new Date().toLocaleString('es-ES')}\n📊 Rutas: ${routeIds.length > 0 ? routeIds.length + ' específicas' : 'Todas'}\n\n✅ Reporte moderno y profesional\n🤖 Enviado automáticamente por el sistema`;
+          const caption = `📊 <b>REPORTE AUTOMÁTICO - CRÉDITOS CON ERRORES</b>\n\n📅 Generado: ${new Date().toLocaleString('es-ES')}\n📊 Rutas: ${routeIds.length > 0 ? routeIds.length + ' específicas' : 'Todas'}\n\n🤖 Enviado automáticamente por el sistema`;
           
           const result = await telegramService.sendPdfFromBuffer(chatId, pdfBuffer, filename, caption);
           return result.ok || false;
