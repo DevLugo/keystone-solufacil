@@ -11,6 +11,7 @@ export interface VDOResult {
   expectedWeeklyPayment: number;
   weeksWithoutPayment: number;
   arrearsAmount: number;
+  partialPayment: number; // Abono parcial = sobrepago disponible
 }
 
 export interface AbonoParcialResult {
@@ -41,9 +42,9 @@ export function computeExpectedWeeklyPayment(loan: LoanLike): number {
 
 function getIsoMonday(d: Date): Date {
   const date = new Date(d);
-  const isoDow = (date.getDay() + 6) % 7; // 0=lunes
-  date.setDate(date.getDate() - isoDow);
-  date.setHours(0, 0, 0, 0);
+  const isoDow = (date.getUTCDay() + 6) % 7; // 0=lunes
+  date.setUTCDate(date.getUTCDate() - isoDow);
+  date.setUTCHours(0, 0, 0, 0);
   return date;
 }
 
@@ -83,7 +84,12 @@ export function calculateVDOForLoan(loan: LoanLike, now: Date, weekMode: 'curren
     const end = new Date(currentMonday);
     end.setDate(end.getDate() + 6);
     end.setHours(23, 59, 59, 999);
-    weeks.push({ monday: new Date(currentMonday), sunday: end });
+    
+    // Solo agregar la semana si su domingo no excede la fecha límite
+    if (end <= evaluationEndDate) {
+      weeks.push({ monday: new Date(currentMonday), sunday: end });
+    }
+    
     currentMonday.setDate(currentMonday.getDate() + 7);
   }
 
@@ -98,7 +104,7 @@ export function calculateVDOForLoan(loan: LoanLike, now: Date, weekMode: 'curren
   let weeksWithoutPayment = 0;
 
   // Saltar semana de firma (índice 0)
-  for (let i = 1; i < weeks.length; i++) {
+  for (let i = 0; i < weeks.length; i++) {
     const week = weeks[i];
     if (week.sunday > evaluationEndDate) break; // Solo semanas hasta la fecha límite
 
@@ -113,15 +119,48 @@ export function calculateVDOForLoan(loan: LoanLike, now: Date, weekMode: 'curren
       }
     }
 
-    // Lógica corregida
-    const totalAvailableForWeek = Math.max(0, surplusAccumulated) + weeklyPaid;
+    // ✅ CORRECCIÓN: La semana de firma (i=0) nunca cuenta como falta
+    // La semana 0 no se paga, por lo que no debe contar para VDO
+    if (i === 0) {
+      // Semana de firma - no cuenta para VDO, pero sí puede crear sobrepago
+      // Cualquier pago en la semana 0 es sobrepago completo
+      if (weeklyPaid > 0) {
+        surplusAccumulated = weeklyPaid; // Todo el pago es sobrepago
+      }
+      continue;
+    }
+
+    // ✅ CORRECCIÓN: El sobrepago se acumula, pero el déficit no se arrastra entre semanas
+    const totalAvailableForWeek = surplusAccumulated + weeklyPaid;
     const isWeekCovered = totalAvailableForWeek >= expectedWeeklyPayment;
+    
     if (!isWeekCovered) weeksWithoutPayment++;
-    surplusAccumulated = surplusAccumulated + weeklyPaid - expectedWeeklyPayment;
+    
+    // Actualizar el sobrepago acumulado
+    // Solo se acumula sobrepago positivo, no déficit
+    if (totalAvailableForWeek > expectedWeeklyPayment) {
+      surplusAccumulated = totalAvailableForWeek - expectedWeeklyPayment;
+    } else {
+      surplusAccumulated = 0; // No arrastrar déficit
+    }
   }
 
-  const arrearsAmount = weeksWithoutPayment * expectedWeeklyPayment;
-  return { expectedWeeklyPayment, weeksWithoutPayment, arrearsAmount };
+  // Calcular deuda total pendiente
+  const totalDebt = loan.requestedAmount ? toNumber(loan.requestedAmount) * (1 + toNumber(loan.loantype?.rate || 0)) : 0;
+  let totalPaid = 0;
+  for (const p of loan.payments || []) {
+    totalPaid += toNumber(p.amount);
+  }
+  const pendingAmount = Math.max(0, totalDebt - totalPaid);
+  
+  // El PAGO VDO no puede ser mayor a la deuda total pendiente
+  const arrearsAmount = Math.min(weeksWithoutPayment * expectedWeeklyPayment, pendingAmount);
+  return { 
+    expectedWeeklyPayment, 
+    weeksWithoutPayment, 
+    arrearsAmount,
+    partialPayment: Math.max(0, surplusAccumulated) // Abono parcial = sobrepago disponible
+  };
 }
 
 export function calculateAbonoParcialForLoan(loan: LoanLike, now: Date): AbonoParcialResult {
