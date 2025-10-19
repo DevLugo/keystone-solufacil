@@ -1610,7 +1610,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               let newBankChange = 0;
 
               // Mapa de loans para cálculo (optimizado: una sola consulta)
-              const loanIdsForCalc = Array.from(new Set(createdPayments.map(p => p.loanId).filter(Boolean)));
+              const loanIdsForCalc = Array.from(new Set(createdPayments.map(p => p.loanId).filter(Boolean))) as string[];
               const loansForCalc = loanIdsForCalc.length > 0
                 ? await tx.loan.findMany({ where: { id: { in: loanIdsForCalc } }, include: { loantype: true } })
                 : [];
@@ -1787,9 +1787,15 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
               // 8) Recalcular préstamos afectados
               try {
-                const affectedIds = Array.from(new Set(createdPayments.map(p => p.loanId).filter(Boolean)));
+                const affectedIds = Array.from(new Set(createdPayments.map(p => p.loanId).filter(Boolean))) as string[];
                 if (affectedIds.length > 0) {
-                  const loansToUpdate = await tx.loan.findMany({ where: { id: { in: affectedIds } }, include: { loantype: true } });
+                  const loansToUpdate = await tx.loan.findMany({ 
+                    where: { 
+                      id: { in: affectedIds },
+                      status: { not: 'RENOVATED' } // ✅ Excluir préstamos renovados del recálculo
+                    }, 
+                    include: { loantype: true } 
+                  });
                   const paymentTotals = await tx.loanPayment.groupBy({ by: ['loanId'], _sum: { amount: true }, where: { loanId: { in: affectedIds } } });
                   const totalsMap = new Map(paymentTotals.map(pt => [pt.loanId, safeToNumber(pt._sum.amount || 0)]));
                   await Promise.all(loansToUpdate.map(async (loan) => {
@@ -2104,7 +2110,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               console.log(`🔍 [DEBUG] Pagos a crear: ${paymentsToCreate.length}`);
 
               // ✅ OPTIMIZADO: Obtener todos los datos necesarios en una sola consulta
-              const loanIds = allCreatedPayments.map(p => p.loanId);
+              const loanIds = allCreatedPayments.map(p => p.loanId).filter(Boolean) as string[];
               const loans = await tx.loan.findMany({
                 where: { id: { in: loanIds } },
                 include: { loantype: true }
@@ -2274,14 +2280,17 @@ export const extendGraphqlSchema = graphql.extend(base => {
               // Préstamos que tenían pagos antes (pueden haber quedado sin pagos tras esta edición)
               (existingPayment.payments || []).forEach((p: any) => p?.loanId && affectedLoanIdsSet.add(p.loanId));
 
-              const affectedLoanIdsArr = Array.from(affectedLoanIdsSet);
+              const affectedLoanIdsArr = Array.from(affectedLoanIdsSet).filter(Boolean) as string[];
               
               if (affectedLoanIdsArr.length > 0) {
                 console.log(`🔄 Recalculando ${affectedLoanIdsArr.length} préstamos afectados...`);
                 
                 // ✅ OPTIMIZADO: Obtener todos los préstamos y sus tipos en una sola consulta
                 const loansToUpdate = await tx.loan.findMany({
-                  where: { id: { in: affectedLoanIdsArr } },
+                  where: { 
+                    id: { in: affectedLoanIdsArr },
+                    status: { not: 'RENOVATED' } // ✅ Excluir préstamos renovados del recálculo
+                  },
                   include: { loantype: true }
                 });
 
