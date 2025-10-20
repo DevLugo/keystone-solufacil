@@ -446,7 +446,7 @@ export default function DocumentosPersonalesPage() {
       date: selectedDate.toISOString(),
       nextDate: getEndOfWeek(selectedDate).toISOString()
     },
-    fetchPolicy: 'cache-and-network'
+    fetchPolicy: 'network-only'
   });
 
   // Mutations
@@ -536,6 +536,7 @@ export default function DocumentosPersonalesPage() {
     documentType: 'INE' | 'DOMICILIO' | 'PAGARE';
     personalDataId: string;
     loanId: string;
+    personType?: 'TITULAR' | 'AVAL';
     isError: boolean;
     errorDescription: string;
   }) => {
@@ -566,7 +567,7 @@ export default function DocumentosPersonalesPage() {
       });
 
       // Refrescar datos
-      refetch();
+      await refetch();
 
       // Reabrir el modal de documentos si estaba temporalmente cerrado
       if (documentsModal.temporarilyClosed && documentsModal.loan) {
@@ -682,7 +683,8 @@ export default function DocumentosPersonalesPage() {
     documentType: 'INE' | 'DOMICILIO' | 'PAGARE',
     personalDataId: string,
     loanId: string,
-    personName: string
+    personName: string,
+    personType: 'TITULAR' | 'AVAL'
   ) => {
     try {
       await createDocumentPhoto({

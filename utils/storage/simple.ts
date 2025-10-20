@@ -28,6 +28,7 @@ export interface SimpleUploadOptions {
   folder?: string;
   loan?: any;
   documentType?: string;
+  personType?: 'TITULAR' | 'AVAL';
   customConfig?: any;
   metadata?: Record<string, any>;
 }
@@ -82,15 +83,17 @@ export async function simpleUploadDocument(
       targetFolder = 'documentos-personales';
     }
 
-    // Generar nombre personalizado del archivo: {id-cliente}-{tipo-documento}
+    // Generar nombre personalizado del archivo: {tipo-persona}-{tipo-documento}
+    // Como todos los documentos del loan van en la misma carpeta, no necesitamos el loanId en el nombre
     let customPublicId: string | undefined;
-    if (loan && documentType) {
-      const clientId = loan.borrower?.personalData?.id;
-      if (clientId) {
-        // Limpiar el tipo de documento para el nombre del archivo
-        const cleanDocumentType = documentType.toLowerCase().replace(/[^a-z0-9]/g, '-');
-        customPublicId = `${clientId}-${cleanDocumentType}`;
-      }
+    if (documentType && options.personType) {
+      // Limpiar el tipo de documento para el nombre del archivo
+      const cleanDocumentType = documentType.toLowerCase().replace(/[^a-z0-9]/g, '-');
+      
+      // Agregar información del tipo de persona (titular o aval)
+      const personSuffix = options.personType === 'AVAL' ? 'aval' : 'titular';
+      
+      customPublicId = `${personSuffix}-${cleanDocumentType}`;
     }
 
     // Preparar parámetros de Cloudinary

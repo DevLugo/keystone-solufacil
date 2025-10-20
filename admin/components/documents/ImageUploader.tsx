@@ -19,6 +19,7 @@ interface ImageUploaderProps {
   // Nuevos parámetros para estructura de carpetas
   loan?: any;
   documentType?: string;
+  personType?: 'TITULAR' | 'AVAL';
   customFolder?: string;
 }
 
@@ -41,6 +42,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   placeholder = 'Subir imagen',
   loan,
   documentType,
+  personType,
   customFolder
 }) => {
   const [isUploading, setIsUploading] = useState(false);
@@ -75,6 +77,9 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       // Si tenemos datos del préstamo y tipo de documento, usar estructura automática
       formData.append('loan', JSON.stringify(loan));
       formData.append('documentType', documentType);
+      if (personType) {
+        formData.append('personType', personType);
+      }
     } else {
       // Fallback a la configuración por defecto
       formData.append('folder', 'documentos-personales');
