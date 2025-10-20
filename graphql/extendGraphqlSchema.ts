@@ -7225,8 +7225,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 badDebtProfitPending += profitPending;
               }
               
-              // Acumulado de cartera muerta
-              if (loan.badDebtDate <= monthEnd) {
+              // Acumulado de cartera muerta - solo contar en el mes donde se marcó como bad debt
+              if (loan.badDebtDate >= monthStart && loan.badDebtDate <= monthEnd) {
                 deadLoans++;
                 
                 let totalPaid = 0;
@@ -7262,6 +7262,18 @@ export const extendGraphqlSchema = graphql.extend(base => {
           monthlyData[monthKey].badDebtNewCount = badDebtNewCount;
           monthlyData[monthKey].badDebtPrincipalPending = badDebtPrincipalPending;
           monthlyData[monthKey].badDebtProfitPending = badDebtProfitPending;
+
+          // DEBUG: Resumen final para julio 2025
+          if (month === 7 && year === 2025) {
+            console.log(`\n📊 RESUMEN JULIO 2025:`);
+            console.log(`   Cartera activa: ${activeLoans}`);
+            console.log(`   Cartera vencida: ${overdueLoans}`);
+            console.log(`   Cartera muerta total: $${carteraMuertaTotal.toLocaleString()}`);
+            console.log(`   Bad debt amount (nuevos): $${badDebtAmount.toLocaleString()}`);
+            console.log(`   Bad debt count (nuevos): ${badDebtNewCount}`);
+            console.log(`   Renovados: ${renewedLoans}`);
+            console.log(`   ======================================\n`);
+          }
   
           // Recalcular métricas finales
           const data = monthlyData[monthKey];
