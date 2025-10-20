@@ -19,6 +19,7 @@ interface UploadModalProps {
     documentType: 'INE' | 'DOMICILIO' | 'PAGARE';
     personalDataId: string;
     loanId: string;
+    personType?: 'TITULAR' | 'AVAL';
     isError: boolean;
     errorDescription: string;
   }) => void;
@@ -94,6 +95,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         documentType,
         personalDataId,
         loanId,
+        personType,
         isError,
         errorDescription: errorDescription.trim()
       });
@@ -250,6 +252,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               disabled={isUploading}
               loan={loan}
               documentType={documentType}
+              personType={personType}
             />
           </Box>
 

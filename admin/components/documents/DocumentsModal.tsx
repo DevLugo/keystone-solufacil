@@ -77,7 +77,7 @@ interface DocumentsModalProps {
   }) => void;
   onDocumentError: (documentId: string, isError: boolean, errorDescription?: string) => void;
   onDocumentMissing: (documentId: string, isMissing: boolean) => void;
-  onCreateMissingDocument: (documentType: 'INE' | 'DOMICILIO' | 'PAGARE', personalDataId: string, loanId: string, personName: string) => void;
+  onCreateMissingDocument: (documentType: 'INE' | 'DOMICILIO' | 'PAGARE', personalDataId: string, loanId: string, personName: string, personType: 'TITULAR' | 'AVAL') => void;
   onDocumentDelete: (documentId: string, documentTitle: string) => void;
   onNameEdit: (personalDataId: string, newName: string) => void;
   onPhoneEdit: (personalDataId: string, phoneId: string | undefined, newPhone: string) => void;
@@ -340,7 +340,7 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
                             onDocumentMissing(document.id, isMissing);
                           } else if (isMissing) {
                             // Si no hay documento y queremos marcarlo como faltante, crear uno
-                            onCreateMissingDocument(type, loan.borrower.personalData.id, loan.id, loan.borrower.personalData.fullName);
+                            onCreateMissingDocument(type, loan.borrower.personalData.id, loan.id, loan.borrower.personalData.fullName, 'TITULAR');
                           }
                         }}
                         onDelete={() => document && onDocumentDelete(document.id, document.title)}
@@ -476,7 +476,7 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
                               onDocumentMissing(document.id, isMissing);
                             } else if (isMissing) {
                               // Si no hay documento y queremos marcarlo como faltante, crear uno
-                              onCreateMissingDocument(type, primaryCollateral.id, loan.id, primaryCollateral.fullName);
+                              onCreateMissingDocument(type, primaryCollateral.id, loan.id, primaryCollateral.fullName, 'AVAL');
                             }
                           }}
                           onDelete={() => document && onDocumentDelete(document.id, document.title)}

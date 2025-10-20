@@ -27,7 +27,7 @@ export interface FolderStructureConfig {
 }
 
 export interface FolderLevel {
-  type: 'year' | 'month' | 'route' | 'locality' | 'documentType' | 'clientName' | 'custom';
+  type: 'year' | 'month' | 'route' | 'locality' | 'documentType' | 'clientName' | 'loanId' | 'custom';
   enabled: boolean;
   format?: string; // Para fechas: 'YYYY', 'MM', 'MM-MMMM'
   fallback?: string; // Valor por defecto si no se encuentra
@@ -140,11 +140,30 @@ export const FOLDER_CONFIGS = {
       removeSpecialChars: true,
       maxLength: 50
     }
+  } as FolderStructureConfig,
+
+  // Configuración por año/mes/localidad/loan (agrupado por ID de loan)
+  YEAR_MONTH_LOCALITY_LOAN: {
+    baseFolder: 'documentos-personales',
+    levels: [
+      { type: 'year', enabled: true, format: 'YYYY' },
+      { type: 'month', enabled: true, format: 'MM-MMMM' },
+      { type: 'locality', enabled: true, fallback: 'sin-localidad' },
+      { type: 'loanId', enabled: true, fallback: 'sin-loan' }
+    ],
+    separators: { level: '/', word: '-' },
+    nameCleaning: {
+      enabled: true,
+      lowercase: true,
+      replaceSpaces: true,
+      removeSpecialChars: true,
+      maxLength: 50
+    }
   } as FolderStructureConfig
 };
 
 // Configuración activa (fácil de cambiar)
-export const ACTIVE_CONFIG = FOLDER_CONFIGS.YEAR_MONTH_LOCALITY_CLIENT;
+export const ACTIVE_CONFIG = FOLDER_CONFIGS.YEAR_MONTH_LOCALITY_LOAN;
 
 /**
  * Limpia un nombre para usar en URLs/carpetas
@@ -248,6 +267,11 @@ export function getLevelValue(
       // Usar el ID del personal data del titular (borrower) como identificador único del cliente
       const clientId = data.loan?.borrower?.personalData?.id;
       return clientId || level.fallback || 'sin-id';
+
+    case 'loanId':
+      // Usar el ID del loan como identificador único
+      const loanId = data.loan?.id;
+      return loanId || level.fallback || 'sin-loan';
 
     case 'custom':
       return level.customValue || '';

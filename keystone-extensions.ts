@@ -1144,6 +1144,7 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
           const folder = body.folder;
           const loanData = body.loan ? JSON.parse(body.loan) : null;
           const documentType = body.documentType;
+          const personType = body.personType;
 
           // Usar el sistema de almacenamiento simplificado
           const { simpleUploadDocument } = await import('./utils/storage/simple');
@@ -1155,6 +1156,7 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
             documentType || 'general',
             {
               customConfig: body.customConfig,
+              personType: personType,
               metadata: {
                 originalName: file.originalname,
                 mimeType: file.mimetype,

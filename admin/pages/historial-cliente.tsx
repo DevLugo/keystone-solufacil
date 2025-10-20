@@ -158,6 +158,9 @@ const GET_CLIENT_DOCUMENTS_ONLY = gql`
       photoUrl
       publicId
       documentType
+      isError
+      errorDescription
+      isMissing
       createdAt
       personalData {
         id
@@ -206,6 +209,9 @@ const GET_CLIENT_DOCUMENTS_ONLY = gql`
           photoUrl
           publicId
           documentType
+          isError
+          errorDescription
+          isMissing
           createdAt
           personalData {
             id
@@ -328,6 +334,9 @@ interface ClientDocument {
   photoUrl: string;
   publicId: string;
   documentType: 'INE' | 'DOMICILIO' | 'PAGARE';
+  isError: boolean;
+  errorDescription?: string;
+  isMissing: boolean;
   createdAt: string;
   personalData: {
     id: string;
