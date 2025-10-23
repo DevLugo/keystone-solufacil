@@ -2642,6 +2642,176 @@ input TelegramUserCreateInput {
   platformUser: UserRelateToOneForCreateInput
 }
 
+type DocumentNotificationLog {
+  id: ID!
+  documentId: String
+  documentType: String
+  personalDataId: String
+  personName: String
+  loanId: String
+  routeId: String
+  routeName: String
+  localityName: String
+  routeLeadId: String
+  routeLeadName: String
+  routeLeadUserId: String
+  telegramUserId: String
+  telegramChatId: String
+  telegramUsername: String
+  issueType: String
+  description: String
+  messageContent: String
+  status: String
+  telegramResponse: String
+  telegramErrorCode: Int
+  telegramErrorMessage: String
+  sentAt: DateTime
+  responseTimeMs: Int
+  retryCount: Int
+  lastRetryAt: DateTime
+  notes: String
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input DocumentNotificationLogWhereUniqueInput {
+  id: ID
+}
+
+input DocumentNotificationLogWhereInput {
+  AND: [DocumentNotificationLogWhereInput!]
+  OR: [DocumentNotificationLogWhereInput!]
+  NOT: [DocumentNotificationLogWhereInput!]
+  id: IDFilter
+  documentId: StringFilter
+  documentType: StringFilter
+  personalDataId: StringFilter
+  personName: StringFilter
+  loanId: StringFilter
+  routeId: StringFilter
+  routeName: StringFilter
+  localityName: StringFilter
+  routeLeadId: StringFilter
+  routeLeadName: StringFilter
+  routeLeadUserId: StringFilter
+  telegramUserId: StringFilter
+  telegramChatId: StringFilter
+  telegramUsername: StringFilter
+  issueType: StringFilter
+  description: StringFilter
+  messageContent: StringFilter
+  status: StringFilter
+  telegramResponse: StringFilter
+  telegramErrorCode: IntNullableFilter
+  telegramErrorMessage: StringFilter
+  sentAt: DateTimeNullableFilter
+  responseTimeMs: IntNullableFilter
+  retryCount: IntNullableFilter
+  lastRetryAt: DateTimeNullableFilter
+  notes: StringFilter
+  createdAt: DateTimeNullableFilter
+  updatedAt: DateTimeNullableFilter
+}
+
+input DocumentNotificationLogOrderByInput {
+  id: OrderDirection
+  documentId: OrderDirection
+  documentType: OrderDirection
+  personalDataId: OrderDirection
+  personName: OrderDirection
+  loanId: OrderDirection
+  routeId: OrderDirection
+  routeName: OrderDirection
+  localityName: OrderDirection
+  routeLeadId: OrderDirection
+  routeLeadName: OrderDirection
+  routeLeadUserId: OrderDirection
+  telegramUserId: OrderDirection
+  telegramChatId: OrderDirection
+  telegramUsername: OrderDirection
+  issueType: OrderDirection
+  description: OrderDirection
+  messageContent: OrderDirection
+  status: OrderDirection
+  telegramResponse: OrderDirection
+  telegramErrorCode: OrderDirection
+  telegramErrorMessage: OrderDirection
+  sentAt: OrderDirection
+  responseTimeMs: OrderDirection
+  retryCount: OrderDirection
+  lastRetryAt: OrderDirection
+  notes: OrderDirection
+  createdAt: OrderDirection
+  updatedAt: OrderDirection
+}
+
+input DocumentNotificationLogUpdateInput {
+  documentId: String
+  documentType: String
+  personalDataId: String
+  personName: String
+  loanId: String
+  routeId: String
+  routeName: String
+  localityName: String
+  routeLeadId: String
+  routeLeadName: String
+  routeLeadUserId: String
+  telegramUserId: String
+  telegramChatId: String
+  telegramUsername: String
+  issueType: String
+  description: String
+  messageContent: String
+  status: String
+  telegramResponse: String
+  telegramErrorCode: Int
+  telegramErrorMessage: String
+  sentAt: DateTime
+  responseTimeMs: Int
+  retryCount: Int
+  lastRetryAt: DateTime
+  notes: String
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input DocumentNotificationLogUpdateArgs {
+  where: DocumentNotificationLogWhereUniqueInput!
+  data: DocumentNotificationLogUpdateInput!
+}
+
+input DocumentNotificationLogCreateInput {
+  documentId: String
+  documentType: String
+  personalDataId: String
+  personName: String
+  loanId: String
+  routeId: String
+  routeName: String
+  localityName: String
+  routeLeadId: String
+  routeLeadName: String
+  routeLeadUserId: String
+  telegramUserId: String
+  telegramChatId: String
+  telegramUsername: String
+  issueType: String
+  description: String
+  messageContent: String
+  status: String
+  telegramResponse: String
+  telegramErrorCode: Int
+  telegramErrorMessage: String
+  sentAt: DateTime
+  responseTimeMs: Int
+  retryCount: Int
+  lastRetryAt: DateTime
+  notes: String
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
 """
 The `JSON` scalar type represents JSON values as specified by [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf).
 """
@@ -2798,6 +2968,12 @@ type Mutation {
   updateTelegramUsers(data: [TelegramUserUpdateArgs!]!): [TelegramUser]
   deleteTelegramUser(where: TelegramUserWhereUniqueInput!): TelegramUser
   deleteTelegramUsers(where: [TelegramUserWhereUniqueInput!]!): [TelegramUser]
+  createDocumentNotificationLog(data: DocumentNotificationLogCreateInput!): DocumentNotificationLog
+  createDocumentNotificationLogs(data: [DocumentNotificationLogCreateInput!]!): [DocumentNotificationLog]
+  updateDocumentNotificationLog(where: DocumentNotificationLogWhereUniqueInput!, data: DocumentNotificationLogUpdateInput!): DocumentNotificationLog
+  updateDocumentNotificationLogs(data: [DocumentNotificationLogUpdateArgs!]!): [DocumentNotificationLog]
+  deleteDocumentNotificationLog(where: DocumentNotificationLogWhereUniqueInput!): DocumentNotificationLog
+  deleteDocumentNotificationLogs(where: [DocumentNotificationLogWhereUniqueInput!]!): [DocumentNotificationLog]
   endSession: Boolean!
   authenticateUserWithPassword(email: String!, password: String!): UserAuthenticationWithPasswordResult
   createInitialUser(data: CreateInitialUserInput!): UserAuthenticationWithPasswordSuccess!
@@ -2813,13 +2989,14 @@ type Mutation {
   adjustAccountBalance(accountId: String!, targetAmount: Float!, counterAccountId: String, description: String): JSON!
   createMultipleLoans(loans: [MultipleLoanInput!]!): [JSON!]!
   updateLoanWithAval(where: ID!, data: UpdateLoanWithAvalInput): JSON!
-  sendTestTelegramMessage(chatId: String!, message: String!): String!
+  sendTestTelegramMessage(chatId: String!, message: String!, reportConfigId: String, reportConfigName: String, recipientUserId: String, recipientName: String, recipientEmail: String): String!
   generateReportPDF(reportType: String!, routeIds: [String]): String!
-  sendReportWithPDF(chatId: String!, reportType: String!, routeIds: [String]): String!
+  sendReportWithPDF(chatId: String!, reportType: String!, routeIds: [String], reportConfigId: String, reportConfigName: String, recipientUserId: String, recipientName: String, recipientEmail: String): String!
   markLoansDeadDebt(loanIds: [ID!]!, deadDebtDate: String!): String!
   mergeClients(primaryClientId: ID!, secondaryClientId: ID!): String!
   promoteToLead(clientId: ID!, currentLeadId: ID!): JSON!
   createNewLeader(fullName: String!, birthDate: String, phone: String, locationId: ID!, routeId: ID!, replaceExisting: Boolean = false): JSON!
+  validateTelegramChatId(chatId: String!): String!
 }
 
 input TokaAssignmentInput {
@@ -2992,6 +3169,9 @@ type Query {
   telegramUser(where: TelegramUserWhereUniqueInput!): TelegramUser
   telegramUsers(where: TelegramUserWhereInput! = {}, orderBy: [TelegramUserOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TelegramUserWhereUniqueInput): [TelegramUser!]
   telegramUsersCount(where: TelegramUserWhereInput! = {}): Int
+  documentNotificationLog(where: DocumentNotificationLogWhereUniqueInput!): DocumentNotificationLog
+  documentNotificationLogs(where: DocumentNotificationLogWhereInput! = {}, orderBy: [DocumentNotificationLogOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: DocumentNotificationLogWhereUniqueInput): [DocumentNotificationLog!]
+  documentNotificationLogsCount(where: DocumentNotificationLogWhereInput! = {}): Int
   keystone: KeystoneMeta!
   authenticatedItem: AuthenticatedItem
   getBankIncomeTransactions(startDate: String!, endDate: String!, routeIds: [ID!], onlyAbonos: Boolean = false): JSON!

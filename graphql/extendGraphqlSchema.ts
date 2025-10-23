@@ -3756,21 +3756,76 @@ export const extendGraphqlSchema = graphql.extend(base => {
         type: graphql.nonNull(graphql.String),
         args: { 
           chatId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
-          message: graphql.arg({ type: graphql.nonNull(graphql.String) })
+          message: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          reportConfigId: graphql.arg({ type: graphql.String }),
+          reportConfigName: graphql.arg({ type: graphql.String }),
+          recipientUserId: graphql.arg({ type: graphql.String }),
+          recipientName: graphql.arg({ type: graphql.String }),
+          recipientEmail: graphql.arg({ type: graphql.String })
         },
-        resolve: async (root, { chatId, message }, context: Context) => {
+        resolve: async (root, { 
+          chatId, 
+          message, 
+          reportConfigId = 'unknown',
+          reportConfigName = 'Mensaje de Prueba',
+          recipientUserId = 'unknown',
+          recipientName = 'Usuario Desconocido',
+          recipientEmail = 'unknown@example.com'
+        }, context: Context) => {
+          const startTime = Date.now();
+          const { NotificationLogService } = require('../admin/services/notificationLogService');
+          const logService = new NotificationLogService(context);
+          let logId: string | null = null;
+
           try {
-            console.log('🚀 sendTestTelegramMessage llamado con:', { chatId, message });
+            console.log('🚀 sendTestTelegramMessage llamado con:', { chatId, message, reportConfigName, recipientName });
             
+            // Crear log inicial
+            const initialLog = await logService.createReportLog({
+              reportType: 'mensaje_prueba',
+              reportConfigId,
+              reportConfigName,
+              recipientUserId,
+              recipientName,
+              recipientEmail,
+              telegramChatId: chatId,
+              messageContent: message,
+              status: 'ERROR', // Inicial como error, se actualizará
+              notes: 'Iniciando envío de mensaje de prueba'
+            });
+            logId = initialLog.id;
+            
+            const sendStartTime = Date.now();
             const sent = await sendTelegramMessageToUser(chatId, message);
+            const responseTime = Date.now() - sendStartTime;
             
             if (sent) {
+              await logService.updateLog(logId, {
+                status: 'SENT',
+                sentAt: new Date(),
+                responseTimeMs: responseTime,
+                notes: 'Mensaje de prueba enviado exitosamente'
+              });
               return `✅ Mensaje enviado exitosamente a ${chatId}`;
             } else {
+              await logService.updateLog(logId, {
+                status: 'FAILED',
+                sentAt: new Date(),
+                responseTimeMs: responseTime,
+                notes: 'Error al enviar mensaje de prueba'
+              });
               return `❌ Error al enviar mensaje a ${chatId}`;
             }
           } catch (error) {
             console.error('❌ Error en sendTestTelegramMessage:', error);
+            if (logId) {
+              await logService.updateLog(logId, {
+                status: 'ERROR',
+                telegramErrorMessage: error.message,
+                responseTimeMs: Date.now() - startTime,
+                notes: `Error general: ${error.message}`
+              });
+            }
             return `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
           }
         }
@@ -3813,16 +3868,47 @@ export const extendGraphqlSchema = graphql.extend(base => {
         args: { 
           chatId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
           reportType: graphql.arg({ type: graphql.nonNull(graphql.String) }),
-          routeIds: graphql.arg({ type: graphql.list(graphql.String) })
+          routeIds: graphql.arg({ type: graphql.list(graphql.String) }),
+          reportConfigId: graphql.arg({ type: graphql.String }),
+          reportConfigName: graphql.arg({ type: graphql.String }),
+          recipientUserId: graphql.arg({ type: graphql.String }),
+          recipientName: graphql.arg({ type: graphql.String }),
+          recipientEmail: graphql.arg({ type: graphql.String })
         },
-        resolve: async (root, { chatId, reportType, routeIds = [] }, context: Context) => {
+        resolve: async (root, { 
+          chatId, 
+          reportType, 
+          routeIds = [], 
+          reportConfigId = 'unknown',
+          reportConfigName = 'Reporte Manual',
+          recipientUserId = 'unknown',
+          recipientName = 'Usuario Desconocido',
+          recipientEmail = 'unknown@example.com'
+        }, context: Context) => {
+          const startTime = Date.now();
+          const { NotificationLogService } = require('../admin/services/notificationLogService');
+          const logService = new NotificationLogService(context);
+          let logId: string | null = null;
+
           try {
             console.log('🚀🚀🚀 MUTACIÓN sendReportWithPDF LLAMADA 🚀🚀🚀');
-            console.log('📋 Parámetros recibidos:', { chatId, reportType, routeIds });
-            console.log('📋 Tipo de reporte exacto:', `"${reportType}"`);
-            console.log('📋 ¿Es créditos con errores?', reportType === 'creditos_con_errores');
-            console.log('📋 Rutas filtradas:', routeIds);
+            console.log('📋 Parámetros recibidos:', { chatId, reportType, routeIds, reportConfigName, recipientName });
             
+            // Crear log inicial
+            const initialLog = await logService.createReportLog({
+              reportType,
+              reportConfigId,
+              reportConfigName,
+              recipientUserId,
+              recipientName,
+              recipientEmail,
+              telegramChatId: chatId,
+              messageContent: `Reporte PDF: ${reportType}`,
+              status: 'ERROR', // Inicial como error, se actualizará
+              notes: 'Iniciando envío de reporte PDF'
+            });
+            logId = initialLog.id;
+
             // Generar PDF del reporte usando la función con streams y datos reales
             console.log('📋 Llamando generatePDFWithStreams...');
             const pdfBuffer = await generatePDFWithStreams(reportType, context, routeIds);
@@ -3830,24 +3916,50 @@ export const extendGraphqlSchema = graphql.extend(base => {
             const filename = `reporte_${reportType}_${Date.now()}.pdf`;
             const caption = `📊 <b>REPORTE AUTOMÁTICO</b>\n\nTipo: ${reportType}\nGenerado: ${new Date().toLocaleString('es-ES')}\n\n✅ Enviado desde Keystone Admin`;
             
-            console.log('📱 PDF generado, tamaño:', pdfBuffer.length, 'bytes');
-            
             // Verificar que el PDF se generó correctamente
             if (pdfBuffer.length === 0) {
               console.error('❌ PDF generado con 0 bytes');
+              await logService.updateLog(logId, {
+                status: 'FAILED',
+                telegramErrorMessage: 'PDF generado con 0 bytes',
+                responseTimeMs: Date.now() - startTime,
+                notes: 'Error: PDF generado con 0 bytes'
+              });
               return `❌ Error: No se pudo generar el PDF (0 bytes)`;
             }
             
             // Enviar PDF real a Telegram
+            const sendStartTime = Date.now();
             const sent = await sendTelegramFile(chatId, pdfBuffer, filename, caption);
+            const responseTime = Date.now() - sendStartTime;
             
             if (sent) {
+              await logService.updateLog(logId, {
+                status: 'SENT',
+                sentAt: new Date(),
+                responseTimeMs: responseTime,
+                notes: `Reporte PDF enviado exitosamente (${filename}, ${(pdfBuffer.length / 1024).toFixed(2)} KB)`
+              });
               return `✅ Reporte PDF enviado exitosamente a ${chatId} (${filename}, ${(pdfBuffer.length / 1024).toFixed(2)} KB)`;
             } else {
+              await logService.updateLog(logId, {
+                status: 'FAILED',
+                sentAt: new Date(),
+                responseTimeMs: responseTime,
+                notes: 'Error al enviar PDF a Telegram'
+              });
               return `❌ Error al enviar reporte PDF a ${chatId}`;
             }
           } catch (error) {
             console.error('❌ Error en sendReportWithPDF:', error);
+            if (logId) {
+              await logService.updateLog(logId, {
+                status: 'ERROR',
+                telegramErrorMessage: error.message,
+                responseTimeMs: Date.now() - startTime,
+                notes: `Error general: ${error.message}`
+              });
+            }
             return `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
           }
         }
@@ -4021,7 +4133,42 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
       promoteToLead: promoteToLeadResolver,
 
-      createNewLeader: createNewLeaderResolver
+      createNewLeader: createNewLeaderResolver,
+
+      // ✅ NUEVA MUTATION: Validar Chat ID de Telegram
+      validateTelegramChatId: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        args: {
+          chatId: graphql.arg({ type: graphql.nonNull(graphql.String) })
+        },
+        resolve: async (root, { chatId }, context: Context) => {
+          try {
+            console.log('🔍 [validateTelegramChatId] Validando chat ID:', chatId);
+            
+            const { TelegramService } = require('../admin/services/telegramService');
+            const botToken = process.env.TELEGRAM_BOT_TOKEN;
+            
+            if (!botToken) {
+              return JSON.stringify({
+                isValid: false,
+                error: 'TELEGRAM_BOT_TOKEN no configurado'
+              });
+            }
+
+            const service = new TelegramService({ botToken, chatId });
+            const validation = await service.validateChatId(chatId);
+            
+            console.log('✅ [validateTelegramChatId] Validación completada:', validation);
+            return JSON.stringify(validation);
+          } catch (error) {
+            console.error('❌ [validateTelegramChatId] Error:', error);
+            return JSON.stringify({
+              isValid: false,
+              error: `Error validando chat ID: ${error.message}`
+            });
+          }
+        }
+      })
     },
     query: {
       // ✅ NUEVA FUNCIONALIDAD: Obtener entradas al banco con filtros
@@ -9830,10 +9977,45 @@ export const extendGraphqlSchema = graphql.extend(base => {
         }
       }),
 
+      // ✅ NUEVA MUTATION: Diagnosticar configuración de Telegram
+      diagnoseTelegramConfiguration: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        resolve: async (root, args, context: Context) => {
+          try {
+            console.log('🔍 [diagnoseTelegramConfiguration] Iniciando diagnóstico...');
+            
+            const { TelegramService } = require('../admin/services/telegramService');
+            const botToken = process.env.TELEGRAM_BOT_TOKEN;
+            
+            if (!botToken) {
+              return JSON.stringify({
+                isValid: false,
+                errors: ['TELEGRAM_BOT_TOKEN no configurado'],
+                warnings: []
+              });
+            }
+
+            const service = new TelegramService({ botToken, chatId: 'dummy' });
+            const diagnosis = await service.diagnoseConfiguration();
+            
+            console.log('✅ [diagnoseTelegramConfiguration] Diagnóstico completado:', diagnosis);
+            return JSON.stringify(diagnosis);
+          } catch (error) {
+            console.error('❌ [diagnoseTelegramConfiguration] Error:', error);
+            return JSON.stringify({
+              isValid: false,
+              errors: [`Error en diagnóstico: ${error.message}`],
+              warnings: []
+            });
+          }
+        }
+      }),
+
+
       // Mutation simple para enviar reporte ahora
       sendReportNow: graphql.field({
         type: graphql.nonNull(graphql.String),
-        args: {
+        args: { 
           configId: graphql.arg({ type: graphql.nonNull(graphql.ID) })
         },
         resolve: async (root, { configId }, context: Context) => {

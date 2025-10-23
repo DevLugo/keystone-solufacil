@@ -459,6 +459,38 @@ model TelegramUser {
   @@index([platformUserId])
 }
 
+model DocumentNotificationLog {
+  id                   String    @id @default(cuid())
+  documentId           String    @default("")
+  documentType         String    @default("")
+  personalDataId       String    @default("")
+  personName           String    @default("")
+  loanId               String    @default("")
+  routeId              String    @default("")
+  routeName            String    @default("")
+  localityName         String    @default("")
+  routeLeadId          String    @default("")
+  routeLeadName        String    @default("")
+  routeLeadUserId      String    @default("")
+  telegramUserId       String    @default("")
+  telegramChatId       String    @default("")
+  telegramUsername     String    @default("")
+  issueType            String
+  description          String    @default("")
+  messageContent       String    @default("")
+  status               String
+  telegramResponse     String    @default("")
+  telegramErrorCode    Int?
+  telegramErrorMessage String    @default("")
+  sentAt               DateTime?
+  responseTimeMs       Int?
+  retryCount           Int?      @default(0)
+  lastRetryAt          DateTime?
+  notes                String    @default("")
+  createdAt            DateTime? @default(now())
+  updatedAt            DateTime? @default(now())
+}
+
 enum DocumentPhotoDocumentTypeType {
   INE
   DOMICILIO

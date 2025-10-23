@@ -131,15 +131,45 @@ export const sendCronReportToTelegram = async (
   chatId: string, 
   reportType: string,
   prisma: any,
-  reportConfig: ReportConfig
+  reportConfig: ReportConfig,
+  recipient: any = null
 ): Promise<boolean> => {
+  const startTime = Date.now();
+  const { NotificationLogService } = require('./notificationLogService');
+  
+  // Crear contexto simulado para el log service
+  const context = { prisma };
+  const logService = new NotificationLogService(context);
+  let logId: string | null = null;
+
   try {
     console.log(`📱 [CRON] Enviando reporte ${reportType} a ${chatId}`);
+    
+    // Crear log inicial para el reporte cron
+    const initialLog = await logService.createReportLog({
+      reportType,
+      reportConfigId: reportConfig.id,
+      reportConfigName: reportConfig.name,
+      recipientUserId: recipient?.id || 'cron-user',
+      recipientName: recipient?.name || 'Usuario Cron',
+      recipientEmail: recipient?.email || 'cron@system.com',
+      telegramChatId: chatId,
+      messageContent: `Reporte automático cron: ${reportType}`,
+      status: 'ERROR', // Inicial como error, se actualizará
+      notes: 'Iniciando envío de reporte programado por cron'
+    });
+    logId = initialLog.id;
     
     // Obtener el token del bot desde las variables de entorno
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     if (!botToken) {
       console.error('❌ [CRON] TELEGRAM_BOT_TOKEN no configurado');
+      await logService.updateLog(logId, {
+        status: 'FAILED',
+        telegramErrorMessage: 'TELEGRAM_BOT_TOKEN no configurado',
+        responseTimeMs: Date.now() - startTime,
+        notes: 'Error: Token de Telegram no configurado'
+      });
       return false;
     }
     
@@ -166,16 +196,56 @@ export const sendCronReportToTelegram = async (
             `✅ Reporte generado automáticamente el ${new Date().toLocaleString('es-ES')}\n` +
             `🤖 Enviado por el sistema de cron`;
           
+          const sendStartTime = Date.now();
           const result = await telegramService.sendHtmlMessage(chatId, message);
-          return result.ok || false;
+          const responseTime = Date.now() - sendStartTime;
+          
+          if (result.ok) {
+            await logService.updateLog(logId, {
+              status: 'SENT',
+              sentAt: new Date(),
+              responseTimeMs: responseTime,
+              notes: 'Reporte de cobranza enviado exitosamente por cron'
+            });
+            return true;
+          } else {
+            await logService.updateLog(logId, {
+              status: 'FAILED',
+              sentAt: new Date(),
+              responseTimeMs: responseTime,
+              telegramResponse: JSON.stringify(result),
+              notes: 'Error enviando reporte de cobranza por cron'
+            });
+            return false;
+          }
         } else {
           const errorMessage = `📊 <b>REPORTE AUTOMÁTICO - COBRANZA</b>\n\n` +
             `❌ Error generando reporte: ${cobranzaReport.error}\n` +
             `📅 Generado: ${new Date().toLocaleString('es-ES')}\n\n` +
             `🤖 Enviado automáticamente por el sistema de cron`;
           
+          const sendStartTime = Date.now();
           const result = await telegramService.sendHtmlMessage(chatId, errorMessage);
-          return result.ok || false;
+          const responseTime = Date.now() - sendStartTime;
+          
+          if (result.ok) {
+            await logService.updateLog(logId, {
+              status: 'SENT',
+              sentAt: new Date(),
+              responseTimeMs: responseTime,
+              notes: 'Reporte de cobranza con error enviado por cron'
+            });
+            return true;
+          } else {
+            await logService.updateLog(logId, {
+              status: 'FAILED',
+              sentAt: new Date(),
+              responseTimeMs: responseTime,
+              telegramResponse: JSON.stringify(result),
+              notes: 'Error enviando reporte de cobranza con error por cron'
+            });
+            return false;
+          }
         }
         
       } catch (error) {
@@ -186,8 +256,28 @@ export const sendCronReportToTelegram = async (
           `📅 Generado: ${new Date().toLocaleString('es-ES')}\n\n` +
           `🤖 Enviado automáticamente por el sistema de cron`;
         
+        const sendStartTime = Date.now();
         const result = await telegramService.sendHtmlMessage(chatId, errorMessage);
-        return result.ok || false;
+        const responseTime = Date.now() - sendStartTime;
+        
+        if (result.ok) {
+          await logService.updateLog(logId, {
+            status: 'SENT',
+            sentAt: new Date(),
+            responseTimeMs: responseTime,
+            notes: 'Reporte de cobranza con excepción enviado por cron'
+          });
+          return true;
+        } else {
+          await logService.updateLog(logId, {
+            status: 'FAILED',
+            sentAt: new Date(),
+            responseTimeMs: responseTime,
+            telegramResponse: JSON.stringify(result),
+            notes: 'Error enviando reporte de cobranza con excepción por cron'
+          });
+          return false;
+        }
       }
     }
     // Para créditos con errores, generar y enviar PDF usando EXACTAMENTE la misma función que el envío manual
@@ -206,14 +296,55 @@ export const sendCronReportToTelegram = async (
           const filename = `reporte_creditos_errores_${new Date().toISOString().slice(0, 10)}_${Date.now()}.pdf`;
           const caption = `📊 <b>REPORTE AUTOMÁTICO - CRÉDITOS CON ERRORES</b>\n\n📅 Generado: ${new Date().toLocaleString('es-ES')}\n📊 Rutas: ${routeIds.length > 0 ? routeIds.length + ' específicas' : 'Todas'}\n\n🤖 Enviado automáticamente por el sistema`;
           
+          const sendStartTime = Date.now();
           const result = await telegramService.sendPdfFromBuffer(chatId, pdfBuffer, filename, caption);
-          return result.ok || false;
+          const responseTime = Date.now() - sendStartTime;
+          
+          if (result.ok) {
+            await logService.updateLog(logId, {
+              status: 'SENT',
+              sentAt: new Date(),
+              responseTimeMs: responseTime,
+              notes: `Reporte PDF de créditos con errores enviado exitosamente por cron (${filename}, ${(pdfBuffer.length / 1024).toFixed(2)} KB)`
+            });
+            return true;
+          } else {
+            await logService.updateLog(logId, {
+              status: 'FAILED',
+              sentAt: new Date(),
+              responseTimeMs: responseTime,
+              telegramResponse: JSON.stringify(result),
+              notes: 'Error enviando PDF de créditos con errores por cron'
+            });
+            return false;
+          }
         } else {
           console.error(`❌ [CRON] No se pudo generar el PDF o está vacío`);
           // Fallback: enviar mensaje de texto con más información
           const message = `📊 <b>REPORTE AUTOMÁTICO - CRÉDITOS CON ERRORES</b>\n\n📅 Generado: ${new Date().toLocaleString('es-ES')}\n⚠️ Error generando PDF\n\n🔧 Posibles causas:\n• Error en la consulta de datos\n• Problemas con la generación del PDF\n• Configuración incorrecta\n\n✅ Enviado automáticamente por el sistema de cron`;
+          
+          const sendStartTime = Date.now();
           const result = await telegramService.sendHtmlMessage(chatId, message);
-          return result.ok || false;
+          const responseTime = Date.now() - sendStartTime;
+          
+          if (result.ok) {
+            await logService.updateLog(logId, {
+              status: 'SENT',
+              sentAt: new Date(),
+              responseTimeMs: responseTime,
+              notes: 'Reporte de créditos con errores (fallback texto) enviado por cron'
+            });
+            return true;
+          } else {
+            await logService.updateLog(logId, {
+              status: 'FAILED',
+              sentAt: new Date(),
+              responseTimeMs: responseTime,
+              telegramResponse: JSON.stringify(result),
+              notes: 'Error enviando reporte de créditos con errores (fallback) por cron'
+            });
+            return false;
+          }
         }
         
       } catch (pdfError) {
@@ -222,19 +353,67 @@ export const sendCronReportToTelegram = async (
         // Fallback: enviar mensaje de texto
         const message = `📊 <b>REPORTE AUTOMÁTICO</b>\n\nTipo: ${reportType}\nGenerado: ${new Date().toLocaleString('es-ES')}\n\n⚠️ Error generando PDF, enviando mensaje de texto\n✅ Enviado automáticamente por el sistema de cron`;
         
+        const sendStartTime = Date.now();
         const result = await telegramService.sendHtmlMessage(chatId, message);
-        return result.ok || false;
+        const responseTime = Date.now() - sendStartTime;
+        
+        if (result.ok) {
+          await logService.updateLog(logId, {
+            status: 'SENT',
+            sentAt: new Date(),
+            responseTimeMs: responseTime,
+            notes: 'Reporte (fallback por error PDF) enviado por cron'
+          });
+          return true;
+        } else {
+          await logService.updateLog(logId, {
+            status: 'FAILED',
+            sentAt: new Date(),
+            responseTimeMs: responseTime,
+            telegramResponse: JSON.stringify(result),
+            notes: 'Error enviando reporte (fallback por error PDF) por cron'
+          });
+          return false;
+        }
       }
       
     } else {
       // Para otros tipos, usar mensaje de texto
       const message = `📊 <b>REPORTE AUTOMÁTICO</b>\n\nTipo: ${reportType}\nGenerado: ${new Date().toLocaleString('es-ES')}\n\n✅ Enviado automáticamente por el sistema de cron`;
       
+      const sendStartTime = Date.now();
       const result = await telegramService.sendHtmlMessage(chatId, message);
-      return result.ok || false;
+      const responseTime = Date.now() - sendStartTime;
+      
+      if (result.ok) {
+        await logService.updateLog(logId, {
+          status: 'SENT',
+          sentAt: new Date(),
+          responseTimeMs: responseTime,
+          notes: `Reporte de texto (${reportType}) enviado por cron`
+        });
+        return true;
+      } else {
+        await logService.updateLog(logId, {
+          status: 'FAILED',
+          sentAt: new Date(),
+          responseTimeMs: responseTime,
+          telegramResponse: JSON.stringify(result),
+          notes: `Error enviando reporte de texto (${reportType}) por cron`
+        });
+        return false;
+      }
     }
   } catch (error) {
     console.error('❌ [CRON] Error enviando reporte a Telegram:', error);
+    if (logId) {
+      await logService.updateLog(logId, {
+        status: 'ERROR',
+        telegramErrorMessage: error.message,
+        responseTimeMs: Date.now() - startTime,
+        notes: `Error general en cron: ${error.message}`
+      });
+    }
     return false;
   }
 };
@@ -285,7 +464,8 @@ export const processCronReport = async (
             telegramUser.chatId, 
             reportConfig.reportType,
             prisma,
-            reportConfig
+            reportConfig,
+            recipient
           );
           
           if (sent) {
