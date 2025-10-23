@@ -98,7 +98,12 @@ export class NotificationLogService {
   /**
    * Actualiza un log existente
    */
-  async updateLog(logId: string, updateData: Partial<NotificationLogData>) {
+  async updateLog(logId: string | null, updateData: Partial<NotificationLogData>) {
+    if (!logId) {
+      console.warn('⚠️ [NotificationLogService] Intentando actualizar log con ID nulo, saltando actualización');
+      return null;
+    }
+    
     try {
       const prisma = (this.context.prisma as any);
       
@@ -335,13 +340,17 @@ export class NotificationLogService {
           responseTimeMs: logData.responseTimeMs,
           retryCount: 0,
           notes: logData.notes,
-          // Campos específicos para reportes
+          // Campos específicos para reportes - NO usar foreign keys
           personName: logData.recipientName,
-          routeLeadUserId: logData.recipientUserId,
-          // Usar campos existentes para almacenar datos del reporte
-          routeId: logData.reportConfigId,
           routeName: logData.reportConfigName,
-          localityName: logData.reportType
+          localityName: logData.reportType,
+          // NO incluir campos con foreign keys que no son necesarios para reportes
+          // personalDataId: null, // No necesario para reportes
+          // loanId: null, // No necesario para reportes
+          // routeId: null, // No necesario para reportes
+          // routeLeadId: null, // No necesario para reportes
+          // routeLeadUserId: null, // No necesario para reportes
+          // telegramUserId: null // No necesario para reportes
         }
       });
 
