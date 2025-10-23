@@ -2618,15 +2618,62 @@ export const DocumentPhoto = list({
           console.log('⚠️ [DocumentPhoto.afterOperation] no se pudo determinar routeId del préstamo');
           return;
         }
-        const routeLead = await prisma.employee.findFirst({
-          where: {
-            type: 'ROUTE_LEAD',
-            //routes: { id: routeId }
-          },
-          include: { user: true }
+        // DEBUG: Buscar todos los empleados de tipo ROUTE_LEAD para debug
+        const allRouteLeads = await prisma.employee.findMany({
+          where: { type: 'ROUTE_LEAD' },
+          include: { 
+            user: true,
+            routes: true,
+            personalData: true
+          }
         });
-        if (!routeLead?.userId) {
-          console.log('⚠️ [DocumentPhoto.afterOperation] no se encontró ROUTE_LEAD para la ruta', { routeId });
+        
+        console.log('🔍 [DocumentPhoto.afterOperation] DEBUG - Todos los ROUTE_LEAD encontrados:', {
+          total: allRouteLeads.length,
+          routeLeads: allRouteLeads.map(rl => ({
+            id: rl.id,
+            name: rl.personalData?.fullName,
+            userId: rl.userId,
+            hasUser: !!rl.user,
+            routes: Array.isArray(rl.routes) ? rl.routes.map(r => ({ id: r.id, name: r.name })) : []
+          }))
+        });
+        
+        // DEBUG: Buscar específicamente por la ruta
+        const routeLeadsForRoute = await prisma.employee.findMany({
+          where: { 
+            type: 'ROUTE_LEAD',
+            routes: { id: routeId }
+          },
+          include: { 
+            user: true,
+            routes: true,
+            personalData: true
+          }
+        });
+        
+        console.log('🔍 [DocumentPhoto.afterOperation] DEBUG - ROUTE_LEAD para ruta específica:', {
+          routeId,
+          found: routeLeadsForRoute.length,
+          routeLeads: routeLeadsForRoute.map(rl => ({
+            id: rl.id,
+            name: rl.personalData?.fullName,
+            userId: rl.userId,
+            hasUser: !!rl.user,
+            routes: Array.isArray(rl.routes) ? rl.routes.map(r => ({ id: r.id, name: r.name })) : []
+          }))
+        });
+        
+        // Priorizar empleados que tienen usuario asignado
+        const routeLeadWithUser = routeLeadsForRoute.find(rl => rl.userId);
+        const routeLead = routeLeadWithUser || routeLeadsForRoute[0];
+        
+        if (!routeLead || !routeLead.userId) {
+          console.log('❌ [DocumentPhoto.afterOperation] no se encontró ROUTE_LEAD para la ruta', { 
+            routeId,
+            allRouteLeadsCount: allRouteLeads.length,
+            routeLeadsForRouteCount: routeLeadsForRoute.length
+          });
           return;
         }
         const telegramUser = await prisma.telegramUser.findFirst({
@@ -2700,17 +2747,66 @@ export const DocumentPhoto = list({
         }
         const service = new TelegramService({ botToken, chatId: telegramUser.chatId });
 
-        console.log('📤 [DocumentPhoto.afterOperation] enviando Telegram', {
-          chatId: telegramUser.chatId,
-          length: caption.length,
-          preview: caption.slice(0, 120)
-        });
+        // Crear log de notificación usando el sistema unificado
+        const { NotificationLogService } = require('./admin/services/notificationLogService');
+        const logService = new NotificationLogService(context);
+        
+        const startTime = Date.now();
+        let logId: string | null = null;
+        
+        try {
+          // Crear log inicial
+          const initialLog = await logService.createLog({
+            documentId: document.id,
+            issueType: issueType as 'ERROR' | 'MISSING',
+            status: 'ERROR', // Temporal, se actualizará
+            description: caption,
+            notes: 'Iniciando envío de notificación de documento'
+          });
+          logId = initialLog.id;
+          
+          console.log('📤 [DocumentPhoto.afterOperation] enviando Telegram', {
+            chatId: telegramUser.chatId,
+            length: caption.length,
+            preview: caption.slice(0, 120)
+          });
 
-        // Enviar SIEMPRE como mensaje sin adjuntar foto por URL
-        const resp = await service.sendHtmlMessage(telegramUser.chatId, caption);
-        console.log('✅ [DocumentPhoto.afterOperation] Telegram respuesta', resp);
-
-        console.log(`✅ [DocumentPhoto.afterOperation] Telegram enviado (${issueType}): ${document.id}`);
+          // Enviar SIEMPRE como mensaje sin adjuntar foto por URL
+          const sendStartTime = Date.now();
+          const resp = await service.sendHtmlMessage(telegramUser.chatId, caption);
+          const responseTime = Date.now() - sendStartTime;
+          
+          console.log('✅ [DocumentPhoto.afterOperation] Telegram respuesta', resp);
+          
+          if (resp.ok) {
+            await logService.updateLog(logId, {
+              status: 'SENT',
+              sentAt: new Date(),
+              responseTimeMs: responseTime,
+              notes: `Notificación de documento enviada exitosamente (${issueType})`
+            });
+            console.log(`✅ [DocumentPhoto.afterOperation] Telegram enviado (${issueType}): ${document.id}`);
+          } else {
+            await logService.updateLog(logId, {
+              status: 'FAILED',
+              sentAt: new Date(),
+              responseTimeMs: responseTime,
+              telegramResponse: JSON.stringify(resp),
+              notes: `Error enviando notificación de documento (${issueType})`
+            });
+            console.log(`❌ [DocumentPhoto.afterOperation] Error enviando Telegram (${issueType}): ${document.id}`);
+          }
+        } catch (error) {
+          console.error('❌ [DocumentPhoto.afterOperation] Error en notificación:', error);
+          if (logId) {
+            await logService.updateLog(logId, {
+              status: 'ERROR',
+              telegramErrorMessage: error.message,
+              responseTimeMs: Date.now() - startTime,
+              notes: `Error general en notificación: ${error.message}`
+            });
+          }
+        }
       } catch (e) {
         console.error('❌ [DocumentPhoto.afterOperation] Error enviando Telegram:', e);
       }
@@ -2807,6 +2903,148 @@ export const TelegramUser = list({
   
 });
 
+// ✅ NUEVA TABLA: Logs de notificaciones de documentos
+export const DocumentNotificationLog = list({
+  access: {
+    operation: {
+      query: () => true,
+      create: () => true,
+      update: () => true,
+      delete: () => true,
+    },
+  },
+  fields: {
+    // Información del documento
+    documentId: text({ 
+      validation: { isRequired: true },
+      label: 'ID del Documento'
+    }),
+    documentType: text({ 
+      label: 'Tipo de Documento'
+    }),
+    personalDataId: text({ 
+      label: 'ID de Datos Personales'
+    }),
+    personName: text({ 
+      label: 'Nombre de la Persona'
+    }),
+    
+    // Información del préstamo y ruta
+    loanId: text({ 
+      label: 'ID del Préstamo'
+    }),
+    routeId: text({ 
+      label: 'ID de la Ruta'
+    }),
+    routeName: text({ 
+      label: 'Nombre de la Ruta'
+    }),
+    localityName: text({ 
+      label: 'Nombre de la Localidad'
+    }),
+    
+    // Información del líder de ruta
+    routeLeadId: text({ 
+      label: 'ID del Líder de Ruta'
+    }),
+    routeLeadName: text({ 
+      label: 'Nombre del Líder de Ruta'
+    }),
+    routeLeadUserId: text({ 
+      label: 'ID del Usuario del Líder'
+    }),
+    
+    // Información de Telegram
+    telegramUserId: text({ 
+      label: 'ID del Usuario de Telegram'
+    }),
+    telegramChatId: text({ 
+      label: 'Chat ID de Telegram'
+    }),
+    telegramUsername: text({ 
+      label: 'Username de Telegram'
+    }),
+    
+    // Detalles de la notificación
+    issueType: select({
+      options: [
+        { label: 'Error', value: 'ERROR' },
+        { label: 'Faltante', value: 'MISSING' },
+        { label: 'Reporte Automático', value: 'REPORT' }
+      ],
+      validation: { isRequired: true },
+      label: 'Tipo de Problema'
+    }),
+    description: text({ 
+      label: 'Descripción del Problema'
+    }),
+    messageContent: text({ 
+      label: 'Contenido del Mensaje Enviado'
+    }),
+    
+    // Estado del envío
+    status: select({
+      options: [
+        { label: 'Enviado', value: 'SENT' },
+        { label: 'Error', value: 'ERROR' },
+        { label: 'Falló', value: 'FAILED' },
+        { label: 'Sin Telegram', value: 'NO_TELEGRAM' },
+        { label: 'Sin Líder', value: 'NO_LEADER' },
+        { label: 'Sin Ruta', value: 'NO_ROUTE' }
+      ],
+      validation: { isRequired: true },
+      label: 'Estado del Envío'
+    }),
+    
+    // Respuesta de Telegram
+    telegramResponse: text({ 
+      label: 'Respuesta de Telegram'
+    }),
+    telegramErrorCode: integer({ 
+      label: 'Código de Error de Telegram'
+    }),
+    telegramErrorMessage: text({ 
+      label: 'Mensaje de Error de Telegram'
+    }),
+    
+    // Información de timing
+    sentAt: timestamp({ 
+      label: 'Fecha de Envío'
+    }),
+    responseTimeMs: integer({ 
+      label: 'Tiempo de Respuesta (ms)'
+    }),
+    
+    // Información adicional
+    retryCount: integer({ 
+      defaultValue: 0,
+      label: 'Número de Reintentos'
+    }),
+    lastRetryAt: timestamp({ 
+      label: 'Último Reintento'
+    }),
+    notes: text({ 
+      label: 'Notas Adicionales'
+    }),
+    
+    // Metadatos
+    createdAt: timestamp({ 
+      defaultValue: { kind: 'now' },
+      label: 'Fecha de Creación'
+    }),
+    updatedAt: timestamp({ 
+      defaultValue: { kind: 'now' },
+      label: 'Fecha de Actualización'
+    })
+  },
+  ui: {
+    listView: {
+      initialColumns: ['documentId', 'personName', 'issueType', 'status', 'sentAt'],
+      initialSort: { field: 'createdAt', direction: 'DESC' }
+    }
+  }
+});
+
 export const lists = {
   User,
   Employee,
@@ -2836,4 +3074,5 @@ export const lists = {
   DocumentPhoto,
   ReportConfig,
   TelegramUser,
+  DocumentNotificationLog,
 };

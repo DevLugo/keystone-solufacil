@@ -814,7 +814,7 @@ export default function ConfiguracionReportesPage() {
               console.log(`📱 Enviando por Telegram a ${recipient.name} (${telegramUser.chatId})`);
               
               // Enviar reporte por Telegram
-              const sent = await sendReportToTelegram(telegramUser.chatId, config.reportType, routeIds);
+              const sent = await sendReportToTelegram(telegramUser.chatId, config.reportType, routeIds, config, recipient);
               
               if (sent) {
                 sentCount++;
@@ -861,9 +861,16 @@ export default function ConfiguracionReportesPage() {
   };
 
   // Función simplificada para enviar reporte a Telegram
-  const sendReportToTelegram = async (chatId: string, reportType: string, routeIds: string[] = []) => {
+  const sendReportToTelegram = async (chatId: string, reportType: string, routeIds: string[] = [], config: any = null, recipient: any = null) => {
     try {
       console.log(`📱 Enviando reporte ${reportType} a ${chatId} con rutas:`, routeIds);
+      
+      // Preparar parámetros de logging
+      const reportConfigId = config?.id || 'unknown';
+      const reportConfigName = config?.name || 'Reporte Manual';
+      const recipientUserId = recipient?.id || 'unknown';
+      const recipientName = recipient?.name || 'Usuario Desconocido';
+      const recipientEmail = recipient?.email || 'unknown@example.com';
       
       // Para créditos con errores, usar PDF
       if (reportType === 'creditos_con_errores') {
@@ -871,7 +878,12 @@ export default function ConfiguracionReportesPage() {
           variables: { 
             chatId: chatId, 
             reportType: reportType,
-            routeIds: routeIds
+            routeIds: routeIds,
+            reportConfigId,
+            reportConfigName,
+            recipientUserId,
+            recipientName,
+            recipientEmail
           }
         });
         
@@ -881,7 +893,15 @@ export default function ConfiguracionReportesPage() {
         const message = `📊 <b>REPORTE AUTOMÁTICO</b>\n\nTipo: ${reportType}\nGenerado: ${new Date().toLocaleString('es-ES')}\n\n✅ Enviado desde Keystone Admin`;
         
         const result = await sendTestTelegram({
-          variables: { chatId, message }
+          variables: { 
+            chatId, 
+            message,
+            reportConfigId,
+            reportConfigName,
+            recipientUserId,
+            recipientName,
+            recipientEmail
+          }
         });
         
         return result.data?.sendTestTelegramMessage?.includes('✅') || false;

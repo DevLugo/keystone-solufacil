@@ -110,6 +110,16 @@ const menuSections: MenuSection[] = [
         roles: ['ADMIN']
       },
       {
+        label: 'Logs de Notificaciones',
+        href: '/logs-notificaciones',
+        roles: ['ADMIN']
+      },
+      {
+        label: 'Diagnóstico de Telegram',
+        href: '/diagnostico-telegram',
+        roles: ['ADMIN']
+      },
+      {
         label: 'Administrar Gastos',
         href: '/administrar-gastos',
         roles: ['ADMIN']

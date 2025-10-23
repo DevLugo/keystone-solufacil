@@ -83,7 +83,7 @@ model Employee {
   createdById String?
   updatedById String?
   personalData PersonalData?
-  routes Route?
+  routes Route[]
   transactions Transaction[]
   loans Loan[]
   commissionPayments CommissionPayment[]
