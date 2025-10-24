@@ -9,7 +9,7 @@ export interface ReportSenderConfig {
 export interface SendReportOptions {
   reportType: string;
   routes: string[];
-  recipients: string[];
+  telegramUsers: string[];
   channel: 'telegram' | 'email' | 'whatsapp';
   format?: 'text' | 'pdf';
   date?: Date;
@@ -107,7 +107,7 @@ export class ReportSenderService {
   ): Promise<void> {
     try {
       // Enviar a cada destinatario
-      for (const recipientId of options.recipients) {
+      for (const recipientId of options.telegramUsers) {
         try {
           if (options.format === 'pdf' && reportResult.pdfBuffer) {
             // Enviar como PDF

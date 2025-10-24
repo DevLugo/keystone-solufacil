@@ -14,8 +14,27 @@ export const sendDocumentIssueNotification = graphql.field({
     },
     resolve: async (root, { documentId, issueType, description }, context: Context) => {
       const startTime = Date.now();
+      
+      // 🔍 Verificar configuración de notificaciones
+      const reportConfigs = await (context.prisma as any).reportConfig.findMany({
+        where: { 
+          reportType: 'notificacion_tiempo_real',
+          isActive: true
+        },
+        include: {
+          telegramUsers: {
+            where: { isActive: true }
+          }
+        }
+      });
+      
+      if (reportConfigs.length === 0) {
+        console.log('⚠️ [sendDocumentIssueNotification] No hay configuraciones de notificación en tiempo real activas');
+        return '⚠️ No hay configuraciones de notificación en tiempo real activas';
+      }
+      
       const logService = new NotificationLogService(context);
-      let logId: string | null = null;
+      let logId: string | undefined = undefined;
       
       try {
         const prisma = (context.prisma as any);
@@ -26,12 +45,12 @@ export const sendDocumentIssueNotification = graphql.field({
           documentId,
           issueType: issueType as 'ERROR' | 'MISSING',
           status: 'ERROR', // Temporal, se actualizará
-          description,
+          description: description || undefined,
           notes: 'Iniciando proceso de notificación'
         });
-        logId = initialLog.id;
+        logId = initialLog.id || undefined;
         // 1) Cargar documento, loan relacionado, datos de persona y localidad, y líder de ruta
-        const document = await prisma.documentPhoto.findUnique({
+        const document = await (context.prisma as any).documentPhoto.findUnique({
           where: { id: documentId },
           include: {
             personalData: {
@@ -47,7 +66,8 @@ export const sendDocumentIssueNotification = graphql.field({
                       include: {
                         addresses: { include: { location: { include: { route: true } } } }
                       }
-                    }
+                    },
+                    routes: true
                   }
                 },
                 borrower: {
@@ -103,175 +123,127 @@ export const sendDocumentIssueNotification = graphql.field({
         const weekStart = getWeekStart(new Date(baseDate));
         const weekEnd = getWeekEnd(new Date(baseDate));
 
-        // 4) Resolver líder de ruta y su usuario de plataforma
-        // Resolver ROUTE_LEAD por la ruta del préstamo
-        // Resolver por lead -> localidad -> ruta
-        const leadRouteId = document.loan?.lead?.personalData?.addresses?.[0]?.location?.route?.id || null;
-        const routeId = leadRouteId || document.loan?.snapshotRouteId || document.loan?.transactions?.[0]?.routeId || null;
+        // 4) Obtener usuarios de Telegram configurados para notificaciones en tiempo real
+        console.log('🔍 [sendDocumentIssueNotification] Buscando usuarios de Telegram configurados...');
         
-        // DEBUG: Capturar información detallada de la ruta
-        const debugInfo = {
-          leadRouteId,
-          snapshotRouteId: document.loan?.snapshotRouteId,
-          transactionRouteId: document.loan?.transactions?.[0]?.routeId,
-          finalRouteId: routeId,
-          leadInfo: {
-            hasLead: !!document.loan?.lead,
-            leadId: document.loan?.lead?.id,
-            leadName: document.loan?.lead?.personalData?.fullName,
-            hasPersonalData: !!document.loan?.lead?.personalData,
-            hasAddresses: !!document.loan?.lead?.personalData?.addresses,
-            addressesLength: document.loan?.lead?.personalData?.addresses?.length || 0,
-            hasLocation: !!document.loan?.lead?.personalData?.addresses?.[0]?.location,
-            locationName: document.loan?.lead?.personalData?.addresses?.[0]?.location?.name,
-            hasRoute: !!document.loan?.lead?.personalData?.addresses?.[0]?.location?.route,
-            routeId: document.loan?.lead?.personalData?.addresses?.[0]?.location?.route?.id,
-            routeName: document.loan?.lead?.personalData?.addresses?.[0]?.location?.route?.name
-          }
-        };
-        
-        console.log('🔍 [sendDocumentIssueNotification] DEBUG - Información de ruta:', debugInfo);
-        
-        if (!routeId) {
-          console.log('⚠️ [sendDocumentIssueNotification] no se pudo determinar routeId del préstamo');
-          await logService.updateLog(logId!, {
-            status: 'NO_ROUTE',
-            notes: `No se pudo determinar la ruta del préstamo. Debug: ${JSON.stringify(debugInfo)}`
-          });
-          return '❌ No se pudo determinar la ruta del préstamo';
-        }
-
-        // Actualizar log con información de ruta
-        await logService.updateLog(logId!, {
-          routeId,
-          localityName
-        });
-        
-        // DEBUG: Buscar todos los empleados de tipo ROUTE_LEAD para debug
-        const allRouteLeads = await prisma.employee.findMany({
-          where: { type: 'ROUTE_LEAD' },
-          include: { 
-            user: true,
-            routes: true,
-            personalData: true
-          }
-        });
-        
-        console.log('🔍 [sendDocumentIssueNotification] DEBUG - Todos los ROUTE_LEAD encontrados:', {
-          total: allRouteLeads.length,
-          routeLeads: allRouteLeads.map(rl => ({
-            id: rl.id,
-            name: rl.personalData?.fullName,
-            userId: rl.userId,
-            hasUser: !!rl.user,
-            routes: rl.routes?.map(r => ({ id: r.id, name: r.name })) || []
-          }))
-        });
-        
-        // DEBUG: Buscar específicamente por la ruta
-        const routeLeadsForRoute = await prisma.employee.findMany({
+        // Buscar configuraciones de reporte activas de tipo "notificacion_tiempo_real"
+        const reportConfigs = await (context.prisma as any).reportConfig.findMany({
           where: { 
-            type: 'ROUTE_LEAD',
-            routes: { id: routeId }
+            reportType: 'notificacion_tiempo_real',
+            isActive: true
           },
-          include: { 
-            user: true,
-            routes: true,
-            personalData: true
+          include: {
+            telegramUsers: {
+              where: { isActive: true }
+            }
           }
         });
         
-        console.log('🔍 [sendDocumentIssueNotification] DEBUG - ROUTE_LEAD para ruta específica:', {
-          routeId,
-          found: routeLeadsForRoute.length,
-          routeLeads: routeLeadsForRoute.map(rl => ({
-            id: rl.id,
-            name: rl.personalData?.fullName,
-            userId: rl.userId,
-            hasUser: !!rl.user,
-            routes: rl.routes?.map(r => ({ id: r.id, name: r.name })) || []
+        console.log('📋 [sendDocumentIssueNotification] Configuraciones de notificación en tiempo real encontradas:', {
+          total: reportConfigs.length,
+          configs: reportConfigs.map((config: any) => ({
+            id: config.id,
+            name: config.name,
+            telegramUsersCount: config.telegramUsers.length,
+            telegramUsers: config.telegramUsers.map((user: any) => ({
+              id: user.id,
+              name: user.name,
+              chatId: user.chatId,
+              username: user.username
+            }))
           }))
         });
         
-        // Priorizar empleados que tienen usuario asignado
-        const routeLeadWithUser = routeLeadsForRoute.find(rl => rl.userId);
-        const routeLead = routeLeadWithUser || routeLeadsForRoute[0];
+        if (reportConfigs.length === 0) {
+          console.log('⚠️ [sendDocumentIssueNotification] No hay configuraciones de notificación en tiempo real activas');
+          await logService.updateLog(logId!, {
+            status: 'FAILED',
+            notes: 'No hay configuraciones de notificación en tiempo real activas'
+          });
+          return '⚠️ No hay configuraciones de notificación en tiempo real activas';
+        }
         
-        if (!routeLead || !routeLead.userId) {
-          console.log('❌ [sendDocumentIssueNotification] no se encontró ROUTE_LEAD para la ruta', { 
-            routeId,
-            debugInfo,
-            allRouteLeadsCount: allRouteLeads.length,
-            routeLeadsForRouteCount: routeLeadsForRoute.length
+        // Recopilar todos los usuarios de Telegram únicos
+        const allTelegramUsers = new Map();
+        reportConfigs.forEach((config: any) => {
+          config.telegramUsers.forEach((user: any) => {
+            if (user.chatId && user.isActive) {
+              allTelegramUsers.set(user.id, user);
+            }
           });
-          await logService.updateLog(logId!, {
-            status: 'NO_LEADER',
-            notes: `No se encontró líder de ruta para la ruta ${routeId}. Debug completo: ${JSON.stringify({
-              routeId,
-              allRouteLeads: allRouteLeads.map(rl => ({ id: rl.id, name: rl.personalData?.fullName, routes: rl.routes?.map(r => r.id) })),
-              routeLeadsForRoute: routeLeadsForRoute.map(rl => ({ id: rl.id, name: rl.personalData?.fullName }))
-            })}`
-          });
-          return '❌ No se encontró líder de ruta para la ruta del préstamo';
-        }
-
-        // Actualizar log con información del líder
-        await logService.updateLog(logId!, {
-          routeLeadId: routeLead.id,
-          routeLeadName: routeLead.personalData?.fullName,
-          routeLeadUserId: routeLead.userId
         });
-
-        // 5) Buscar usuario de Telegram del líder
-        const telegramUser = await prisma.telegramUser.findFirst({
-          where: { platformUserId: routeLead.userId, isActive: true }
-        });
-
-        if (!telegramUser || !telegramUser.chatId) {
-          console.log('⚠️ [sendDocumentIssueNotification] líder sin Telegram activo');
+        
+        const telegramUsers = Array.from(allTelegramUsers.values());
+        
+        if (telegramUsers.length === 0) {
+          console.log('⚠️ [sendDocumentIssueNotification] No hay usuarios de Telegram activos en las configuraciones');
           await logService.updateLog(logId!, {
             status: 'NO_TELEGRAM',
-            notes: `Líder ${routeLead.personalData?.fullName} no tiene Telegram configurado`
+            notes: 'No hay usuarios de Telegram activos en las configuraciones'
           });
-          return '❌ El líder de ruta no tiene Telegram configurado';
+          return '❌ No hay usuarios de Telegram activos en las configuraciones';
         }
-
-        // Validar configuración de Telegram
-        const telegramValidation = await logService.validateTelegramConfig(routeLead.userId);
-        if (!telegramValidation.isValid) {
-          console.log('⚠️ [sendDocumentIssueNotification] configuración de Telegram inválida:', telegramValidation);
-          await logService.updateLog(logId!, {
-            status: 'NO_TELEGRAM',
-            notes: `Configuración de Telegram inválida: ${telegramValidation.message}`
-          });
-          return `❌ Configuración de Telegram inválida: ${telegramValidation.message}`;
-        }
-
-        // Actualizar log con información de Telegram
+        
+        console.log('📱 [sendDocumentIssueNotification] Usuarios de Telegram a notificar:', {
+          total: telegramUsers.length,
+          users: telegramUsers.map(user => ({
+            id: user.id,
+            name: user.name,
+            chatId: user.chatId,
+            username: user.username
+          }))
+        });
+        
+        // Actualizar log con información de usuarios
         await logService.updateLog(logId!, {
-          telegramUserId: telegramUser.id,
-          telegramChatId: telegramUser.chatId,
-          telegramUsername: telegramUser.username
+          notes: `Notificando a ${telegramUsers.length} usuarios de Telegram configurados`
         });
 
         // 6) Construir mensaje y adjunto
-        const title = issueType === 'ERROR' ? '🔴 Documento con ERROR' : '🟠 Documento FALTANTE';
+        // 6) Generar mensaje usando plantilla de configuración
         const errorDesc = (description || document.errorDescription || '').trim();
         const docType = String(document.documentType).toUpperCase();
         const personName = document.personalData?.fullName || 'Sin nombre';
+        const personType = document.personalData?.id === document.loan?.borrower?.personalData?.id ? 'TITULAR' : 'AVAL';
         const weekLabel = `${weekStart.toLocaleDateString('es-MX')} - ${weekEnd.toLocaleDateString('es-MX')}`;
+        const currentDate = new Date().toLocaleString('es-MX');
+        
+        // Usar plantilla de mensaje
+        let messageTemplate = '';
+        if (issueType === 'ERROR') {
+          messageTemplate = '🚨 <b>DOCUMENTO CON ERROR</b>\n\n📋 Tipo: {documentType}\n👤 Persona: {personName} ({personType})\n🏠 Localidad: {localityName}\n🛣️ Ruta: {routeName}\n👨‍💼 Líder: {routeLeadName}\n\n❌ <b>Descripción del Error:</b>\n{errorDescription}\n\n📅 Fecha: {date}\n\n🔗 <a href="{documentUrl}">Ver Documento</a>';
+        } else {
+          messageTemplate = '📋 <b>DOCUMENTO FALTANTE</b>\n\n👤 Persona: {personName} ({personType})\n🏠 Localidad: {localityName}\n🛣️ Ruta: {routeName}\n👨‍💼 Líder: {routeLeadName}\n\n📅 Fecha: {date}\n\n🔗 <a href="{loanUrl}">Ver Préstamo</a>';
+        }
+        
+        // Obtener información adicional del documento
+        const documentLocalityName = document.loan?.lead?.personalData?.addresses?.[0]?.location?.name || 'Sin localidad';
+        // Obtener nombre de la ruta (puede ser array u objeto directo)
+        let routeName = 'Sin ruta';
+        const routes = document.loan?.lead?.routes;
+        if (routes) {
+          if (Array.isArray(routes) && routes.length > 0) {
+            routeName = routes[0].name;
+          } else if (typeof routes === 'object' && 'name' in routes) {
+            routeName = routes.name;
+          }
+        }
+        const routeLeadName = document.loan?.lead?.personalData?.fullName || 'Sin líder';
+        
+        // Reemplazar variables en la plantilla
+        const caption = messageTemplate
+          .replace(/{documentType}/g, docType)
+          .replace(/{personName}/g, personName)
+          .replace(/{personType}/g, personType)
+          .replace(/{localityName}/g, documentLocalityName)
+          .replace(/{routeName}/g, routeName)
+          .replace(/{routeLeadName}/g, routeLeadName)
+          .replace(/{errorDescription}/g, errorDesc)
+          .replace(/{date}/g, currentDate)
+          .replace(/{documentUrl}/g, `${process.env.FRONTEND_URL || 'http://localhost:3000'}/admin/documentos-personales`)
+          .replace(/{loanUrl}/g, `${process.env.FRONTEND_URL || 'http://localhost:3000'}/admin/documentos-personales`);
 
-        const caption = (
-          `${title}\n\n` +
-          `• Tipo: ${docType}\n` +
-          `• Persona: ${personName}\n` +
-          `• Localidad: ${localityName}\n` +
-          `• Semana: ${weekLabel}\n` +
-          (errorDesc ? `• Descripción: ${errorDesc}\n` : '') +
-          `\nID Doc: ${document.id}`
-        );
-
-        const { TelegramService } = require('../admin/services/telegramService');
+        const { TelegramService } = require('./telegramService');
         const botToken = process.env.TELEGRAM_BOT_TOKEN;
         if (!botToken) {
           console.log('❌ [sendDocumentIssueNotification] TELEGRAM_BOT_TOKEN no configurado');
@@ -282,58 +254,62 @@ export const sendDocumentIssueNotification = graphql.field({
           return '❌ TELEGRAM_BOT_TOKEN no configurado';
         }
 
-        const service = new TelegramService({ botToken, chatId: telegramUser.chatId });
-
-        console.log('📤 [sendDocumentIssueNotification] enviando', { chatId: telegramUser.chatId, length: caption.length });
+        console.log('📤 [sendDocumentIssueNotification] enviando a usuarios configurados', { 
+          totalUsers: telegramUsers.length, 
+          length: caption.length 
+        });
         
         // Actualizar log con contenido del mensaje
         await logService.updateLog(logId!, {
           messageContent: caption
         });
 
-        // Enviar mensaje con manejo de errores detallado
-        let telegramResponse: any;
-        let responseTime: number;
+        // Enviar mensaje a todos los usuarios configurados
+        let successCount = 0;
+        let errorCount = 0;
+        const results = [];
         
-        try {
-          const sendStartTime = Date.now();
-          telegramResponse = await service.sendHtmlMessage(telegramUser.chatId, caption.replace(/\n/g, '\n'));
-          responseTime = Date.now() - sendStartTime;
-          
-          console.log('✅ [sendDocumentIssueNotification] respuesta', telegramResponse);
-          
-          // Verificar si el envío fue exitoso
-          const isSuccess = telegramResponse?.ok === true;
-          
-          await logService.updateLog(logId!, {
-            status: isSuccess ? 'SENT' : 'FAILED',
-            telegramResponse: JSON.stringify(telegramResponse),
-            sentAt: new Date(),
-            responseTimeMs: responseTime,
-            notes: isSuccess ? 'Notificación enviada exitosamente' : 'Error en respuesta de Telegram'
-          });
-          
-          if (isSuccess) {
-            return '✅ Notificación enviada';
-          } else {
-            return `❌ Error enviando notificación: ${telegramResponse?.description || 'Error desconocido'}`;
+        for (const telegramUser of telegramUsers) {
+          try {
+            const service = new TelegramService({ botToken, chatId: telegramUser.chatId });
+            const sendStartTime = Date.now();
+            const telegramResponse = await service.sendHtmlMessage(telegramUser.chatId, caption.replace(/\n/g, '\n'));
+            const responseTime = Date.now() - sendStartTime;
+            
+            console.log(`✅ [sendDocumentIssueNotification] respuesta para ${telegramUser.name}:`, telegramResponse);
+            
+            // Verificar si el envío fue exitoso
+            const isSuccess = telegramResponse?.ok === true;
+            
+            if (isSuccess) {
+              successCount++;
+              results.push(`✅ ${telegramUser.name}: Enviado`);
+            } else {
+              errorCount++;
+              results.push(`❌ ${telegramUser.name}: ${telegramResponse?.description || 'Error desconocido'}`);
+            }
+          } catch (telegramError: any) {
+            console.error(`❌ [sendDocumentIssueNotification] Error enviando a ${telegramUser.name}:`, telegramError);
+            errorCount++;
+            results.push(`❌ ${telegramUser.name}: ${telegramError.message}`);
           }
-        } catch (telegramError) {
-          console.error('❌ [sendDocumentIssueNotification] Error enviando a Telegram:', telegramError);
-          
-          await logService.updateLog(logId!, {
-            status: 'FAILED',
-            telegramResponse: JSON.stringify(telegramError),
-            telegramErrorCode: telegramError?.response?.status || telegramError?.code,
-            telegramErrorMessage: telegramError?.message || telegramError?.response?.data?.description,
-            sentAt: new Date(),
-            responseTimeMs: Date.now() - startTime,
-            notes: `Error enviando a Telegram: ${telegramError.message}`
-          });
-          
-          return `❌ Error enviando notificación: ${telegramError.message}`;
         }
-      } catch (err) {
+        
+        // Actualizar log con resultados
+        await logService.updateLog(logId!, {
+          status: successCount > 0 ? 'SENT' : 'FAILED',
+          telegramResponse: JSON.stringify(results),
+          sentAt: new Date(),
+          responseTimeMs: Date.now() - startTime,
+          notes: `Enviado a ${successCount}/${telegramUsers.length} usuarios. Resultados: ${results.join(', ')}`
+        });
+        
+        if (successCount > 0) {
+          return `✅ Notificación enviada a ${successCount}/${telegramUsers.length} usuarios: ${results.join(', ')}`;
+        } else {
+          return `❌ Error enviando notificación a todos los usuarios: ${results.join(', ')}`;
+        }
+      } catch (err: any) {
         console.error('❌ [sendDocumentIssueNotification] Error:', err);
         
         // Actualizar log con error general

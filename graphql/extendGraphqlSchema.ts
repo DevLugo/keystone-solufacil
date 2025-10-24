@@ -9908,19 +9908,19 @@ export const extendGraphqlSchema = graphql.extend(base => {
         args: {
           reportType: graphql.arg({ type: graphql.nonNull(graphql.String) }),
           reportData: graphql.arg({ type: graphql.nonNull(graphql.JSON) }),
-          recipients: graphql.arg({ type: graphql.list(graphql.nonNull(graphql.String)) })
+          telegramUsers: graphql.arg({ type: graphql.list(graphql.nonNull(graphql.String)) })
         },
-        resolve: async (root, { reportType, reportData, recipients }, context: Context) => {
+        resolve: async (root, { reportType, reportData, telegramUsers }, context: Context) => {
           try {
-            console.log('📊 Enviando reporte de Telegram:', { reportType, reportData, recipients });
+            console.log('📊 Enviando reporte de Telegram:', { reportType, reportData, telegramUsers });
             
             // Obtener usuarios destinatarios
             let targetUsers;
-            if (recipients && recipients.length > 0) {
+            if (telegramUsers && telegramUsers.length > 0) {
               // Enviar a usuarios específicos
               targetUsers = await (context.prisma as any).telegramUser.findMany({
                 where: {
-                  chatId: { in: recipients },
+                  chatId: { in: telegramUsers },
                   isActive: true
                 }
               });
@@ -10013,9 +10013,56 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
 
       // Mutation simple para enviar reporte ahora
+      // Upsert configuración de notificaciones
+      upsertNotificationConfig: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        args: {
+          data: graphql.arg({ type: graphql.nonNull(graphql.JSON) })
+        },
+        resolve: async (root, { data }, context: Context) => {
+          try {
+            // Buscar configuración existente
+            const existingConfig = await (context.prisma as any).notificationConfig.findFirst();
+            
+            if (existingConfig) {
+              // Actualizar configuración existente
+              await (context.prisma as any).notificationConfig.update({
+                where: { id: existingConfig.id },
+                data: {
+                  name: data.name,
+                  isActive: data.isActive,
+                  sendErrorNotifications: data.sendErrorNotifications,
+                  sendMissingNotifications: data.sendMissingNotifications,
+                  errorNotificationMessage: data.errorNotificationMessage,
+                  missingNotificationMessage: data.missingNotificationMessage,
+                  updatedAt: new Date()
+                }
+              });
+              return JSON.stringify({ id: existingConfig.id, ...data });
+            } else {
+              // Crear nueva configuración
+              const newConfig = await (context.prisma as any).notificationConfig.create({
+                data: {
+                  name: data.name,
+                  isActive: data.isActive,
+                  sendErrorNotifications: data.sendErrorNotifications,
+                  sendMissingNotifications: data.sendMissingNotifications,
+                  errorNotificationMessage: data.errorNotificationMessage,
+                  missingNotificationMessage: data.missingNotificationMessage
+                }
+              });
+              return JSON.stringify({ id: newConfig.id, ...data });
+            }
+          } catch (error) {
+            console.error('❌ Error upserting notification config:', error);
+            throw new Error(`Error saving notification config: ${error.message}`);
+          }
+        }
+      }),
+
       sendReportNow: graphql.field({
         type: graphql.nonNull(graphql.String),
-        args: { 
+        args: {
           configId: graphql.arg({ type: graphql.nonNull(graphql.ID) })
         },
         resolve: async (root, { configId }, context: Context) => {
@@ -10038,7 +10085,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
             // Obtener usuarios de la plataforma que son destinatarios
             const platformRecipients = await (context.prisma as any).user.findMany({
               where: {
-                id: { in: reportConfig.recipients?.map(r => r.id) || [] }
+                id: { in: reportConfig.telegramUsers?.map(u => u.id) || [] }
               }
             });
 

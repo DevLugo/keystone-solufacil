@@ -237,12 +237,6 @@ export const User = list({
         linkToItem: true
       }
     }),
-    // ✅ NUEVA FUNCIONALIDAD: Configuraciones de reportes creadas por el usuario
-    reportConfigsCreated: relationship({ ref: 'ReportConfig.createdBy', many: true }),
-    // ✅ NUEVA FUNCIONALIDAD: Configuraciones de reportes actualizadas por el usuario
-    reportConfigsUpdated: relationship({ ref: 'ReportConfig.updatedBy', many: true }),
-    // ✅ NUEVA FUNCIONALIDAD: Usuario como destinatario de reportes
-    reportConfigRecipients: relationship({ ref: 'ReportConfig.recipients', many: true }),
     // ✅ NUEVA FUNCIONALIDAD: Usuarios de Telegram vinculados
     telegramUsers: relationship({ ref: 'TelegramUser.platformUser', many: true }),
     employee: relationship({ ref: 'Employee.user' }),
@@ -376,7 +370,7 @@ export const ReportExecutionLog = list({
 
 export const Route = list({
   access: allowAll,
-  ui: { isHidden: true },
+  ui: { isHidden: false },
   fields: {
     name: text(),
     employees: relationship({ ref: 'Employee.routes', many: true }),
@@ -2426,7 +2420,7 @@ export const DocumentPhoto = list({
     },
     afterOperation: async (args) => {
       try {
-        const { operation, item, context, resolvedData } = args as any;
+        const { operation, item, context } = args as any;
         console.log('📨 [DocumentPhoto.afterOperation] llamada', {
           operation,
           id: item?.id,
@@ -2434,6 +2428,7 @@ export const DocumentPhoto = list({
           isMissing: item?.isMissing,
           errorDescription: item?.errorDescription
         });
+        
         if (!(operation === 'create' || operation === 'update')) return;
 
         // Solo notificar si el documento está en error o marcado como faltante
@@ -2451,373 +2446,45 @@ export const DocumentPhoto = list({
           return;
         }
 
-        const prisma = (context as any).prisma;
-
-        // Cargar documento con relaciones necesarias
-        const document = await prisma.documentPhoto.findUnique({
-          where: { id: item.id },
-          include: {
-            personalData: {
-              include: { addresses: { include: { location: { include: { route: true } } } } }
-            },
-            loan: {
-              include: {
-                lead: {
-                  include: {
-                    personalData: {
-                      include: {
-                        addresses: { 
-                          include: { 
-                            location: { 
-                              include: { 
-                                municipality: { 
-                                  include: { 
-                                    state: true 
-                                  } 
-                                } 
-                              } 
-                            } 
-                          } 
-                        }
-                      }
-                    },
-                    routes: true
-                  }
-                },
-                borrower: {
-                  include: { personalData: { include: { addresses: { include: { location: true } } } } }
-                }
-              }
-            }
-          }
-        });
-
-        if (!document) {
-          console.log('❌ [DocumentPhoto.afterOperation] documento no encontrado', item?.id);
-          return;
-        }
-        console.log('🧾 [DocumentPhoto.afterOperation] documento cargado', {
-          id: document.id,
-          hasLoan: !!document.loan,
-          leadId: document.loan?.lead?.id,
-          leadUserId: document.loan?.lead?.userId,
-          personalDataId: document.personalData?.id,
-          isError: document.isError,
-          isMissing: document.isMissing,
-          errorDescription: document.errorDescription
-        });
-
-        // Resolver localidad, estado, líder y ruta del crédito
-        const lead = document.loan?.lead;
-        let localityName = 'Sin localidad';
-        let stateName = 'Sin estado';
-        let leaderName = 'Sin líder';
-        let routeName = 'Sin ruta';
-        
-        console.log('📍 [DocumentPhoto.afterOperation] obteniendo información del líder', {
-          hasLead: !!lead,
-          hasPersonalData: !!lead?.personalData,
-          hasAddresses: !!lead?.personalData?.addresses,
-          addressesLength: lead?.personalData?.addresses?.length || 0,
-          hasLocation: !!lead?.personalData?.addresses?.[0]?.location,
-          locationName: lead?.personalData?.addresses?.[0]?.location?.name,
-          hasMunicipality: !!lead?.personalData?.addresses?.[0]?.location?.municipality,
-          hasState: !!lead?.personalData?.addresses?.[0]?.location?.municipality?.state,
-          stateName: lead?.personalData?.addresses?.[0]?.location?.municipality?.state?.name,
-          leadName: lead?.personalData?.fullName,
-          hasRoutes: !!lead?.routes,
-          routesType: typeof lead?.routes,
-          routesIsArray: Array.isArray(lead?.routes),
-          routesLength: Array.isArray(lead?.routes) ? lead.routes.length : 0,
-          routesData: lead?.routes,
-          routeName: Array.isArray(lead?.routes) ? lead?.routes?.[0]?.name : (lead?.routes as any)?.name
-        });
-        
-        // Obtener localidad y estado
-        if (lead?.personalData?.addresses?.[0]?.location?.name) {
-          localityName = lead.personalData.addresses[0].location.name;
-          stateName = lead.personalData.addresses[0].location.municipality?.state?.name || 'Sin estado';
-        }
-        
-        // Obtener nombre del líder
-        if (lead?.personalData?.fullName) {
-          leaderName = lead.personalData.fullName;
-        }
-        
-        // Obtener nombre de la ruta (igual que en documentos-personales.tsx)
-        // La ruta puede ser un array o un objeto directo
-        if (lead?.routes) {
-          if (Array.isArray(lead.routes) && lead.routes.length > 0) {
-            routeName = lead.routes[0].name;
-          } else if (typeof lead.routes === 'object' && 'name' in lead.routes) {
-            routeName = (lead.routes as any).name;
-          }
-        }
-        
-        console.log('📍 [DocumentPhoto.afterOperation] información final', { 
-          localityName, 
-          stateName, 
-          leaderName, 
-          routeName 
-        });
-
-        // Calcular semana (igual que en documentos-personales.tsx)
-        const getWeekStart = (date: Date) => {
-          const d = new Date(date);
-          const day = d.getDay();
-          const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Lunes
-          d.setDate(diff);
-          d.setHours(0, 0, 0, 0);
-          return d;
-        };
-        const getWeekEnd = (date: Date) => {
-          const start = getWeekStart(date);
-          const end = new Date(start);
-          end.setDate(start.getDate() + 6); // Domingo
-          end.setHours(23, 59, 59, 999);
-          return end;
-        };
-        
-        // Usar signDate del préstamo como base para calcular la semana
-        const baseDate = document.loan?.signDate || document.createdAt || new Date();
-        const weekStart = getWeekStart(new Date(baseDate));
-        const weekEnd = getWeekEnd(new Date(baseDate));
-        
-        console.log('📅 [DocumentPhoto.afterOperation] calculando semana', {
-          baseDate: baseDate.toISOString(),
-          weekStart: weekStart.toISOString(),
-          weekEnd: weekEnd.toISOString(),
-          weekLabel: `${weekStart.toLocaleDateString('es-ES')} - ${weekEnd.toLocaleDateString('es-ES')}`
-        });
-
-        // Resolver líder y su Telegram
-        // Obtener routeId de la ruta del líder
-        let routeId = null;
-        
-        // Intentar obtener routeId de diferentes maneras
-        if (lead?.routes) {
-          if (Array.isArray(lead.routes) && lead.routes.length > 0) {
-            routeId = lead.routes[0].id;
-          } else if (typeof lead.routes === 'object' && 'id' in lead.routes) {
-            routeId = (lead.routes as any).id;
-          }
-        }
-        
-        // Fallback a otras opciones si no se encontró
-        if (!routeId) {
-          routeId = document.loan?.snapshotRouteId || document.loan?.transactions?.[0]?.routeId || null;
-        }
-        
-        console.log('🛣️ [DocumentPhoto.afterOperation] routeId obtenido', { 
-          routeId,
-          leadRoutes: lead?.routes,
-          snapshotRouteId: document.loan?.snapshotRouteId
-        });
-        
-        if (!routeId) {
-          console.log('⚠️ [DocumentPhoto.afterOperation] no se pudo determinar routeId del préstamo');
-          return;
-        }
-        // DEBUG: Buscar todos los empleados de tipo ROUTE_LEAD para debug
-        const allRouteLeads = await prisma.employee.findMany({
-          where: { type: 'ROUTE_LEAD' },
-          include: { 
-            user: true,
-            routes: true,
-            personalData: true
-          }
-        });
-        
-        console.log('🔍 [DocumentPhoto.afterOperation] DEBUG - Todos los ROUTE_LEAD encontrados:', {
-          total: allRouteLeads.length,
-          routeLeads: allRouteLeads.map(rl => ({
-            id: rl.id,
-            name: rl.personalData?.fullName,
-            userId: rl.userId,
-            hasUser: !!rl.user,
-            routes: Array.isArray(rl.routes) ? rl.routes.map(r => ({ id: r.id, name: r.name })) : []
-          }))
-        });
-        
-        // DEBUG: Buscar específicamente por la ruta
-        const routeLeadsForRoute = await prisma.employee.findMany({
-          where: { 
-            type: 'ROUTE_LEAD',
-            routes: { id: routeId }
-          },
-          include: { 
-            user: true,
-            routes: true,
-            personalData: true
-          }
-        });
-        
-        console.log('🔍 [DocumentPhoto.afterOperation] DEBUG - ROUTE_LEAD para ruta específica:', {
-          routeId,
-          found: routeLeadsForRoute.length,
-          routeLeads: routeLeadsForRoute.map(rl => ({
-            id: rl.id,
-            name: rl.personalData?.fullName,
-            userId: rl.userId,
-            hasUser: !!rl.user,
-            routes: Array.isArray(rl.routes) ? rl.routes.map(r => ({ id: r.id, name: r.name })) : []
-          }))
-        });
-        
-        // Priorizar empleados que tienen usuario asignado
-        const routeLeadWithUser = routeLeadsForRoute.find(rl => rl.userId);
-        const routeLead = routeLeadWithUser || routeLeadsForRoute[0];
-        
-        if (!routeLead || !routeLead.userId) {
-          console.log('❌ [DocumentPhoto.afterOperation] no se encontró ROUTE_LEAD para la ruta', { 
-            routeId,
-            allRouteLeadsCount: allRouteLeads.length,
-            routeLeadsForRouteCount: routeLeadsForRoute.length
-          });
-          return;
-        }
-        const telegramUser = await prisma.telegramUser.findFirst({
-          where: { platformUserId: routeLead.userId, isActive: true }
-        });
-        if (!telegramUser?.chatId) {
-          console.log('⚠️ [DocumentPhoto.afterOperation] líder sin Telegram activo', { userId: routeLead.userId });
-          return;
-        }
-
-        // Construir mensaje según el tipo de problema
-        let title = '';
-        let issueType = '';
-        let caption = '';
-        
-        // Obtener información del crédito y determinar si es cliente o aval
-        const borrowerName = document.loan?.borrower?.personalData?.fullName || 'Sin nombre';
-        const documentPersonName = document.personalData?.fullName || 'Sin nombre';
-        const isBorrower = document.personalData?.id === document.loan?.borrower?.personalData?.id;
-        const personType = isBorrower ? 'CLIENTE' : 'AVAL';
-        const docType = String(document.documentType).toUpperCase();
-        const weekLabel = `${weekStart.toLocaleDateString('es-ES')} - ${weekEnd.toLocaleDateString('es-ES')}`;
-        
-
-        if (isErrored) {
-          // Notificación de documento con error
-          title = '🔴 Documento con ERROR';
-          issueType = 'ERROR';
-          const errorDesc = (document.errorDescription || '').trim();
-          caption = (
-            `${title}\n\n` +
-            `• Crédito de: ${borrowerName}\n` +
-            `• Documento: ${docType}-${personType}\n` +
-            `• Persona: ${documentPersonName}\n` +
-            `• Líder: ${leaderName}\n` +
-            `• Ruta: ${routeName}\n` +
-            `• Localidad: ${localityName}\n` +
-            `• Estado: ${stateName}\n` +
-            `• Semana: ${weekLabel}\n` +
-            (errorDesc ? `• Descripción del error: ${errorDesc}` : '• Sin descripción de error')
-          );
-        } else if (isMissing) {
-          // Notificación de documento faltante
-          title = '🟠 Documento FALTANTE';
-          issueType = 'MISSING';
-          caption = (
-            `${title}\n\n` +
-            `• Crédito de: ${borrowerName}\n` +
-            `• Documento: ${docType}-${personType}\n` +
-            `• Persona: ${documentPersonName}\n` +
-            `• Líder: ${leaderName}\n` +
-            `• Ruta: ${routeName}\n` +
-            `• Localidad: ${localityName}\n` +
-            `• Estado: ${stateName}\n` +
-            `• Semana: ${weekLabel}\n` +
-            `• Situación: Documento marcado como faltante`
-          );
-        }
-
-        // Verificar que se construyó el mensaje correctamente
-        if (!caption) {
-          console.log('⚠️ [DocumentPhoto.afterOperation] No se pudo construir el mensaje');
-          return;
-        }
-
-        const { TelegramService } = require('./admin/services/telegramService');
-        const botToken = process.env.TELEGRAM_BOT_TOKEN;
-        if (!botToken) {
-          console.log('❌ [DocumentPhoto.afterOperation] TELEGRAM_BOT_TOKEN no configurado');
-          return;
-        }
-        const service = new TelegramService({ botToken, chatId: telegramUser.chatId });
-
-        // Crear log de notificación usando el sistema unificado
-        const { NotificationLogService } = require('./admin/services/notificationLogService');
-        const logService = new NotificationLogService(context);
-        
-        const startTime = Date.now();
-        let logId: string | null = null;
+        // Usar el nuevo servicio de notificaciones
+        const { sendDocumentIssueNotification } = require('./admin/services/documentNotificationService');
         
         try {
-          // Crear log inicial
-          const initialLog = await logService.createLog({
-            documentId: document.id,
-            issueType: issueType as 'ERROR' | 'MISSING',
-            status: 'ERROR', // Temporal, se actualizará
-            description: caption,
-            notes: 'Iniciando envío de notificación de documento'
+          const issueType = isErrored ? 'ERROR' : 'MISSING';
+          const description = isErrored ? item?.errorDescription : undefined;
+          
+          console.log('📤 [DocumentPhoto.afterOperation] enviando notificación usando nuevo servicio', {
+            documentId: item.id,
+            issueType,
+            description
           });
-          logId = initialLog.id;
           
-          console.log('📤 [DocumentPhoto.afterOperation] enviando Telegram', {
-            chatId: telegramUser.chatId,
-            length: caption.length,
-            preview: caption.slice(0, 120)
-          });
-
-          // Enviar SIEMPRE como mensaje sin adjuntar foto por URL
-          const sendStartTime = Date.now();
-          const resp = await service.sendHtmlMessage(telegramUser.chatId, caption);
-          const responseTime = Date.now() - sendStartTime;
+          const result = await sendDocumentIssueNotification.resolve(
+            null,
+            { 
+              documentId: item.id, 
+              issueType, 
+              description 
+            },
+            context
+          );
           
-          console.log('✅ [DocumentPhoto.afterOperation] Telegram respuesta', resp);
-          
-          if (resp.ok) {
-            await logService.updateLog(logId, {
-              status: 'SENT',
-              sentAt: new Date(),
-              responseTimeMs: responseTime,
-              notes: `Notificación de documento enviada exitosamente (${issueType})`
-            });
-            console.log(`✅ [DocumentPhoto.afterOperation] Telegram enviado (${issueType}): ${document.id}`);
-          } else {
-            await logService.updateLog(logId, {
-              status: 'FAILED',
-              sentAt: new Date(),
-              responseTimeMs: responseTime,
-              telegramResponse: JSON.stringify(resp),
-              notes: `Error enviando notificación de documento (${issueType})`
-            });
-            console.log(`❌ [DocumentPhoto.afterOperation] Error enviando Telegram (${issueType}): ${document.id}`);
-          }
+          console.log('✅ [DocumentPhoto.afterOperation] resultado del servicio:', result);
         } catch (error) {
-          console.error('❌ [DocumentPhoto.afterOperation] Error en notificación:', error);
-          if (logId) {
-            await logService.updateLog(logId, {
-              status: 'ERROR',
-              telegramErrorMessage: error.message,
-              responseTimeMs: Date.now() - startTime,
-              notes: `Error general en notificación: ${error.message}`
-            });
-          }
+          console.error('❌ [DocumentPhoto.afterOperation] Error en servicio de notificaciones:', error);
         }
-      } catch (e) {
-        console.error('❌ [DocumentPhoto.afterOperation] Error enviando Telegram:', e);
+      } catch (error) {
+        console.error('❌ [DocumentPhoto.afterOperation] Error general:', error);
       }
     }
+
   },
 });
 
 // Modelo para configuraciones de reportes automáticos
 export const ReportConfig = list({
   access: allowAll,
-  ui: { isHidden: true },
+  ui: { isHidden: false },
   graphql: {
     plural: 'ReportConfigs',
   },
@@ -2826,13 +2493,19 @@ export const ReportConfig = list({
     reportType: select({
       type: 'enum',
       options: [
-        { label: 'Créditos con Documentos con Error', value: 'creditos_con_errores' },
-        { label: 'Créditos Sin Documentos', value: 'creditos_sin_documentos' },
-        { label: 'Créditos Completos', value: 'creditos_completos' },
-        { label: 'Resumen Semanal de Cartera', value: 'resumen_semanal' },
-        { label: 'Reporte Financiero', value: 'reporte_financiero' }
+        { label: 'Notificación en Tiempo Real de Documentos con Error', value: 'notificacion_tiempo_real' },
+        { label: 'Reporte PDF de Créditos con Documentos con Error', value: 'creditos_con_errores' },
+        { label: 'Reporte PDF resumen semanal', value: 'resumen_semanal' }
       ],
       validation: { isRequired: true }
+    }),
+    routes: relationship({ 
+      ref: 'Route.reportConfigs',
+      many: true
+    }),
+    telegramUsers: relationship({ 
+      ref: 'TelegramUser.reportConfigs',
+      many: true
     }),
     schedule: json({
       defaultValue: {
@@ -2841,29 +2514,9 @@ export const ReportConfig = list({
         timezone: 'America/Mexico_City'
       }
     }),
-    routes: relationship({ 
-      ref: 'Route.reportConfigs',
-      many: true
-    }),
-    recipients: relationship({ 
-      ref: 'User.reportConfigRecipients',
-      many: true
-    }),
-
-    channel: select({
-      type: 'enum',
-      options: [
-        { label: 'Telegram', value: 'telegram' },
-        { label: 'Email', value: 'email' },
-        { label: 'WhatsApp', value: 'whatsapp' }
-      ],
-      validation: { isRequired: true }
-    }),
     isActive: checkbox({ defaultValue: true }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),
-    createdBy: relationship({ ref: 'User.reportConfigsCreated' }),
-    updatedBy: relationship({ ref: 'User.reportConfigsUpdated' }),
     
     // Logs de ejecución de este reporte
     executionLogs: relationship({ 
@@ -2898,9 +2551,36 @@ export const TelegramUser = list({
       ref: 'User.telegramUsers',
       many: false
     }),
-
+    reportConfigs: relationship({
+      ref: 'ReportConfig.telegramUsers',
+      many: true
+    }),
   },
   
+});
+
+// Modelo para configuración de notificaciones de documentos
+// Modelo para configuración de notificaciones
+export const NotificationConfig = list({
+  access: allowAll,
+  ui: { isHidden: false },
+  graphql: {
+    plural: 'NotificationConfigs',
+  },
+  fields: {
+    name: text({ validation: { isRequired: true } }),
+    isActive: checkbox({ defaultValue: true }),
+    sendErrorNotifications: checkbox({ defaultValue: true }),
+    sendMissingNotifications: checkbox({ defaultValue: true }),
+    errorNotificationMessage: text({
+      defaultValue: '🚨 <b>DOCUMENTO CON ERROR</b>\n\n📋 Tipo: {documentType}\n👤 Persona: {personName} ({personType})\n🏠 Localidad: {localityName}\n🛣️ Ruta: {routeName}\n👨‍💼 Líder: {routeLeadName}\n\n❌ <b>Descripción del Error:</b>\n{errorDescription}\n\n📅 Fecha: {date}\n\n🔗 <a href="{documentUrl}">Ver Documento</a>'
+    }),
+    missingNotificationMessage: text({
+      defaultValue: '📋 <b>DOCUMENTO FALTANTE</b>\n\n👤 Persona: {personName} ({personType})\n🏠 Localidad: {localityName}\n🛣️ Ruta: {routeName}\n👨‍💼 Líder: {routeLeadName}\n\n📅 Fecha: {date}\n\n🔗 <a href="{loanUrl}">Ver Préstamo</a>'
+    }),
+    createdAt: timestamp({ defaultValue: { kind: 'now' } }),
+    updatedAt: timestamp(),
+  },
 });
 
 // ✅ NUEVA TABLA: Logs de notificaciones de documentos

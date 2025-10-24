@@ -924,7 +924,7 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
               where: { isActive: true },
               include: {
                 routes: true,
-                recipients: true
+                telegramUsers: true
               }
             });
 
