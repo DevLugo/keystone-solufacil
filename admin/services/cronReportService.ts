@@ -88,7 +88,7 @@ interface ReportConfig {
   name: string;
   reportType: string;
   routes: any[];
-  recipients: any[];
+  telegramUsers: any[];
 }
 
 // Función para generar reporte de cobranza con semana anterior
@@ -614,71 +614,54 @@ export const processCronReport = async (
   try {
     console.log(`🚀 [CRON] Procesando reporte: ${reportConfig.name} (${reportConfig.reportType})`);
     
-    // Obtener usuarios de la plataforma que son destinatarios
-    const platformRecipients = await prisma.user.findMany({
-      where: {
-        id: { in: reportConfig.recipients?.map(r => r.id) || [] }
-      }
-    });
+    // Usar directamente los usuarios de Telegram
+    const telegramRecipients = reportConfig.telegramUsers || [];
     
-    console.log(`👥 [CRON] Encontrados ${platformRecipients.length} destinatarios de la plataforma`);
+    console.log(`👥 [CRON] Encontrados ${telegramRecipients.length} usuarios de Telegram`);
     
-    if (platformRecipients.length === 0) {
+    if (telegramRecipients.length === 0) {
       console.log(`⚠️ [CRON] No hay destinatarios configurados para el reporte ${reportConfig.name}`);
       return;
     }
     
-    // Buscar usuarios de Telegram activos para cada destinatario
+    // Enviar reporte directamente a los usuarios de Telegram
     let sentCount = 0;
     let errorCount = 0;
-    let usersWithoutTelegram = [];
     
-    for (const recipient of platformRecipients) {
+    for (const telegramUser of telegramRecipients) {
       try {
-        console.log(`👤 [CRON] Procesando destinatario: ${recipient.name} (${recipient.email})`);
+        console.log(`👤 [CRON] Procesando usuario de Telegram: ${telegramUser.name} (${telegramUser.chatId})`);
         
-        // Buscar si el usuario tiene Telegram configurado
-        const telegramUser = await prisma.telegramUser.findFirst({
-          where: {
-            platformUser: { id: recipient.id },
-            isActive: true
-          }
-        });
-        
-        if (telegramUser && telegramUser.isActive) {
-          console.log(`📱 [CRON] Enviando reporte a ${recipient.name} (${telegramUser.chatId})`);
+        if (telegramUser.isActive) {
+          console.log(`📱 [CRON] Enviando reporte a ${telegramUser.name} (${telegramUser.chatId})`);
           
           const sent = await sendCronReportToTelegram(
             telegramUser.chatId, 
             reportConfig.reportType,
             prisma,
             reportConfig,
-            recipient
+            telegramUser
           );
           
           if (sent) {
             sentCount++;
-            console.log(`✅ [CRON] Reporte enviado exitosamente a ${recipient.name}`);
+            console.log(`✅ [CRON] Reporte enviado exitosamente a ${telegramUser.name}`);
           } else {
             errorCount++;
-            console.log(`❌ [CRON] Error enviando reporte a ${recipient.name}`);
+            console.log(`❌ [CRON] Error enviando reporte a ${telegramUser.name}`);
           }
         } else {
-          usersWithoutTelegram.push(recipient.name);
-          console.log(`⚠️ [CRON] Usuario ${recipient.name} no tiene Telegram configurado`);
+          console.log(`⚠️ [CRON] Usuario de Telegram ${telegramUser.name} está inactivo`);
         }
         
       } catch (error) {
-        console.error(`❌ [CRON] Error procesando usuario ${recipient.name}:`, error);
+        console.error(`❌ [CRON] Error procesando usuario de Telegram ${telegramUser.name}:`, error);
         errorCount++;
       }
     }
     
     console.log(`📊 [CRON] Resumen del reporte ${reportConfig.name}: ${sentCount} exitosos, ${errorCount} fallidos`);
     
-    if (usersWithoutTelegram.length > 0) {
-      console.log(`⚠️ [CRON] Usuarios sin Telegram configurado: ${usersWithoutTelegram.join(', ')}`);
-    }
     
   } catch (error) {
     console.error(`❌ [CRON] Error procesando reporte ${reportConfig.name}:`, error);

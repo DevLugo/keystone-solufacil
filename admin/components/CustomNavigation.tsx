@@ -105,6 +105,11 @@ const menuSections: MenuSection[] = [
         roles: ['ADMIN']
       },
       {
+        label: 'Configuración de Notificaciones',
+        href: '/configuracion-notificaciones-documentos',
+        roles: ['ADMIN']
+      },
+      {
         label: 'Usuarios de Telegram',
         href: '/telegram-users-admin',
         roles: ['ADMIN']

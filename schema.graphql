@@ -11,12 +11,6 @@ type User {
   portfolioCleanupsCount(where: PortfolioCleanupWhereInput! = {}): Int
   documentPhotos(where: DocumentPhotoWhereInput! = {}, orderBy: [DocumentPhotoOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: DocumentPhotoWhereUniqueInput): [DocumentPhoto!]
   documentPhotosCount(where: DocumentPhotoWhereInput! = {}): Int
-  reportConfigsCreated(where: ReportConfigWhereInput! = {}, orderBy: [ReportConfigOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ReportConfigWhereUniqueInput): [ReportConfig!]
-  reportConfigsCreatedCount(where: ReportConfigWhereInput! = {}): Int
-  reportConfigsUpdated(where: ReportConfigWhereInput! = {}, orderBy: [ReportConfigOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ReportConfigWhereUniqueInput): [ReportConfig!]
-  reportConfigsUpdatedCount(where: ReportConfigWhereInput! = {}): Int
-  reportConfigRecipients(where: ReportConfigWhereInput! = {}, orderBy: [ReportConfigOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ReportConfigWhereUniqueInput): [ReportConfig!]
-  reportConfigRecipientsCount(where: ReportConfigWhereInput! = {}): Int
   telegramUsers(where: TelegramUserWhereInput! = {}, orderBy: [TelegramUserOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TelegramUserWhereUniqueInput): [TelegramUser!]
   telegramUsersCount(where: TelegramUserWhereInput! = {}): Int
   employee: Employee
@@ -47,9 +41,6 @@ input UserWhereInput {
   role: StringNullableFilter
   portfolioCleanups: PortfolioCleanupManyRelationFilter
   documentPhotos: DocumentPhotoManyRelationFilter
-  reportConfigsCreated: ReportConfigManyRelationFilter
-  reportConfigsUpdated: ReportConfigManyRelationFilter
-  reportConfigRecipients: ReportConfigManyRelationFilter
   telegramUsers: TelegramUserManyRelationFilter
   employee: EmployeeWhereInput
   createdAt: DateTimeNullableFilter
@@ -131,12 +122,6 @@ input DocumentPhotoManyRelationFilter {
   none: DocumentPhotoWhereInput
 }
 
-input ReportConfigManyRelationFilter {
-  every: ReportConfigWhereInput
-  some: ReportConfigWhereInput
-  none: ReportConfigWhereInput
-}
-
 input TelegramUserManyRelationFilter {
   every: TelegramUserWhereInput
   some: TelegramUserWhereInput
@@ -174,9 +159,6 @@ input UserUpdateInput {
   role: String
   portfolioCleanups: PortfolioCleanupRelateToManyForUpdateInput
   documentPhotos: DocumentPhotoRelateToManyForUpdateInput
-  reportConfigsCreated: ReportConfigRelateToManyForUpdateInput
-  reportConfigsUpdated: ReportConfigRelateToManyForUpdateInput
-  reportConfigRecipients: ReportConfigRelateToManyForUpdateInput
   telegramUsers: TelegramUserRelateToManyForUpdateInput
   employee: EmployeeRelateToOneForUpdateInput
   createdAt: DateTime
@@ -194,13 +176,6 @@ input DocumentPhotoRelateToManyForUpdateInput {
   set: [DocumentPhotoWhereUniqueInput!]
   create: [DocumentPhotoCreateInput!]
   connect: [DocumentPhotoWhereUniqueInput!]
-}
-
-input ReportConfigRelateToManyForUpdateInput {
-  disconnect: [ReportConfigWhereUniqueInput!]
-  set: [ReportConfigWhereUniqueInput!]
-  create: [ReportConfigCreateInput!]
-  connect: [ReportConfigWhereUniqueInput!]
 }
 
 input TelegramUserRelateToManyForUpdateInput {
@@ -228,9 +203,6 @@ input UserCreateInput {
   role: String
   portfolioCleanups: PortfolioCleanupRelateToManyForCreateInput
   documentPhotos: DocumentPhotoRelateToManyForCreateInput
-  reportConfigsCreated: ReportConfigRelateToManyForCreateInput
-  reportConfigsUpdated: ReportConfigRelateToManyForCreateInput
-  reportConfigRecipients: ReportConfigRelateToManyForCreateInput
   telegramUsers: TelegramUserRelateToManyForCreateInput
   employee: EmployeeRelateToOneForCreateInput
   createdAt: DateTime
@@ -244,11 +216,6 @@ input PortfolioCleanupRelateToManyForCreateInput {
 input DocumentPhotoRelateToManyForCreateInput {
   create: [DocumentPhotoCreateInput!]
   connect: [DocumentPhotoWhereUniqueInput!]
-}
-
-input ReportConfigRelateToManyForCreateInput {
-  create: [ReportConfigCreateInput!]
-  connect: [ReportConfigWhereUniqueInput!]
 }
 
 input TelegramUserRelateToManyForCreateInput {
@@ -504,6 +471,12 @@ input AccountManyRelationFilter {
   none: AccountWhereInput
 }
 
+input ReportConfigManyRelationFilter {
+  every: ReportConfigWhereInput
+  some: ReportConfigWhereInput
+  none: ReportConfigWhereInput
+}
+
 input RouteOrderByInput {
   id: OrderDirection
   name: OrderDirection
@@ -540,6 +513,13 @@ input AccountRelateToManyForUpdateInput {
   connect: [AccountWhereUniqueInput!]
 }
 
+input ReportConfigRelateToManyForUpdateInput {
+  disconnect: [ReportConfigWhereUniqueInput!]
+  set: [ReportConfigWhereUniqueInput!]
+  create: [ReportConfigCreateInput!]
+  connect: [ReportConfigWhereUniqueInput!]
+}
+
 input RouteUpdateArgs {
   where: RouteWhereUniqueInput!
   data: RouteUpdateInput!
@@ -568,6 +548,11 @@ input LocationRelateToManyForCreateInput {
 input AccountRelateToManyForCreateInput {
   create: [AccountCreateInput!]
   connect: [AccountWhereUniqueInput!]
+}
+
+input ReportConfigRelateToManyForCreateInput {
+  create: [ReportConfigCreateInput!]
+  connect: [ReportConfigWhereUniqueInput!]
 }
 
 type Location {
@@ -2416,33 +2401,22 @@ type ReportConfig {
   id: ID!
   name: String
   reportType: ReportConfigReportTypeType
-  schedule: JSON
   routes(where: RouteWhereInput! = {}, orderBy: [RouteOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: RouteWhereUniqueInput): [Route!]
   routesCount(where: RouteWhereInput! = {}): Int
-  recipients(where: UserWhereInput! = {}, orderBy: [UserOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: UserWhereUniqueInput): [User!]
-  recipientsCount(where: UserWhereInput! = {}): Int
-  channel: ReportConfigChannelType
+  telegramUsers(where: TelegramUserWhereInput! = {}, orderBy: [TelegramUserOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TelegramUserWhereUniqueInput): [TelegramUser!]
+  telegramUsersCount(where: TelegramUserWhereInput! = {}): Int
+  schedule: JSON
   isActive: Boolean
   createdAt: DateTime
   updatedAt: DateTime
-  createdBy: User
-  updatedBy: User
   executionLogs(where: ReportExecutionLogWhereInput! = {}, orderBy: [ReportExecutionLogOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ReportExecutionLogWhereUniqueInput): [ReportExecutionLog!]
   executionLogsCount(where: ReportExecutionLogWhereInput! = {}): Int
 }
 
 enum ReportConfigReportTypeType {
+  notificacion_tiempo_real
   creditos_con_errores
-  creditos_sin_documentos
-  creditos_completos
   resumen_semanal
-  reporte_financiero
-}
-
-enum ReportConfigChannelType {
-  telegram
-  email
-  whatsapp
 }
 
 input ReportConfigWhereUniqueInput {
@@ -2457,13 +2431,10 @@ input ReportConfigWhereInput {
   name: StringFilter
   reportType: ReportConfigReportTypeTypeNullableFilter
   routes: RouteManyRelationFilter
-  recipients: UserManyRelationFilter
-  channel: ReportConfigChannelTypeNullableFilter
+  telegramUsers: TelegramUserManyRelationFilter
   isActive: BooleanFilter
   createdAt: DateTimeNullableFilter
   updatedAt: DateTimeNullableFilter
-  createdBy: UserWhereInput
-  updatedBy: UserWhereInput
   executionLogs: ReportExecutionLogManyRelationFilter
 }
 
@@ -2472,19 +2443,6 @@ input ReportConfigReportTypeTypeNullableFilter {
   in: [ReportConfigReportTypeType!]
   notIn: [ReportConfigReportTypeType!]
   not: ReportConfigReportTypeTypeNullableFilter
-}
-
-input UserManyRelationFilter {
-  every: UserWhereInput
-  some: UserWhereInput
-  none: UserWhereInput
-}
-
-input ReportConfigChannelTypeNullableFilter {
-  equals: ReportConfigChannelType
-  in: [ReportConfigChannelType!]
-  notIn: [ReportConfigChannelType!]
-  not: ReportConfigChannelTypeNullableFilter
 }
 
 input ReportExecutionLogManyRelationFilter {
@@ -2497,7 +2455,6 @@ input ReportConfigOrderByInput {
   id: OrderDirection
   name: OrderDirection
   reportType: OrderDirection
-  channel: OrderDirection
   isActive: OrderDirection
   createdAt: OrderDirection
   updatedAt: OrderDirection
@@ -2506,23 +2463,13 @@ input ReportConfigOrderByInput {
 input ReportConfigUpdateInput {
   name: String
   reportType: ReportConfigReportTypeType
-  schedule: JSON
   routes: RouteRelateToManyForUpdateInput
-  recipients: UserRelateToManyForUpdateInput
-  channel: ReportConfigChannelType
+  telegramUsers: TelegramUserRelateToManyForUpdateInput
+  schedule: JSON
   isActive: Boolean
   createdAt: DateTime
   updatedAt: DateTime
-  createdBy: UserRelateToOneForUpdateInput
-  updatedBy: UserRelateToOneForUpdateInput
   executionLogs: ReportExecutionLogRelateToManyForUpdateInput
-}
-
-input UserRelateToManyForUpdateInput {
-  disconnect: [UserWhereUniqueInput!]
-  set: [UserWhereUniqueInput!]
-  create: [UserCreateInput!]
-  connect: [UserWhereUniqueInput!]
 }
 
 input ReportExecutionLogRelateToManyForUpdateInput {
@@ -2540,21 +2487,13 @@ input ReportConfigUpdateArgs {
 input ReportConfigCreateInput {
   name: String
   reportType: ReportConfigReportTypeType
-  schedule: JSON
   routes: RouteRelateToManyForCreateInput
-  recipients: UserRelateToManyForCreateInput
-  channel: ReportConfigChannelType
+  telegramUsers: TelegramUserRelateToManyForCreateInput
+  schedule: JSON
   isActive: Boolean
   createdAt: DateTime
   updatedAt: DateTime
-  createdBy: UserRelateToOneForCreateInput
-  updatedBy: UserRelateToOneForCreateInput
   executionLogs: ReportExecutionLogRelateToManyForCreateInput
-}
-
-input UserRelateToManyForCreateInput {
-  create: [UserCreateInput!]
-  connect: [UserWhereUniqueInput!]
 }
 
 input ReportExecutionLogRelateToManyForCreateInput {
@@ -2574,6 +2513,8 @@ type TelegramUser {
   isInRecipientsList: Boolean
   notes: String
   platformUser: User
+  reportConfigs(where: ReportConfigWhereInput! = {}, orderBy: [ReportConfigOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ReportConfigWhereUniqueInput): [ReportConfig!]
+  reportConfigsCount(where: ReportConfigWhereInput! = {}): Int
 }
 
 input TelegramUserWhereUniqueInput {
@@ -2596,6 +2537,7 @@ input TelegramUserWhereInput {
   isInRecipientsList: BooleanFilter
   notes: StringFilter
   platformUser: UserWhereInput
+  reportConfigs: ReportConfigManyRelationFilter
 }
 
 input TelegramUserOrderByInput {
@@ -2622,6 +2564,7 @@ input TelegramUserUpdateInput {
   isInRecipientsList: Boolean
   notes: String
   platformUser: UserRelateToOneForUpdateInput
+  reportConfigs: ReportConfigRelateToManyForUpdateInput
 }
 
 input TelegramUserUpdateArgs {
@@ -2640,6 +2583,7 @@ input TelegramUserCreateInput {
   isInRecipientsList: Boolean
   notes: String
   platformUser: UserRelateToOneForCreateInput
+  reportConfigs: ReportConfigRelateToManyForCreateInput
 }
 
 type DocumentNotificationLog {

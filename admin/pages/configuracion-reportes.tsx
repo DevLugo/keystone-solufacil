@@ -59,7 +59,7 @@ const CustomSelect = ({ value, onChange, options, placeholder, isMulti = false }
       value={isMulti ? undefined : value}
       onChange={(e) => {
         if (isMulti) {
-          const selectedOptions = Array.from(e.target.selectedOptions).map(option => option.value);
+          const selectedOptions = Array.from(e.target.selectedOptions).map(option => ({ value: option.value, label: option.text }));
           onChange(selectedOptions);
         } else {
           onChange({ value: e.target.value });
@@ -81,7 +81,7 @@ const CustomSelect = ({ value, onChange, options, placeholder, isMulti = false }
         <option 
           key={option.value} 
           value={option.value}
-          defaultSelected={isMulti ? (Array.isArray(value) ? value.includes(option.value) : false) : value === option.value}
+          defaultSelected={isMulti ? (Array.isArray(value) ? value.some(v => v.value === option.value) : false) : value === option.value}
         >
           {option.label}
         </option>
@@ -92,11 +92,8 @@ const CustomSelect = ({ value, onChange, options, placeholder, isMulti = false }
 
 // Tipos de reportes disponibles
 const REPORT_TYPES = [
-  { value: 'creditos_con_errores', label: 'Créditos con Documentos con Error' },
-  { value: 'creditos_sin_documentos', label: 'Créditos Sin Documentos' },
-  { value: 'creditos_completos', label: 'Créditos Completos' },
-  { value: 'resumen_semanal', label: 'Resumen Semanal de Cartera' },
-  { value: 'reporte_financiero', label: 'Reporte Financiero' }
+  { value: 'notificacion_tiempo_real', label: 'Notificación en Tiempo Real de Documentos con Error' },
+  { value: 'creditos_con_errores', label: 'Reporte PDF de Créditos con Documentos con Error' }
 ];
 
 // Días de la semana
@@ -116,12 +113,6 @@ const HOURS = Array.from({ length: 24 }, (_, i) => ({
   label: `${i.toString().padStart(2, '0')}:00`
 }));
 
-// Canales de envío
-const CHANNELS = [
-  { value: 'telegram', label: 'Telegram', icon: FaTelegram },
-  { value: 'email', label: 'Email', icon: FaTelegram },
-  { value: 'whatsapp', label: 'WhatsApp', icon: FaTelegram }
-];
 
 // Query para obtener rutas
 const GET_ROUTES = gql`
@@ -152,18 +143,18 @@ const GET_REPORT_CONFIGS = gql`
       id
       name
       reportType
-      schedule
       routes {
         id
         name
       }
-      recipients {
+      telegramUsers {
         id
+        chatId
         name
-        email
+        username
+        isActive
       }
-
-      channel
+      schedule
       isActive
       createdAt
     }
@@ -195,17 +186,18 @@ const CREATE_REPORT_CONFIG = gql`
       id
       name
       reportType
-      schedule
       routes {
         id
         name
       }
-      recipients {
+      telegramUsers {
         id
+        chatId
         name
-        email
+        username
+        isActive
       }
-      channel
+      schedule
       isActive
       createdAt
     }
@@ -219,17 +211,18 @@ const UPDATE_REPORT_CONFIG = gql`
       id
       name
       reportType
-      schedule
       routes {
         id
         name
       }
-      recipients {
+      telegramUsers {
         id
+        chatId
         name
-        email
+        username
+        isActive
       }
-      channel
+      schedule
       isActive
       updatedAt
     }
@@ -245,7 +238,7 @@ const DELETE_REPORT_CONFIG = gql`
   }
 `;
 
-// Mutation para simular envío de reporte
+// Mutation para enviar reporte ahora
 const SEND_REPORT_NOW = gql`
   mutation SendReportNow($configId: ID!) {
     updateReportConfig(
@@ -255,13 +248,18 @@ const SEND_REPORT_NOW = gql`
       id
       name
       reportType
-      channel
-      isActive
-      telegramRecipients {
+      routes {
+        id
+        name
+      }
+      telegramUsers {
         id
         chatId
         name
+        isActive
       }
+      schedule
+      isActive
     }
   }
 `;
@@ -306,9 +304,8 @@ interface ReportConfig {
   reportType: string;
   schedule: any; // JSON object with days, hour, timezone
   routes: Route[];
-  recipients: User[];
+  telegramUsers: TelegramUser[];
 
-  channel: string;
   isActive: boolean;
   createdAt: string;
 }
@@ -323,14 +320,13 @@ interface TelegramUser {
 interface ReportConfigForm {
   name: string;
   reportType: string;
+  routes: { value: string; label: string }[];
+  telegramUsers: { value: string; label: string }[];
   schedule: {
     days: string[];
     hour: string;
     timezone: string;
   };
-  routes: string[];
-  recipients: string[];
-  channel: string;
   isActive: boolean;
 }
 
@@ -376,15 +372,14 @@ export default function ConfiguracionReportesPage() {
   
   const [formData, setFormData] = useState<ReportConfigForm>({
     name: '',
-    reportType: 'creditos_con_errores', // Valor por defecto
+    reportType: 'notificacion_tiempo_real', // Valor por defecto
+    routes: [],
+    telegramUsers: [],
     schedule: {
       days: [],
       hour: '09',
       timezone: 'America/Mexico_City'
     },
-    routes: [],
-    recipients: [],
-    channel: 'telegram',
     isActive: true
   });
 
@@ -407,6 +402,11 @@ export default function ConfiguracionReportesPage() {
   const routes = routesData?.routes || [];
   const users = usersData?.users || [];
   const configs = configsData?.reportConfigs || [];
+  
+  // 🔍 DEBUG: Logs para verificar datos de las queries
+  console.log('🔍 DEBUG: Routes from GraphQL:', routes);
+  console.log('🔍 DEBUG: TelegramUsers from GraphQL:', telegramUsersData?.telegramUsers || []);
+  console.log('🔍 DEBUG: Users from GraphQL:', users);
 
   // Función para manejar cambios en el formulario
   const handleFormChange = (field: string, value: any) => {
@@ -452,25 +452,27 @@ export default function ConfiguracionReportesPage() {
       alert('Debe seleccionar al menos una ruta');
       return;
     }
-    if (formData.recipients.length === 0) {
-      alert('Debe seleccionar al menos un destinatario');
-      return;
-    }
-    if (formData.schedule.days.length === 0) {
-      alert('Debe seleccionar al menos un día de envío');
+    if (formData.telegramUsers.length === 0) {
+      alert('Debe seleccionar al menos un usuario de Telegram');
       return;
     }
 
     try {
+      // 🔍 DEBUG: Logs para diagnosticar el problema
+      console.log('🔍 DEBUG: FormData completo:', formData);
+      console.log('🔍 DEBUG: Routes IDs being sent:', formData.routes.map(route => route.value));
+      console.log('🔍 DEBUG: TelegramUsers IDs being sent:', formData.telegramUsers.map(user => user.value));
+      console.log('🔍 DEBUG: Routes data structure:', formData.routes);
+      console.log('🔍 DEBUG: TelegramUsers data structure:', formData.telegramUsers);
+      
       const result = await createReportConfig({
         variables: {
           data: {
             name: formData.name,
             reportType: formData.reportType,
+            routes: { connect: formData.routes.map(route => ({ id: route.value })) },
+            telegramUsers: { connect: formData.telegramUsers.map(user => ({ id: user.value })) },
             schedule: formData.schedule,
-            routes: { connect: formData.routes.map(id => ({ id })) },
-            recipients: { connect: formData.recipients.map(id => ({ id })) },
-            channel: formData.channel,
             isActive: formData.isActive
           }
         }
@@ -518,14 +520,16 @@ export default function ConfiguracionReportesPage() {
       alert('Debe seleccionar al menos una ruta');
       return;
     }
-    if (formData.recipients.length === 0) {
-      alert('Debe seleccionar al menos un destinatario');
+    if (formData.telegramUsers.length === 0) {
+      alert('Debe seleccionar al menos un usuario de Telegram');
       return;
     }
-    if (formData.schedule.days.length === 0) {
-      alert('Debe seleccionar al menos un día de envío');
-      return;
-    }
+
+    console.log('🔍 DEBUG: FormData antes de actualizar:', formData);
+    console.log('🔍 DEBUG: Routes IDs:', formData.routes.map(route => route.value));
+    console.log('🔍 DEBUG: TelegramUsers IDs:', formData.telegramUsers.map(user => user.value));
+    console.log('🔍 DEBUG: Routes data structure (update):', formData.routes);
+    console.log('🔍 DEBUG: TelegramUsers data structure (update):', formData.telegramUsers);
 
     try {
       const result = await updateReportConfig({
@@ -534,10 +538,9 @@ export default function ConfiguracionReportesPage() {
           data: {
             name: formData.name,
             reportType: formData.reportType,
+            routes: { connect: formData.routes.map(route => ({ id: route.value })) },
+            telegramUsers: { connect: formData.telegramUsers.map(user => ({ id: user.value })) },
             schedule: formData.schedule,
-            routes: { connect: formData.routes.map(id => ({ id })) },
-            recipients: { connect: formData.recipients.map(id => ({ id })) },
-            channel: formData.channel,
             isActive: formData.isActive
           }
         }
@@ -872,7 +875,7 @@ export default function ConfiguracionReportesPage() {
       const recipientName = recipient?.name || 'Usuario Desconocido';
       const recipientEmail = recipient?.email || 'unknown@example.com';
       
-      // Para créditos con errores, usar PDF
+      // Para reporte PDF de créditos con errores
       if (reportType === 'creditos_con_errores') {
         const result = await sendReportWithPDF({
           variables: { 
@@ -888,8 +891,25 @@ export default function ConfiguracionReportesPage() {
         });
         
         return result.data?.sendReportWithPDF?.includes('✅') || false;
+      } else if (reportType === 'notificacion_tiempo_real') {
+        // Para notificaciones en tiempo real, enviar mensaje informativo
+        const message = `🔔 <b>CONFIGURACIÓN DE NOTIFICACIONES EN TIEMPO REAL</b>\n\n✅ Las notificaciones automáticas están activas\n📱 Recibirás alertas cuando se marquen documentos con error\n🛠️ Configuración: Administración → Configuración de Notificaciones\n\n📅 Configurado: ${new Date().toLocaleString('es-ES')}`;
+        
+        const result = await sendTestTelegram({
+          variables: { 
+            chatId, 
+            message,
+            reportConfigId,
+            reportConfigName,
+            recipientUserId,
+            recipientName,
+            recipientEmail
+          }
+        });
+        
+        return result.data?.sendTestTelegramMessage?.includes('✅') || false;
       } else {
-        // Para otros tipos, usar mensaje de texto
+        // Para otros tipos, usar mensaje de texto genérico
         const message = `📊 <b>REPORTE AUTOMÁTICO</b>\n\nTipo: ${reportType}\nGenerado: ${new Date().toLocaleString('es-ES')}\n\n✅ Enviado desde Keystone Admin`;
         
         const result = await sendTestTelegram({
@@ -1238,15 +1258,27 @@ export default function ConfiguracionReportesPage() {
 
   // Función para editar configuración
   const handleEditConfig = (config: ReportConfig) => {
+    console.log('🔍 DEBUG: Configuración a editar:', config);
+    console.log('🔍 DEBUG: Routes:', config.routes);
+    console.log('🔍 DEBUG: TelegramUsers:', config.telegramUsers);
+    
     setEditingConfig(config);
     setFormData({
       name: config.name,
       reportType: config.reportType,
-      schedule: config.schedule,
-      routes: config.routes.map(r => r.id),
-      recipients: config.recipients.map(r => r.id),
-      channel: config.channel,
+      routes: config.routes?.map(r => ({ value: r.id, label: r.name })) || [],
+      telegramUsers: config.telegramUsers?.map(u => ({ value: u.id, label: u.name })) || [],
+      schedule: config.schedule || {
+        days: [],
+        hour: '09',
+        timezone: 'America/Mexico_City'
+      },
       isActive: config.isActive
+    });
+    
+    console.log('🔍 DEBUG: FormData después de mapear:', {
+      routes: config.routes?.map(r => ({ value: r.id, label: r.name })) || [],
+      telegramUsers: config.telegramUsers?.map(u => ({ value: u.id, label: u.name })) || []
     });
     // No cambiar showForm para edición, solo editingConfig
   };
@@ -1262,15 +1294,14 @@ export default function ConfiguracionReportesPage() {
   const resetForm = () => {
     setFormData({
       name: '',
-      reportType: 'creditos_con_errores', // Valor por defecto
+      reportType: 'notificacion_tiempo_real', // Valor por defecto
+      routes: [],
+      telegramUsers: [],
       schedule: {
         days: [],
         hour: '09',
         timezone: 'America/Mexico_City'
       },
-      routes: [],
-      recipients: [],
-      channel: 'telegram',
       isActive: true
     });
   };
@@ -1280,9 +1311,6 @@ export default function ConfiguracionReportesPage() {
     return REPORT_TYPES.find(t => t.value === type)?.label || type;
   };
 
-  const getChannelLabel = (channel: string) => {
-    return CHANNELS.find(c => c.value === channel)?.label || channel;
-  };
 
   // Loading state
   if (routesLoading || usersLoading || configsLoading || telegramUsersLoading) {
@@ -1649,18 +1677,20 @@ export default function ConfiguracionReportesPage() {
                   </CustomBox>
                 </CustomBox>
 
-                {/* Hora de envío */}
-                <CustomBox>
-                  <Text weight="medium" size="small" color="black" marginBottom="small">
-                    Hora de Envío
-                  </Text>
-                  <TimePicker
-                    value={formData.schedule.hour}
-                    onChange={(time) => handleFormChange('schedule.hour', time)}
-                    placeholder="Selecciona la hora"
-                  />
+                {/* Hora de envío - Solo para reportes programados */}
+                {formData.reportType !== 'notificacion_tiempo_real' && (
+                  <CustomBox>
+                    <Text weight="medium" size="small" color="black" marginBottom="small">
+                      Hora de Envío
+                    </Text>
+                    <TimePicker
+                      value={formData.schedule.hour}
+                      onChange={(time) => handleFormChange('schedule.hour', time)}
+                      placeholder="Selecciona la hora"
+                      />
                 </CustomBox>
 
+                )}
                 {/* Rutas */}
                 <CustomBox>
                   <Text weight="medium" size="small" color="black" marginBottom="small">
@@ -1675,32 +1705,23 @@ export default function ConfiguracionReportesPage() {
                   />
                 </CustomBox>
 
-                {/* Destinatarios */}
+                {/* Usuarios de Telegram */}
                 <CustomBox>
                   <Text weight="medium" size="small" color="black" marginBottom="small">
-                    Destinatarios
+                    Usuarios de Telegram
                   </Text>
                   <CustomSelect
-                    value={formData.recipients}
-                    onChange={(options) => handleFormChange('recipients', options)}
-                    options={users.map(user => ({ value: user.id, label: `${user.name} (${user.email})` }))}
-                    placeholder="Selecciona los destinatarios"
+                    value={formData.telegramUsers}
+                    onChange={(options) => handleFormChange('telegramUsers', options)}
+                    options={telegramUsersData?.telegramUsers?.filter(user => user.isActive).map(user => ({ 
+                      value: user.id, 
+                      label: `${user.name} (@${user.username || user.chatId})` 
+                    })) || []}
+                    placeholder="Selecciona los usuarios de Telegram"
                     isMulti
                   />
                 </CustomBox>
 
-                {/* Canal de envío */}
-                <CustomBox>
-                  <Text weight="medium" size="small" color="black" marginBottom="small">
-                    Canal de Envío
-                  </Text>
-                  <CustomSelect
-                    value={formData.channel}
-                    onChange={(option) => handleFormChange('channel', option?.value)}
-                    options={CHANNELS}
-                    placeholder="Selecciona el canal"
-                  />
-                </CustomBox>
 
                 {/* Estado activo */}
                 <CustomBox>
@@ -1852,46 +1873,50 @@ export default function ConfiguracionReportesPage() {
                   />
                 </CustomBox>
 
-                {/* Días de la semana */}
-                <CustomBox>
-                  <Text weight="medium" size="small" color="black" marginBottom="small">
-                    Días de Envío
-                  </Text>
-                  <CustomBox css={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                    {WEEK_DAYS.map(day => (
-                      <CustomButton
-                        key={day.value}
-                        onClick={() => handleDayToggle(day.value)}
-                        css={{
-                          padding: '8px 16px',
-                          borderRadius: '20px',
-                          border: '1px solid #d1d5db',
-                          backgroundColor: formData.schedule.days.includes(day.value) ? '#3b82f6' : 'white',
-                          color: formData.schedule.days.includes(day.value) ? 'white' : '#374151',
-                          cursor: 'pointer',
-                          fontSize: '14px',
-                          '&:hover': {
-                            backgroundColor: formData.schedule.days.includes(day.value) ? '#2563eb' : '#f3f4f6'
-                          }
-                        }}
-                      >
-                        {day.label}
-                      </CustomButton>
-                    ))}
+                {/* Días de la semana - Solo para reportes programados */}
+                {formData.reportType !== 'notificacion_tiempo_real' && (
+                  <CustomBox>
+                    <Text weight="medium" size="small" color="black" marginBottom="small">
+                      Días de Envío
+                    </Text>
+                    <CustomBox css={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                      {WEEK_DAYS.map(day => (
+                        <CustomButton
+                          key={day.value}
+                          onClick={() => handleDayToggle(day.value)}
+                          css={{
+                            padding: '8px 16px',
+                            borderRadius: '20px',
+                            border: '1px solid #d1d5db',
+                            backgroundColor: formData.schedule.days.includes(day.value) ? '#3b82f6' : 'white',
+                            color: formData.schedule.days.includes(day.value) ? 'white' : '#374151',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            '&:hover': {
+                              backgroundColor: formData.schedule.days.includes(day.value) ? '#2563eb' : '#f3f4f6'
+                            }
+                          }}
+                        >
+                          {day.label}
+                        </CustomButton>
+                      ))}
+                    </CustomBox>
                   </CustomBox>
-                </CustomBox>
+                )}
 
-                {/* Hora de envío */}
-                <CustomBox>
-                  <Text weight="medium" size="small" color="black" marginBottom="small">
-                    Hora de Envío
-                  </Text>
-                  <TimePicker
-                    value={formData.schedule.hour}
-                    onChange={(time) => handleFormChange('schedule.hour', time)}
-                    placeholder="Selecciona la hora"
-                  />
-                </CustomBox>
+                {/* Hora de envío - Solo para reportes programados */}
+                {formData.reportType !== 'notificacion_tiempo_real' && (
+                  <CustomBox>
+                    <Text weight="medium" size="small" color="black" marginBottom="small">
+                      Hora de Envío
+                    </Text>
+                    <TimePicker
+                      value={formData.schedule.hour}
+                      onChange={(time) => handleFormChange('schedule.hour', time)}
+                      placeholder="Selecciona la hora"
+                    />
+                  </CustomBox>
+                )}
 
                 {/* Rutas */}
                 <CustomBox>
@@ -1907,32 +1932,23 @@ export default function ConfiguracionReportesPage() {
                   />
                 </CustomBox>
 
-                {/* Destinatarios */}
+                {/* Usuarios de Telegram */}
                 <CustomBox>
                   <Text weight="medium" size="small" color="black" marginBottom="small">
-                    Destinatarios
+                    Usuarios de Telegram
                   </Text>
                   <CustomSelect
-                    value={formData.recipients}
-                    onChange={(options) => handleFormChange('recipients', options)}
-                    options={users.map(user => ({ value: user.id, label: `${user.name} (${user.email})` }))}
-                    placeholder="Selecciona los destinatarios"
+                    value={formData.telegramUsers}
+                    onChange={(options) => handleFormChange('telegramUsers', options)}
+                    options={telegramUsersData?.telegramUsers?.filter(user => user.isActive).map(user => ({ 
+                      value: user.id, 
+                      label: `${user.name} (@${user.username || user.chatId})` 
+                    })) || []}
+                    placeholder="Selecciona los usuarios de Telegram"
                     isMulti
                   />
                 </CustomBox>
 
-                {/* Canal de envío */}
-                <CustomBox>
-                  <Text weight="medium" size="small" color="black" marginBottom="small">
-                    Canal de Envío
-                  </Text>
-                  <CustomSelect
-                    value={formData.channel}
-                    onChange={(option) => handleFormChange('channel', option?.value)}
-                    options={CHANNELS}
-                    placeholder="Selecciona el canal"
-                  />
-                </CustomBox>
 
                 {/* Estado activo */}
                 <CustomBox>
@@ -2189,7 +2205,7 @@ export default function ConfiguracionReportesPage() {
                       </Text>
                     </CustomBox>
 
-                    {/* Destinatarios */}
+                    {/* Usuarios de Telegram */}
                     <CustomBox css={{
                       padding: '16px',
                       backgroundColor: '#fef3c7',
@@ -2198,28 +2214,13 @@ export default function ConfiguracionReportesPage() {
                     }}>
                       <Text weight="medium" size="small" color="yellow600" css={{ marginBottom: '8px' }}>
                         <FaUsers style={{ marginRight: '8px' }} />
-                        Destinatarios
+                        Usuarios de Telegram
                       </Text>
                       <Text size="small" color="yellow800">
-                        {config.recipients.map(recipient => recipient.name).join(', ')}
+                        {config.telegramUsers?.map(user => user.name).join(', ') || 'Sin usuarios asignados'}
                       </Text>
                     </CustomBox>
 
-                    {/* Canal */}
-                    <CustomBox css={{
-                      padding: '16px',
-                      backgroundColor: '#f3e8ff',
-                      borderRadius: '8px',
-                      border: '1px solid #d8b4fe'
-                    }}>
-                      <Text weight="medium" size="small" color="purple600" css={{ marginBottom: '8px' }}>
-                        <FaTelegram style={{ marginRight: '8px' }} />
-                        Canal
-                      </Text>
-                      <Text size="small" color="purple800">
-                        {getChannelLabel(config.channel)}
-                      </Text>
-                    </CustomBox>
 
                     {/* Estado */}
                     <CustomBox css={{
