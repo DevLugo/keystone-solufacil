@@ -24,6 +24,7 @@ import { useBalanceRefresh } from '../../contexts/BalanceRefreshContext';
 import EditPersonModal from '../loans/EditPersonModal';
 import AvalInputWithAutocomplete from '../loans/AvalInputWithAutocomplete';
 import { generatePaymentChronology, PaymentChronologyItem } from '../../utils/paymentChronology';
+import { GET_LEAD_PAYMENTS } from '../../graphql/queries/payments';
 
 const GET_LEADS = gql`
   query GetLeads($routeId: ID!) {
@@ -116,61 +117,6 @@ const GET_LOANS_BY_LEAD = gql`
         receivedAt
         amount
         paymentMethod
-      }
-    }
-  }
-`;
-
-const GET_LEAD_PAYMENTS = gql`
-  query GetLeadPayments($date: DateTime!, $nextDate: DateTime!, $leadId: ID!) {
-    loanPayments(where: { 
-      AND: [
-        { receivedAt: { gte: $date, lt: $nextDate } },
-        { leadPaymentReceived: { lead: { id: { equals: $leadId } } } }
-      ]
-    }) {
-      id
-      amount
-      comission
-      type
-      paymentMethod
-      receivedAt
-      loan {
-        id
-        signDate
-        borrower {
-          personalData {
-            id
-            fullName
-            clientCode
-          }
-        }
-      }
-      leadPaymentReceived {
-        id
-        expectedAmount
-        paidAmount
-        cashPaidAmount
-        bankPaidAmount
-        falcoAmount
-        paymentStatus
-        createdAt
-        agent {
-          personalData {
-            fullName
-          }
-        }
-        lead {
-          id
-          personalData {
-            fullName
-          }
-        }
-        falcoCompensatoryPayments {
-          id
-          amount
-          createdAt
-        }
       }
     }
   }

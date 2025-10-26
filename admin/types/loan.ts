@@ -72,6 +72,7 @@ export type LoanType = {
   name: string;
   weekDuration: number;
   rate: string;
+  loanPaymentComission: string;
 };
 
 export type Lead = {
