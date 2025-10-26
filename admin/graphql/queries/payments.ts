@@ -24,6 +24,14 @@ export const GET_LEAD_PAYMENTS = gql`
             clientCode
           }
         }
+        collaterals {
+          id
+          fullName
+          phones {
+            id
+            number
+          }
+        }
       }
       leadPaymentReceived {
         id
