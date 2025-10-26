@@ -201,11 +201,13 @@ const AvalInputWithAutocomplete: React.FC<AvalInputWithAutocompleteProps> = ({
 
   // Handlers
   const handleNameChange = useCallback((value: string) => {
-    setName(value);
+    // ✅ Convertir automáticamente a mayúsculas
+    const upperCaseValue = value.toUpperCase();
+    setName(upperCaseValue);
     
-    if (value.length >= 2) {
+    if (upperCaseValue.length >= 2) {
       searchPotentialCollaterals({ 
-        variables: { searchTerm: value }
+        variables: { searchTerm: upperCaseValue }
       });
     } else {
       setSearchResults([]);
@@ -213,7 +215,7 @@ const AvalInputWithAutocomplete: React.FC<AvalInputWithAutocompleteProps> = ({
     
     // Notificar cambio al padre
     onAvalChange({
-      avalName: value,
+      avalName: upperCaseValue,
       avalPhone: phone,
       selectedCollateralId: selectedCollateralId,
       selectedCollateralPhoneId: selectedCollateralPhoneId,
@@ -273,7 +275,7 @@ const AvalInputWithAutocomplete: React.FC<AvalInputWithAutocompleteProps> = ({
     
     // Notificar cambio al padre para crear nueva persona
     onAvalChange({
-      avalName: name,
+      avalName: name.toUpperCase(), // ✅ Asegurar mayúsculas
       avalPhone: phone,
       selectedCollateralId: undefined,
       selectedCollateralPhoneId: undefined,

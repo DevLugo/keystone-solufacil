@@ -4,22 +4,30 @@
 
 import React, { useState, useEffect, useRef, ReactNode, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Box, jsx, Stack } from '@keystone-ui/core';
+import { Box, jsx, Stack, Text } from '@keystone-ui/core';
 import { Button } from '@keystone-ui/button';
 import { TextInput, Select } from '@keystone-ui/fields';
 import { LoadingDots } from '@keystone-ui/loading';
 import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
-import { FaPlus, FaTrash, FaEdit, FaSearch, FaEllipsisV, FaCheck, FaTimes } from 'react-icons/fa';
+import { FaTrash, FaEdit, FaSearch, FaEllipsisV, FaCheck, FaTimes } from 'react-icons/fa';
 import { useQuery, useMutation } from '@apollo/client';
 import { gql } from '@apollo/client';
-import { calculateLoanAmounts } from '../../utils/loanCalculations';
+import { calculateLoanAmounts, calculateWeeklyPaymentAmount } from '../../utils/loanCalculations';
 import { GET_ROUTE } from '../../graphql/queries/routes';
 import { CREATE_LOANS_BULK, UPDATE_LOAN_WITH_AVAL } from '../../graphql/mutations/loans';
+import { CREATE_LEAD_PAYMENT_RECEIVED, UPDATE_LEAD_PAYMENT } from '../../graphql/mutations/payments';
+import { GET_LEAD_PAYMENTS } from '../../graphql/queries/payments';
 import PersonInputWithAutocomplete from '../loans/PersonInputWithAutocomplete';
 import AvalInputWithAutocomplete from '../loans/AvalInputWithAutocomplete';
+import { PaymentConfigModal } from './PaymentConfigModal';
 
 // Import types
-import type { Loan } from '../../types/loan';
+import type { Loan, LoanType, PersonalData } from '../../types/loan';
+
+interface Option {
+  label: string;
+  value: string;
+}
 import { calculateAmountToPay, calculatePendingAmountSimple, processLoansWithCalculations } from '../../utils/loanCalculations';
 import KPIBar from './KPIBar';
 import { useBalanceRefresh } from '../../hooks/useBalanceRefresh';
@@ -187,6 +195,7 @@ const GET_LOANS = gql`
         name
         rate
         weekDuration
+        loanPaymentComission
         __typename
       }
       lead {
@@ -270,6 +279,7 @@ const CREATE_LOAN = gql`
         name
         rate
         weekDuration
+        loanPaymentComission
         __typename
       }
       lead {
@@ -341,6 +351,7 @@ const UPDATE_LOAN = gql`
         name
         rate
         weekDuration
+        loanPaymentComission
         __typename
       }
       lead {
@@ -443,6 +454,7 @@ const GET_PREVIOUS_LOANS = gql`
         name
         rate
         weekDuration
+        loanPaymentComission
       }
       borrower {
         id
@@ -479,7 +491,6 @@ const GET_PREVIOUS_LOANS = gql`
   }
 `;
 
-// Query unificada para buscar en todos los líderes (con o sin filtro)
 const GET_ALL_PREVIOUS_LOANS = gql`
   query GetAllPreviousLoans($searchText: String, $take: Int) {
     loans(
@@ -524,6 +535,7 @@ const GET_ALL_PREVIOUS_LOANS = gql`
         name
         rate
         weekDuration
+        loanPaymentComission
       }
       borrower {
         id
@@ -717,6 +729,19 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   const [pendingLoans, setPendingLoans] = useState<ExtendedLoan[]>([]);
   const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
 
+  // Estado para pagos iniciales
+  interface InitialPayment {
+    amount: string;
+    paymentMethod: 'CASH' | 'MONEY_TRANSFER';
+    comission: string;
+  }
+  const [initialPayments, setInitialPayments] = useState<Record<string, InitialPayment>>({});
+  const [selectedPaymentLoan, setSelectedPaymentLoan] = useState<Loan | null>(null);
+  const [isSavingPayment, setIsSavingPayment] = useState(false);
+
+  // Estado para comisión masiva
+  const [massCommission, setMassCommission] = useState<string>('0');
+
   const [newLoanId, setNewLoanId] = useState<string | null>(null);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -761,6 +786,8 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   const [createMultipleLoans] = useMutation(CREATE_LOANS_BULK);
   const [updateLoanWithAval] = useMutation(UPDATE_LOAN_WITH_AVAL);
   const [deleteLoan] = useMutation(DELETE_LOAN);
+  const [createLeadPaymentReceived] = useMutation(CREATE_LEAD_PAYMENT_RECEIVED);
+  const [updateLeadPayment] = useMutation(UPDATE_LEAD_PAYMENT);
   const { data: routeData, refetch: refetchRoute } = useQuery<{ route: any }>(GET_ROUTE, {
     variables: { where: { id: selectedRoute } },
     skip: !selectedRoute,
@@ -780,6 +807,15 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
     skip: !selectedLead,
   });
 
+  const { data: paymentsData, loading: paymentsLoading, refetch: refetchPayments } = useQuery(GET_LEAD_PAYMENTS, {
+    variables: {
+      date: selectedDate ? new Date(new Date(selectedDate).setHours(0, 0, 0, 0)).toISOString() : new Date().toISOString(),
+      nextDate: selectedDate ? new Date(new Date(selectedDate).setHours(23, 59, 59, 999)).toISOString() : new Date().toISOString(),
+      leadId: selectedLead?.id || ''
+    },
+    skip: !selectedDate || !selectedLead,
+  });
+
   // Query unificada para búsqueda en todos los líderes
   const { data: allPreviousLoansData, loading: allPreviousLoansLoading, refetch: refetchAllPreviousLoans } = useQuery(GET_ALL_PREVIOUS_LOANS, {
     variables: { 
@@ -790,6 +826,229 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   });
 
   const { data: loanTypesData, loading: loanTypesLoading } = useQuery(GET_LOAN_TYPES);
+
+  // Función para verificar si un préstamo ya tiene pagos registrados para el día
+  const hasPaymentForToday = (loanId: string) => {
+    if (!paymentsData?.loanPayments) return false;
+    return paymentsData.loanPayments.some((payment: any) => 
+      payment.loan?.id === loanId && 
+      payment.leadPaymentReceived?.lead?.id === selectedLead?.id
+    );
+  };
+
+  // Función para obtener el monto del pago registrado para un préstamo
+  const getRegisteredPaymentAmount = (loanId: string) => {
+    if (!paymentsData?.loanPayments) return '0';
+    const payment = paymentsData.loanPayments.find((p: any) => 
+      p.loan?.id === loanId && 
+      p.leadPaymentReceived?.lead?.id === selectedLead?.id
+    );
+    return payment ? parseFloat(payment.amount || '0').toFixed(2) : '0';
+  };
+
+  // Función para manejar el toggle del checkbox de pago inicial
+  const handleToggleInitialPayment = (loanId: string) => {
+    if (initialPayments[loanId]) {
+      // Si ya existe, lo quitamos
+      const newPayments = { ...initialPayments };
+      delete newPayments[loanId];
+      setInitialPayments(newPayments);
+    } else {
+      // Si no existe, abrimos el modal de configuración
+      const loan = loans.find(l => l.id === loanId);
+      if (loan) {
+        setSelectedPaymentLoan(loan);
+      }
+    }
+  };
+
+  // Función para guardar la configuración del pago desde el modal
+  const handleSavePaymentConfig = async (payment: InitialPayment) => {
+    if (!selectedPaymentLoan) return;
+    
+    setIsSavingPayment(true);
+    
+    try {
+      const weeklyAmount = parseFloat(payment.amount);
+      const comission = parseFloat(payment.comission);
+      const paymentDate = selectedDate?.toISOString() || new Date().toISOString();
+      
+      // Verificar si ya existen pagos para este día
+      const existingPayments = paymentsData?.loanPayments || [];
+      const existingLeadPayment = existingPayments.find((p: any) => p.leadPaymentReceived?.lead?.id === selectedLead?.id);
+      
+      const newPayment = {
+        amount: weeklyAmount,
+        comission: comission,
+        loanId: selectedPaymentLoan.id,
+        type: 'PAYMENT',
+        paymentMethod: payment.paymentMethod
+      } as any;
+      
+      if (existingLeadPayment) {
+        // Reutilizar pago existente - actualizar
+        console.log('🔄 Actualizando pago existente:', existingLeadPayment.leadPaymentReceived.id);
+        
+        // Obtener pagos existentes del día (no solo del leadPaymentReceived)
+        const existingPaymentsForToday = paymentsData?.loanPayments?.filter((p: any) => 
+          p.leadPaymentReceived?.lead?.id === selectedLead?.id
+        ) || [];
+        
+        // Convertir pagos existentes al formato correcto
+        const existingPaymentsList = existingPaymentsForToday.map((payment: any) => ({
+          amount: parseFloat(payment.amount || '0'),
+          comission: parseFloat(payment.comission || '0'),
+          loanId: payment.loan?.id || '',
+          type: payment.type || 'PAYMENT',
+          paymentMethod: payment.paymentMethod || 'CASH'
+        }));
+        
+        // Agregar el nuevo pago a los existentes
+        const allPayments = [...existingPaymentsList, newPayment];
+        
+        // Calcular montos totales
+        const totalExpectedAmount = allPayments.reduce((sum: number, p: any) => sum + parseFloat(p.amount || '0'), 0);
+        
+        // ✅ CORREGIDO: Solo actualizar LeadPaymentReceived si el pago es en EFECTIVO
+        if (payment.paymentMethod === 'CASH') {
+          console.log('💰 Pago en EFECTIVO - actualizando distribución');
+          
+          const existingCashAmount = parseFloat(existingLeadPayment.leadPaymentReceived.cashPaidAmount || '0');
+          const existingBankAmount = parseFloat(existingLeadPayment.leadPaymentReceived.bankPaidAmount || '0');
+          
+          // Solo agregar el monto del nuevo pago en efectivo
+          const totalCashAmount = existingCashAmount + weeklyAmount;
+          
+          // ✅ DEBUG: Log de la actualización de montos
+          console.log('💰 Registro de nuevo pago en EFECTIVO:', {
+            montoNuevoPago: weeklyAmount,
+            efectivoPagadoAnterior: existingCashAmount,
+            efectivoPagadoNuevo: totalCashAmount,
+            incrementoEfectivo: weeklyAmount,
+            nota: 'Solo se actualiza cashPaidAmount - bankPaidAmount se mantiene igual'
+          });
+          
+          const existingFalcoAmount = parseFloat(existingLeadPayment.leadPaymentReceived.falcoAmount || '0');
+          
+          await updateLeadPayment({
+            variables: {
+              id: existingLeadPayment.leadPaymentReceived.id,
+              expectedAmount: totalExpectedAmount,
+              cashPaidAmount: totalCashAmount,
+              bankPaidAmount: existingBankAmount, // Mantener igual
+              falcoAmount: existingFalcoAmount,
+              paymentDate: paymentDate,
+              payments: allPayments
+            }
+          });
+          
+          console.log('✅ Pago en EFECTIVO actualizado exitosamente');
+        } else {
+          console.log('💳 Pago en TRANSFERENCIA - NO actualizando distribución');
+          console.log('💳 Solo se agrega el pago a la lista, sin modificar cashPaidAmount/bankPaidAmount');
+          
+          // Solo actualizar la lista de pagos, sin modificar la distribución
+          await updateLeadPayment({
+            variables: {
+              id: existingLeadPayment.leadPaymentReceived.id,
+              expectedAmount: totalExpectedAmount,
+              cashPaidAmount: parseFloat(existingLeadPayment.leadPaymentReceived.cashPaidAmount || '0'), // Mantener igual
+              bankPaidAmount: parseFloat(existingLeadPayment.leadPaymentReceived.bankPaidAmount || '0'), // Mantener igual
+              falcoAmount: parseFloat(existingLeadPayment.leadPaymentReceived.falcoAmount || '0'),
+              paymentDate: paymentDate,
+              payments: allPayments
+            }
+          });
+          
+          console.log('✅ Pago en TRANSFERENCIA agregado sin modificar distribución');
+        }
+        
+        console.log('✅ Pago actualizado exitosamente en pago existente');
+        
+      } else {
+        // Crear nuevo pago
+        console.log('🆕 Creando nuevo pago');
+        
+        await createLeadPaymentReceived({
+          variables: {
+            expectedAmount: weeklyAmount,
+            agentId: selectedLead?.id,
+            leadId: selectedLead?.id,
+            payments: [newPayment],
+            cashPaidAmount: payment.paymentMethod === 'CASH' ? weeklyAmount : 0,
+            bankPaidAmount: payment.paymentMethod === 'MONEY_TRANSFER' ? weeklyAmount : 0,
+            paymentDate: paymentDate
+          }
+        });
+        
+        console.log('✅ Nuevo pago creado exitosamente');
+      }
+      
+      // Limpiar el pago de la lista de pagos pendientes
+      const newPayments = { ...initialPayments };
+      delete newPayments[selectedPaymentLoan.id];
+      setInitialPayments(newPayments);
+      
+      // Cerrar el modal de configuración de pago
+      setSelectedPaymentLoan(null);
+      
+      // Refrescar los datos
+      await Promise.all([refetchRoute(), refetchLoans(), refetchPayments()]);
+      
+      // ✅ Pago registrado exitosamente
+      console.log('✅ Pago registrado:', {
+        método: payment.paymentMethod === 'CASH' ? 'EFECTIVO' : 'TRANSFERENCIA',
+        monto: weeklyAmount,
+        cliente: selectedPaymentLoan.borrower?.personalData?.fullName,
+        distribución: payment.paymentMethod === 'CASH' ? 'Aplicada automáticamente' : 'No aplicable'
+      });
+      
+    } catch (error) {
+      console.error('❌ Error registrando pago:', error);
+      alert('Error al registrar el pago. Inténtalo de nuevo.');
+    } finally {
+      setIsSavingPayment(false);
+    }
+  };
+
+  // Función para registrar los pagos iniciales
+  const handleRegisterInitialPayments = async () => {
+    const loansWithPayment = loans.filter(loan => initialPayments[loan.id]);
+    
+    if (loansWithPayment.length === 0) return;
+    
+    try {
+      for (const loan of loansWithPayment) {
+        const payment = initialPayments[loan.id];
+        const weeklyAmount = parseFloat(loan.weeklyPaymentAmount || '0');
+        const comission = parseFloat(loan.loantype?.rate || '0');
+        
+        await createLeadPaymentReceived({
+          variables: {
+            expectedAmount: weeklyAmount,
+            agentId: selectedLead?.id,
+            leadId: selectedLead?.id,
+            payments: [{
+              amount: weeklyAmount,
+              comission: comission,
+              loanId: loan.id,
+              type: 'PAYMENT',
+              paymentMethod: payment.paymentMethod
+            }],
+            cashPaidAmount: payment.paymentMethod === 'CASH' ? weeklyAmount : 0,
+            bankPaidAmount: payment.paymentMethod === 'MONEY_TRANSFER' ? weeklyAmount : 0,
+            paymentDate: selectedDate?.toISOString() || new Date().toISOString()
+          }
+        });
+      }
+      
+      // Limpiar estado de pagos iniciales
+      setInitialPayments({});
+      
+    } catch (error) {
+      console.error('Error registrando pagos iniciales:', error);
+    }
+  };
 
   const handleDateMoveSuccess = React.useCallback(() => {
     Promise.all([refetchLoans(), refetchRoute(), refetchPreviousLoans()]).then(() => {
@@ -1050,22 +1309,30 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
             });
             
             // ✅ CORREGIDO: Actualizar específicamente los campos del aval
-            updatedRow = { 
-                ...updatedRow, 
-                avalName: value.avalName,
-                avalPhone: value.avalPhone,
-                selectedCollateralId: value.selectedCollateralId,
-                selectedCollateralPhoneId: value.selectedCollateralPhoneId,
-                avalAction: value.avalAction
-            };
+      const collateral = value.selectedCollateralId ? { id: value.selectedCollateralId, fullName: value.avalName, phones: [{ id: value.selectedCollateralPhoneId, number: value.avalPhone }] } : null;
+      const { selectedCollateralId, selectedCollateralPhoneId, avalAction, avalName, avalPhone, ...rest } = updatedRow;
+      const newRow = { 
+        id: updatedRow.id,
+        requestedAmount: updatedRow.requestedAmount,
+        amountGived: updatedRow.amountGived,
+        amountToPay: updatedRow.amountToPay,
+        signDate: updatedRow.signDate,
+        comissionAmount: updatedRow.comissionAmount,
+        loantype: updatedRow.loantype,
+        borrower: updatedRow.borrower,
+        previousLoan: updatedRow.previousLoan,
+        collaterals: collateral ? [collateral] : [],
+        lead: selectedLead,
+        finishedDate: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      } as unknown as Loan;
+      updatedRow = { ...newRow, id: newRow.id, __typename: 'Loan', collaterals: newRow.collaterals } as unknown as ExtendedLoan & { id: string; selectedCollateralId?: string; selectedCollateralPhoneId?: string; avalAction?: "create" | "update" | "connect" | "clear"; avalName?: string; avalPhone?: string; avalData?: { avalName?: string; avalPhone?: string }; previousLoanOption?: any; weeklyPaymentAmount?: string; totalDebtAcquired?: string; pendingAmountStored?: string; status?: string; profitAmount?: string; renewedDate?: string; excludedByCleanup?: boolean; payments?: any[]; addresses?: any[]; phones?: any[]; personalData?: any; fullName?: string; number?: string; location?: any; name?: string };
             
             // ✅ DEBUG: Log del row actualizado
             console.log('🔍 HANDLE ROW CHANGE - row actualizado:', {
                 loanId: updatedRow.id,
-                selectedCollateralId: updatedRow.selectedCollateralId,
-                avalAction: updatedRow.avalAction,
-                avalName: updatedRow.avalName,
-                avalPhone: updatedRow.avalPhone
+                collaterals: updatedRow.collaterals
             });
         } else {
             updatedRow = { ...updatedRow, [field]: value };
@@ -1080,7 +1347,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       });
       updatedRow.amountGived = amountGived;
       updatedRow.amountToPay = amountToPay;
-      updatedRow.totalDebtAcquired = totalDebtAcquired;
+      updatedRow.amountToPay = totalDebtAcquired;
     }
 
     if (isNewRow) {
@@ -1277,6 +1544,13 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         }
 
         console.log('✅ Todos los préstamos se crearon exitosamente');
+        
+        // Registrar pagos iniciales si hay préstamos con pagos configurados
+        if (Object.keys(initialPayments).length > 0) {
+          console.log('💳 Registrando pagos iniciales...');
+          await handleRegisterInitialPayments();
+        }
+        
         setPendingLoans([]);
         setEditableEmptyRow(null);
         await Promise.all([refetchRoute(), refetchLoans()]);
@@ -1322,7 +1596,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       selectedCollateralId,
       selectedCollateralPhoneId,
       avalAction: selectedCollateralId ? 'connect' : 'create'
-    });
+    } as any);
   };
 
   const handleUpdateLoan = async () => {
@@ -1556,6 +1830,26 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
       />
     );
   }
+
+  // Función para aplicar comisión masiva a préstamos pendientes
+  const handleApplyMassCommission = () => {
+    const commission = parseFloat(massCommission);
+    if (isNaN(commission)) return;
+    
+    // Aplicar comisión masiva SOLO a préstamos pendientes que tienen comisión > 0
+    const updatedPendingLoans = pendingLoans.map(loan => {
+      const currentCommission = parseFloat(loan.comissionAmount?.toString() || '0');
+      if (currentCommission > 0) {
+        return {
+          ...loan,
+          comissionAmount: commission.toFixed(2)
+        };
+      }
+      return loan;
+    });
+    
+    setPendingLoans(updatedPendingLoans);
+  };
   
   return (
     <>
@@ -1855,6 +2149,12 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
             itemCount: loans.length,
             label: 'préstamo(s)'
           }}
+          massCommission={pendingLoans.length > 0 ? {
+            value: massCommission,
+            onChange: setMassCommission,
+            onApply: handleApplyMassCommission,
+            visible: true
+          } : undefined}
         />
 
         {/* Loans Table */}
@@ -1903,7 +2203,99 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                     {loans.map((loan) => (
                         <tr key={loan.id} style={{ borderBottom: '1px solid #E5E7EB', transition: 'all 0.3s ease', backgroundColor: loan.id === newLoanId ? '#F0F9FF' : 'white', position: 'relative' }}>
                             {loan.id === newLoanId && <td colSpan={12} style={{ position: 'absolute', left: 0, top: 0, width: '3px', height: '100%', backgroundColor: '#0052CC' }} />}
-                            <td style={tableCellStyle}>{loan.previousLoan ? <span style={{ display: 'inline-flex', alignItems: 'center', padding: '4px 8px', backgroundColor: '#F0F9FF', color: '#0052CC', borderRadius: '4px', fontSize: '12px', fontWeight: '500' }}>Renovado</span> : <span style={{ display: 'inline-flex', alignItems: 'center', padding: '4px 8px', backgroundColor: '#F0FDF4', color: '#059669', borderRadius: '4px', fontSize: '12px', fontWeight: '500' }}>Nuevo</span>}</td>
+                            <td style={tableCellStyle}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {loan.previousLoan ? 
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', padding: '4px 8px', backgroundColor: '#F0F9FF', color: '#0052CC', borderRadius: '4px', fontSize: '12px', fontWeight: '500' }}>Renovado</span> 
+                                  : 
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', padding: '4px 8px', backgroundColor: '#F0FDF4', color: '#059669', borderRadius: '4px', fontSize: '12px', fontWeight: '500' }}>Nuevo</span>
+                                }
+                {hasPaymentForToday(loan.id) ? (
+                  <div
+                    style={{ 
+                      fontSize: '11px', 
+                      padding: '8px 12px',
+                      height: '32px',
+                      backgroundColor: '#F3F4F6',
+                      color: '#6B7280',
+                      border: '1px solid #D1D5DB',
+                      borderRadius: '8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontWeight: '500',
+                      minWidth: '130px',
+                      justifyContent: 'center',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.025em',
+                      cursor: 'default'
+                    }}
+                  >
+                    <span style={{ fontSize: '12px' }}>✓</span>
+                    Pagado ${getRegisteredPaymentAmount(loan.id)}
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => handleToggleInitialPayment(loan.id)}
+                    style={{ 
+                      fontSize: '11px', 
+                      padding: '8px 12px',
+                      height: '32px',
+                      backgroundColor: initialPayments[loan.id] ? '#3B82F6' : '#10B981',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontWeight: '600',
+                      boxShadow: initialPayments[loan.id] 
+                        ? '0 4px 6px -1px rgba(59, 130, 246, 0.3), 0 2px 4px -1px rgba(59, 130, 246, 0.2)'
+                        : '0 4px 6px -1px rgba(16, 185, 129, 0.3), 0 2px 4px -1px rgba(16, 185, 129, 0.2)',
+                      transition: 'all 0.2s ease',
+                      minWidth: '130px',
+                      justifyContent: 'center',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.025em'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!initialPayments[loan.id]) {
+                        e.currentTarget.style.backgroundColor = '#059669';
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                        e.currentTarget.style.boxShadow = '0 6px 8px -1px rgba(16, 185, 129, 0.4), 0 4px 6px -1px rgba(16, 185, 129, 0.3)';
+                      } else {
+                        e.currentTarget.style.backgroundColor = '#2563EB';
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                        e.currentTarget.style.boxShadow = '0 6px 8px -1px rgba(59, 130, 246, 0.4), 0 4px 6px -1px rgba(59, 130, 246, 0.3)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      if (!initialPayments[loan.id]) {
+                        e.currentTarget.style.backgroundColor = '#10B981';
+                        e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(16, 185, 129, 0.3), 0 2px 4px -1px rgba(16, 185, 129, 0.2)';
+                      } else {
+                        e.currentTarget.style.backgroundColor = '#3B82F6';
+                        e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(59, 130, 246, 0.3), 0 2px 4px -1px rgba(59, 130, 246, 0.2)';
+                      }
+                    }}
+                  >
+                    {initialPayments[loan.id] ? (
+                      <>
+                        <span style={{ fontSize: '12px' }}>✓</span>
+                        Pago configurado
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ fontSize: '12px' }}>💰</span>
+                        Registrar pago
+                      </>
+                    )}
+                  </button>
+                )}
+                              </div>
+                            </td>
                             <td style={tableCellStyle}>{loan.loantype.name}</td>
                             <td style={tableCellStyle}>{loan.borrower?.personalData?.fullName || 'Sin nombre'}</td>
                             <td style={tableCellStyle}>{loan.borrower?.personalData?.phones?.[0]?.number || '-'}</td>
@@ -2618,7 +3010,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
                           const commissionAmount = defaultCommission && parseFloat(defaultCommission.toString()) > 0 ?
                             defaultCommission.toString() :
                             editingLoan.comissionAmount || '0';
-                          setEditingLoan({ ...editingLoan, loantype: { id: value.value, name: value.label.split('(')[0].trim(), rate: selectedType.rate, weekDuration: selectedType.weekDuration }, amountGived, amountToPay, totalDebtAcquired, comissionAmount: commissionAmount });
+                          setEditingLoan({ ...editingLoan, loantype: { id: value.value, name: value.label.split('(')[0].trim(), rate: selectedType.rate, weekDuration: selectedType.weekDuration, loanPaymentComission: selectedType.loanPaymentComission || '0' } as LoanType, amountGived, amountToPay, totalDebtAcquired, comissionAmount: commissionAmount });
                         }
                       }
                     }}
@@ -2816,6 +3208,16 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
           </Box>
         </Box>
       )}
+            {/* Modal de configuración de pago */}
+            <PaymentConfigModal
+              isOpen={!!selectedPaymentLoan}
+              selectedLoan={selectedPaymentLoan}
+              initialPayments={initialPayments}
+              onClose={() => setSelectedPaymentLoan(null)}
+              onSave={handleSavePaymentConfig}
+              isSaving={isSavingPayment}
+            />
+
     </>
   );
 };

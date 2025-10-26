@@ -228,8 +228,9 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   const handleCapturePhoto = async () => {
     if (isMobile) {
       // En móviles, usar input file con capture para abrir la app nativa de cámara
-      if (fileInputRef.current) {
-        fileInputRef.current.click();
+      const cameraInput = document.getElementById('camera-input') as HTMLInputElement;
+      if (cameraInput) {
+        cameraInput.click();
       }
     } else {
       // En desktop, usar la cámara web como antes
@@ -479,15 +480,25 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
         </Box>
       )}
 
-      {/* Input de archivo oculto */}
+      {/* Input de archivo oculto para seleccionar archivos */}
       <input
         ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileSelect}
+        style={{ display: 'none' }}
+        disabled={disabled || isUploading}
+      />
+
+      {/* Input de archivo oculto para cámara en móviles */}
+      <input
         type="file"
         accept="image/*"
         capture={isMobile ? (currentCamera === 'back' ? 'environment' : 'user') : undefined}
         onChange={handleFileSelect}
         style={{ display: 'none' }}
         disabled={disabled || isUploading}
+        id="camera-input"
       />
 
       {/* Preview de imagen */}

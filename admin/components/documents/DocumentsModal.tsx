@@ -1,13 +1,17 @@
 /** @jsxRuntime classic */
 /** @jsx jsx */
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { jsx, Box, Text } from '@keystone-ui/core';
 import { Button } from '@keystone-ui/button';
 import { AlertDialog } from '@keystone-ui/modals';
 import { FaTimes, FaUser, FaUserTie, FaCamera } from 'react-icons/fa';
 import { DocumentThumbnail } from './DocumentThumbnail';
 import { InlineEditField } from './InlineEditField';
+import { useMutation, useApolloClient, gql } from '@apollo/client';
+import { CREATE_DOCUMENT_PHOTO } from '../../graphql/mutations/documents';
+import { UPDATE_PERSONAL_DATA_NAME } from '../../graphql/mutations/personalData';
+import { ImageModal } from './ImageModal';
 
 interface DocumentPhoto {
   id: string;
@@ -105,6 +109,14 @@ const getDocumentByTypeAndPerson = (
   ) || null;
 };
 
+interface SelectedImage {
+  url: string;
+  title: string;
+  description: string;
+  documentType: string;
+  personType: 'TITULAR' | 'AVAL';
+}
+
 export const DocumentsModal: React.FC<DocumentsModalProps> = ({
   isOpen,
   onClose,
@@ -117,32 +129,60 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
   onNameEdit,
   onPhoneEdit
 }) => {
+  // Hooks siempre al inicio del componente
   const [activeTab, setActiveTab] = useState<'titular' | 'aval'>('titular');
+  const [selectedImage, setSelectedImage] = useState<SelectedImage | null>(null);
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [createDocumentPhoto] = useMutation(CREATE_DOCUMENT_PHOTO);
+  const [updatePersonalDataName] = useMutation(UPDATE_PERSONAL_DATA_NAME);
+  const client = useApolloClient();
 
-  if (!loan) return null;
-
-  const borrowerDocuments = loan.documentPhotos.filter(doc => 
-    doc.personalData.id === loan.borrower.personalData.id
-  );
-  // Los documentos del aval son los que pertenecen a los collaterals
-  const collateralDocuments = loan.documentPhotos.filter(doc => 
-    loan.collaterals.some(collateral => collateral.id === doc.personalData.id)
-  );
-
-  const handleUploadClick = (
+  // Memoizar la función handleUploadClick para evitar recreaciones innecesarias
+  const handleUploadClick = useCallback(async (
     documentType: 'INE' | 'DOMICILIO' | 'PAGARE',
     personType: 'TITULAR' | 'AVAL',
     personalDataId: string,
     personName: string
   ) => {
-    onDocumentUpload({
-      documentType,
-      personType,
-      personalDataId,
-      loanId: loan.id,
-      personName
-    });
-  };
+    if (!loan) return;
+
+    try {
+      // Llamar al callback original primero para crear el documento
+      await onDocumentUpload({
+        documentType,
+        personType,
+        personalDataId,
+        loanId: loan.id,
+        personName
+      });
+
+      // Refrescar el caché de Apollo para asegurar que tenemos los datos más recientes
+      await client.refetchQueries({
+        include: ['GetLoan'], // Asegúrate de que este es el nombre de tu query
+      });
+
+    } catch (error) {
+      console.error('Error al crear documento:', error);
+    }
+  }, [loan, onDocumentUpload, client]);
+
+  // Memoizar los documentos filtrados para evitar recálculos innecesarios
+  const borrowerDocuments = React.useMemo(() => {
+    if (!loan) return [];
+    return loan.documentPhotos.filter(doc => 
+      doc.personalData.id === loan.borrower.personalData.id
+    );
+  }, [loan]);
+
+  // Los documentos del aval son los que pertenecen a los collaterals
+  const collateralDocuments = React.useMemo(() => {
+    if (!loan) return [];
+    return loan.documentPhotos.filter(doc => 
+      loan.collaterals.some(collateral => collateral.id === doc.personalData.id)
+    );
+  }, [loan]);
+
+  if (!loan) return null;
 
   return (
     <AlertDialog
@@ -259,7 +299,29 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
                   </Text>
                   <InlineEditField
                     value={loan.borrower.personalData.fullName}
-                    onSave={async (newValue) => await onNameEdit(loan.borrower.personalData.id, newValue)}
+                    onSave={async (newValue) => {
+                      try {
+                        const result = await updatePersonalDataName({
+                          variables: {
+                            where: { id: loan.borrower.personalData.id },
+                            data: { fullName: newValue.trim() }
+                          }
+                        });
+                        
+                        if (result.data?.updatePersonalData) {
+                          // Actualizar el caché de Apollo
+                          client.cache.modify({
+                            id: `PersonalData:${loan.borrower.personalData.id}`,
+                            fields: {
+                              fullName: () => newValue.trim()
+                            }
+                          });
+                        }
+                      } catch (error) {
+                        console.error('Error al actualizar nombre:', error);
+                        throw error;
+                      }
+                    }}
                     placeholder="Nombre del titular"
                   />
                 </Box>
@@ -325,7 +387,18 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
                         isError={document?.isError || false}
                         errorDescription={document?.errorDescription || ''}
                         isMissing={document?.isMissing || false}
-                        onImageClick={() => document && window.open(document.photoUrl, '_blank')}
+                        onImageClick={() => {
+                          if (document?.photoUrl) {
+                            setSelectedImage({
+                              url: document.photoUrl,
+                              title: document.title || '',
+                              description: document.description || '',
+                              documentType: type,
+                              personType: 'TITULAR'
+                            });
+                            setShowImageModal(true);
+                          }
+                        }}
                         onUploadClick={() => handleUploadClick(
                           type,
                           'TITULAR',
@@ -374,7 +447,29 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
                     </Text>
                     <InlineEditField
                       value={loan.collaterals[0].fullName}
-                      onSave={async (newValue) => await onNameEdit(loan.collaterals[0].id, newValue)}
+                      onSave={async (newValue) => {
+                        try {
+                          const result = await updatePersonalDataName({
+                            variables: {
+                              where: { id: loan.collaterals[0].id },
+                              data: { fullName: newValue.trim() }
+                            }
+                          });
+                          
+                          if (result.data?.updatePersonalData) {
+                            // Actualizar el caché de Apollo
+                            client.cache.modify({
+                              id: `PersonalData:${loan.collaterals[0].id}`,
+                              fields: {
+                                fullName: () => newValue.trim()
+                              }
+                            });
+                          }
+                        } catch (error) {
+                          console.error('Error al actualizar nombre del aval:', error);
+                          throw error;
+                        }
+                      }}
                       placeholder="Nombre del aval"
                     />
                   </Box>
@@ -505,6 +600,22 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
           )}
         </Box>
       </Box>
+
+      {/* Modal de imagen */}
+      {showImageModal && selectedImage && (
+        <ImageModal
+          isOpen={showImageModal}
+          onClose={() => {
+            setShowImageModal(false);
+            setSelectedImage(null);
+          }}
+          imageUrl={selectedImage.url}
+          title={selectedImage.title}
+          description={selectedImage.description}
+          documentType={selectedImage.documentType}
+          personType={selectedImage.personType}
+        />
+      )}
     </AlertDialog>
   );
 };

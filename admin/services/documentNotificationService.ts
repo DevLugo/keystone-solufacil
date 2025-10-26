@@ -50,34 +50,93 @@ export const sendDocumentIssueNotification = graphql.field({
         });
         logId = initialLog.id || undefined;
         // 1) Cargar documento, loan relacionado, datos de persona y localidad, y líder de ruta
+        // Obtener el documento con toda la información necesaria
         const document = await (context.prisma as any).documentPhoto.findUnique({
           where: { id: documentId },
           include: {
-            personalData: {
-              include: {
-                addresses: { include: { location: true } }
-              }
-            },
+            personalData: true,
             loan: {
               include: {
+                borrower: {
+                  include: {
+                    personalData: true
+                  }
+                },
                 lead: {
                   include: {
                     personalData: {
                       include: {
-                        addresses: { include: { location: { include: { route: true } } } }
+                        addresses: {
+                          include: {
+                            location: true
+                          }
+                        }
                       }
                     },
                     routes: true
-                  }
-                },
-                borrower: {
-                  include: {
-                    personalData: { include: { addresses: { include: { location: true } } } }
                   }
                 }
               }
             }
           }
+        });
+
+        // Validar y procesar la información del documento
+        const processedDocument = {
+          // Información básica del documento
+          id: document?.id,
+          title: document?.title || '',
+          description: document?.description || '',
+          photoUrl: document?.photoUrl || '',
+          documentType: document?.documentType || '',
+          isError: !!document?.isError,
+          errorDescription: document?.errorDescription || '',
+          isMissing: !!document?.isMissing,
+          
+          // Información de la persona
+          personalData: {
+            id: document?.personalData?.id || '',
+            fullName: document?.personalData?.fullName || 'Sin nombre'
+          },
+          
+          // Información del préstamo
+          loan: {
+            id: document?.loan?.id || '',
+            signDate: document?.loan?.signDate ? new Date(document?.loan?.signDate).toLocaleDateString('es-MX') : 'Sin fecha',
+            borrower: {
+              id: document?.loan?.borrower?.id || '',
+              fullName: document?.loan?.borrower?.personalData?.fullName || 'Sin nombre'
+            },
+            lead: {
+              id: document?.loan?.lead?.id || '',
+              fullName: document?.loan?.lead?.personalData?.fullName || 'Sin nombre',
+              // Manejar rutas de forma segura
+              routes: Array.isArray(document?.loan?.lead?.routes) 
+                ? document.loan.lead.routes.map(r => ({ id: String(r.id), name: String(r.name) }))
+                : []
+            }
+          }
+        };
+
+        // Log de la información procesada
+        console.log('📄 Documento procesado:', processedDocument);
+
+        // Log específico para la foto
+        console.log('📸 Información de la foto:', {
+          hasPhoto: !!document?.photoUrl,
+          photoUrl: document?.photoUrl,
+          isUrl: document?.photoUrl?.startsWith('http'),
+          urlLength: document?.photoUrl?.length
+        });
+
+        console.log('📄 Documento encontrado:', {
+          id: document?.id,
+          title: document?.title,
+          hasPhoto: !!document?.photoUrl,
+          photoUrl: document?.photoUrl,
+          documentType: document?.documentType,
+          isError: document?.isError,
+          isMissing: document?.isMissing
         });
 
         if (!document) {
@@ -207,13 +266,15 @@ export const sendDocumentIssueNotification = graphql.field({
         const personType = document.personalData?.id === document.loan?.borrower?.personalData?.id ? 'TITULAR' : 'AVAL';
         const weekLabel = `${weekStart.toLocaleDateString('es-MX')} - ${weekEnd.toLocaleDateString('es-MX')}`;
         const currentDate = new Date().toLocaleString('es-MX');
+        const borrowerName = document.loan?.borrower?.personalData?.fullName || 'Sin nombre';
+        const signDate = document.loan?.signDate ? new Date(document.loan.signDate).toLocaleDateString('es-MX') : 'No disponible';
         
         // Usar plantilla de mensaje
         let messageTemplate = '';
         if (issueType === 'ERROR') {
-          messageTemplate = '🚨 <b>DOCUMENTO CON ERROR</b>\n\n📋 Tipo: {documentType}\n👤 Persona: {personName} ({personType})\n🏠 Localidad: {localityName}\n🛣️ Ruta: {routeName}\n👨‍💼 Líder: {routeLeadName}\n\n❌ <b>Descripción del Error:</b>\n{errorDescription}\n\n📅 Fecha: {date}\n\n🔗 <a href="{documentUrl}">Ver Documento</a>';
+          messageTemplate = '🚨 <b>DOCUMENTO CON ERROR</b>\n\n📋 Tipo: {documentType} de {personType}\n💰 Crédito de: {borrowerName}\n📅 Fecha de firma: {signDate}\n👤 Persona: {personName}\n🏠 Localidad: {localityName}\n🛣️ Ruta: {routeName}\n👨‍💼 Líder: {routeLeadName}\n\n❌ <b>Descripción del Error:</b>\n{errorDescription}\n\n📅 Fecha: {date}\n\n🔗 <a href="{documentUrl}">Ver Documento</a>';
         } else {
-          messageTemplate = '📋 <b>DOCUMENTO FALTANTE</b>\n\n👤 Persona: {personName} ({personType})\n🏠 Localidad: {localityName}\n🛣️ Ruta: {routeName}\n👨‍💼 Líder: {routeLeadName}\n\n📅 Fecha: {date}\n\n🔗 <a href="{loanUrl}">Ver Préstamo</a>';
+          messageTemplate = '📋 <b>DOCUMENTO FALTANTE</b>\n\n📋 Tipo: {documentType} de {personType}\n💰 Crédito de: {borrowerName}\n📅 Fecha de firma: {signDate}\n👤 Persona: {personName}\n🏠 Localidad: {localityName}\n🛣️ Ruta: {routeName}\n👨‍💼 Líder: {routeLeadName}\n\n📅 Fecha: {date}\n\n🔗 <a href="{loanUrl}">Ver Préstamo</a>';
         }
         
         // Obtener información adicional del documento
@@ -235,6 +296,8 @@ export const sendDocumentIssueNotification = graphql.field({
           .replace(/{documentType}/g, docType)
           .replace(/{personName}/g, personName)
           .replace(/{personType}/g, personType)
+          .replace(/{borrowerName}/g, borrowerName)
+          .replace(/{signDate}/g, signDate)
           .replace(/{localityName}/g, documentLocalityName)
           .replace(/{routeName}/g, routeName)
           .replace(/{routeLeadName}/g, routeLeadName)
@@ -273,7 +336,63 @@ export const sendDocumentIssueNotification = graphql.field({
           try {
             const service = new TelegramService({ botToken, chatId: telegramUser.chatId });
             const sendStartTime = Date.now();
-            const telegramResponse = await service.sendHtmlMessage(telegramUser.chatId, caption.replace(/\n/g, '\n'));
+            
+            let telegramResponse;
+            
+            console.log('📸 Verificando foto del documento:', {
+              issueType,
+              hasPhoto: !!document.photoUrl,
+              photoUrl: document.photoUrl
+            });
+
+            // Si es un error y tiene URL de foto, enviar la foto con el mensaje como caption
+            if (issueType === 'ERROR' && processedDocument.photoUrl) {
+              // Construir la URL completa de la foto
+              const photoUrl = processedDocument.photoUrl.startsWith('http') 
+                ? processedDocument.photoUrl 
+                : `${process.env.CLOUDINARY_URL || 'https://res.cloudinary.com/solufacil/image/upload/'}${processedDocument.photoUrl}`;
+
+              console.log('📤 Enviando foto con mensaje:', {
+                chatId: telegramUser.chatId,
+                originalUrl: processedDocument.photoUrl,
+                fullPhotoUrl: photoUrl,
+                hasPhoto: !!processedDocument.photoUrl,
+                urlLength: processedDocument.photoUrl.length
+              });
+
+              try {
+                // Intentar enviar la foto
+                telegramResponse = await service.sendPhoto({
+                  chat_id: telegramUser.chatId,
+                  photo: photoUrl,
+                  caption: caption.replace(/\n/g, '\n'),
+                  parse_mode: 'HTML'
+                });
+
+                console.log('✅ Respuesta del envío de foto:', {
+                  ok: telegramResponse?.ok,
+                  messageId: telegramResponse?.result?.message_id,
+                  error: telegramResponse?.description
+                });
+              } catch (photoError: any) {
+                console.error('❌ Error enviando foto:', {
+                  error: photoError?.message,
+                  response: photoError?.response?.data,
+                  status: photoError?.response?.status
+                });
+                
+                // Si falla el envío de la foto, intentar enviar solo el mensaje
+                telegramResponse = await service.sendHtmlMessage(
+                  telegramUser.chatId, 
+                  `${caption.replace(/\n/g, '\n')}\n\n❌ No se pudo enviar la foto: ${photoError.message}\nURL: ${photoUrl}`
+                );
+              }
+            } else {
+              // Si no hay foto o es un documento faltante, enviar solo el mensaje
+              console.log('📝 Enviando solo mensaje (sin foto)');
+              telegramResponse = await service.sendHtmlMessage(telegramUser.chatId, caption.replace(/\n/g, '\n'));
+            }
+            
             const responseTime = Date.now() - sendStartTime;
             
             console.log(`✅ [sendDocumentIssueNotification] respuesta para ${telegramUser.name}:`, telegramResponse);

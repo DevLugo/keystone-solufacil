@@ -3657,12 +3657,12 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     }
                   }
 
-                  // Conectar el aval sin limpiar las conexiones existentes
+                  // Reemplazar completamente el aval existente con el nuevo seleccionado
                   await tx.loan.update({
                     where: { id: where },
-                    data: { collaterals: { connect: [{ id: avalData.selectedCollateralId }] } }
+                    data: { collaterals: { set: [{ id: avalData.selectedCollateralId }] } }
                   });
-                  console.log('🔗 Aval conectado al préstamo:', avalData.selectedCollateralId);
+                  console.log('🔗 Aval reemplazado en el préstamo:', avalData.selectedCollateralId);
 
                 // 2) Si no hay ID pero action==='create' y hay nombre, crear y conectar
                 } else if (avalData.action === 'create' && avalData.name) {
@@ -3674,9 +3674,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   });
                   await tx.loan.update({
                     where: { id: where },
-                    data: { collaterals: { connect: [{ id: newAval.id }] } }
+                    data: { collaterals: { set: [{ id: newAval.id }] } }
                   });
-                  console.log('➕ Nuevo aval creado y conectado:', newAval.id);
+                  console.log('➕ Nuevo aval creado y reemplazado:', newAval.id);
 
                 // 3) Si action==='clear', limpiar conexiones
                 } else if (avalData.action === 'clear') {

@@ -146,22 +146,33 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '20px'
+        padding: '20px',
+        '@media (max-width: 768px)': {
+          padding: '10px',
+          alignItems: 'flex-start',
+          paddingTop: '20px',
+          overflowY: 'auto'
+        }
       }}
       onClick={handleClose}
     >
-      <Box
-        css={{
-          position: 'relative',
-          width: '100%',
-          maxWidth: '500px',
-          backgroundColor: 'white',
-          borderRadius: '12px',
-          overflow: 'hidden',
-          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
+        <Box
+          css={{
+            position: 'relative',
+            width: '100%',
+            maxWidth: '500px',
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            overflow: 'hidden',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+            '@media (max-width: 768px)': {
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              marginBottom: '20px'
+            }
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
         {/* Header */}
         <Box
           css={{
@@ -346,7 +357,17 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             css={{
               display: 'flex',
               gap: '12px',
-              justifyContent: 'flex-end'
+              justifyContent: 'flex-end',
+              '@media (max-width: 768px)': {
+                position: 'sticky',
+                bottom: 0,
+                backgroundColor: 'white',
+                padding: '16px 0',
+                borderTop: '1px solid #e5e7eb',
+                margin: '0 -20px',
+                paddingLeft: '20px',
+                paddingRight: '20px'
+              }
             }}
           >
             <Button

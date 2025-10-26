@@ -103,7 +103,7 @@ const EditPersonModal: React.FC<EditPersonModalProps> = ({
       const nameResult = await updatePersonalDataName({
         variables: {
           where: { id: person.id },
-          data: { fullName: fullName.trim() }
+          data: { fullName: fullName.trim().toUpperCase() }
         }
       });
 
@@ -155,7 +155,7 @@ const EditPersonModal: React.FC<EditPersonModalProps> = ({
         // Crear objeto actualizado con los datos modificados
         const updatedPerson = {
           ...person,
-          fullName: fullName.trim(),
+          fullName: fullName.trim().toUpperCase(),
           phones: updatedPhones
         };
         
@@ -212,7 +212,7 @@ const EditPersonModal: React.FC<EditPersonModalProps> = ({
           <TextInput
             label="Nombre completo"
             value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
+            onChange={(e) => setFullName(e.target.value.toUpperCase())}
             placeholder="Ingresa el nombre completo"
             autoFocus
           />

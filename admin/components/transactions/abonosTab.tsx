@@ -24,6 +24,7 @@ import { useBalanceRefresh } from '../../contexts/BalanceRefreshContext';
 import EditPersonModal from '../loans/EditPersonModal';
 import AvalInputWithAutocomplete from '../loans/AvalInputWithAutocomplete';
 import { generatePaymentChronology, PaymentChronologyItem } from '../../utils/paymentChronology';
+import { GET_LEAD_PAYMENTS } from '../../graphql/queries/payments';
 
 const GET_LEADS = gql`
   query GetLeads($routeId: ID!) {
@@ -116,61 +117,6 @@ const GET_LOANS_BY_LEAD = gql`
         receivedAt
         amount
         paymentMethod
-      }
-    }
-  }
-`;
-
-const GET_LEAD_PAYMENTS = gql`
-  query GetLeadPayments($date: DateTime!, $nextDate: DateTime!, $leadId: ID!) {
-    loanPayments(where: { 
-      AND: [
-        { receivedAt: { gte: $date, lt: $nextDate } },
-        { leadPaymentReceived: { lead: { id: { equals: $leadId } } } }
-      ]
-    }) {
-      id
-      amount
-      comission
-      type
-      paymentMethod
-      receivedAt
-      loan {
-        id
-        signDate
-        borrower {
-          personalData {
-            id
-            fullName
-            clientCode
-          }
-        }
-      }
-      leadPaymentReceived {
-        id
-        expectedAmount
-        paidAmount
-        cashPaidAmount
-        bankPaidAmount
-        falcoAmount
-        paymentStatus
-        createdAt
-        agent {
-          personalData {
-            fullName
-          }
-        }
-        lead {
-          id
-          personalData {
-            fullName
-          }
-        }
-        falcoCompensatoryPayments {
-          id
-          amount
-          createdAt
-        }
       }
     }
   }
@@ -1304,24 +1250,35 @@ export const CreatePaymentForm = ({
 
   // Handlers para modal de edición de cliente
   const handleEditClient = (loanId: string) => {
-    
     // Buscar el préstamo en los datos de préstamos
     const loan = loansData?.loans?.find(l => l.id === loanId);
     
-      // Si el préstamo tiene borrower con personalData.id, usar ese ID
-      if (loan?.borrower?.personalData && 'id' in loan.borrower.personalData) {
-        console.log('🔍 Usando personalData.id del préstamo:', (loan.borrower.personalData as any).id);
-        getClientData({ variables: { id: (loan.borrower.personalData as any).id } });
-        return;
-      }
+    // Si el préstamo tiene borrower con personalData.id, usar ese ID
+    if (loan?.borrower?.personalData && 'id' in loan.borrower.personalData) {
+      getClientData({ variables: { id: (loan.borrower.personalData as any).id } });
+      return;
+    }
     
     // Si no, buscar en los pagos existentes como fallback
     const existingPayment = existingPayments.find((p: any) => p.loan?.id === loanId);
     
     if (existingPayment?.loan?.borrower?.personalData && 'id' in existingPayment.loan.borrower.personalData) {
       getClientData({ variables: { id: (existingPayment.loan.borrower.personalData as any).id } });
-    } else {
+      return;
     }
+    
+    // Buscar en los datos de pagos registrados (paymentsData)
+    if (paymentsData?.loanPayments) {
+      const registeredPayment = paymentsData.loanPayments.find((p: any) => p.loan?.id === loanId);
+      
+      if (registeredPayment?.loan?.borrower?.personalData && 'id' in registeredPayment.loan.borrower.personalData) {
+        getClientData({ variables: { id: (registeredPayment.loan.borrower.personalData as any).id } });
+        return;
+      }
+    }
+    
+    // Si no se encuentra en ningún lugar, mostrar error
+    alert('No se pudo encontrar la información del cliente. Inténtalo de nuevo.');
   };
 
   const handleCloseEditClientModal = () => {
@@ -1331,22 +1288,12 @@ export const CreatePaymentForm = ({
 
   // Función para abrir modal de edición de aval
   const openAvalEditModal = (loan: any) => {
-    console.log('🔍 Abriendo modal de aval para loan:', loan);
-    console.log('🔍 Collaterals del loan:', loan.collaterals);
-    
     // Extraer información del aval de los collaterals (igual que en CreditosTab)
     const firstCollateral = loan.collaterals?.[0];
     const avalName = firstCollateral?.fullName || '';
     const avalPhone = firstCollateral?.phones?.[0]?.number || '';
     const selectedCollateralId = firstCollateral?.id;
     const selectedCollateralPhoneId = firstCollateral?.phones?.[0]?.id;
-    
-    console.log('🔍 Datos extraídos del aval:', {
-      avalName,
-      avalPhone,
-      selectedCollateralId,
-      selectedCollateralPhoneId
-    });
     
     setAvalEditModal({
       isOpen: true,
@@ -3231,17 +3178,17 @@ useEffect(() => {
                 const editedPayment = editedPayments[payment.id] || payment;
                 const isStrikethrough = strikethroughPaymentIds.includes(payment.id);
                 const hasZeroCommission = parseFloat(editedPayment.comission || '0') === 0;
+                const isTransferPayment = editedPayment.paymentMethod === 'MONEY_TRANSFER';
                 console.log(`Pago ${payment.id}: isStrikethrough=${isStrikethrough}, hasZeroCommission=${hasZeroCommission}, strikethroughPaymentIds=`, strikethroughPaymentIds);
                 
                 return (
                   <tr 
                     key={`existing-${payment.id}`} 
-                    onClick={(e) => handleRowSelection(payment.id, e)}
                     style={{ 
-                      backgroundColor: isStrikethrough ? '#fee2e2' : (hasZeroCommission ? '#FEF3C7' : '#f8fafc'),
+                      backgroundColor: isStrikethrough ? '#fee2e2' : (hasZeroCommission ? '#FEF3C7' : (isTransferPayment ? '#F3E8FF' : '#f8fafc')),
                       opacity: isStrikethrough ? 0.7 : 1,
-                      borderLeft: isStrikethrough ? '4px solid #ef4444' : (hasZeroCommission ? '4px solid #D97706' : 'none'),
-                      cursor: 'pointer',
+                      borderLeft: isStrikethrough ? '4px solid #ef4444' : (hasZeroCommission ? '4px solid #D97706' : (isTransferPayment ? '4px solid #8B5CF6' : 'none')),
+                      cursor: 'default',
                       transition: 'all 0.2s ease'
                     }}
                   >
@@ -3394,8 +3341,7 @@ useEffect(() => {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                                    console.log('🔍 Botón Editar Cliente (pagos registrados) clickeado, loanId:', payment.loanId || '');
-                            handleEditClient(payment.loanId || '');
+                            handleEditClient(payment.loanId || payment.loan?.id || '');
                           }}
                           style={{
                             background: 'none',
@@ -3574,7 +3520,7 @@ useEffect(() => {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const loanId = (payment.loanId || '');
+                                    const loanId = (payment.loanId || payment.loan?.id || '');
                                     if (!loanId) return;
                                     handleEditClient(loanId);
                                     setShowMenuForPayment(null);
@@ -3602,7 +3548,7 @@ useEffect(() => {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const loanId = (payment.loanId || '');
+                                    const loanId = (payment.loanId || payment.loan?.id || '');
                                     if (loanId) {
                                       const selectedLoan = loansData?.loans?.find(l => l.id === loanId);
                                       if (selectedLoan) {
@@ -3627,7 +3573,7 @@ useEffect(() => {
                                   onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#f9fafb'}
                                   onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
                                 >
-                                  👤 Modifica info del aval
+                                  👤 Editar aval
                                 </button>
                               </div>
                             )}
@@ -3701,15 +3647,16 @@ useEffect(() => {
                 const isStrikethrough = strikethroughNewPaymentIndices.includes(index);
                 const hasZeroCommission = parseFloat(payment.comission?.toString() || '0') === 0;
                 const isDeceased = deceasedLoanIds.has(payment.loanId || '');
+                const isTransferPayment = payment.paymentMethod === 'MONEY_TRANSFER';
                 const paymentKey = `new-${index}`;
                 return (
                 <tr 
                   key={paymentKey} 
                   onClick={(e) => handleRowSelection(paymentKey, e)}
                   style={{ 
-                    backgroundColor: isDeceased ? '#f3f4f6' : (isStrikethrough ? '#fee2e2' : (hasZeroCommission ? '#FEF3C7' : '#ECFDF5')),
+                    backgroundColor: isDeceased ? '#f3f4f6' : (isStrikethrough ? '#fee2e2' : (hasZeroCommission ? '#FEF3C7' : (isTransferPayment ? '#F3E8FF' : '#ECFDF5'))),
                     opacity: isDeceased ? 0.6 : (isStrikethrough ? 0.7 : 1),
-                    borderLeft: isDeceased ? '4px solid #6b7280' : (isStrikethrough ? '4px solid #ef4444' : (hasZeroCommission ? '4px solid #D97706' : 'none')),
+                    borderLeft: isDeceased ? '4px solid #6b7280' : (isStrikethrough ? '4px solid #ef4444' : (hasZeroCommission ? '4px solid #D97706' : (isTransferPayment ? '4px solid #8B5CF6' : 'none'))),
                     cursor: 'pointer',
                     transition: 'all 0.2s ease'
                   }}
@@ -3924,7 +3871,7 @@ useEffect(() => {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const loanId = (payment.loanId || '');
+                                    const loanId = (payment.loanId || payment.loan?.id || '');
                                     console.log('🔍 Botón Editar Cliente (no fallecido) clickeado, loanId:', loanId);
                                     if (!loanId) {
                                       console.log('❌ No hay loanId, cancelando');
@@ -3956,7 +3903,7 @@ useEffect(() => {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const loanId = (payment.loanId || '');
+                                    const loanId = (payment.loanId || payment.loan?.id || '');
                                     if (loanId) {
                                       const selectedLoan = loansData?.loans?.find(l => l.id === loanId);
                                       if (selectedLoan) {
@@ -3982,7 +3929,7 @@ useEffect(() => {
                                   onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#f9fafb'}
                                   onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
                                 >
-                                  👤 Modifica info del aval
+                                  👤 Editar aval
                                 </button>
                                 <button
                                   onClick={(e) => {
@@ -4052,7 +3999,7 @@ useEffect(() => {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const loanId = (payment.loanId || '');
+                                    const loanId = (payment.loanId || payment.loan?.id || '');
                                     if (!loanId) {
                                       console.log('❌ No hay loanId, cancelando');
                                       return;
@@ -4106,12 +4053,12 @@ useEffect(() => {
                                   onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#f9fafb'}
                                   onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
                                 >
-                                  👤 Modifica info del aval
+                                  👤 Editar aval
                                 </button>
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const loanId = (payment.loanId || '');
+                                    const loanId = (payment.loanId || payment.loan?.id || '');
                                     if (!loanId) return;
                                     handleUnmarkAsDeceased(loanId);
                                     setShowMenuForPayment(null);
@@ -4189,7 +4136,7 @@ useEffect(() => {
           confirm: { 
             label: 'Reportar Falco', 
             action: () => handleCreateFalco(), 
-            loading: customLeadPaymentLoading 
+            loading: customLeadPaymentLoading || updateLoading 
           },
           cancel: { 
             label: 'Cancelar', 
@@ -4556,7 +4503,7 @@ useEffect(() => {
           confirm: { 
             label: 'Confirmar', 
             action: () => handleSubmit(), 
-            loading: customLeadPaymentLoading 
+            loading: customLeadPaymentLoading || updateLoading 
           },
           cancel: { 
             label: 'Cerrar', 
