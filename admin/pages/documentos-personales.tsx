@@ -921,7 +921,7 @@ export default function DocumentosPersonalesPage() {
         // Actualizar teléfono existente
         await updatePersonalDataPhone({
           variables: {
-            id: phoneId,
+            where: { id: phoneId },
             data: { number: newPhone }
           }
         });

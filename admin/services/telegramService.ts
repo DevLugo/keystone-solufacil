@@ -23,6 +23,13 @@ export interface TelegramDocument {
   parse_mode?: 'HTML' | 'Markdown' | 'MarkdownV2';
 }
 
+export interface TelegramPhoto {
+  chat_id: string;
+  photo: Buffer | string;
+  caption?: string;
+  parse_mode?: 'HTML' | 'Markdown' | 'MarkdownV2';
+}
+
 export interface TelegramResponse {
   ok: boolean;
   result?: any;
@@ -159,6 +166,82 @@ export class TelegramService {
   }
 
   /**
+   * Envía una foto con caption opcional
+   */
+  async sendPhoto(photo: TelegramPhoto, maxRetries: number = 3): Promise<TelegramResponse> {
+    let lastError: any;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`📸 [TelegramService] Enviando foto (intento ${attempt}/${maxRetries})`, {
+          chatId: photo.chat_id,
+          hasPhoto: !!photo.photo,
+          photoType: typeof photo.photo,
+          caption: !!photo.caption
+        });
+
+        const formData = new FormData();
+        formData.append('chat_id', photo.chat_id);
+        
+        // Si la foto es una URL, enviarla directamente
+        if (typeof photo.photo === 'string') {
+          formData.append('photo', photo.photo);
+        } else {
+          // Si es un Buffer, enviarlo como archivo
+          formData.append('photo', photo.photo, 'photo.jpg');
+        }
+        
+        if (photo.caption) {
+          formData.append('caption', photo.caption);
+        }
+        
+        if (photo.parse_mode) {
+          formData.append('parse_mode', photo.parse_mode);
+        }
+
+        const response = await axios.post(`${this.baseUrl}/sendPhoto`, formData, {
+          headers: {
+            ...formData.getHeaders(),
+          },
+          timeout: 30000 // 30 segundos timeout para fotos
+        });
+
+        console.log(`✅ [TelegramService] Foto enviada exitosamente:`, {
+          ok: response.data.ok,
+          messageId: response.data.result?.message_id,
+          response: response.data
+        });
+
+        return response.data;
+      } catch (error) {
+        lastError = error;
+        console.error(`❌ [TelegramService] Error enviando foto en intento ${attempt}:`, {
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          data: error.response?.data,
+          message: error.message
+        });
+
+        // Si es error de rate limit, esperar más tiempo
+        if (error.response?.status === 429) {
+          const retryAfter = error.response.data?.parameters?.retry_after || 60;
+          console.log(`⏳ [TelegramService] Rate limit excedido, esperando ${retryAfter} segundos...`);
+          await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+        } else if (attempt < maxRetries) {
+          // Exponential backoff para otros errores
+          const delay = Math.pow(2, attempt) * 1000;
+          console.log(`⏳ [TelegramService] Esperando ${delay}ms antes del siguiente intento...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+
+    // Si llegamos aquí, todos los intentos fallaron
+    console.error(`❌ [TelegramService] Todos los intentos de envío de foto fallaron después de ${maxRetries} reintentos`);
+    throw new Error(`Failed to send Telegram photo after ${maxRetries} attempts: ${lastError?.message || 'Unknown error'}`);
+  }
+
+  /**
    * Envía un mensaje con formato HTML
    */
   async sendHtmlMessage(chatId: string, htmlText: string): Promise<TelegramResponse> {
@@ -197,6 +280,7 @@ export class TelegramService {
       parse_mode: 'HTML',
     });
   }
+
 
   /**
    * Envía un PDF desde un archivo

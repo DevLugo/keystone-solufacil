@@ -54,17 +54,33 @@ const CustomButton = ({ children, onClick, css, ...props }) => {
 
 // Componente Select personalizado
 const CustomSelect = ({ value, onChange, options, placeholder, isMulti = false }) => {
+  // Para selecciones múltiples, asegurarse de que value sea un array
+  const selectedValues = isMulti 
+    ? (Array.isArray(value) ? value : value ? [value] : [])
+    : value;
+
+  // Función para manejar el cambio
+  const handleChange = (e) => {
+    if (isMulti) {
+      const selectedOptions = Array.from(e.target.selectedOptions).map(option => {
+        const matchingOption = options.find(opt => opt.value === option.value);
+        return {
+          value: option.value,
+          label: matchingOption?.label || option.text
+        };
+      });
+      onChange(selectedOptions);
+    } else {
+      // Para selección simple, enviar directamente el valor
+      const selectedValue = e.target.value;
+      onChange(selectedValue);
+    }
+  };
+
   return (
     <select
-      value={isMulti ? undefined : value}
-      onChange={(e) => {
-        if (isMulti) {
-          const selectedOptions = Array.from(e.target.selectedOptions).map(option => ({ value: option.value, label: option.text }));
-          onChange(selectedOptions);
-        } else {
-          onChange({ value: e.target.value });
-        }
-      }}
+      value={isMulti ? selectedValues.map(v => v.value) : (value || '')}
+      onChange={handleChange}
       multiple={isMulti}
       style={{
         width: '100%',
@@ -81,7 +97,10 @@ const CustomSelect = ({ value, onChange, options, placeholder, isMulti = false }
         <option 
           key={option.value} 
           value={option.value}
-          defaultSelected={isMulti ? (Array.isArray(value) ? value.some(v => v.value === option.value) : false) : value === option.value}
+          selected={isMulti 
+            ? selectedValues.some(v => v.value === option.value)
+            : value === option.value
+          }
         >
           {option.label}
         </option>
@@ -302,7 +321,11 @@ interface ReportConfig {
   id: string;
   name: string;
   reportType: string;
-  schedule: any; // JSON object with days, hour, timezone
+  schedule: {
+    days: string[];
+    hour: string | null;
+    timezone: string;
+  };
   routes: Route[];
   telegramUsers: TelegramUser[];
 
@@ -324,7 +347,7 @@ interface ReportConfigForm {
   telegramUsers: { value: string; label: string }[];
   schedule: {
     days: string[];
-    hour: string;
+    hour: string | null;
     timezone: string;
   };
   isActive: boolean;
@@ -370,18 +393,49 @@ export default function ConfiguracionReportesPage() {
     clearError: clearCronError
   } = useCronControl();
   
+  const getInitialSchedule = (reportType: string) => {
+    if (reportType === 'notificacion_tiempo_real') {
+      return {
+        days: [],
+        hour: null,
+        timezone: 'America/Mexico_City'
+      };
+    }
+    return {
+      days: [],
+      hour: '09',
+      timezone: 'America/Mexico_City'
+    };
+  };
+
   const [formData, setFormData] = useState<ReportConfigForm>({
     name: '',
     reportType: 'notificacion_tiempo_real', // Valor por defecto
     routes: [],
     telegramUsers: [],
-    schedule: {
-      days: [],
-      hour: '09',
-      timezone: 'America/Mexico_City'
-    },
+    schedule: getInitialSchedule('notificacion_tiempo_real'),
     isActive: true
   });
+
+  // Manejar cambio de tipo de reporte
+  const handleReportTypeChange = (newType: string) => {
+    console.log('🔄 handleReportTypeChange llamado con:', newType);
+    
+    // Si estamos en modo edición, mantener el schedule actual
+    const newSchedule = editingConfig 
+      ? formData.schedule 
+      : getInitialSchedule(newType);
+    
+    setFormData(prev => {
+      const newData = {
+        ...prev,
+        reportType: newType,
+        schedule: newSchedule
+      };
+      console.log('📝 Nuevo estado del formulario:', newData);
+      return newData;
+    });
+  };
 
   // Queries
   const { data: routesData, loading: routesLoading } = useQuery(GET_ROUTES);
@@ -410,22 +464,65 @@ export default function ConfiguracionReportesPage() {
 
   // Función para manejar cambios en el formulario
   const handleFormChange = (field: string, value: any) => {
+    console.log('🔍 Actualizando campo:', field, 'con valor:', value);
+    
+    if (field === 'reportType') {
+      console.log('🔄 Cambiando tipo de reporte a:', value);
+      // Actualizar directamente el estado y luego manejar el schedule
+      setFormData(prev => {
+        const newSchedule = editingConfig 
+          ? prev.schedule 
+          : getInitialSchedule(value);
+
+        const newData = {
+          ...prev,
+          reportType: value,
+          schedule: newSchedule
+        };
+        console.log('📝 Nuevo estado después de cambiar tipo de reporte:', newData);
+        return newData;
+      });
+      return;
+    }
+
+    if (field === 'telegramUsers' || field === 'routes') {
+      // Para campos que son arrays de objetos {value, label}
+      setFormData(prev => {
+        const newData = {
+          ...prev,
+          [field]: Array.isArray(value) ? value : [value]
+        };
+        console.log('📝 Nuevo estado para', field, ':', newData[field]);
+        return newData;
+      });
+      return;
+    }
+    
     if (field.includes('.')) {
       const [parent, child] = field.split('.');
-      setFormData(prev => ({
-        ...prev,
-        [parent]: {
-          ...prev[parent as keyof ReportConfigForm],
-          [child]: value
-        }
-      }));
+      setFormData(prev => {
+        const newData = {
+          ...prev,
+          [parent]: {
+            ...prev[parent as keyof ReportConfigForm],
+            [child]: value
+          }
+        };
+        console.log('📝 Nuevo estado para', `${parent}.${child}:`, newData[parent][child]);
+        return newData;
+      });
     } else {
-      setFormData(prev => ({ ...prev, [field]: value }));
+      setFormData(prev => {
+        const newData = { ...prev, [field]: value };
+        console.log('📝 Nuevo estado para', field, ':', newData[field]);
+        return newData;
+      });
     }
   };
 
   // Función para manejar días seleccionados
   const handleDayToggle = (day: string) => {
+    console.log('🔍 Toggling day:', day);
     setFormData(prev => ({
       ...prev,
       schedule: {
@@ -526,6 +623,8 @@ export default function ConfiguracionReportesPage() {
     }
 
     console.log('🔍 DEBUG: FormData antes de actualizar:', formData);
+    console.log('🔍 DEBUG: Tipo de reporte actual:', formData.reportType);
+    console.log('🔍 DEBUG: Tipo de reporte anterior:', editingConfig.reportType);
     console.log('🔍 DEBUG: Routes IDs:', formData.routes.map(route => route.value));
     console.log('🔍 DEBUG: TelegramUsers IDs:', formData.telegramUsers.map(user => user.value));
     console.log('🔍 DEBUG: Routes data structure (update):', formData.routes);
@@ -961,7 +1060,7 @@ export default function ConfiguracionReportesPage() {
   
   // Función para convertir configuración a expresión cron
   const configToCronExpression = useCallback((config: ReportConfig): string => {
-    if (!config.isActive || !config.schedule?.days?.length) return '';
+    if (!config.isActive || !config.schedule?.days?.length || !config.schedule?.hour) return '';
     
     const hour = config.schedule.hour;
     const minute = '0'; // Siempre en el minuto 0
@@ -1635,18 +1734,34 @@ export default function ConfiguracionReportesPage() {
                   />
                 </CustomBox>
 
-                {/* Tipo de reporte */}
-                <CustomBox>
-                  <Text weight="medium" size="small" color="black" marginBottom="small">
-                    Tipo de Reporte
-                  </Text>
-                  <CustomSelect
-                    value={formData.reportType}
-                    onChange={(option) => handleFormChange('reportType', option?.value)}
-                    options={REPORT_TYPES}
-                    placeholder="Selecciona el tipo de reporte"
-                  />
-                </CustomBox>
+                  {/* Tipo de reporte */}
+                  <CustomBox>
+                    <Text weight="medium" size="small" color="black" marginBottom="small">
+                      Tipo de Reporte
+                    </Text>
+                    <select
+                      value={formData.reportType}
+                      onChange={(e) => {
+                        console.log('🔄 Cambio de tipo de reporte en creación:', e.target.value);
+                        handleFormChange('reportType', e.target.value);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '6px',
+                        fontSize: '14px',
+                        backgroundColor: 'white'
+                      }}
+                    >
+                      <option value="">Selecciona el tipo de reporte</option>
+                      {REPORT_TYPES.map((type) => (
+                        <option key={type.value} value={type.value}>
+                          {type.label}
+                        </option>
+                      ))}
+                    </select>
+                  </CustomBox>
 
                 {/* Días de la semana */}
                 <CustomBox>
@@ -1860,20 +1975,36 @@ export default function ConfiguracionReportesPage() {
                   />
                 </CustomBox>
 
-                {/* Tipo de reporte */}
-                <CustomBox>
-                  <Text weight="medium" size="small" color="black" marginBottom="small">
-                    Tipo de Reporte
-                  </Text>
-                  <CustomSelect
-                    value={formData.reportType}
-                    onChange={(option) => handleFormChange('reportType', option?.value)}
-                    options={REPORT_TYPES}
-                    placeholder="Selecciona el tipo de reporte"
-                  />
-                </CustomBox>
+                  {/* Tipo de reporte */}
+                  <CustomBox>
+                    <Text weight="medium" size="small" color="black" marginBottom="small">
+                      Tipo de Reporte
+                    </Text>
+                    <select
+                      value={formData.reportType}
+                      onChange={(e) => {
+                        console.log('🔄 Cambio de tipo de reporte en edición:', e.target.value);
+                        handleFormChange('reportType', e.target.value);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '6px',
+                        fontSize: '14px',
+                        backgroundColor: 'white'
+                      }}
+                    >
+                      <option value="">Selecciona el tipo de reporte</option>
+                      {REPORT_TYPES.map((type) => (
+                        <option key={type.value} value={type.value}>
+                          {type.label}
+                        </option>
+                      ))}
+                    </select>
+                  </CustomBox>
 
-                {/* Días de la semana - Solo para reportes programados */}
+                  {/* Días de la semana - Solo para reportes programados */}
                 {formData.reportType !== 'notificacion_tiempo_real' && (
                   <CustomBox>
                     <Text weight="medium" size="small" color="black" marginBottom="small">
