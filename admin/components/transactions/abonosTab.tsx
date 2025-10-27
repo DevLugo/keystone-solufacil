@@ -1696,18 +1696,9 @@ export const CreatePaymentForm = ({
           const { payments, paymentDate } = data;
           const { cashPaidAmount, bankPaidAmount } = loadPaymentDistribution;
           
-          // ✅ AGREGAR: Incluir pagos nuevos en la actualización
+          // ✅ CORREGIDO: Solo usar los pagos existentes (excluir duplicados)
           const allPayments = [...(payments as any[])];
-          if (filteredNewPayments.length > 0) {
-            console.log('✅ Agregando pagos nuevos a la actualización existente:', filteredNewPayments);
-            allPayments.push(...filteredNewPayments.map(payment => ({
-              amount: parseFloat(payment.amount || '0'),
-              comission: parseFloat(payment.comission?.toString() || '0'),
-              loanId: payment.loanId,
-              type: payment.type,
-              paymentMethod: payment.paymentMethod
-            })));
-          }
+          console.log('✅ Actualizando solo pagos existentes sin duplicar:', allPayments);
           
           // Limpiar pagos 0/0 antes de enviar actualización
           const cleanedPayments = allPayments.filter((p: any) => {
