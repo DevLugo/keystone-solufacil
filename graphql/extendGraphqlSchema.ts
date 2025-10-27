@@ -1872,7 +1872,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 paymentsToDelete.push(existingPaymentItem);
               }
             }
-            
             // ✅ NUEVO: Eliminar LeadPaymentReceived adicionales del día y consolidar en el principal
             if (allLeadPaymentsOfDay.length > 1) {
               // Eliminar todos los LeadPaymentReceived adicionales (mantener solo el principal)
@@ -2230,7 +2229,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
               console.log(`   Cambio en pagos CASH: $${cashPaymentChange}`);
               console.log(`   Cambio en comisiones: $${commissionChange} (se resta porque menos gasto = más balance)`);
               console.log(`   Cambio en transferencia automática: $${bankPaidAmountChange} (se resta porque va al banco)`);
-              console.log(`   Cambio neto EFECTIVO: $${cashPaymentChange} - ($${commissionChange}) - ($${bankPaidAmountChange}) = $${netCashChange}`);
+              console.log(`   Cambio neto EFECTIVO: $${cashPaymentChange} - ($${commissionChange}) - (${bankPaidAmountChange}) = $${netCashChange}`);
               console.log(`   Balance final EFECTIVO: $${currentCashAmount} + ($${netCashChange}) = $${newCashAmount}`);
               
               console.log('✅ Cuenta de efectivo actualizada exitosamente');
@@ -3861,7 +3860,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
           }
         }
       }),
-
       // ✅ NUEVA MUTATION: Enviar reporte con PDF a Telegram (con filtro de rutas)
       sendReportWithPDF: graphql.field({
         type: graphql.nonNull(graphql.String),
@@ -7069,9 +7067,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 
                 previousWeekActiveAtEnd[locality] = data.activeAtEnd;
               });
-
               reportData[weekKey] = localitiesData;
-
               // 🔍 DEBUG: Log resumen para semana 3 de Atasta
               if (isAtastaWeek3) {
                 console.log(`\n📊 RESUMEN SEMANA 2 ATASTA:`);
@@ -8096,7 +8092,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
       }
     },
   }),
-
   getFinancialReport: getFinancialReport,
       // Query para obtener cartera por ruta
       getCartera: graphql.field({
@@ -9413,7 +9408,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
           return 'Estado de Telegram verificado - Revisa la consola del servidor';
         }
       }),
-
       // ✅ FUNCIONALIDAD SIMPLIFICADA: Cartera muerta
       loansForDeadDebt: graphql.field({
         type: graphql.nonNull(graphql.String),
@@ -10473,8 +10467,12 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
       const clientName = credit.borrower?.personalData?.fullName || 'Sin nombre';
       const signDate = new Date(credit.signDate);
       
+      const borrowerPersonalDataId = credit.borrower?.personalData?.id;
+
       // Analizar documentos del cliente - SOLO los que ya fueron revisados y tienen problemas
-      const clientDocuments = credit.documentPhotos || [];
+      const clientDocuments = borrowerPersonalDataId
+        ? (credit.documentPhotos || []).filter(doc => doc.personalDataId === borrowerPersonalDataId)
+        : [];
       const clientDocErrors = clientDocuments.filter(doc => doc.isError === true);
       const clientMissingDocs = clientDocuments.filter(doc => doc.isMissing === true);
       
@@ -11020,7 +11018,8 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
       doc.strokeColor('#0284c7').lineWidth(1).rect(startX, weekHeaderY, pageWidth, 25).stroke();
       
       doc.fontSize(11).fillColor('#0284c7');
-      const weekEnd = getWeekEnd(weekStart);
+      const weekEnd = new Date(weekKey);
+      weekEnd.setDate(weekEnd.getDate() + 6);
       const weekStartFormatted = weekStart.toLocaleDateString('es-ES');
       const weekEndFormatted = weekEnd.toLocaleDateString('es-ES');
       doc.text(`Semana del ${weekStartFormatted} - ${weekEndFormatted}`, startX + 10, weekHeaderY + 8);
@@ -11199,7 +11198,6 @@ function truncateText(text: string, maxLength: number): string {
     return truncated + '...';
   }
 }
-
 // ✅ FUNCIÓN PARA GENERAR TABLA REAL DE DOCUMENTOS CON ERROR (VERSIÓN LIMPIA)
 async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGroups: Map<string, any[]>) {
   console.log('🎨 Iniciando generación de tabla real...');

@@ -22,6 +22,7 @@ interface DocumentThumbnailProps {
   onDelete?: () => void;
   isUploading?: boolean;
   size?: 'small' | 'medium' | 'large';
+  readOnly?: boolean;
 }
 
 export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
@@ -38,7 +39,8 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
   onMarkAsMissing,
   onDelete,
   isUploading = false,
-  size = 'medium'
+  size = 'medium',
+  readOnly = false
 }) => {
   const [isHovered, setIsHovered] = useState(false);
 
@@ -151,7 +153,7 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
           )}
 
           {/* Botón de eliminar (esquina superior izquierda) */}
-          {hasImage && onDelete && (
+          {hasImage && onDelete && !readOnly && (
             <Box
               css={{
                 position: 'absolute',
@@ -196,7 +198,7 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
           )}
 
           {/* Botón de marcar como error (esquina superior derecha) */}
-          {hasImage && onMarkAsError && (
+          {hasImage && onMarkAsError && !readOnly && (
             <Box
               css={{
                 position: 'absolute',
@@ -314,7 +316,7 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
           </Text>
 
           {/* Botón para desmarcar como faltante */}
-          {onMarkAsMissing && (
+          {onMarkAsMissing && !readOnly && (
             <Button
               size="small"
               onClick={(e) => {
@@ -423,48 +425,50 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
             width: '100%'
           }}>
             {/* Botón para subir */}
-            <Button
-              size="small"
-              onClick={(e) => {
-                e.stopPropagation();
-                onUploadClick?.();
-              }}
-              css={{
-                padding: '8px 12px',
-                fontSize: Math.max(10, sizeStyles.fontSize - 1),
-                backgroundColor: '#3b82f6',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                fontWeight: '500',
-                height: '32px', // Altura fija para consistencia
-                width: '100%', // Ocupa todo el ancho disponible
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '4px',
-                '&:hover': { 
-                  backgroundColor: '#2563eb',
-                  transform: 'scale(1.02)',
-                  boxShadow: '0 2px 8px rgba(59, 130, 246, 0.3)'
-                },
-                '&:active': {
-                  transform: 'scale(0.98)'
-                },
-                transition: 'all 0.2s ease',
-                '@media (max-width: 768px)': {
-                  padding: '10px 14px',
-                  fontSize: Math.max(11, sizeStyles.fontSize),
-                  height: '36px'
-                }
-              }}
-            >
-              <FaPlus size={12} />
-              Subir
-            </Button>
+            {onUploadClick && !readOnly && (
+              <Button
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUploadClick();
+                }}
+                css={{
+                  padding: '8px 12px',
+                  fontSize: Math.max(10, sizeStyles.fontSize - 1),
+                  backgroundColor: '#3b82f6',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontWeight: '500',
+                  height: '32px', // Altura fija para consistencia
+                  width: '100%', // Ocupa todo el ancho disponible
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '4px',
+                  '&:hover': { 
+                    backgroundColor: '#2563eb',
+                    transform: 'scale(1.02)',
+                    boxShadow: '0 2px 8px rgba(59, 130, 246, 0.3)'
+                  },
+                  '&:active': {
+                    transform: 'scale(0.98)'
+                  },
+                  transition: 'all 0.2s ease',
+                  '@media (max-width: 768px)': {
+                    padding: '10px 14px',
+                    fontSize: Math.max(11, sizeStyles.fontSize),
+                    height: '36px'
+                  }
+                }}
+              >
+                <FaPlus size={12} />
+                Subir
+              </Button>
+            )}
 
             {/* Botón para marcar como faltante */}
-            {onMarkAsMissing && (
+            {onMarkAsMissing && !readOnly && (
               <Button
                 size="small"
                 onClick={(e) => {
