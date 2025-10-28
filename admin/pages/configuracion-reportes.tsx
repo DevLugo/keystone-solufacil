@@ -637,8 +637,12 @@ export default function ConfiguracionReportesPage() {
           data: {
             name: formData.name,
             reportType: formData.reportType,
-            routes: { connect: formData.routes.map(route => ({ id: route.value })) },
-            telegramUsers: { connect: formData.telegramUsers.map(user => ({ id: user.value })) },
+            routes: { 
+              set: formData.routes.map(route => ({ id: route.value })) 
+            },
+            telegramUsers: { 
+              set: formData.telegramUsers.map(user => ({ id: user.value })) 
+            },
             schedule: formData.schedule,
             isActive: formData.isActive
           }

@@ -1,5 +1,6 @@
 /** @jsxRuntime classic */
 /** @jsx jsx */
+/** @jsxFrag React.Fragment */
 
 import React, { useState } from 'react';
 import { jsx, Box, Text } from '@keystone-ui/core';
@@ -70,34 +71,35 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
 
   const sizeStyles = getSizeStyles(size);
 
-  const hasImage = imageUrl && publicId;
+  // Consideramos que hay imagen si existe URL; algunos registros antiguos/no normalizados pueden no tener publicId
+  const hasImage = !!imageUrl;
   const isDocumentReviewed = hasImage || isError || isMissing;
 
   return (
     <Box
-      css={{
-        position: 'relative',
-        width: sizeStyles.width,
-        height: sizeStyles.height,
-        borderRadius: '8px',
-          overflow: 'hidden',
-          '@media (min-width: 1024px)': {
-            overflow: 'visible' // permitir que los íconos salgan del contenedor en desktop
-          },
-        cursor: hasImage ? 'pointer' : 'default',
-        transition: 'all 0.2s ease',
-        border: '2px solid',
-        borderColor: hasImage ? '#10b981' : isMissing ? '#9ca3af' : '#d1d5db',
-        backgroundColor: hasImage ? '#f0fdf4' : isMissing ? '#f3f4f6' : '#f9fafb',
-        '&:hover': {
-          transform: hasImage ? 'scale(1.05)' : 'none',
-          boxShadow: hasImage ? '0 4px 12px rgba(16, 185, 129, 0.3)' : 'none'
-        }
-      }}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      onClick={hasImage ? onImageClick : undefined}
-    >
+        css={{
+          position: 'relative',
+          width: sizeStyles.width,
+          height: sizeStyles.height,
+          borderRadius: '8px',
+            overflow: 'hidden',
+            '@media (min-width: 1024px)': {
+              overflow: 'visible' // permitir que los íconos salgan del contenedor en desktop
+            },
+          cursor: hasImage ? 'pointer' : 'default',
+          transition: 'all 0.2s ease',
+          border: '2px solid',
+          borderColor: hasImage ? '#10b981' : isMissing ? '#9ca3af' : '#d1d5db',
+          backgroundColor: hasImage ? '#f0fdf4' : isMissing ? '#f3f4f6' : '#f9fafb',
+          '&:hover': {
+            transform: hasImage ? 'scale(1.05)' : 'none',
+            boxShadow: hasImage ? '0 4px 12px rgba(16, 185, 129, 0.3)' : 'none'
+          }
+        }}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        onClick={hasImage ? onImageClick : undefined}
+      >
       {/* Estado de carga */}
       {isUploading && (
         <Box
@@ -161,8 +163,8 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
                 left: '6px',
                 backgroundColor: '#ef4444',
                 borderRadius: '50%',
-                width: '22px',
-                height: '22px',
+                width: '32px',
+                height: '32px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -175,12 +177,12 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
                   transform: 'scale(1.1)'
                 },
                 '@media (min-width: 1024px)': {
-                  top: '-10px',
-                  left: '-10px'
+                  top: '-12px',
+                  left: '-12px'
                 },
                 '@media (max-width: 768px)': {
-                  width: '20px',
-                  height: '20px',
+                  width: '36px',
+                  height: '36px',
                   top: '4px',
                   left: '4px'
                 }
@@ -193,7 +195,7 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
               }}
               title="Eliminar imagen"
             >
-              <FaTrash size={11} color="white" />
+              <FaTrash size={14} color="white" />
             </Box>
           )}
 
@@ -206,8 +208,8 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
                 right: '6px',
                 backgroundColor: isError ? '#ef4444' : '#f59e0b',
                 borderRadius: '50%',
-                width: '22px',
-                height: '22px',
+                width: '32px',
+                height: '32px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -220,12 +222,12 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
                   transform: 'scale(1.1)'
                 },
                 '@media (min-width: 1024px)': {
-                  top: '-10px',
-                  right: '-10px'
+                  top: '-12px',
+                  right: '-12px'
                 },
                 '@media (max-width: 768px)': {
-                  width: '20px',
-                  height: '20px',
+                  width: '36px',
+                  height: '36px',
                   top: '4px',
                   right: '4px'
                 }
@@ -233,18 +235,13 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
               onClick={(e) => {
                 e.stopPropagation();
                 if (onMarkAsError) {
-                  if (isError) {
-                    // Si ya está marcado como error, mostrar/editar el error
-                    onMarkAsError(true, errorDescription);
-                  } else {
-                    // Abrir modal para descripción del error
-                    onMarkAsError(true, '');
-                  }
+                  // Siempre abrir el modal de error, que manejará tanto marcar como desmarcar
+                  onMarkAsError(true, errorDescription || '');
                 }
               }}
-              title={isError ? `Ver/editar error: ${errorDescription || 'Sin descripción'}` : 'Marcar como error'}
+              title={isError ? 'Desmarcar error' : 'Marcar como error'}
             >
-              <FaExclamationTriangle size={11} color="white" />
+              <FaExclamationTriangle size={14} color="white" />
             </Box>
           )}
 
@@ -275,12 +272,12 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
               transition: 'all 0.2s ease'
             }}
           >
-            <Text size="large" color="gray500">❌</Text>
+            <Text size="large" color="neutral500">❌</Text>
           </Box>
           
           <Text
             size="small"
-            color="gray600"
+            color="neutral600"
             css={{
               fontSize: sizeStyles.fontSize,
               fontWeight: '600',
@@ -293,9 +290,9 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
           
           <Text
             size="small"
-            color="gray500"
+            color="neutral500"
             css={{
-              fontSize: Math.max(9, sizeStyles.fontSize - 1),
+              fontSize: Math.max(9, typeof sizeStyles.fontSize === 'string' ? parseInt(sizeStyles.fontSize) - 1 : sizeStyles.fontSize - 1),
               lineHeight: '1.2',
               marginBottom: '10px'
             }}
@@ -305,9 +302,9 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
 
           <Text
             size="small"
-            color="gray500"
+            color="neutral500"
             css={{
-              fontSize: Math.max(8, sizeStyles.fontSize - 2),
+              fontSize: Math.max(8, typeof sizeStyles.fontSize === 'string' ? parseInt(sizeStyles.fontSize) - 2 : sizeStyles.fontSize - 2),
               lineHeight: '1.2',
               fontWeight: '500'
             }}
@@ -325,7 +322,7 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
               }}
               css={{
                 padding: '8px 12px',
-                fontSize: Math.max(10, sizeStyles.fontSize - 1),
+                fontSize: `${Math.max(10, typeof sizeStyles.fontSize === 'string' ? parseInt(sizeStyles.fontSize) - 1 : Number(sizeStyles.fontSize) - 1)}px`,
                 backgroundColor: '#6b7280',
                 color: 'white',
                 border: 'none',
@@ -348,7 +345,7 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
                 transition: 'all 0.2s ease',
                 '@media (max-width: 768px)': {
                   padding: '10px 14px',
-                  fontSize: Math.max(11, sizeStyles.fontSize),
+                  fontSize: Math.max(11, typeof sizeStyles.fontSize === 'string' ? parseInt(sizeStyles.fontSize) : sizeStyles.fontSize),
                   height: '36px'
                 }
               }}
@@ -394,7 +391,7 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
             
             <Text
               size="small"
-              color="gray600"
+              color="neutral600"
               css={{
                 fontSize: sizeStyles.fontSize,
                 fontWeight: '600',
@@ -406,9 +403,9 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
             
             <Text
               size="small"
-              color="gray500"
+              color="neutral500"
               css={{
-                fontSize: Math.max(9, sizeStyles.fontSize - 1),
+                fontSize: Math.max(9, typeof sizeStyles.fontSize === 'string' ? parseInt(sizeStyles.fontSize) - 1 : sizeStyles.fontSize - 1),
                 lineHeight: '1.2'
               }}
             >
@@ -434,7 +431,7 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
                 }}
                 css={{
                   padding: '8px 12px',
-                  fontSize: Math.max(10, sizeStyles.fontSize - 1),
+                  fontSize: `${Math.max(10, typeof sizeStyles.fontSize === 'string' ? parseInt(sizeStyles.fontSize) - 1 : Number(sizeStyles.fontSize) - 1)}px`,
                   backgroundColor: '#3b82f6',
                   color: 'white',
                   border: 'none',
@@ -457,7 +454,7 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
                   transition: 'all 0.2s ease',
                   '@media (max-width: 768px)': {
                     padding: '10px 14px',
-                    fontSize: Math.max(11, sizeStyles.fontSize),
+                    fontSize: Math.max(11, typeof sizeStyles.fontSize === 'string' ? parseInt(sizeStyles.fontSize) : sizeStyles.fontSize),
                     height: '36px'
                   }
                 }}
@@ -477,7 +474,7 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
                 }}
                 css={{
                   padding: '8px 12px',
-                  fontSize: Math.max(10, sizeStyles.fontSize - 1),
+                  fontSize: `${Math.max(10, typeof sizeStyles.fontSize === 'string' ? parseInt(sizeStyles.fontSize) - 1 : Number(sizeStyles.fontSize) - 1)}px`,
                   backgroundColor: '#6b7280',
                   color: 'white',
                   border: 'none',
@@ -500,7 +497,7 @@ export const DocumentThumbnail: React.FC<DocumentThumbnailProps> = ({
                   transition: 'all 0.2s ease',
                   '@media (max-width: 768px)': {
                     padding: '10px 14px',
-                    fontSize: Math.max(11, sizeStyles.fontSize),
+                    fontSize: Math.max(11, typeof sizeStyles.fontSize === 'string' ? parseInt(sizeStyles.fontSize) : sizeStyles.fontSize),
                     height: '36px'
                   }
                 }}
