@@ -837,7 +837,6 @@ const HistorialClientePage: React.FC = () => {
       // 2. Iniciar la carga del historial y la información de los documentos
       getClientHistory({ variables: { clientId: selectedClient.id } });
       getClientDocumentsOnly({ variables: { clientId: selectedClient.id } });
-      getAvalDocumentsOnly({ variables: { clientId: selectedClient.id } });
 
       // 3. Mostrar la sección del historial
       setShowClientHistory(true); 
@@ -1917,7 +1916,9 @@ const HistorialClientePage: React.FC = () => {
                 }}>
                   <p style={{ margin: 0, fontSize: '14px', color: '#4a5568' }}>
                     <strong>Cliente:</strong> {documentsInfo.client?.documentPhotos?.length || 0} documentos, 
-                    <strong> Aval:</strong> {documentsInfo.aval?.loan?.documentPhotos?.filter((doc: any) => doc.loan?.collaterals?.some((c: any) => c.id === doc.personalData?.id)).length || 0} documentos.
+                    <strong> Aval:</strong> {(lastLoanDocumentsData?.documentPhotos?.filter((doc: any) => doc.loan?.collaterals?.some((c: any) => c.id === doc.personalData?.id)).length) 
+                      || documentsInfo.aval?.loan?.documentPhotos?.filter((doc: any) => doc.loan?.collaterals?.some((c: any) => c.id === doc.personalData?.id)).length 
+                      || 0} documentos.
                   </p>
                   <Button 
                     onClick={() => setShowThumbnails(true)}
@@ -1959,20 +1960,19 @@ const HistorialClientePage: React.FC = () => {
                       ) : <p>No hay documentos de titular para mostrar.</p>}
 
                       {/* Documentos del aval */}
-                      {documentsInfo?.aval?.loan?.documentPhotos && documentsInfo.aval.loan.documentPhotos.filter((doc: any) => doc.loan?.collaterals?.some((c: any) => c.id === doc.personalData?.id)).length > 0 ? (
+                      {(() => {
+                        const avalSourceDocs = documentsInfo?.aval?.loan?.documentPhotos || lastLoanDocumentsData?.documentPhotos || [];
+                        const avalDocs = avalSourceDocs.filter((doc: any) => doc.loan?.collaterals?.some((c: any) => c.id === doc.personalData?.id));
+                        return avalDocs.length > 0;
+                      })() ? (
                         <div>
                           <h4 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '12px', color: '#4a5568' }}>
-                            Documentos como Aval ({documentsInfo.aval.loan.documentPhotos.filter((doc: any) => doc.loan?.collaterals?.some((c: any) => c.id === doc.personalData?.id)).length})
+                            Documentos como Aval ({(documentsInfo?.aval?.loan?.documentPhotos || lastLoanDocumentsData?.documentPhotos || []).filter((doc: any) => doc.loan?.collaterals?.some((c: any) => c.id === doc.personalData?.id)).length})
                           </h4>
                           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(150px, 1fr))', gap: '16px' }}>
-                            {documentsInfo.aval.loan.documentPhotos
-                              .filter((document: ClientDocument) => {
-                                const isAvalDocument = document.loan?.collaterals?.some((collateral: any) =>
-                                  collateral.id === document.personalData?.id
-                                );
-                                return isAvalDocument;
-                              })
-                                  .map((document: ClientDocument) => (
+                            {(documentsInfo?.aval?.loan?.documentPhotos || lastLoanDocumentsData?.documentPhotos || [])
+                              .filter((document: ClientDocument) => document.loan?.collaterals?.some((collateral: any) => collateral.id === document.personalData?.id))
+                              .map((document: ClientDocument) => (
                                     <DocumentThumbnail 
                                       key={document.id}
                                       type={document.documentType}

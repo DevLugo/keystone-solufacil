@@ -635,11 +635,12 @@ export default function DocumentosPersonalesPage() {
   // Función para manejar el estado de error del documento
   const handleDocumentError = async (documentId: string, isError: boolean, errorDescription?: string) => {
     try {
+      const normalizedDescription = isError ? (errorDescription ?? '') : '';
       await updateDocumentPhotoError({
         variables: { 
           id: documentId, 
           isError, 
-          errorDescription: errorDescription || null 
+          errorDescription: normalizedDescription 
         }
       });
 
@@ -726,18 +727,13 @@ export default function DocumentosPersonalesPage() {
       // Usar la descripción del error del documento real, no la que viene del componente
       const existingErrorDescription = document.errorDescription || '';
       
-      if (isError) {
-        // Si ya está marcado como error, mostrar/editar el error
-        openErrorModal(documentId, document.documentType, personType, existingErrorDescription);
-      } else {
-        // Si no está marcado como error, abrir modal para nuevo error
-        openErrorModal(documentId, document.documentType, personType, '');
-      }
+      // Siempre abrir el modal de error, que manejará tanto marcar como desmarcar
+      openErrorModal(documentId, document.documentType, personType, existingErrorDescription);
     }
   };
 
   // Función para abrir modal de confirmación de eliminación
-  const handleDocumentDelete = (documentId: string, documentTitle: string) => {
+  const handleDocumentDelete = (documentId: string, documentTitle: string, documentType?: 'INE' | 'DOMICILIO' | 'PAGARE', personalDataId?: string) => {
     setDeleteConfirmDialog({
       isOpen: true,
       documentId,
@@ -883,6 +879,18 @@ export default function DocumentosPersonalesPage() {
       closeErrorModal();
     } catch (error) {
       console.error('Error al marcar documento como error:', error);
+    }
+  };
+
+  // Función para desmarcar error
+  const unmarkError = async () => {
+    if (!errorModal.documentId) return;
+
+    try {
+      await handleDocumentError(errorModal.documentId, false, '');
+      closeErrorModal();
+    } catch (error) {
+      console.error('Error al desmarcar documento como error:', error);
     }
   };
 
@@ -2236,6 +2244,7 @@ export default function DocumentosPersonalesPage() {
         isOpen={errorModal.isOpen}
         onClose={closeErrorModal}
         onConfirm={confirmError}
+        onUnmarkError={unmarkError}
         documentType={errorModal.documentType}
         personType={errorModal.personType}
         existingError={errorModal.existingError}

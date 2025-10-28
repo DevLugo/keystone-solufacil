@@ -82,7 +82,7 @@ interface DocumentsModalProps {
   onDocumentError: (documentId: string, isError: boolean, errorDescription?: string) => void;
   onDocumentMissing: (documentId: string, isMissing: boolean) => void;
   onCreateMissingDocument: (documentType: 'INE' | 'DOMICILIO' | 'PAGARE', personalDataId: string, loanId: string, personName: string, personType: 'TITULAR' | 'AVAL') => void;
-  onDocumentDelete: (documentId: string, documentTitle: string) => void;
+  onDocumentDelete: (documentId: string, documentTitle: string, documentType: 'INE' | 'DOMICILIO' | 'PAGARE', personalDataId: string) => void;
   onNameEdit: (personalDataId: string, newName: string) => void;
   onPhoneEdit: (personalDataId: string, phoneId: string | undefined, newPhone: string) => void;
 }
@@ -416,7 +416,7 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
                             onCreateMissingDocument(type, loan.borrower.personalData.id, loan.id, loan.borrower.personalData.fullName, 'TITULAR');
                           }
                         }}
-                        onDelete={() => document && onDocumentDelete(document.id, document.title)}
+                        onDelete={() => document && onDocumentDelete(document.id, document.title, document.documentType as 'INE' | 'DOMICILIO' | 'PAGARE', loan.borrower.personalData.id)}
                         size="large"
                       />
                     </Box>
@@ -574,7 +574,7 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
                               onCreateMissingDocument(type, primaryCollateral.id, loan.id, primaryCollateral.fullName, 'AVAL');
                             }
                           }}
-                          onDelete={() => document && onDocumentDelete(document.id, document.title)}
+                          onDelete={() => document && onDocumentDelete(document.id, document.title, document.documentType as 'INE' | 'DOMICILIO' | 'PAGARE', primaryCollateral.id)}
                           size="large"
                         />
                       </Box>
