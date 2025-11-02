@@ -676,6 +676,9 @@ export const CreatePaymentForm = ({
   // Estado para recordar valores previos por pago (para restaurar tras deshacer deceso)
   const [previousValuesByPaymentId, setPreviousValuesByPaymentId] = useState<Record<string, { amount: number; comission: number }>>({});
 
+  // Estado para rastrear comisiones editadas manualmente (para evitar recálculo automático)
+  const [manuallyEditedCommissions, setManuallyEditedCommissions] = useState<Set<string>>(new Set()); // IDs de pagos existentes o índices de pagos nuevos
+
   // Estados para el menú de 3 puntos y modal de deceso
   const [showMenuForPayment, setShowMenuForPayment] = useState<string | null>(null);
   const [deceasedModal, setDeceasedModal] = useState<{
@@ -1006,16 +1009,28 @@ export const CreatePaymentForm = ({
       return multiplier >= 1 ? baseCommission * multiplier : 0;
     };
 
+    // Esto preserva ediciones anteriores
+    const currentPayment = state.editedPayments[paymentId] || payment;
+
     let updatedPayment: any = {
-      ...payment,
+      ...currentPayment,
       [field]: value
     };
 
-    // Si se actualiza el monto, recalcular la comisión dinámicamente
+    // Si se actualiza el monto, recalcular la comisión dinámicamente SOLO si no fue editada manualmente
     if (field === 'amount') {
-      const amountNum = parseFloat(String(value) || '0');
-      const loanId = (payment as any).loan?.id || (payment as any).loanId;
-      updatedPayment.comission = computeDynamicCommission(loanId, amountNum);
+      const paymentKey = `existing-${paymentId}`;
+      if (!manuallyEditedCommissions.has(paymentKey)) {
+        const amountNum = parseFloat(String(value) || '0');
+        const loanId = (payment as any).loan?.id || (payment as any).loanId;
+        updatedPayment.comission = computeDynamicCommission(loanId, amountNum);
+      }
+    }
+    
+    // Si se actualiza la comisión manualmente, marcar como editada manualmente
+    if (field === 'comission') {
+      const paymentKey = `existing-${paymentId}`;
+      setManuallyEditedCommissions(prev => new Set(prev).add(paymentKey));
     }
 
     setState(prev => ({
@@ -1652,12 +1667,20 @@ export const CreatePaymentForm = ({
         .filter(p => (parseFloat(p.amount || '0') !== 0 || parseFloat(p.comission?.toString() || '0') !== 0));
 
       // ✅ SEPARAR: expectedAmount para mutación (todos) vs expectedCashAmount para validación (solo efectivo)
-      const expectedTotalAmount = filteredNewPayments.length > 0
-        ? filteredNewPayments
-            .reduce((sum, payment) => sum + parseFloat(payment.amount || '0'), 0)
-        : state.groupedPayments 
-          ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0
-          : 0;
+      // Calcular expectedAmount incluyendo pagos existentes Y nuevos si hay groupedPayments
+      let expectedTotalAmount = 0;
+      if (state.groupedPayments) {
+        // Sumar pagos existentes de groupedPayments
+        const existingAmount = Object.values(state.groupedPayments)[0]?.expectedAmount || 0;
+        // Sumar pagos nuevos
+        const newAmount = filteredNewPayments
+          .reduce((sum, payment) => sum + parseFloat(payment.amount || '0'), 0);
+        expectedTotalAmount = existingAmount + newAmount;
+      } else if (filteredNewPayments.length > 0) {
+        // Solo pagos nuevos (sin existentes)
+        expectedTotalAmount = filteredNewPayments
+          .reduce((sum, payment) => sum + parseFloat(payment.amount || '0'), 0);
+      }
 
       // ✅ CORREGIDO: Calcular efectivo esperado basándose en el contexto correcto
       let expectedCashAmount;
@@ -1690,23 +1713,46 @@ export const CreatePaymentForm = ({
 
       // ✅ CORREGIDO: Lógica para determinar si crear nuevo o actualizar existente
       if (state.groupedPayments) {
-        // Si ya existen pagos para este día, solo actualizar (incluyendo pagos nuevos)
+        // Si ya existen pagos para este día, actualizar incluyendo pagos existentes Y nuevos
         console.log('✅ Ejecutando updateCustomLeadPaymentReceived para pagos existentes:', state.groupedPayments);
+        console.log('✅ Pagos nuevos a agregar:', filteredNewPayments);
         for (const [leadPaymentId, data] of Object.entries(state.groupedPayments)) {
           const { payments, paymentDate } = data;
           const { cashPaidAmount, bankPaidAmount } = loadPaymentDistribution;
           
-          // ✅ CORREGIDO: Solo usar los pagos existentes (excluir duplicados)
-          const allPayments = [...(payments as any[])];
-          console.log('✅ Actualizando solo pagos existentes sin duplicar:', allPayments);
+          // ✅ CORREGIDO: Combinar pagos existentes con pagos nuevos
+          const existingPaymentsArray = [...(payments as any[])];
+          
+          // Agregar pagos nuevos al mismo leadPayment
+          const newPaymentsArray = filteredNewPayments.map(payment => ({
+            amount: parseFloat(payment.amount || '0'),
+            comission: parseFloat(payment.comission?.toString() || '0'),
+            loanId: payment.loanId,
+            type: payment.type,
+            paymentMethod: payment.paymentMethod
+          }));
+          
+          // Combinar ambos arrays
+          const allPayments = [...existingPaymentsArray, ...newPaymentsArray];
+          
+          console.log('✅ Combinando pagos existentes y nuevos:', {
+            existentes: existingPaymentsArray.length,
+            nuevos: newPaymentsArray.length,
+            total: allPayments.length
+          });
           
           // Limpiar pagos 0/0 antes de enviar actualización
           const cleanedPayments = allPayments.filter((p: any) => {
-            const amt = parseFloat(p.amount || '0');
+            const amt = parseFloat(p.amount?.toString() || '0');
             const com = parseFloat(p.comission?.toString() || '0');
             return !(amt === 0 && com === 0);
           });
-          const cleanedExpected = cleanedPayments.reduce((sum: number, p: any) => sum + parseFloat(p.amount || '0'), 0);
+          
+          // Calcular expectedAmount incluyendo ambos tipos de pagos
+          const cleanedExpected = cleanedPayments.reduce((sum: number, p: any) => {
+            const amt = parseFloat(p.amount?.toString() || '0');
+            return sum + amt;
+          }, 0);
 
           await updateCustomLeadPaymentReceived({
             variables: {
@@ -1717,7 +1763,7 @@ export const CreatePaymentForm = ({
               falcoAmount: 0, // ✅ ELIMINADO: Falco se maneja por separado
               paymentDate,
               payments: cleanedPayments.map((payment: any) => ({
-                amount: parseFloat(payment.amount || '0'),
+                amount: parseFloat(payment.amount?.toString() || '0'),
                 comission: parseFloat(payment.comission?.toString() || '0'),
                 loanId: payment.loanId,
                 type: payment.type,
@@ -1912,6 +1958,9 @@ export const CreatePaymentForm = ({
       }
     } else if (field === 'comission') {
       (newPayments[index][field] as unknown as string) = value;
+      // Marcar comisión como editada manualmente
+      const paymentKey = `new-${index}`;
+      setManuallyEditedCommissions(prev => new Set(prev).add(paymentKey));
     } else {
       // ✅ VALIDACIÓN: Asegurar que amount nunca sea null o undefined
       if (field === 'amount') {
@@ -1919,22 +1968,25 @@ export const CreatePaymentForm = ({
       } else {
         (newPayments[index][field] as any) = value;
       }
-      // Reglas de comisión dinámica según monto vs pago esperado
+      // Reglas de comisión dinámica según monto vs pago esperado SOLO si no fue editada manualmente
       if (field === 'amount') {
-        const amt = parseFloat(String(value) || '0');
-        const loanId = newPayments[index].loanId;
-        if (loanId && loansData?.loans) {
-          const loan = loansData.loans.find(l => l.id === loanId);
-          const expectedWeekly = loan ? parseFloat(loan.weeklyPaymentAmount || '0') : 0;
-          const baseCommission = loan ? Math.round(parseFloat(loan.loantype?.loanPaymentComission || '0')) || 0 : 0;
-          if (!expectedWeekly || !baseCommission || !isFinite(amt) || amt <= 0) {
-            (newPayments[index].comission as any) = 0;
+        const paymentKey = `new-${index}`;
+        if (!manuallyEditedCommissions.has(paymentKey)) {
+          const amt = parseFloat(String(value) || '0');
+          const loanId = newPayments[index].loanId;
+          if (loanId && loansData?.loans) {
+            const loan = loansData.loans.find(l => l.id === loanId);
+            const expectedWeekly = loan ? parseFloat(loan.weeklyPaymentAmount || '0') : 0;
+            const baseCommission = loan ? Math.round(parseFloat(loan.loantype?.loanPaymentComission || '0')) || 0 : 0;
+            if (!expectedWeekly || !baseCommission || !isFinite(amt) || amt <= 0) {
+              (newPayments[index].comission as any) = 0;
+            } else {
+              const multiplier = Math.floor(amt / expectedWeekly);
+              (newPayments[index].comission as any) = multiplier >= 1 ? baseCommission * multiplier : 0;
+            }
           } else {
-            const multiplier = Math.floor(amt / expectedWeekly);
-            (newPayments[index].comission as any) = multiplier >= 1 ? baseCommission * multiplier : 0;
+            (newPayments[index].comission as any) = 0;
           }
-        } else {
-          (newPayments[index].comission as any) = 0;
         }
       }
     }
