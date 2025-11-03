@@ -1,4 +1,9 @@
 import React, { useState } from 'react';
+import { useQuery, useLazyQuery } from '@apollo/client';
+import { Select } from '@keystone-ui/fields';
+import { GET_LEADS_SIMPLE, GET_ROUTES_SIMPLE } from '../graphql/queries/routes-optimized';
+import { PageContainer } from '@keystone-6/core/admin-ui/components';
+import ProtectedRoute from '../components/ProtectedRoute';
 
 interface DeadDebtLoan {
   id: string;
@@ -6,6 +11,8 @@ interface DeadDebtLoan {
   amountGived: number;
   signDate: string;
   pendingAmountStored: number;
+  badDebtCandidate?: number;
+  badDebtDate?: string | null;
   borrower: {
     fullName: string;
     clientCode: string;
@@ -27,9 +34,50 @@ interface DeadDebtSummary {
 }
 
 export default function CarteraMuertaPage() {
-  const [weeksSinceLoan, setWeeksSinceLoan] = useState(17);
-  const [weeksWithoutPayment, setWeeksWithoutPayment] = useState(4);
-  const [badDebtDate, setBadDebtDate] = useState(new Date().toISOString().split('T')[0]);
+  const [weeksSinceLoanMin, setWeeksSinceLoanMin] = useState<number | null>(null);
+  const [weeksSinceLoanMax, setWeeksSinceLoanMax] = useState<number | null>(null);
+  const [weeksWithoutPaymentMin, setWeeksWithoutPaymentMin] = useState<number | null>(null);
+  const [weeksWithoutPaymentMax, setWeeksWithoutPaymentMax] = useState<number | null>(null);
+  const [routeId, setRouteId] = useState<string>('');
+  const [localities, setLocalities] = useState<string[]>([]);
+  const [selectedRouteOption, setSelectedRouteOption] = useState<any | null>(null);
+  const [selectedLocalityOptions, setSelectedLocalityOptions] = useState<any[]>([]);
+  const [badDebtStatus, setBadDebtStatus] = useState<'ALL' | 'MARKED' | 'UNMARKED'>('UNMARKED');
+  const [expandedLocality, setExpandedLocality] = useState<string | null>(null);
+  const [showMonthlyBreakdown, setShowMonthlyBreakdown] = useState(false);
+  const [monthlyData, setMonthlyData] = useState<any>(null);
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [monthlyFromDate, setMonthlyFromDate] = useState<string>('');
+  const [monthlyToDate, setMonthlyToDate] = useState<string>('');
+  const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
+  const [expandedMonthRouteFilter, setExpandedMonthRouteFilter] = useState<string>('');
+  const [selectedMonthlyLoans, setSelectedMonthlyLoans] = useState<string[]>([]);
+  const [isCopying, setIsCopying] = useState(false);
+  const [showMarkDeadDebtModal, setShowMarkDeadDebtModal] = useState(false);
+  const [selectedDeadDebtDate, setSelectedDeadDebtDate] = useState<string>('');
+  const [isMarkingDeadDebt, setIsMarkingDeadDebt] = useState(false);
+  const [showMarkAllMonthsModal, setShowMarkAllMonthsModal] = useState(false);
+  const [selectedAllMonthsDeadDebtDate, setSelectedAllMonthsDeadDebtDate] = useState<string>('');
+  const [isMarkingAllMonths, setIsMarkingAllMonths] = useState(false);
+  const [allMonthsSelectedLoans, setAllMonthsSelectedLoans] = useState<string[]>([]);
+
+  // Cargar rutas y leads como en RouteLeadSelector
+  const { data: routesData, loading: routesLoading } = useQuery(GET_ROUTES_SIMPLE, {
+    variables: { where: {} },
+    fetchPolicy: 'network-only'
+  });
+  const [getLeads, { data: leadsData, loading: leadsLoading }] = useLazyQuery(GET_LEADS_SIMPLE);
+
+  const routeOptions = (routesData?.routes || []).map((route: any) => ({
+    label: route.name,
+    value: route.id,
+    data: route
+  }));
+
+  const leads = (leadsData?.employees || []) as any[];
+  const localityOptions = Array.from(new Set(
+    leads.map(l => l?.personalData?.addresses?.[0]?.location?.name).filter(Boolean)
+  )).map((name: string) => ({ label: name, value: name }));
   const [selectedLoans, setSelectedLoans] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +85,387 @@ export default function CarteraMuertaPage() {
   const [loans, setLoans] = useState<DeadDebtLoan[]>([]);
   const [summary, setSummary] = useState<DeadDebtSummary[]>([]);
   const [hasData, setHasData] = useState(false);
+
+  // Función para copiar tabla como imagen
+  const copyTableAsImage = async (containerId: string) => {
+    try {
+      setIsCopying(true);
+      const container = document.getElementById(containerId);
+      if (!container) {
+        setError('No se encontró el contenedor para copiar');
+        setIsCopying(false);
+        return;
+      }
+
+      // Crear un contenedor temporal fuera del DOM para capturar todo el contenido
+      const tempContainer = document.createElement('div');
+      tempContainer.style.position = 'absolute';
+      tempContainer.style.left = '-9999px';
+      tempContainer.style.top = '0';
+      tempContainer.style.width = '100%';
+      tempContainer.style.backgroundColor = '#f8f9fa';
+      tempContainer.style.padding = '1rem';
+      tempContainer.style.border = '1px solid #dee2e6';
+      
+      // Clonar el contenido completo
+      const clonedContent = container.cloneNode(true) as HTMLElement;
+      
+      // Quitar todos los estilos de scroll del clon
+      clonedContent.style.maxHeight = 'none';
+      clonedContent.style.overflow = 'visible';
+      clonedContent.style.height = 'auto';
+      
+      // Quitar scroll y sticky de todos los elementos internos
+      const scrollableElements = clonedContent.querySelectorAll('*');
+      scrollableElements.forEach(element => {
+        const el = element as HTMLElement;
+        if (el.style.maxHeight) el.style.maxHeight = 'none';
+        if (el.style.overflow) el.style.overflow = 'visible';
+        if (el.style.height && el.style.height.includes('px')) el.style.height = 'auto';
+        if (el.style.position === 'sticky') el.style.position = 'static';
+      });
+      
+      // Agregar el clon al elemento temporal
+      tempContainer.appendChild(clonedContent);
+      document.body.appendChild(tempContainer);
+      
+      // Esperar un momento para que se renderice
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Usar html2canvas para convertir el contenedor temporal a imagen
+      const { default: html2canvas } = await import('html2canvas');
+      
+      const canvas = await html2canvas(tempContainer, {
+        backgroundColor: '#ffffff',
+        scale: 2, // Mayor resolución
+        useCORS: true,
+        allowTaint: true,
+        width: tempContainer.scrollWidth,
+        height: tempContainer.scrollHeight
+      });
+      
+      // Limpiar el elemento temporal
+      document.body.removeChild(tempContainer);
+
+      // Convertir canvas a blob
+      canvas.toBlob(async (blob) => {
+        if (blob) {
+          try {
+            await navigator.clipboard.write([
+              new ClipboardItem({
+                'image/png': blob
+              })
+            ]);
+            setSuccess('✅ Tabla copiada como imagen al portapapeles');
+            setTimeout(() => setSuccess(null), 3000);
+          } catch (err) {
+            // Fallback: descargar la imagen
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `creditos-${expandedMonth || 'mes'}.png`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            setSuccess('✅ Imagen descargada (copia al portapapeles no disponible)');
+            setTimeout(() => setSuccess(null), 3000);
+          }
+        }
+      }, 'image/png');
+    } catch (error) {
+      console.error('Error al copiar tabla:', error);
+      setError('Error al copiar la tabla como imagen');
+    } finally {
+      setIsCopying(false);
+    }
+  };
+
+  // Funciones para manejar selección de créditos mensuales
+  const handleMonthlyLoanSelect = (loanId: string) => {
+    setSelectedMonthlyLoans(prev => 
+      prev.includes(loanId) 
+        ? prev.filter(id => id !== loanId)
+        : [...prev, loanId]
+    );
+  };
+
+  const handleSelectAllMonthlyLoans = (loans: any[]) => {
+    const allLoanIds = loans.map(loan => loan.id);
+    setSelectedMonthlyLoans(prev => 
+      prev.length === allLoanIds.length ? [] : allLoanIds
+    );
+  };
+
+  const getSelectedMonthlyLoansTotal = (month: any) => {
+    const filteredLoans = month.loans.filter((loan: any) => {
+      if (!expandedMonthRouteFilter) return true;
+      return loan.lead?.route === expandedMonthRouteFilter;
+    });
+    
+    const selectedLoans = filteredLoans.filter((loan: any) => 
+      selectedMonthlyLoans.includes(loan.id)
+    );
+    
+    const totalDeuda = selectedLoans.reduce((sum: number, loan: any) => sum + (loan.pendingAmountStored || 0), 0);
+    const totalCarteraMuerta = selectedLoans.reduce((sum: number, loan: any) => sum + (loan.badDebtCandidate || 0), 0);
+    
+    return { totalDeuda, totalCarteraMuerta, count: selectedLoans.length };
+  };
+
+  // Función para seleccionar todos los créditos de todos los meses
+  const handleSelectAllMonthsLoans = () => {
+    if (!monthlyData?.monthlySummary) return;
+    
+    const allLoans: string[] = [];
+    monthlyData.monthlySummary.forEach((month: any) => {
+      if (month.loans) {
+        month.loans.forEach((loan: any) => {
+          allLoans.push(loan.id);
+        });
+      }
+    });
+    
+    setAllMonthsSelectedLoans(prev => 
+      prev.length === allLoans.length ? [] : allLoans
+    );
+  };
+
+  const getTotalAllMonthsSelected = () => {
+    if (!monthlyData?.monthlySummary) return { totalDeuda: 0, totalCarteraMuerta: 0, count: 0 };
+    
+    let totalDeuda = 0;
+    let totalCarteraMuerta = 0;
+    let count = 0;
+    
+    monthlyData.monthlySummary.forEach((month: any) => {
+      if (month.loans) {
+        month.loans.forEach((loan: any) => {
+          if (allMonthsSelectedLoans.includes(loan.id)) {
+            totalDeuda += loan.pendingAmountStored || 0;
+            totalCarteraMuerta += loan.badDebtCandidate || 0;
+            count++;
+          }
+        });
+      }
+    });
+    
+    return { totalDeuda, totalCarteraMuerta, count };
+  };
+
+  // Función para obtener el último día del mes
+  const getLastDayOfMonth = (year: number, month: number) => {
+    return new Date(year, month, 0).toISOString().split('T')[0];
+  };
+
+  // Función para abrir el modal de marcado de cartera muerta
+  const handleOpenMarkDeadDebtModal = () => {
+    if (selectedMonthlyLoans.length === 0) {
+      setError('Selecciona al menos un crédito para marcar como cartera muerta');
+      return;
+    }
+
+    // Establecer la fecha por defecto como el último día del mes actual
+    const now = new Date();
+    const lastDayOfCurrentMonth = getLastDayOfMonth(now.getFullYear(), now.getMonth() + 1);
+    setSelectedDeadDebtDate(lastDayOfCurrentMonth);
+    setShowMarkDeadDebtModal(true);
+  };
+
+  // Función para marcar créditos seleccionados como cartera muerta
+  const handleMarkSelectedMonthlyLoansAsDeadDebt = async () => {
+    if (selectedMonthlyLoans.length === 0) {
+      setError('Selecciona al menos un crédito para marcar como cartera muerta');
+      return;
+    }
+
+    if (!selectedDeadDebtDate) {
+      setError('Selecciona una fecha para marcar como cartera muerta');
+      return;
+    }
+
+    setIsMarkingDeadDebt(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const response = await fetch('/api/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: `
+            mutation MarkLoansDeadDebt($loanIds: [ID!]!, $deadDebtDate: String!) {
+              markLoansDeadDebt(loanIds: $loanIds, deadDebtDate: $deadDebtDate)
+            }
+          `,
+          variables: {
+            loanIds: selectedMonthlyLoans,
+            deadDebtDate: selectedDeadDebtDate
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.errors) {
+        throw new Error(result.errors[0].message);
+      }
+
+      const mutationResult = JSON.parse(result.data.markLoansDeadDebt);
+      
+      if (mutationResult.success) {
+        setSuccess(`${mutationResult.count || selectedMonthlyLoans.length} créditos marcados como cartera muerta exitosamente con fecha ${selectedDeadDebtDate}`);
+        setSelectedMonthlyLoans([]); // Limpiar selección
+        setShowMarkDeadDebtModal(false);
+        
+        // Recargar datos mensuales para actualizar la vista
+        handleLoadMonthlyData();
+      } else {
+        throw new Error(mutationResult.message || 'Error al marcar créditos');
+      }
+    } catch (err: any) {
+      console.error('Error al marcar créditos como cartera muerta:', err);
+      setError(err.message || 'Error al marcar créditos como cartera muerta');
+    } finally {
+      setIsMarkingDeadDebt(false);
+    }
+  };
+
+  // Función para marcar todos los créditos de todos los meses
+  const handleMarkAllMonthsAsDeadDebt = async () => {
+    if (allMonthsSelectedLoans.length === 0) {
+      setError('Selecciona al menos un crédito para marcar como cartera muerta');
+      return;
+    }
+
+    if (!selectedAllMonthsDeadDebtDate) {
+      setError('Selecciona una fecha para marcar como cartera muerta');
+      return;
+    }
+
+    setIsMarkingAllMonths(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const response = await fetch('/api/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: `
+            mutation MarkLoansDeadDebt($loanIds: [ID!]!, $deadDebtDate: String!) {
+              markLoansDeadDebt(loanIds: $loanIds, deadDebtDate: $deadDebtDate)
+            }
+          `,
+          variables: {
+            loanIds: allMonthsSelectedLoans,
+            deadDebtDate: selectedAllMonthsDeadDebtDate
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.errors) {
+        throw new Error(result.errors[0].message);
+      }
+
+      const mutationResult = JSON.parse(result.data.markLoansDeadDebt);
+      
+      if (mutationResult.success) {
+        setSuccess(`${mutationResult.count || allMonthsSelectedLoans.length} créditos marcados como cartera muerta exitosamente con fecha ${selectedAllMonthsDeadDebtDate}`);
+        setAllMonthsSelectedLoans([]);
+        setShowMarkAllMonthsModal(false);
+        
+        // Recargar datos mensuales
+        handleLoadMonthlyData();
+      } else {
+        throw new Error(mutationResult.message || 'Error al marcar créditos');
+      }
+    } catch (err: any) {
+      console.error('Error al marcar créditos como cartera muerta:', err);
+      setError(err.message || 'Error al marcar créditos como cartera muerta');
+    } finally {
+      setIsMarkingAllMonths(false);
+    }
+  };
+
+  // Función para marcar todos los créditos de un mes específico
+  const handleMarkMonthAsDeadDebt = async (month: any) => {
+    if (!month.loans || month.loans.length === 0) {
+      setError('No hay créditos en este mes para marcar');
+      return;
+    }
+
+    const monthLoans = month.loans.map((loan: any) => loan.id);
+    
+    // Usar el último día del mes correspondiente, no el mes actual
+    const monthYear = month.month.year;
+    const monthNumber = month.month.month;
+    const lastDayOfMonth = getLastDayOfMonth(monthYear, monthNumber);
+
+    setIsMarkingDeadDebt(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const response = await fetch('/api/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: `
+            mutation MarkLoansDeadDebt($loanIds: [ID!]!, $deadDebtDate: String!) {
+              markLoansDeadDebt(loanIds: $loanIds, deadDebtDate: $deadDebtDate)
+            }
+          `,
+          variables: {
+            loanIds: monthLoans,
+            deadDebtDate: lastDayOfMonth
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.errors) {
+        throw new Error(result.errors[0].message);
+      }
+
+      const mutationResult = JSON.parse(result.data.markLoansDeadDebt);
+      
+      if (mutationResult.success) {
+        setSuccess(`${mutationResult.count || monthLoans.length} créditos de ${month.month.name} marcados como cartera muerta exitosamente con fecha ${lastDayOfMonth}`);
+        
+        // Recargar datos mensuales
+        handleLoadMonthlyData();
+      } else {
+        throw new Error(mutationResult.message || 'Error al marcar créditos');
+      }
+    } catch (err: any) {
+      console.error('Error al marcar créditos del mes:', err);
+      setError(err.message || 'Error al marcar créditos del mes');
+    } finally {
+      setIsMarkingDeadDebt(false);
+    }
+  };
 
   const handleMarkAsDeadDebt = async () => {
     if (selectedLoans.length === 0) {
@@ -63,7 +492,7 @@ export default function CarteraMuertaPage() {
           `,
           variables: {
             loanIds: selectedLoans,
-            deadDebtDate: badDebtDate
+            deadDebtDate: new Date().toISOString().split('T')[0]
           }
         })
       });
@@ -81,7 +510,8 @@ export default function CarteraMuertaPage() {
       // Parsear el resultado de la mutación
       const mutationResult = JSON.parse(result.data.markLoansDeadDebt);
       
-      console.log(`Marcando como cartera muerta: ${selectedLoans.join(', ')} con fecha ${badDebtDate}`);
+      const currentDate = new Date().toISOString().split('T')[0];
+      console.log(`Marcando como cartera muerta: ${selectedLoans.join(', ')} con fecha ${currentDate}`);
       setSuccess(`${mutationResult.updatedCount || selectedLoans.length} créditos marcados como cartera muerta exitosamente.`);
       setSelectedLoans([]); // Clear selection after marking
       
@@ -117,14 +547,22 @@ export default function CarteraMuertaPage() {
         },
         body: JSON.stringify({
           query: `
-            query GetLoansForDeadDebt($weeksSinceLoan: Int!, $weeksWithoutPayment: Int!) {
-              loansForDeadDebt(weeksSinceLoan: $weeksSinceLoan, weeksWithoutPayment: $weeksWithoutPayment)
-              deadDebtSummary(weeksSinceLoan: $weeksSinceLoan, weeksWithoutPayment: $weeksWithoutPayment)
+            query GetLoansForDeadDebt($weeksSinceLoanMin: Int, $weeksSinceLoanMax: Int, $weeksWithoutPaymentMin: Int, $weeksWithoutPaymentMax: Int, $routeId: String, $localities: [String!], $badDebtStatus: String, $fromDate: String, $toDate: String) {
+              loansForDeadDebt(weeksSinceLoanMin: $weeksSinceLoanMin, weeksSinceLoanMax: $weeksSinceLoanMax, weeksWithoutPaymentMin: $weeksWithoutPaymentMin, weeksWithoutPaymentMax: $weeksWithoutPaymentMax, routeId: $routeId, localities: $localities, badDebtStatus: $badDebtStatus, fromDate: $fromDate, toDate: $toDate)
+              deadDebtSummary(weeksSinceLoanMin: $weeksSinceLoanMin, weeksSinceLoanMax: $weeksSinceLoanMax, weeksWithoutPaymentMin: $weeksWithoutPaymentMin, weeksWithoutPaymentMax: $weeksWithoutPaymentMax, routeId: $routeId, localities: $localities, badDebtStatus: $badDebtStatus, fromDate: $fromDate, toDate: $toDate)
             }
           `,
           variables: {
-            weeksSinceLoan,
-            weeksWithoutPayment
+            weeksSinceLoanMin,
+            weeksSinceLoanMax,
+            weeksWithoutPaymentMin,
+            weeksWithoutPaymentMax,
+            routeId: routeId || null,
+            // Si hay ruta pero ninguna localidad seleccionada, enviar [] para que el backend devuelva vacío
+            localities: routeId ? localities : null,
+            badDebtStatus,
+            fromDate: monthlyFromDate || null,
+            toDate: monthlyToDate || null
           }
         })
       });
@@ -140,13 +578,13 @@ export default function CarteraMuertaPage() {
       }
 
       // Parsear los datos JSON de la respuesta
-      const loansData = JSON.parse(result.data.loansForDeadDebt) as DeadDebtLoan[];
+      const loansResponse = JSON.parse(result.data.loansForDeadDebt) as { loans: DeadDebtLoan[], summary: { totalLoans: number, totalBadDebtCandidate: number, localities: string[] } };
       const summaryData = JSON.parse(result.data.deadDebtSummary) as DeadDebtSummary[];
 
-      setLoans(loansData);
+      setLoans(loansResponse.loans);
       setSummary(summaryData);
       setHasData(true);
-      setSuccess(`Se encontraron ${loansData.length} créditos elegibles para cartera muerta`);
+      setSuccess(`Se encontraron ${loansResponse.loans.length} créditos elegibles para cartera muerta. Total estimado: $${loansResponse.summary.totalBadDebtCandidate.toLocaleString()}`);
     } catch (err: any) {
       console.error('Error al cargar créditos:', err);
       setError('Error al cargar los datos: ' + (err.message || 'Error desconocido'));
@@ -155,7 +593,57 @@ export default function CarteraMuertaPage() {
     }
   };
 
+  const handleLoadMonthlyData = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: `
+            query DeadDebtMonthlySummary($routeId: String, $localities: [String!], $year: Int!, $weeksSinceLoanMin: Int, $weeksSinceLoanMax: Int, $weeksWithoutPaymentMin: Int, $weeksWithoutPaymentMax: Int, $badDebtStatus: String, $fromDate: String, $toDate: String) {
+              deadDebtMonthlySummary(routeId: $routeId, localities: $localities, year: $year, weeksSinceLoanMin: $weeksSinceLoanMin, weeksSinceLoanMax: $weeksSinceLoanMax, weeksWithoutPaymentMin: $weeksWithoutPaymentMin, weeksWithoutPaymentMax: $weeksWithoutPaymentMax, badDebtStatus: $badDebtStatus, fromDate: $fromDate, toDate: $toDate)
+            }
+          `,
+          variables: {
+            routeId: routeId,
+            localities: localities.length > 0 ? localities : null,
+            year: selectedYear,
+            weeksSinceLoanMin,
+            weeksSinceLoanMax,
+            weeksWithoutPaymentMin,
+            weeksWithoutPaymentMax,
+            badDebtStatus,
+            fromDate: monthlyFromDate || null,
+            toDate: monthlyToDate || null
+          }
+        })
+      });
+
+      const result = await response.json();
+      
+      if (result.errors) {
+        throw new Error(result.errors[0].message);
+      }
+
+      const data = JSON.parse(result.data.deadDebtMonthlySummary);
+      setMonthlyData(data);
+      setShowMonthlyBreakdown(true);
+    } catch (err: any) {
+      console.error('Error al cargar datos mensuales:', err);
+      setError('Error al cargar datos mensuales: ' + (err.message || 'Error desconocido'));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
+    <ProtectedRoute requiredRole="ADMIN">
+      <PageContainer header="Cartera Muerta">
     <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
       <h1 style={{ marginBottom: '2rem', color: '#1a1a1a' }}>Cartera Muerta</h1>
       
@@ -197,13 +685,13 @@ export default function CarteraMuertaPage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
           <div>
             <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>
-              Semanas desde el crédito:
+              Semanas desde el crédito (mínimo):
             </label>
             <input
               type="number"
-              value={weeksSinceLoan}
-              onChange={(e) => setWeeksSinceLoan(parseInt(e.target.value) || 0)}
-              min="1"
+              value={weeksSinceLoanMin || ''}
+              onChange={(e) => setWeeksSinceLoanMin(e.target.value ? parseInt(e.target.value) : null)}
+              placeholder="Ej: 17"
               style={{
                 width: '100%',
                 padding: '0.5rem',
@@ -215,13 +703,13 @@ export default function CarteraMuertaPage() {
           </div>
           <div>
             <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>
-              Semanas sin pago:
+              Semanas desde el crédito (máximo):
             </label>
             <input
               type="number"
-              value={weeksWithoutPayment}
-              onChange={(e) => setWeeksWithoutPayment(parseInt(e.target.value) || 0)}
-              min="1"
+              value={weeksSinceLoanMax || ''}
+              onChange={(e) => setWeeksSinceLoanMax(e.target.value ? parseInt(e.target.value) : null)}
+              placeholder="Ej: 52"
               style={{
                 width: '100%',
                 padding: '0.5rem',
@@ -233,12 +721,13 @@ export default function CarteraMuertaPage() {
           </div>
           <div>
             <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>
-              Fecha de cartera muerta:
+              Semanas sin pago (mínimo):
             </label>
             <input
-              type="date"
-              value={badDebtDate}
-              onChange={(e) => setBadDebtDate(e.target.value)}
+              type="number"
+              value={weeksWithoutPaymentMin || ''}
+              onChange={(e) => setWeeksWithoutPaymentMin(e.target.value ? parseInt(e.target.value) : null)}
+              placeholder="Ej: 4"
               style={{
                 width: '100%',
                 padding: '0.5rem',
@@ -247,77 +736,215 @@ export default function CarteraMuertaPage() {
                 fontSize: '14px'
               }}
             />
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>
+              Semanas sin pago (máximo):
+            </label>
+            <input
+              type="number"
+              value={weeksWithoutPaymentMax || ''}
+              onChange={(e) => setWeeksWithoutPaymentMax(e.target.value ? parseInt(e.target.value) : null)}
+              placeholder="Ej: 12"
+              style={{
+                width: '100%',
+                padding: '0.5rem',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                fontSize: '14px'
+              }}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>
+              Es cartera muerta:
+            </label>
+            <Select
+              value={{ label: badDebtStatus === 'ALL' ? 'Todos' : badDebtStatus === 'MARKED' ? 'Marcados' : 'No marcados', value: badDebtStatus }}
+              onChange={(opt: any) => setBadDebtStatus((opt?.value || 'UNMARKED') as any)}
+              options={[
+                { label: 'Todos', value: 'ALL' },
+                { label: 'Marcados', value: 'MARKED' },
+                { label: 'No marcados', value: 'UNMARKED' }
+              ]}
+              placeholder="Seleccionar estado"
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>
+              Ruta (opcional):
+            </label>
+            <Select
+              value={selectedRouteOption}
+              onChange={(opt: any) => {
+                setSelectedRouteOption(opt);
+                const id = opt?.value || '';
+                setRouteId(id);
+                setSelectedLocalityOptions([]);
+                setLocalities([]);
+                if (id) getLeads({ variables: { routeId: id } });
+              }}
+              options={routeOptions}
+              placeholder={routesLoading ? 'Cargando rutas...' : 'Seleccionar ruta'}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>
+              Localidades (opcional):
+            </label>
+            {!routeId ? (
+              <div style={{ color: '#6c757d', fontSize: '13px' }}>Selecciona primero una ruta</div>
+            ) : leadsLoading ? (
+              <div style={{ color: '#6c757d', fontSize: '13px' }}>Cargando localidades…</div>
+            ) : (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: '8px',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                padding: '8px',
+                maxHeight: '180px',
+                overflowY: 'auto'
+              }}>
+                {localityOptions.map(opt => {
+                  const checked = localities.includes(opt.value);
+                  return (
+                    <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setLocalities([...localities, opt.value]);
+                          } else {
+                            setLocalities(localities.filter(v => v !== opt.value));
+                          }
+                        }}
+                      />
+                      <span>{opt.label}</span>
+                    </label>
+                  );
+                })}
+                {localityOptions.length === 0 && (
+                  <div style={{ color: '#6c757d', fontSize: '13px' }}>No hay localidades para esta ruta</div>
+                )}
+              </div>
+            )}
           </div>
         </div>
-        <button
-          onClick={handleUpdate}
-          disabled={isLoading}
-          style={{
-            backgroundColor: isLoading ? '#6c757d' : '#007bff',
-            color: 'white',
-            border: 'none',
-            padding: '0.75rem 1.5rem',
-            borderRadius: '4px',
-            cursor: isLoading ? 'not-allowed' : 'pointer',
-            fontSize: '14px',
-            fontWeight: '500'
-          }}
-        >
-          {isLoading ? 'Cargando...' : 'Actualizar'}
-        </button>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <button
+            onClick={handleUpdate}
+            disabled={isLoading}
+            style={{
+              backgroundColor: isLoading ? '#6c757d' : '#007bff',
+              color: 'white',
+              border: 'none',
+              padding: '0.75rem 1.5rem',
+              borderRadius: '4px',
+              cursor: isLoading ? 'not-allowed' : 'pointer',
+              fontSize: '14px',
+              fontWeight: '500'
+            }}
+          >
+            {isLoading ? 'Cargando...' : 'Actualizar'}
+          </button>
+          
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+              style={{
+                padding: '0.5rem',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                fontSize: '14px'
+              }}
+            >
+              {Array.from({ length: 3 }, (_, i) => new Date().getFullYear() - i).map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+            
+            <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+              <label style={{ fontSize: '12px', color: '#666', whiteSpace: 'nowrap' }}>Desde:</label>
+              <input
+                type="date"
+                value={monthlyFromDate}
+                onChange={(e) => setMonthlyFromDate(e.target.value)}
+                style={{
+                  padding: '0.5rem',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '14px'
+                }}
+              />
+            </div>
+            
+            <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+              <label style={{ fontSize: '12px', color: '#666', whiteSpace: 'nowrap' }}>Hasta:</label>
+              <input
+                type="date"
+                value={monthlyToDate}
+                onChange={(e) => setMonthlyToDate(e.target.value)}
+                style={{
+                  padding: '0.5rem',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '14px'
+                }}
+              />
+            </div>
+            
+            <button
+              onClick={handleLoadMonthlyData}
+              disabled={isLoading}
+              style={{
+                backgroundColor: isLoading ? '#6c757d' : '#28a745',
+                color: 'white',
+                border: 'none',
+                padding: '0.75rem 1.5rem',
+                borderRadius: '4px',
+                cursor: isLoading ? 'not-allowed' : 'pointer',
+                fontSize: '14px',
+                fontWeight: '500'
+              }}
+            >
+              📅 Ver Desglose Mensual
+            </button>
+            
+            <button
+              onClick={() => {
+                if (!monthlyData?.monthlySummary) {
+                  setError('Primero carga el desglose mensual');
+                  return;
+                }
+                const now = new Date();
+                const lastDayOfCurrentMonth = getLastDayOfMonth(now.getFullYear(), now.getMonth() + 1);
+                setSelectedAllMonthsDeadDebtDate(lastDayOfCurrentMonth);
+                setShowMarkAllMonthsModal(true);
+              }}
+              disabled={!monthlyData?.monthlySummary || isLoading}
+              style={{
+                backgroundColor: !monthlyData?.monthlySummary || isLoading ? '#6c757d' : '#dc3545',
+                color: 'white',
+                border: 'none',
+                padding: '0.75rem 1.5rem',
+                borderRadius: '4px',
+                cursor: !monthlyData?.monthlySummary || isLoading ? 'not-allowed' : 'pointer',
+                fontSize: '14px',
+                fontWeight: '500'
+              }}
+            >
+              🏷️ Marcar Todos los Meses
+            </button>
+          </div>
+        </div>
       </div>
 
-      {hasData && (
-        <>
-          {/* Resumen por localidad */}
-          {summary.length > 0 && (
-            <div style={{ 
-              backgroundColor: 'white', 
-              border: '1px solid #ddd', 
-              borderRadius: '8px', 
-              padding: '2rem',
-              marginBottom: '2rem',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-            }}>
-              <h2 style={{ marginBottom: '1.5rem', color: '#333' }}>Resumen por Localidad</h2>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                {summary.map((item, index) => (
-                  <div key={index} style={{ 
-                    padding: '1rem', 
-                    backgroundColor: '#f8f9fa', 
-                    borderRadius: '4px',
-                    border: '1px solid #e9ecef'
-                  }}>
-                    <h3 style={{ margin: '0 0 0.5rem 0', color: '#495057' }}>{item.locality}</h3>
-                    <p style={{ margin: '0 0 0.25rem 0', color: '#6c757d' }}>
-                      <strong>Créditos:</strong> {item.loanCount}
-                    </p>
-                    <p style={{ margin: '0', color: '#6c757d' }}>
-                      <strong>Monto:</strong> ${item.totalAmount.toLocaleString()}
-                    </p>
-                  </div>
-                ))}
-              </div>
-              <div style={{ 
-                marginTop: '1rem', 
-                padding: '1rem', 
-                backgroundColor: '#e3f2fd', 
-                borderRadius: '4px',
-                border: '1px solid #bbdefb'
-              }}>
-                <h3 style={{ margin: '0 0 0.5rem 0', color: '#1565c0' }}>Total General</h3>
-                <p style={{ margin: '0 0 0.25rem 0', color: '#0d47a1' }}>
-                  <strong>Total Créditos:</strong> {summary.reduce((sum, item) => sum + item.loanCount, 0)}
-                </p>
-                <p style={{ margin: '0', color: '#0d47a1' }}>
-                  <strong>Monto Total:</strong> ${summary.reduce((sum, item) => sum + item.totalAmount, 0).toLocaleString()}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Lista de créditos */}
-          {loans.length > 0 && (
+          {/* Desglose Mensual */}
+          {showMonthlyBreakdown && monthlyData && (
             <div style={{ 
               backgroundColor: 'white', 
               border: '1px solid #ddd', 
@@ -327,116 +954,498 @@ export default function CarteraMuertaPage() {
               boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                <h2 style={{ margin: '0', color: '#333' }}>Créditos Elegibles ({loans.length})</h2>
+                <h2 style={{ margin: '0', color: '#333' }}>Desglose Mensual - {monthlyData.year}</h2>
                 <button
-                  onClick={handleSelectAll}
+                  onClick={() => setShowMonthlyBreakdown(false)}
                   style={{
-                    backgroundColor: '#28a745',
+                    backgroundColor: '#6c757d',
                     color: 'white',
                     border: 'none',
                     padding: '0.5rem 1rem',
                     borderRadius: '4px',
                     cursor: 'pointer',
-                    fontSize: '14px',
-                    fontWeight: '500'
+                    fontSize: '14px'
                   }}
                 >
-                  {selectedLoans.length === 0 ? 'Seleccionar Todos' : 'Deseleccionar Todos'}
+                  ✕ Cerrar
                 </button>
               </div>
               
+              {/* Criterios aplicados */}
+              <div style={{ 
+                backgroundColor: '#fff3cd', 
+                border: '1px solid #ffeaa7', 
+                borderRadius: '8px', 
+                padding: '1rem', 
+                marginBottom: '1.5rem'
+              }}>
+                <h4 style={{ margin: '0 0 0.75rem 0', color: '#856404' }}>📋 Criterios de Evaluación</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', fontSize: '0.875rem' }}>
+                  <div>
+                    <strong>Ruta:</strong> {routeId ? 'Seleccionada' : 'Todas las rutas activas'}
+                  </div>
+                  <div>
+                    <strong>Localidades:</strong> {localities.length > 0 ? localities.join(', ') : 'Todas'}
+                  </div>
+                  <div>
+                    <strong>Semanas desde crédito:</strong> {
+                      weeksSinceLoanMin && weeksSinceLoanMax 
+                        ? `${weeksSinceLoanMin}-${weeksSinceLoanMax}`
+                        : weeksSinceLoanMin 
+                          ? `≥${weeksSinceLoanMin}`
+                          : weeksSinceLoanMax
+                            ? `≤${weeksSinceLoanMax}`
+                            : 'Sin filtro'
+                    }
+                  </div>
+                  <div>
+                    <strong>Semanas sin pago:</strong> {
+                      weeksWithoutPaymentMin && weeksWithoutPaymentMax 
+                        ? `${weeksWithoutPaymentMin}-${weeksWithoutPaymentMax}`
+                        : weeksWithoutPaymentMin 
+                          ? `≥${weeksWithoutPaymentMin}`
+                          : weeksWithoutPaymentMax
+                            ? `≤${weeksWithoutPaymentMax}`
+                            : 'Sin filtro'
+                    }
+                  </div>
+                  <div>
+                    <strong>Estado cartera muerta:</strong> {
+                      badDebtStatus === 'MARKED' ? 'Marcados' :
+                      badDebtStatus === 'UNMARKED' ? 'No marcados' : 'Todos'
+                    }
+                  </div>
+                  <div>
+                    <strong>Período de análisis:</strong> {
+                      monthlyFromDate && monthlyToDate 
+                        ? `${new Date(monthlyFromDate).toLocaleDateString('es-ES')} - ${new Date(monthlyToDate).toLocaleDateString('es-ES')}`
+                        : monthlyFromDate 
+                          ? `Desde ${new Date(monthlyFromDate).toLocaleDateString('es-ES')}`
+                          : monthlyToDate
+                            ? `Hasta ${new Date(monthlyToDate).toLocaleDateString('es-ES')}`
+                            : 'Todo el año'
+                    }
+                  </div>
+                </div>
+                
+                {/* Información de rutas incluidas */}
+                {monthlyData.routesInfo && monthlyData.routesInfo.length > 0 && (
+                  <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #ffeaa7' }}>
+                    <div style={{ fontSize: '0.875rem', color: '#856404', marginBottom: '0.5rem' }}>
+                      <strong>Rutas incluidas ({monthlyData.routesInfo.length}):</strong>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      {monthlyData.routesInfo.map((route: any, index: number) => (
+                        <span 
+                          key={index}
+                          style={{ 
+                            backgroundColor: '#f8f9fa', 
+                            padding: '0.25rem 0.5rem', 
+                            borderRadius: '4px', 
+                            fontSize: '0.75rem',
+                            border: '1px solid #dee2e6'
+                          }}
+                        >
+                          {route.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Resumen del año */}
+              <div style={{ 
+                backgroundColor: '#e3f2fd', 
+                border: '1px solid #bbdefb', 
+                borderRadius: '8px', 
+                padding: '1.5rem', 
+                marginBottom: '2rem'
+              }}>
+                <h3 style={{ margin: '0 0 1rem 0', color: '#1565c0' }}>Resumen del Año {monthlyData.year}</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                  <div>
+                    <div style={{ fontSize: '0.875rem', color: '#666', marginBottom: '0.25rem' }}>Total Créditos</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: '600', color: '#1565c0' }}>
+                      {monthlyData.yearTotals?.totalLoans || 0}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.875rem', color: '#666', marginBottom: '0.25rem' }}>Monto Pendiente</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: '600', color: '#1565c0' }}>
+                      ${(monthlyData.yearTotals?.totalPendingAmount || 0).toLocaleString()}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.875rem', color: '#666', marginBottom: '0.25rem' }}>Cartera Muerta</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: '600', color: '#d32f2f' }}>
+                      ${(monthlyData.yearTotals?.totalBadDebtCandidate || 0).toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Tabla mensual */}
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ backgroundColor: '#f8f9fa' }}>
-                      <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #dee2e6' }}>
-                        <input
-                          type="checkbox"
-                          checked={selectedLoans.length === loans.length && loans.length > 0}
-                          onChange={handleSelectAll}
-                        />
-                      </th>
-                      <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #dee2e6' }}>Cliente</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #dee2e6' }}>Líder</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #dee2e6' }}>Localidad</th>
+                      <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #dee2e6' }}>Mes</th>
+                      <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #dee2e6' }}>Período de Evaluación</th>
+                      <th style={{ padding: '0.75rem', textAlign: 'center', border: '1px solid #dee2e6' }}>Créditos</th>
                       <th style={{ padding: '0.75rem', textAlign: 'right', border: '1px solid #dee2e6' }}>Monto Pendiente</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'center', border: '1px solid #dee2e6' }}>Semanas Crédito</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'center', border: '1px solid #dee2e6' }}>Sin Pago</th>
+                      <th style={{ padding: '0.75rem', textAlign: 'right', border: '1px solid #dee2e6' }}>Cartera Muerta</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {loans.map((loan) => (
-                      <tr key={loan.id} style={{ borderBottom: '1px solid #dee2e6' }}>
-                        <td style={{ padding: '0.75rem', border: '1px solid #dee2e6' }}>
-                          <input
-                            type="checkbox"
-                            checked={selectedLoans.includes(loan.id)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedLoans([...selectedLoans, loan.id]);
-                              } else {
-                                setSelectedLoans(selectedLoans.filter(id => id !== loan.id));
-                              }
-                            }}
-                          />
-                        </td>
-                        <td style={{ padding: '0.75rem', border: '1px solid #dee2e6' }}>
-                          <div>
-                            <div style={{ fontWeight: '500' }}>{loan.borrower.fullName}</div>
-                            <div style={{ fontSize: '0.875rem', color: '#6c757d' }}>{loan.borrower.clientCode}</div>
-                          </div>
-                        </td>
-                        <td style={{ padding: '0.75rem', border: '1px solid #dee2e6' }}>{loan.lead.fullName}</td>
-                        <td style={{ padding: '0.75rem', border: '1px solid #dee2e6' }}>{loan.lead.locality.name}</td>
-                        <td style={{ padding: '0.75rem', textAlign: 'right', border: '1px solid #dee2e6' }}>
-                          ${loan.pendingAmountStored.toLocaleString()}
-                        </td>
-                        <td style={{ padding: '0.75rem', textAlign: 'center', border: '1px solid #dee2e6' }}>
-                          {loan.weeksSinceLoan}
-                        </td>
-                        <td style={{ padding: '0.75rem', textAlign: 'center', border: '1px solid #dee2e6' }}>
-                          {loan.weeksWithoutPayment}
-                        </td>
-                      </tr>
-                    ))}
+                    {(monthlyData.monthlySummary || []).map((month: any, index: number) => {
+                      const monthKey = `${month.month.year}-${month.month.month}`;
+                      const isExpanded = expandedMonth === monthKey;
+                      
+                      return (
+                        <React.Fragment key={index}>
+                          <tr style={{ borderBottom: '1px solid #dee2e6' }}>
+                            <td style={{ padding: '0.75rem', border: '1px solid #dee2e6' }}>
+                              <div style={{ fontWeight: '500' }}>{month.month.name}</div>
+                              <div style={{ fontSize: '0.875rem', color: '#6c757d' }}>
+                                {new Date(month.month.startDate).toLocaleDateString()} - {new Date(month.month.endDate).toLocaleDateString()}
+                              </div>
+                            </td>
+                            <td style={{ padding: '0.75rem', border: '1px solid #dee2e6' }}>
+                              <div style={{ fontSize: '0.875rem', color: '#495057', fontWeight: '500' }}>
+                                Desde: {new Date(month.evaluationPeriod?.from || month.month.startDate).toLocaleDateString('es-ES')}
+                              </div>
+                              <div style={{ fontSize: '0.875rem', color: '#495057', fontWeight: '500' }}>
+                                Hasta: {new Date(month.evaluationPeriod?.to || month.month.endDate).toLocaleDateString('es-ES')}
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: '#6c757d', marginTop: '0.25rem' }}>
+                                Criterios: {
+                                  month.criteria?.weeksSinceLoanMin && `≥${month.criteria.weeksSinceLoanMin} sem. desde crédito`
+                                }
+                                {month.criteria?.weeksWithoutPaymentMin && `, ≥${month.criteria.weeksWithoutPaymentMin} sem. sin pago`}
+                                {month.criteria?.badDebtStatus && `, ${month.criteria.badDebtStatus === 'MARKED' ? 'Marcados' : 'No marcados'}`}
+                              </div>
+                            </td>
+                            <td style={{ padding: '0.75rem', textAlign: 'center', border: '1px solid #dee2e6' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                <div style={{ fontWeight: '600', fontSize: '1.1em' }}>{month.summary.totalLoans}</div>
+                                <div style={{ fontSize: '0.75rem', color: '#6c757d' }}>créditos</div>
+                                {month.loans && month.loans.length > 0 && (
+                                  <>
+                                    <div 
+                                      onClick={() => setExpandedMonth(isExpanded ? null : monthKey)}
+                                      style={{ 
+                                        fontSize: '0.75rem', 
+                                        color: '#0d6efd', 
+                                        cursor: 'pointer', 
+                                        marginTop: '0.25rem',
+                                        textDecoration: 'underline'
+                                      }}
+                                    >
+                                      {isExpanded ? 'Ocultar créditos' : 'Ver créditos'}
+                                    </div>
+                                    <button
+                                      onClick={() => handleMarkMonthAsDeadDebt(month)}
+                                      disabled={isMarkingDeadDebt}
+                                      style={{
+                                        backgroundColor: isMarkingDeadDebt ? '#6c757d' : '#dc3545',
+                                        color: 'white',
+                                        border: 'none',
+                                        padding: '0.25rem 0.5rem',
+                                        borderRadius: '4px',
+                                        cursor: isMarkingDeadDebt ? 'not-allowed' : 'pointer',
+                                        fontSize: '0.75rem',
+                                        fontWeight: '500',
+                                        marginTop: '0.25rem'
+                                      }}
+                                    >
+                                      {isMarkingDeadDebt ? '⏳' : '🏷️ Marcar Mes'}
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                            <td style={{ padding: '0.75rem', textAlign: 'right', border: '1px solid #dee2e6' }}>
+                              ${month.summary.totalPendingAmount.toLocaleString()}
+                            </td>
+                            <td style={{ padding: '0.75rem', textAlign: 'right', border: '1px solid #dee2e6', color: '#d32f2f', fontWeight: '500' }}>
+                              ${month.summary.totalBadDebtCandidate.toLocaleString()}
+                            </td>
+                          </tr>
+                          
+                          {/* Fila expandida con detalles de créditos */}
+                          {isExpanded && month.loans && month.loans.length > 0 && (
+                            <tr>
+                              <td colSpan={5} style={{ padding: '0', border: 'none' }}>
+                                 <div id={`credits-container-${monthKey}`} style={{ 
+                                   backgroundColor: '#f8f9fa', 
+                                   padding: '1rem', 
+                                   border: '1px solid #dee2e6',
+                                   borderTop: 'none',
+                                   maxHeight: '500px',
+                                   overflowY: 'auto'
+                                 }}>
+                                  {/* Resumen total */}
+                                  {(() => {
+                                    const filteredLoans = month.loans.filter((loan: any) => {
+                                      if (!expandedMonthRouteFilter) return true;
+                                      return loan.lead?.route === expandedMonthRouteFilter;
+                                    });
+                                    
+                                    const totalDeuda = filteredLoans.reduce((sum: number, loan: any) => sum + (loan.pendingAmountStored || 0), 0);
+                                    const totalCarteraMuerta = filteredLoans.reduce((sum: number, loan: any) => sum + (loan.badDebtCandidate || 0), 0);
+                                    const totalClientes = new Set(filteredLoans.map((loan: any) => loan.borrower?.clientCode).filter(Boolean)).size;
+                                    const totalRutas = new Set(filteredLoans.map((loan: any) => loan.lead?.route).filter(Boolean)).size;
+                                    
+                                    return (
+                                <div style={{ 
+                                  backgroundColor: '#f8f9fa', 
+                                  padding: '1rem', 
+                                        borderRadius: '8px', 
+                                        marginBottom: '1rem',
+                                  border: '1px solid #dee2e6',
+                                        position: 'sticky',
+                                        top: '0',
+                                        zIndex: 10
+                                }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                                          <h4 style={{ margin: '0', color: '#495057', fontSize: '1rem' }}>
+                                            Créditos de {month.month.name} ({filteredLoans.length} créditos{expandedMonthRouteFilter ? ` - Filtro: ${expandedMonthRouteFilter}` : ''})
+                                  </h4>
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                                          <div style={{ textAlign: 'center' }}>
+                                            <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#dc3545' }}>
+                                              ${totalDeuda.toLocaleString()}
+                                            </div>
+                                            <div style={{ fontSize: '0.875rem', color: '#6c757d' }}>Deuda Total</div>
+                                          </div>
+                                          <div style={{ textAlign: 'center' }}>
+                                            <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#d32f2f' }}>
+                                              ${totalCarteraMuerta.toLocaleString()}
+                                            </div>
+                                            <div style={{ fontSize: '0.875rem', color: '#6c757d' }}>Cartera Muerta</div>
+                                          </div>
+                                          <div style={{ textAlign: 'center' }}>
+                                            <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#0d6efd' }}>
+                                              {totalClientes}
+                                            </div>
+                                            <div style={{ fontSize: '0.875rem', color: '#6c757d' }}>Clientes Únicos</div>
+                                          </div>
+                                          <div style={{ textAlign: 'center' }}>
+                                            <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#198754' }}>
+                                              {totalRutas}
+                                            </div>
+                                            <div style={{ fontSize: '0.875rem', color: '#6c757d' }}>Rutas</div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
+                                  
+                                  {/* Resumen de selección */}
+                                  {(() => {
+                                    const selectedTotals = getSelectedMonthlyLoansTotal(month);
+                                    if (selectedTotals.count > 0) {
+                                      return (
+                                        <div style={{ 
+                                          backgroundColor: '#e3f2fd', 
+                                          border: '1px solid #bbdefb', 
+                                          borderRadius: '8px', 
+                                          padding: '1rem', 
+                                          marginBottom: '1rem'
+                                        }}>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                                            <h5 style={{ margin: '0', color: '#1565c0' }}>
+                                              📋 Seleccionados: {selectedTotals.count} créditos
+                                            </h5>
+                                            <button
+                                              onClick={handleOpenMarkDeadDebtModal}
+                                              disabled={isMarkingDeadDebt}
+                                              style={{
+                                                backgroundColor: isMarkingDeadDebt ? '#6c757d' : '#dc3545',
+                                                color: 'white',
+                                                border: 'none',
+                                                padding: '0.5rem 1rem',
+                                                borderRadius: '4px',
+                                                cursor: isMarkingDeadDebt ? 'not-allowed' : 'pointer',
+                                                fontSize: '0.875rem',
+                                                fontWeight: '500',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '0.5rem'
+                                              }}
+                                            >
+                                              {isMarkingDeadDebt ? '⏳ Marcando...' : '🏷️ Marcar como cartera'}
+                                            </button>
+                                          </div>
+                                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
+                                            <div style={{ textAlign: 'center' }}>
+                                              <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#dc3545' }}>
+                                                ${selectedTotals.totalDeuda.toLocaleString()}
+                                              </div>
+                                              <div style={{ fontSize: '0.875rem', color: '#6c757d' }}>Deuda Total</div>
+                                            </div>
+                                            <div style={{ textAlign: 'center' }}>
+                                              <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#d32f2f' }}>
+                                                ${selectedTotals.totalCarteraMuerta.toLocaleString()}
+                                              </div>
+                                              <div style={{ fontSize: '0.875rem', color: '#6c757d' }}>Cartera Muerta</div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
+                                  
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                                    <div></div>
+                                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                      <select
+                                        value={expandedMonthRouteFilter}
+                                        onChange={(e) => setExpandedMonthRouteFilter(e.target.value)}
+                                        style={{
+                                          padding: '0.25rem 0.5rem',
+                                          border: '1px solid #ddd',
+                                          borderRadius: '4px',
+                                          fontSize: '0.875rem'
+                                        }}
+                                      >
+                                        <option value="">Todas las rutas</option>
+                                        {routeOptions.map((route: any) => (
+                                          <option key={route.value} value={route.label}>
+                                            {route.label}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <button
+                                        onClick={() => copyTableAsImage(`credits-container-${monthKey}`)}
+                                        disabled={isCopying}
+                                        style={{
+                                          padding: '0.25rem 0.5rem',
+                                          backgroundColor: isCopying ? '#6c757d' : '#0d6efd',
+                                          color: 'white',
+                                          border: 'none',
+                                          borderRadius: '4px',
+                                          fontSize: '0.875rem',
+                                          cursor: isCopying ? 'not-allowed' : 'pointer',
+                                          opacity: isCopying ? 0.7 : 1
+                                        }}
+                                        title="Copiar tabla como imagen"
+                                      >
+                                        {isCopying ? '⏳ Copiando...' : '📋 Copiar'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <table id={`credits-table-${monthKey}`} style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                                      <thead>
+                                        <tr style={{ backgroundColor: '#e9ecef' }}>
+                                          <th style={{ padding: '0.5rem', textAlign: 'center', border: '1px solid #dee2e6', width: '40px' }}>
+                                            <input
+                                              type="checkbox"
+                                              checked={(() => {
+                                                const filteredLoans = month.loans.filter((loan: any) => {
+                                                  if (!expandedMonthRouteFilter) return true;
+                                                  return loan.lead?.route === expandedMonthRouteFilter;
+                                                });
+                                                return filteredLoans.length > 0 && filteredLoans.every((loan: any) => selectedMonthlyLoans.includes(loan.id));
+                                              })()}
+                                              onChange={() => handleSelectAllMonthlyLoans(month.loans.filter((loan: any) => {
+                                                if (!expandedMonthRouteFilter) return true;
+                                                return loan.lead?.route === expandedMonthRouteFilter;
+                                              }))}
+                                              style={{ transform: 'scale(1.2)' }}
+                                            />
+                                          </th>
+                                          <th style={{ padding: '0.5rem', textAlign: 'left', border: '1px solid #dee2e6' }}>Cliente</th>
+                                          <th style={{ padding: '0.5rem', textAlign: 'left', border: '1px solid #dee2e6' }}>Código</th>
+                                          <th style={{ padding: '0.5rem', textAlign: 'left', border: '1px solid #dee2e6' }}>Localidad</th>
+                                          <th style={{ padding: '0.5rem', textAlign: 'left', border: '1px solid #dee2e6' }}>Ruta</th>
+                                          <th style={{ padding: '0.5rem', textAlign: 'center', border: '1px solid #dee2e6' }}>Fecha Creación</th>
+                                          <th style={{ padding: '0.5rem', textAlign: 'right', border: '1px solid #dee2e6' }}>Monto Pendiente</th>
+                                          <th style={{ padding: '0.5rem', textAlign: 'center', border: '1px solid #dee2e6' }}>Semanas Crédito</th>
+                                          <th style={{ padding: '0.5rem', textAlign: 'center', border: '1px solid #dee2e6' }}>Sin Pago</th>
+                                          <th style={{ padding: '0.5rem', textAlign: 'center', border: '1px solid #dee2e6' }}>Último Pago</th>
+                                          <th style={{ padding: '0.5rem', textAlign: 'right', border: '1px solid #dee2e6' }}>Cartera Muerta</th>
+                                          <th style={{ padding: '0.5rem', textAlign: 'center', border: '1px solid #dee2e6' }}>Fecha Cartera Muerta</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {month.loans
+                                          .filter((loan: any) => {
+                                            if (!expandedMonthRouteFilter) return true;
+                                            return loan.lead?.route === expandedMonthRouteFilter;
+                                          })
+                                          .map((loan: any, loanIndex: number) => (
+                                          <tr key={loanIndex} style={{ borderBottom: '1px solid #dee2e6' }}>
+                                            <td style={{ padding: '0.5rem', textAlign: 'center', border: '1px solid #dee2e6' }}>
+                                              <input
+                                                type="checkbox"
+                                                checked={selectedMonthlyLoans.includes(loan.id)}
+                                                onChange={() => handleMonthlyLoanSelect(loan.id)}
+                                                style={{ transform: 'scale(1.2)' }}
+                                              />
+                                            </td>
+                                            <td style={{ padding: '0.5rem', border: '1px solid #dee2e6' }}>
+                                              <div style={{ fontWeight: '500' }}>{loan.borrower?.fullName || 'Sin nombre'}</div>
+                                            </td>
+                                            <td style={{ padding: '0.5rem', border: '1px solid #dee2e6' }}>
+                                              <div style={{ fontSize: '0.75rem', color: '#6c757d' }}>{loan.borrower?.clientCode || 'Sin código'}</div>
+                                            </td>
+                                            <td style={{ padding: '0.5rem', border: '1px solid #dee2e6' }}>
+                                              <div style={{ fontSize: '0.875rem' }}>{loan.lead?.locality || 'Sin localidad'}</div>
+                                            </td>
+                                            <td style={{ padding: '0.5rem', border: '1px solid #dee2e6' }}>
+                                              <div style={{ fontSize: '0.875rem' }}>{loan.lead?.route || 'Sin ruta'}</div>
+                                            </td>
+                                            <td style={{ padding: '0.5rem', textAlign: 'center', border: '1px solid #dee2e6' }}>
+                                              <div style={{ fontSize: '0.875rem' }}>{loan.signDate ? new Date(loan.signDate).toLocaleDateString() : '-'}</div>
+                                            </td>
+                                            <td style={{ padding: '0.5rem', textAlign: 'right', border: '1px solid #dee2e6' }}>
+                                              ${loan.pendingAmountStored.toLocaleString()}
+                                            </td>
+                                            <td style={{ padding: '0.5rem', textAlign: 'center', border: '1px solid #dee2e6' }}>
+                                              {loan.weeksSinceLoan}
+                                            </td>
+                                            <td style={{ padding: '0.5rem', textAlign: 'center', border: '1px solid #dee2e6' }}>
+                                              {loan.weeksWithoutPayment}
+                                            </td>
+                                            <td style={{ padding: '0.5rem', textAlign: 'center', border: '1px solid #dee2e6' }}>
+                                              {(() => {
+                                                if (loan.payments && loan.payments.length > 0) {
+                                                  const lastPayment = loan.payments[0]; // Ya están ordenados por fecha descendente
+                                                  return lastPayment.receivedAt ? new Date(lastPayment.receivedAt).toLocaleDateString() : '-';
+                                                }
+                                                return '-';
+                                              })()}
+                                            </td>
+                                            <td style={{ padding: '0.5rem', textAlign: 'right', border: '1px solid #dee2e6', color: '#d32f2f', fontWeight: '500' }}>
+                                              ${loan.badDebtCandidate.toLocaleString()}
+                                            </td>
+                                            <td style={{ padding: '0.5rem', textAlign: 'center', border: '1px solid #dee2e6' }}>
+                                              {loan.badDebtDate ? new Date(loan.badDebtDate).toLocaleDateString() : '-'}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             </div>
           )}
 
-          {/* Botones de acción */}
-          {loans.length > 0 && (
-            <div style={{ 
-              backgroundColor: 'white', 
-              border: '1px solid #ddd', 
-              borderRadius: '8px', 
-              padding: '2rem',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-            }}>
-              <h2 style={{ marginBottom: '1.5rem', color: '#333' }}>Acciones</h2>
-              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                <button
-                  onClick={handleMarkAsDeadDebt}
-                  disabled={isLoading || selectedLoans.length === 0}
-                  style={{
-                    backgroundColor: (isLoading || selectedLoans.length === 0) ? '#6c757d' : '#dc3545',
-                    color: 'white',
-                    border: 'none',
-                    padding: '0.75rem 1.5rem',
-                    borderRadius: '4px',
-                    cursor: (isLoading || selectedLoans.length === 0) ? 'not-allowed' : 'pointer',
-                    fontSize: '14px',
-                    fontWeight: '500'
-                  }}
-                >
-                  {isLoading ? 'Procesando...' : `Marcar ${selectedLoans.length} como Cartera Muerta`}
-                </button>
-              </div>
-            </div>
-          )}
-        </>
-      )}
+          {/* Lista de créditos */}
 
       {!hasData && (
         <div style={{ 
@@ -453,7 +1462,14 @@ export default function CarteraMuertaPage() {
           <ul style={{ marginBottom: '1.5rem', color: '#666', paddingLeft: '1.5rem' }}>
             <li><strong>Semanas desde el crédito:</strong> Mínimo de semanas transcurridas desde que se otorgó el crédito</li>
             <li><strong>Semanas sin pago:</strong> Mínimo de semanas sin realizar pagos</li>
-            <li><strong>Fecha de cartera muerta:</strong> Fecha que se asignará al marcar como cartera muerta</li>
+            <li><strong>Estado cartera muerta:</strong> 
+              <ul style={{ marginTop: '0.5rem', paddingLeft: '1rem' }}>
+                <li><strong>No marcados:</strong> Créditos que aún no han sido marcados como cartera muerta</li>
+                <li><strong>Marcados:</strong> Créditos ya marcados como cartera muerta</li>
+                <li><strong>Todos:</strong> Incluye tanto marcados como no marcados</li>
+              </ul>
+            </li>
+            <li><strong>Fechas (Desde/Hasta):</strong> Cuando selecciones "Marcados", puedes especificar un rango de fechas para ver solo los créditos marcados en ese período</li>
           </ul>
           
           <div style={{ 
@@ -465,11 +1481,254 @@ export default function CarteraMuertaPage() {
           }}>
             <h3 style={{ marginBottom: '0.5rem', color: '#495057' }}>Criterios Actuales:</h3>
             <p style={{ margin: '0', color: '#6c757d' }}>
-              Créditos con más de {weeksSinceLoan} semanas desde el crédito y {weeksWithoutPayment} semanas sin pago
+              {`Créditos ${weeksSinceLoanMin != null ? `con >= ${weeksSinceLoanMin} semanas` : ''}${weeksSinceLoanMin != null && weeksSinceLoanMax != null ? ' y ' : ''}${weeksSinceLoanMax != null ? `<= ${weeksSinceLoanMax} semanas` : ''} desde el crédito`}
+              {` y ${weeksWithoutPaymentMin != null ? `>= ${weeksWithoutPaymentMin} semanas` : ''}${weeksWithoutPaymentMin != null && weeksWithoutPaymentMax != null ? ' y ' : ''}${weeksWithoutPaymentMax != null ? `<= ${weeksWithoutPaymentMax} semanas` : ''} sin pago`}
             </p>
           </div>
         </div>
       )}
+
+      {/* Modal para marcar créditos como cartera muerta */}
+      {showMarkDeadDebtModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '8px',
+            padding: '2rem',
+            maxWidth: '500px',
+            width: '90%',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+          }}>
+            <h3 style={{ margin: '0 0 1.5rem 0', color: '#333' }}>
+              🏷️ Marcar como Cartera Muerta
+            </h3>
+            
+            <div style={{ marginBottom: '1.5rem' }}>
+              <p style={{ margin: '0 0 1rem 0', color: '#666' }}>
+                Se marcarán <strong>{selectedMonthlyLoans.length} créditos</strong> como cartera muerta.
+              </p>
+              
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500', color: '#333' }}>
+                  Fecha de marcado:
+                </label>
+                <input
+                  type="date"
+                  value={selectedDeadDebtDate}
+                  onChange={(e) => setSelectedDeadDebtDate(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px'
+                  }}
+                />
+                <div style={{ fontSize: '0.875rem', color: '#6c757d', marginTop: '0.25rem' }}>
+                  Por defecto se establece el último día del mes actual
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowMarkDeadDebtModal(false)}
+                disabled={isMarkingDeadDebt}
+                style={{
+                  backgroundColor: '#6c757d',
+                  color: 'white',
+                  border: 'none',
+                  padding: '0.75rem 1.5rem',
+                  borderRadius: '4px',
+                  cursor: isMarkingDeadDebt ? 'not-allowed' : 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500'
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleMarkSelectedMonthlyLoansAsDeadDebt}
+                disabled={isMarkingDeadDebt || !selectedDeadDebtDate}
+                style={{
+                  backgroundColor: isMarkingDeadDebt || !selectedDeadDebtDate ? '#6c757d' : '#dc3545',
+                  color: 'white',
+                  border: 'none',
+                  padding: '0.75rem 1.5rem',
+                  borderRadius: '4px',
+                  cursor: isMarkingDeadDebt || !selectedDeadDebtDate ? 'not-allowed' : 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
+                }}
+              >
+                {isMarkingDeadDebt ? '⏳ Marcando...' : '✅ Guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para marcar todos los meses */}
+      {showMarkAllMonthsModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '8px',
+            padding: '2rem',
+            maxWidth: '600px',
+            width: '90%',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+          }}>
+            <h3 style={{ margin: '0 0 1.5rem 0', color: '#333' }}>
+              🏷️ Marcar Todos los Meses como Cartera Muerta
+            </h3>
+            
+            <div style={{ marginBottom: '1.5rem' }}>
+              <p style={{ margin: '0 0 1rem 0', color: '#666' }}>
+                Se marcarán <strong>{allMonthsSelectedLoans.length} créditos</strong> de todos los meses como cartera muerta.
+              </p>
+              
+              <div style={{ 
+                backgroundColor: '#f8f9fa', 
+                border: '1px solid #e9ecef', 
+                borderRadius: '4px', 
+                padding: '1rem',
+                marginBottom: '1rem'
+              }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', color: '#495057' }}>Resumen de Selección:</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#dc3545' }}>
+                      ${getTotalAllMonthsSelected().totalDeuda.toLocaleString()}
+                    </div>
+                    <div style={{ fontSize: '0.875rem', color: '#6c757d' }}>Deuda Total</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#d32f2f' }}>
+                      ${getTotalAllMonthsSelected().totalCarteraMuerta.toLocaleString()}
+                    </div>
+                    <div style={{ fontSize: '0.875rem', color: '#6c757d' }}>Cartera Muerta</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#0d6efd' }}>
+                      {getTotalAllMonthsSelected().count}
+                    </div>
+                    <div style={{ fontSize: '0.875rem', color: '#6c757d' }}>Créditos</div>
+                  </div>
+                </div>
+              </div>
+              
+              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1rem' }}>
+                <button
+                  onClick={handleSelectAllMonthsLoans}
+                  style={{
+                    backgroundColor: allMonthsSelectedLoans.length > 0 ? '#6c757d' : '#0d6efd',
+                    color: 'white',
+                    border: 'none',
+                    padding: '0.5rem 1rem',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '500'
+                  }}
+                >
+                  {allMonthsSelectedLoans.length > 0 ? 'Deseleccionar Todos' : 'Seleccionar Todos'}
+                </button>
+              </div>
+              
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500', color: '#333' }}>
+                  Fecha de marcado:
+                </label>
+                <input
+                  type="date"
+                  value={selectedAllMonthsDeadDebtDate}
+                  onChange={(e) => setSelectedAllMonthsDeadDebtDate(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px'
+                  }}
+                />
+                <div style={{ fontSize: '0.875rem', color: '#6c757d', marginTop: '0.25rem' }}>
+                  Por defecto se establece el último día del mes actual
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowMarkAllMonthsModal(false)}
+                disabled={isMarkingAllMonths}
+                style={{
+                  backgroundColor: '#6c757d',
+                  color: 'white',
+                  border: 'none',
+                  padding: '0.75rem 1.5rem',
+                  borderRadius: '4px',
+                  cursor: isMarkingAllMonths ? 'not-allowed' : 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500'
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleMarkAllMonthsAsDeadDebt}
+                disabled={isMarkingAllMonths || !selectedAllMonthsDeadDebtDate || allMonthsSelectedLoans.length === 0}
+                style={{
+                  backgroundColor: isMarkingAllMonths || !selectedAllMonthsDeadDebtDate || allMonthsSelectedLoans.length === 0 ? '#6c757d' : '#dc3545',
+                  color: 'white',
+                  border: 'none',
+                  padding: '0.75rem 1.5rem',
+                  borderRadius: '4px',
+                  cursor: isMarkingAllMonths || !selectedAllMonthsDeadDebtDate || allMonthsSelectedLoans.length === 0 ? 'not-allowed' : 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
+                }}
+              >
+                {isMarkingAllMonths ? '⏳ Marcando...' : '✅ Marcar Todos'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+      </PageContainer>
+    </ProtectedRoute>
   );
 }
