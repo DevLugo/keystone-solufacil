@@ -57,56 +57,6 @@ const accountTypes = [
   { label: 'Fondo de Oficina', value: 'OFFICE_CASH_FUND' }
 ];
 
-// Query para obtener todos los gastos del mes con información completa para administración
-const GET_MONTHLY_EXPENSES_ADMIN = gql`
-  query GetMonthlyExpensesAdmin($startDate: DateTime!, $endDate: DateTime!, $routeIds: [ID!]) {
-    transactions(where: {
-      AND: [
-        { date: { gte: $startDate } },
-        { date: { lt: $endDate } },
-        { type: { equals: "EXPENSE" } },
-        { expenseSource: { notIn: ["LOAN_GRANTED", "LOAN_PAYMENT_COMISSION", "LOAN_GRANTED_COMISSION"] } },
-        { 
-          OR: [
-            { route: { id: { in: $routeIds } } },
-            { sourceAccount: { routes: { some: { id: { in: $routeIds } } } } }
-          ]
-        }
-      ]
-    }
-    orderBy: { date: desc }
-    ) {
-      id
-      amount
-      type
-      expenseSource
-      description
-      date
-      expenseGroupId
-      route { 
-        id 
-        name
-      }
-      sourceAccount {
-        id
-        name
-        type
-        amount
-        routes {
-          id
-          name
-        }
-      }
-      lead {
-        id
-        personalData {
-          fullName
-        }
-      }
-    }
-  }
-`;
-
 interface Transaction {
   id: string;
   amount: string;
