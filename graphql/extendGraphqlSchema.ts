@@ -7,6 +7,14 @@ import { calculatePaymentProfitAmount, calculateProfitAndReturnToCapital } from 
 import { promoteToLeadResolver, createNewLeaderResolver } from './resolvers/leaderResolvers';
 import { getBankIncomeTransactionsResolver } from './resolvers/bankIncomeResolvers';
 import { sendDocumentIssueNotification } from '../admin/services/documentNotificationService';
+import {
+  createDiscrepancyResolver,
+  updateDiscrepancyStatusResolver,
+  deleteDiscrepancyResolver,
+  getDiscrepanciesResolver,
+  getDiscrepancyResolver,
+  getDiscrepancyStatsResolver,
+} from './resolvers/discrepancyResolvers';
 
 // Import fetch for Telegram API calls
 const fetch = require('node-fetch');
@@ -4166,7 +4174,12 @@ export const extendGraphqlSchema = graphql.extend(base => {
             });
           }
         }
-      })
+      }),
+      
+      // ✅ Mutations para gestión de diferencias en transacciones
+      createDiscrepancy: createDiscrepancyResolver,
+      updateDiscrepancyStatus: updateDiscrepancyStatusResolver,
+      deleteDiscrepancy: deleteDiscrepancyResolver,
     },
     query: {
       // ✅ NUEVA FUNCIONALIDAD: Obtener entradas al banco con filtros
@@ -9694,10 +9707,15 @@ export const extendGraphqlSchema = graphql.extend(base => {
             return JSON.stringify([]);
           }
         }
-      })
+      }),
+      
+      // ✅ Queries para gestión de diferencias en transacciones
+      getDiscrepancies: getDiscrepanciesResolver,
+      getDiscrepancy: getDiscrepancyResolver,
+      getDiscrepancyStats: getDiscrepancyStatsResolver,
     },
 
-    Mutation: {
+    mutation: {
       testWebhook: graphql.field({
         type: graphql.nonNull(graphql.String),
         resolve: async () => {

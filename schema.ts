@@ -239,6 +239,9 @@ export const User = list({
     }),
     // ✅ NUEVA FUNCIONALIDAD: Usuarios de Telegram vinculados
     telegramUsers: relationship({ ref: 'TelegramUser.platformUser', many: true }),
+    // ✅ Diferencias de transacciones
+    discrepanciesCreated: relationship({ ref: 'TransactionDiscrepancy.createdBy', many: true }),
+    discrepanciesUpdated: relationship({ ref: 'TransactionDiscrepancy.updatedBy', many: true }),
     employee: relationship({ ref: 'Employee.user' }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     adjustBalance: virtual({
@@ -380,6 +383,7 @@ export const Route = list({
     portfolioCleanups: relationship({ ref: 'PortfolioCleanup.route', many: true }),
     // ✅ NUEVA FUNCIONALIDAD: Configuraciones de reportes que incluyen esta ruta
     reportConfigs: relationship({ ref: 'ReportConfig.routes', many: true }),
+    discrepancies: relationship({ ref: 'TransactionDiscrepancy.route', many: true }),
   }
 });
 
@@ -437,6 +441,7 @@ export const Employee = list({
     LeadManagedLoans: relationship({ ref: 'Loan.lead', many: true }),
     LeadPaymentReceivedLead: relationship({ ref: 'LeadPaymentReceived.lead', many: true }),
     leadPaymentsReceivedAgent: relationship({ ref: 'LeadPaymentReceived.agent', many: true }),
+    discrepancies: relationship({ ref: 'TransactionDiscrepancy.lead', many: true }),
     user: relationship({ ref: 'User.employee' }),
     type: select({
       options: [
@@ -2725,6 +2730,155 @@ export const DocumentNotificationLog = list({
   }
 });
 
+// Modelo para rastrear diferencias/discrepancias en transacciones
+const TransactionDiscrepancy = list({
+  access: allowAll,
+  fields: {
+    // Identificadores
+    discrepancyType: select({
+      type: 'enum',
+      options: [
+        { label: 'Abono', value: 'PAYMENT' },
+        { label: 'Crédito', value: 'CREDIT' },
+        { label: 'Gasto', value: 'EXPENSE' }
+      ],
+      validation: { isRequired: true },
+      label: 'Tipo de Diferencia'
+    }),
+    
+    route: relationship({
+      ref: 'Route.discrepancies',
+      many: false,
+      label: 'Ruta'
+    }),
+    
+    lead: relationship({
+      ref: 'Employee.discrepancies',
+      many: false,
+      label: 'Localidad/Líder'
+    }),
+    
+    date: timestamp({
+      validation: { isRequired: true },
+      label: 'Fecha de la Transacción'
+    }),
+    
+    weekStartDate: timestamp({
+      validation: { isRequired: true },
+      label: 'Inicio de Semana',
+      db: { isNullable: false }
+    }),
+    
+    // Montos
+    expectedAmount: decimal({
+      precision: 10,
+      scale: 2,
+      validation: { isRequired: true },
+      label: 'Monto Esperado',
+      defaultValue: '0'
+    }),
+    
+    actualAmount: decimal({
+      precision: 10,
+      scale: 2,
+      validation: { isRequired: true },
+      label: 'Monto Real',
+      defaultValue: '0'
+    }),
+    
+    difference: decimal({
+      precision: 10,
+      scale: 2,
+      validation: { isRequired: true },
+      label: 'Diferencia',
+      defaultValue: '0'
+    }),
+    
+    // Detalles
+    description: text({
+      validation: { isRequired: true },
+      label: 'Descripción',
+      ui: { displayMode: 'textarea' }
+    }),
+    
+    category: select({
+      type: 'enum',
+      options: [
+        { label: 'Comisión', value: 'COMISION' },
+        { label: 'Abono', value: 'ABONO' },
+        { label: 'Crédito', value: 'CREDITO' },
+        { label: 'Gasto', value: 'GASTO' }
+      ],
+      label: 'Categoría'
+    }),
+    
+    // Estado
+    status: select({
+      type: 'enum',
+      options: [
+        { label: 'Pendiente', value: 'PENDING' },
+        { label: 'Completada', value: 'COMPLETED' },
+        { label: 'Descartada', value: 'DISCARDED' }
+      ],
+      defaultValue: 'PENDING',
+      validation: { isRequired: true },
+      label: 'Estado'
+    }),
+    
+    notes: text({
+      label: 'Notas',
+      ui: { displayMode: 'textarea' }
+    }),
+    
+    // Screenshots
+    screenshotUrls: json({
+      label: 'URLs de Capturas',
+      defaultValue: []
+    }),
+    
+    // Notificaciones
+    telegramReported: checkbox({
+      defaultValue: false,
+      label: 'Reportado por Telegram'
+    }),
+    
+    reportedAt: timestamp({
+      label: 'Fecha de Reporte'
+    }),
+    
+    // Auditoría
+    createdAt: timestamp({
+      defaultValue: { kind: 'now' },
+      label: 'Fecha de Creación'
+    }),
+    
+    updatedAt: timestamp({
+      defaultValue: { kind: 'now' },
+      label: 'Fecha de Actualización'
+    }),
+    
+    createdBy: relationship({
+      ref: 'User.discrepanciesCreated',
+      many: false,
+      label: 'Creado Por'
+    }),
+    
+    updatedBy: relationship({
+      ref: 'User.discrepanciesUpdated',
+      many: false,
+      label: 'Actualizado Por'
+    })
+  },
+  ui: {
+    listView: {
+      initialColumns: ['discrepancyType', 'date', 'route', 'lead', 'difference', 'status'],
+      initialSort: { field: 'date', direction: 'DESC' }
+    },
+    labelField: 'description'
+  },
+  hooks: createAuditHook('TransactionDiscrepancy')
+});
+
 export const lists = {
   User,
   Employee,
@@ -2755,4 +2909,5 @@ export const lists = {
   ReportConfig,
   TelegramUser,
   DocumentNotificationLog,
+  TransactionDiscrepancy,
 };

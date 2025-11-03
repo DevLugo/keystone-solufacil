@@ -6,6 +6,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { jsx, Box } from '@keystone-ui/core';
 import { gql, useQuery } from '@apollo/client';
 import { BankIncomeModal } from './BankIncomeModal';
+import { DiscrepanciesModal } from './DiscrepanciesModal';
 
 const GET_TRANSACTIONS_SUMMARY = gql`
   query GetTransactionsSummary($startDate: String!, $endDate: String!, $routeId: String) {
@@ -51,6 +52,38 @@ const GET_ALL_ROUTES = gql`
 const GET_BANK_INCOME_TRANSACTIONS = gql`
   query GetBankIncomeTransactions($startDate: String!, $endDate: String!, $routeIds: [ID!]!, $onlyAbonos: Boolean) {
     getBankIncomeTransactions(startDate: $startDate, endDate: $endDate, routeIds: $routeIds, onlyAbonos: $onlyAbonos)
+  }
+`;
+
+const GET_DISCREPANCIES = gql`
+  query GetDiscrepancies($routeId: ID, $startDate: String, $endDate: String, $status: String) {
+    getDiscrepancies(routeId: $routeId, startDate: $startDate, endDate: $endDate, status: $status) {
+      id
+      discrepancyType
+      date
+      weekStartDate
+      expectedAmount
+      actualAmount
+      difference
+      description
+      category
+      status
+      notes
+      screenshotUrls
+      telegramReported
+      reportedAt
+      route {
+        id
+        name
+      }
+      lead {
+        id
+        personalData {
+          fullName
+        }
+      }
+      createdAt
+    }
   }
 `;
 
@@ -233,6 +266,7 @@ export const SummaryTab = ({ selectedDate, selectedRoute, refreshKey }: SummaryT
   const [expandedLocality, setExpandedLocality] = useState<string | null>(null);
   const [showBankIncomeModal, setShowBankIncomeModal] = useState(false);
   const [isLoadingBankIncome, setIsLoadingBankIncome] = useState(false);
+  const [showDiscrepanciesModal, setShowDiscrepanciesModal] = useState(false);
   
   // Estados para filtros del modal
   const [onlyAbonos, setOnlyAbonos] = useState(false);
@@ -244,6 +278,18 @@ export const SummaryTab = ({ selectedDate, selectedRoute, refreshKey }: SummaryT
   // Query para obtener todas las rutas disponibles
   const { data: allRoutesData } = useQuery(GET_ALL_ROUTES, {
     skip: !showBankIncomeModal
+  });
+
+  // Query para obtener diferencias - SIN FILTROS de ruta o fecha para ver TODAS
+  const { data: discrepanciesData, loading: discrepanciesLoading, refetch: refetchDiscrepancies } = useQuery(GET_DISCREPANCIES, {
+    variables: {
+      routeId: null, // No filtrar por ruta - mostrar TODAS las rutas
+      startDate: null, // No filtrar por fecha de inicio
+      endDate: null, // No filtrar por fecha de fin
+      status: null, // Obtener todas (pendientes, completadas, descartadas)
+    },
+    skip: !showDiscrepanciesModal, // Solo ejecutar cuando se abre el modal
+    fetchPolicy: 'network-only', // Siempre buscar datos frescos
   });
 
   // Query para obtener entradas al banco (solo se ejecuta cuando se abre el modal)
@@ -332,6 +378,27 @@ export const SummaryTab = ({ selectedDate, selectedRoute, refreshKey }: SummaryT
       }
     }
   }, [allRoutesData, selectedRoute]);
+
+  // Procesar datos de diferencias usando useMemo
+  const { allDiscrepancies, totalPending, totalCompleted, totalDiscarded } = useMemo(() => {
+    if (!discrepanciesData || discrepanciesLoading) {
+      return {
+        allDiscrepancies: [],
+        totalPending: 0,
+        totalCompleted: 0,
+        totalDiscarded: 0,
+      };
+    }
+
+    const discrepancies = discrepanciesData.getDiscrepancies || [];
+    
+    return {
+      allDiscrepancies: discrepancies,
+      totalPending: discrepancies.filter((d: any) => d.status === 'PENDING').length,
+      totalCompleted: discrepancies.filter((d: any) => d.status === 'COMPLETED').length,
+      totalDiscarded: discrepancies.filter((d: any) => d.status === 'DISCARDED').length,
+    };
+  }, [discrepanciesData, discrepanciesLoading]);
 
   // Procesar datos de entradas al banco usando useMemo
   const { bankIncomes, totalTransactions, totalAmount } = useMemo(() => {
@@ -1609,12 +1676,67 @@ export const SummaryTab = ({ selectedDate, selectedRoute, refreshKey }: SummaryT
         </Box>
       </Box>
 
-      {/* Botón de Entradas al Banco */}
+      {/* Botones flotantes */}
       <Box css={{
         position: 'fixed',
         bottom: '20px',
         right: '20px',
-        zIndex: 100
+        zIndex: 100,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '12px',
+        alignItems: 'flex-end'
+      }}>
+        {/* Botón de Diferencias */}
+        <button
+          onClick={() => setShowDiscrepanciesModal(true)}
+          css={{
+            backgroundColor: totalPending > 0 ? '#EF4444' : '#8B5CF6',
+            color: 'white',
+            border: 'none',
+            padding: '16px 24px',
+            borderRadius: '12px',
+            fontSize: '16px',
+            fontWeight: '600',
+            cursor: 'pointer',
+            boxShadow: totalPending > 0 
+              ? '0 4px 12px rgba(239, 68, 68, 0.3)' 
+              : '0 4px 12px rgba(139, 92, 246, 0.3)',
+            transition: 'all 0.2s',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            '&:hover': {
+              backgroundColor: totalPending > 0 ? '#DC2626' : '#7C3AED',
+              transform: 'translateY(-2px)',
+              boxShadow: totalPending > 0 
+                ? '0 6px 16px rgba(239, 68, 68, 0.4)' 
+                : '0 6px 16px rgba(139, 92, 246, 0.4)',
+            }
+          }}
+        >
+          {totalPending > 0 ? '⚠️' : '✅'} Diferencias
+          {totalPending > 0 && (
+            <Box css={{
+              backgroundColor: '#FFFFFF',
+              color: '#EF4444',
+              borderRadius: '50%',
+              width: '24px',
+              height: '24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '12px',
+              fontWeight: '700'
+            }}>
+              {totalPending}
+            </Box>
+          )}
+        </button>
+      
+      {/* Botón de Entradas al Banco */}
+      <Box css={{
+        
       }}>
         <button
           onClick={() => {
@@ -1701,6 +1823,19 @@ export const SummaryTab = ({ selectedDate, selectedRoute, refreshKey }: SummaryT
           )}
         </button>
       </Box>
+      </Box>
+
+      {/* Modal de Diferencias */}
+      <DiscrepanciesModal
+        isOpen={showDiscrepanciesModal}
+        onClose={() => setShowDiscrepanciesModal(false)}
+        discrepancies={allDiscrepancies}
+        loading={discrepanciesLoading}
+        onRefresh={refetchDiscrepancies}
+        totalPending={totalPending}
+        totalCompleted={totalCompleted}
+        totalDiscarded={totalDiscarded}
+      />
 
       {/* Modal de Entradas al Banco */}
       <BankIncomeModal

@@ -25,6 +25,7 @@ import EditPersonModal from '../loans/EditPersonModal';
 import AvalInputWithAutocomplete from '../loans/AvalInputWithAutocomplete';
 import { generatePaymentChronology, PaymentChronologyItem } from '../../utils/paymentChronology';
 import { GET_LEAD_PAYMENTS } from '../../graphql/queries/payments';
+import ReconciliationWidget from './ReconciliationWidget';
 
 const GET_LEADS = gql`
   query GetLeads($routeId: ID!) {
@@ -5047,6 +5048,21 @@ useEffect(() => {
             </div>
           </Box>
         </Box>
+      )}
+
+      {/* Widget de Reconciliación */}
+      {selectedRoute && (
+            <ReconciliationWidget
+              selectedDate={selectedDate}
+              selectedRoute={selectedRoute}
+              selectedLead={selectedLead}
+              tabType="PAYMENT"
+              actualAmount={grandTotalAmount}
+              captureElementId="transactions-tab-content"
+              onReconcileComplete={() => {
+                console.log('✅ Reconciliación completada');
+              }}
+            />
       )}
     </Box>
   );

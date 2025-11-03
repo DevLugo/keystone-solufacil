@@ -18,6 +18,7 @@ import RouteLeadSelector from '../routes/RouteLeadSelector';
 import DateMover from './utils/DateMover';
 import KPIBar from './KPIBar';
 import { useBalanceRefresh } from '../../contexts/BalanceRefreshContext';
+import ReconciliationWidget from './ReconciliationWidget';
 
 // Import GraphQL queries and mutations
 import { GET_ROUTES_SIMPLE } from '../../graphql/queries/routes-optimized';
@@ -2566,6 +2567,36 @@ export const CreateExpensesForm = ({
           <span style={{ fontWeight: '500' }}>¡Cambios guardados exitosamente!</span>
         </Box>
       )}
+
+      {/* Widget de Reconciliación */}
+      {selectedRoute && (() => {
+        // Calcular total de gastos (existentes + nuevos)
+        const existingTotal = state.transactions.reduce((sum, transaction) => {
+          const amount = parseFloat(transaction.amount?.toString() || '0');
+          return sum + amount;
+        }, 0);
+        
+        const newTotal = state.newTransactions.reduce((sum, transaction) => {
+          const amount = parseFloat(transaction.amount || '0');
+          return sum + amount;
+        }, 0);
+        
+        const totalExpenseAmount = existingTotal + newTotal;
+        
+        return (
+          <ReconciliationWidget
+            selectedDate={selectedDate}
+            selectedRoute={selectedRoute}
+            selectedLead={selectedLead}
+            tabType="EXPENSE"
+            actualAmount={totalExpenseAmount}
+            captureElementId="transactions-tab-content"
+            onReconcileComplete={() => {
+              console.log('✅ Reconciliación de gastos completada');
+            }}
+          />
+        );
+      })()}
     </Box>
   );
 };

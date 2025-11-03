@@ -394,11 +394,14 @@ function TransaccionesPageContent() {
           </Box>
 
           {/* Contenido de la tab activa */}
-          <Box css={{
-            padding: '0',
-            backgroundColor: 'white',
-            minHeight: '400px'
-          }}>
+          <Box 
+            id="transactions-tab-content"
+            css={{
+              padding: '0',
+              backgroundColor: 'white',
+              minHeight: '400px'
+            }}
+          >
             {renderTabContent()}
           </Box>
         </Box>

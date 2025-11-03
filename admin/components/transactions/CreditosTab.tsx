@@ -20,6 +20,7 @@ import { GET_LEAD_PAYMENTS } from '../../graphql/queries/payments';
 import PersonInputWithAutocomplete from '../loans/PersonInputWithAutocomplete';
 import AvalInputWithAutocomplete from '../loans/AvalInputWithAutocomplete';
 import { PaymentConfigModal } from './PaymentConfigModal';
+import ReconciliationWidget from './ReconciliationWidget';
 
 // Import types
 import type { Loan, LoanType, PersonalData } from '../../types/loan';
@@ -3217,6 +3218,38 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
               onSave={handleSavePaymentConfig}
               isSaving={isSavingPayment}
             />
+
+      {/* Widget de Reconciliación */}
+      {selectedRoute && (() => {
+        // Calcular total de créditos (existentes + pendientes)
+        const existingTotal = loans.reduce((sum, loan) => {
+          const amountGived = typeof loan.amountGived === 'number' 
+            ? loan.amountGived 
+            : parseFloat(String(loan.amountGived)) || 0;
+          return sum + amountGived;
+        }, 0);
+        
+        const pendingTotal = pendingLoans.reduce((sum, loan) => {
+          const amountGived = loan.amountGived || 0;
+          return sum + amountGived;
+        }, 0);
+        
+        const totalCreditAmount = existingTotal + pendingTotal;
+        
+        return (
+              <ReconciliationWidget
+                selectedDate={selectedDate}
+                selectedRoute={selectedRoute}
+                selectedLead={selectedLead}
+                tabType="CREDIT"
+                actualAmount={totalCreditAmount}
+                captureElementId="transactions-tab-content"
+                onReconcileComplete={() => {
+                  console.log('✅ Reconciliación de créditos completada');
+                }}
+              />
+        );
+      })()}
 
     </>
   );

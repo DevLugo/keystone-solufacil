@@ -12,48 +12,52 @@ generator client {
 }
 
 model User {
-  id                 String             @id @default(cuid())
-  name               String             @default("")
-  email              String             @unique @default("")
-  password           String?
-  role               String?            @default("NORMAL")
-  portfolioCleanups  PortfolioCleanup[] @relation("PortfolioCleanup_executedBy")
-  documentPhotos     DocumentPhoto[]    @relation("DocumentPhoto_uploadedBy")
-  telegramUsers      TelegramUser[]     @relation("TelegramUser_platformUser")
-  employee           Employee?          @relation("Employee_user")
-  createdAt          DateTime?          @default(now())
-  from_AuditLog_user AuditLog[]         @relation("AuditLog_user")
+  id                   String                   @id @default(cuid())
+  name                 String                   @default("")
+  email                String                   @unique @default("")
+  password             String?
+  role                 String?                  @default("NORMAL")
+  portfolioCleanups    PortfolioCleanup[]       @relation("PortfolioCleanup_executedBy")
+  documentPhotos       DocumentPhoto[]          @relation("DocumentPhoto_uploadedBy")
+  telegramUsers        TelegramUser[]           @relation("TelegramUser_platformUser")
+  discrepanciesCreated TransactionDiscrepancy[] @relation("TransactionDiscrepancy_createdBy")
+  discrepanciesUpdated TransactionDiscrepancy[] @relation("TransactionDiscrepancy_updatedBy")
+  employee             Employee?                @relation("Employee_user")
+  createdAt            DateTime?                @default(now())
+  from_AuditLog_user   AuditLog[]               @relation("AuditLog_user")
 }
 
 model Employee {
-  id                        String                @id @default(cuid())
-  oldId                     String?               @unique
-  routes                    Route?                @relation("Employee_routes", fields: [routesId], references: [id])
-  routesId                  String?               @map("routes")
-  transactions              Transaction[]         @relation("Transaction_lead")
-  personalData              PersonalData?         @relation("Employee_personalData", fields: [personalDataId], references: [id])
-  personalDataId            String?               @unique @map("personalData")
-  loan                      Loan[]                @relation("Loan_grantor")
-  commissionPayment         CommissionPayment[]   @relation("CommissionPayment_employee")
-  LeadManagedLoans          Loan[]                @relation("Loan_lead")
-  LeadPaymentReceivedLead   LeadPaymentReceived[] @relation("LeadPaymentReceived_lead")
-  leadPaymentsReceivedAgent LeadPaymentReceived[] @relation("LeadPaymentReceived_agent")
-  user                      User?                 @relation("Employee_user", fields: [userId], references: [id])
-  userId                    String?               @unique @map("user")
+  id                        String                   @id @default(cuid())
+  oldId                     String?                  @unique
+  routes                    Route?                   @relation("Employee_routes", fields: [routesId], references: [id])
+  routesId                  String?                  @map("routes")
+  transactions              Transaction[]            @relation("Transaction_lead")
+  personalData              PersonalData?            @relation("Employee_personalData", fields: [personalDataId], references: [id])
+  personalDataId            String?                  @unique @map("personalData")
+  loan                      Loan[]                   @relation("Loan_grantor")
+  commissionPayment         CommissionPayment[]      @relation("CommissionPayment_employee")
+  LeadManagedLoans          Loan[]                   @relation("Loan_lead")
+  LeadPaymentReceivedLead   LeadPaymentReceived[]    @relation("LeadPaymentReceived_lead")
+  leadPaymentsReceivedAgent LeadPaymentReceived[]    @relation("LeadPaymentReceived_agent")
+  discrepancies             TransactionDiscrepancy[] @relation("TransactionDiscrepancy_lead")
+  user                      User?                    @relation("Employee_user", fields: [userId], references: [id])
+  userId                    String?                  @unique @map("user")
   type                      String?
 
   @@index([routesId])
 }
 
 model Route {
-  id                String             @id @default(cuid())
-  name              String             @default("")
-  employees         Employee[]         @relation("Employee_routes")
-  localities        Location[]         @relation("Location_route")
-  accounts          Account[]          @relation("Account_routes")
-  transactions      Transaction[]      @relation("Transaction_route")
-  portfolioCleanups PortfolioCleanup[] @relation("PortfolioCleanup_route")
-  reportConfigs     ReportConfig[]     @relation("ReportConfig_routes")
+  id                String                   @id @default(cuid())
+  name              String                   @default("")
+  employees         Employee[]               @relation("Employee_routes")
+  localities        Location[]               @relation("Location_route")
+  accounts          Account[]                @relation("Account_routes")
+  transactions      Transaction[]            @relation("Transaction_route")
+  portfolioCleanups PortfolioCleanup[]       @relation("PortfolioCleanup_route")
+  reportConfigs     ReportConfig[]           @relation("ReportConfig_routes")
+  discrepancies     TransactionDiscrepancy[] @relation("TransactionDiscrepancy_route")
 }
 
 model Location {
@@ -481,6 +485,38 @@ model DocumentNotificationLog {
   updatedAt            DateTime? @default(now())
 }
 
+model TransactionDiscrepancy {
+  id               String                                    @id @default(cuid())
+  discrepancyType  TransactionDiscrepancyDiscrepancyTypeType
+  route            Route?                                    @relation("TransactionDiscrepancy_route", fields: [routeId], references: [id])
+  routeId          String?                                   @map("route")
+  lead             Employee?                                 @relation("TransactionDiscrepancy_lead", fields: [leadId], references: [id])
+  leadId           String?                                   @map("lead")
+  date             DateTime
+  weekStartDate    DateTime
+  expectedAmount   Decimal                                   @default("0") @postgresql.Decimal(10, 2)
+  actualAmount     Decimal                                   @default("0") @postgresql.Decimal(10, 2)
+  difference       Decimal                                   @default("0") @postgresql.Decimal(10, 2)
+  description      String                                    @default("")
+  category         TransactionDiscrepancyCategoryType?
+  status           TransactionDiscrepancyStatusType          @default(PENDING)
+  notes            String                                    @default("")
+  screenshotUrls   Json?                                     @default("[]")
+  telegramReported Boolean                                   @default(false)
+  reportedAt       DateTime?
+  createdAt        DateTime?                                 @default(now())
+  updatedAt        DateTime?                                 @default(now())
+  createdBy        User?                                     @relation("TransactionDiscrepancy_createdBy", fields: [createdById], references: [id])
+  createdById      String?                                   @map("createdBy")
+  updatedBy        User?                                     @relation("TransactionDiscrepancy_updatedBy", fields: [updatedById], references: [id])
+  updatedById      String?                                   @map("updatedBy")
+
+  @@index([routeId])
+  @@index([leadId])
+  @@index([createdById])
+  @@index([updatedById])
+}
+
 enum DocumentPhotoDocumentTypeType {
   INE
   DOMICILIO
@@ -492,4 +528,23 @@ enum ReportConfigReportTypeType {
   notificacion_tiempo_real
   creditos_con_errores
   resumen_semanal
+}
+
+enum TransactionDiscrepancyDiscrepancyTypeType {
+  PAYMENT
+  CREDIT
+  EXPENSE
+}
+
+enum TransactionDiscrepancyCategoryType {
+  COMISION
+  ABONO
+  CREDITO
+  GASTO
+}
+
+enum TransactionDiscrepancyStatusType {
+  PENDING
+  COMPLETED
+  DISCARDED
 }

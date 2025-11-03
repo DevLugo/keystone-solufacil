@@ -13,6 +13,10 @@ type User {
   documentPhotosCount(where: DocumentPhotoWhereInput! = {}): Int
   telegramUsers(where: TelegramUserWhereInput! = {}, orderBy: [TelegramUserOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TelegramUserWhereUniqueInput): [TelegramUser!]
   telegramUsersCount(where: TelegramUserWhereInput! = {}): Int
+  discrepanciesCreated(where: TransactionDiscrepancyWhereInput! = {}, orderBy: [TransactionDiscrepancyOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TransactionDiscrepancyWhereUniqueInput): [TransactionDiscrepancy!]
+  discrepanciesCreatedCount(where: TransactionDiscrepancyWhereInput! = {}): Int
+  discrepanciesUpdated(where: TransactionDiscrepancyWhereInput! = {}, orderBy: [TransactionDiscrepancyOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TransactionDiscrepancyWhereUniqueInput): [TransactionDiscrepancy!]
+  discrepanciesUpdatedCount(where: TransactionDiscrepancyWhereInput! = {}): Int
   employee: Employee
   createdAt: DateTime
   adjustBalance: JSON
@@ -42,6 +46,8 @@ input UserWhereInput {
   portfolioCleanups: PortfolioCleanupManyRelationFilter
   documentPhotos: DocumentPhotoManyRelationFilter
   telegramUsers: TelegramUserManyRelationFilter
+  discrepanciesCreated: TransactionDiscrepancyManyRelationFilter
+  discrepanciesUpdated: TransactionDiscrepancyManyRelationFilter
   employee: EmployeeWhereInput
   createdAt: DateTimeNullableFilter
 }
@@ -128,6 +134,12 @@ input TelegramUserManyRelationFilter {
   none: TelegramUserWhereInput
 }
 
+input TransactionDiscrepancyManyRelationFilter {
+  every: TransactionDiscrepancyWhereInput
+  some: TransactionDiscrepancyWhereInput
+  none: TransactionDiscrepancyWhereInput
+}
+
 input DateTimeNullableFilter {
   equals: DateTime
   in: [DateTime!]
@@ -160,6 +172,8 @@ input UserUpdateInput {
   portfolioCleanups: PortfolioCleanupRelateToManyForUpdateInput
   documentPhotos: DocumentPhotoRelateToManyForUpdateInput
   telegramUsers: TelegramUserRelateToManyForUpdateInput
+  discrepanciesCreated: TransactionDiscrepancyRelateToManyForUpdateInput
+  discrepanciesUpdated: TransactionDiscrepancyRelateToManyForUpdateInput
   employee: EmployeeRelateToOneForUpdateInput
   createdAt: DateTime
 }
@@ -185,6 +199,13 @@ input TelegramUserRelateToManyForUpdateInput {
   connect: [TelegramUserWhereUniqueInput!]
 }
 
+input TransactionDiscrepancyRelateToManyForUpdateInput {
+  disconnect: [TransactionDiscrepancyWhereUniqueInput!]
+  set: [TransactionDiscrepancyWhereUniqueInput!]
+  create: [TransactionDiscrepancyCreateInput!]
+  connect: [TransactionDiscrepancyWhereUniqueInput!]
+}
+
 input EmployeeRelateToOneForUpdateInput {
   create: EmployeeCreateInput
   connect: EmployeeWhereUniqueInput
@@ -204,6 +225,8 @@ input UserCreateInput {
   portfolioCleanups: PortfolioCleanupRelateToManyForCreateInput
   documentPhotos: DocumentPhotoRelateToManyForCreateInput
   telegramUsers: TelegramUserRelateToManyForCreateInput
+  discrepanciesCreated: TransactionDiscrepancyRelateToManyForCreateInput
+  discrepanciesUpdated: TransactionDiscrepancyRelateToManyForCreateInput
   employee: EmployeeRelateToOneForCreateInput
   createdAt: DateTime
 }
@@ -221,6 +244,11 @@ input DocumentPhotoRelateToManyForCreateInput {
 input TelegramUserRelateToManyForCreateInput {
   create: [TelegramUserCreateInput!]
   connect: [TelegramUserWhereUniqueInput!]
+}
+
+input TransactionDiscrepancyRelateToManyForCreateInput {
+  create: [TransactionDiscrepancyCreateInput!]
+  connect: [TransactionDiscrepancyWhereUniqueInput!]
 }
 
 input EmployeeRelateToOneForCreateInput {
@@ -245,6 +273,8 @@ type Employee {
   LeadPaymentReceivedLeadCount(where: LeadPaymentReceivedWhereInput! = {}): Int
   leadPaymentsReceivedAgent(where: LeadPaymentReceivedWhereInput! = {}, orderBy: [LeadPaymentReceivedOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: LeadPaymentReceivedWhereUniqueInput): [LeadPaymentReceived!]
   leadPaymentsReceivedAgentCount(where: LeadPaymentReceivedWhereInput! = {}): Int
+  discrepancies(where: TransactionDiscrepancyWhereInput! = {}, orderBy: [TransactionDiscrepancyOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TransactionDiscrepancyWhereUniqueInput): [TransactionDiscrepancy!]
+  discrepanciesCount(where: TransactionDiscrepancyWhereInput! = {}): Int
   user: User
   type: String
 }
@@ -270,6 +300,7 @@ input EmployeeWhereInput {
   LeadManagedLoans: LoanManyRelationFilter
   LeadPaymentReceivedLead: LeadPaymentReceivedManyRelationFilter
   leadPaymentsReceivedAgent: LeadPaymentReceivedManyRelationFilter
+  discrepancies: TransactionDiscrepancyManyRelationFilter
   user: UserWhereInput
   type: StringNullableFilter
 }
@@ -314,6 +345,7 @@ input EmployeeUpdateInput {
   LeadManagedLoans: LoanRelateToManyForUpdateInput
   LeadPaymentReceivedLead: LeadPaymentReceivedRelateToManyForUpdateInput
   leadPaymentsReceivedAgent: LeadPaymentReceivedRelateToManyForUpdateInput
+  discrepancies: TransactionDiscrepancyRelateToManyForUpdateInput
   user: UserRelateToOneForUpdateInput
   type: String
 }
@@ -379,6 +411,7 @@ input EmployeeCreateInput {
   LeadManagedLoans: LoanRelateToManyForCreateInput
   LeadPaymentReceivedLead: LeadPaymentReceivedRelateToManyForCreateInput
   leadPaymentsReceivedAgent: LeadPaymentReceivedRelateToManyForCreateInput
+  discrepancies: TransactionDiscrepancyRelateToManyForCreateInput
   user: UserRelateToOneForCreateInput
   type: String
 }
@@ -433,6 +466,8 @@ type Route {
   portfolioCleanupsCount(where: PortfolioCleanupWhereInput! = {}): Int
   reportConfigs(where: ReportConfigWhereInput! = {}, orderBy: [ReportConfigOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ReportConfigWhereUniqueInput): [ReportConfig!]
   reportConfigsCount(where: ReportConfigWhereInput! = {}): Int
+  discrepancies(where: TransactionDiscrepancyWhereInput! = {}, orderBy: [TransactionDiscrepancyOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TransactionDiscrepancyWhereUniqueInput): [TransactionDiscrepancy!]
+  discrepanciesCount(where: TransactionDiscrepancyWhereInput! = {}): Int
 }
 
 input RouteWhereUniqueInput {
@@ -451,6 +486,7 @@ input RouteWhereInput {
   transactions: TransactionManyRelationFilter
   portfolioCleanups: PortfolioCleanupManyRelationFilter
   reportConfigs: ReportConfigManyRelationFilter
+  discrepancies: TransactionDiscrepancyManyRelationFilter
 }
 
 input EmployeeManyRelationFilter {
@@ -490,6 +526,7 @@ input RouteUpdateInput {
   transactions: TransactionRelateToManyForUpdateInput
   portfolioCleanups: PortfolioCleanupRelateToManyForUpdateInput
   reportConfigs: ReportConfigRelateToManyForUpdateInput
+  discrepancies: TransactionDiscrepancyRelateToManyForUpdateInput
 }
 
 input EmployeeRelateToManyForUpdateInput {
@@ -533,6 +570,7 @@ input RouteCreateInput {
   transactions: TransactionRelateToManyForCreateInput
   portfolioCleanups: PortfolioCleanupRelateToManyForCreateInput
   reportConfigs: ReportConfigRelateToManyForCreateInput
+  discrepancies: TransactionDiscrepancyRelateToManyForCreateInput
 }
 
 input EmployeeRelateToManyForCreateInput {
@@ -2756,6 +2794,165 @@ input DocumentNotificationLogCreateInput {
   updatedAt: DateTime
 }
 
+type TransactionDiscrepancy {
+  id: ID!
+  discrepancyType: TransactionDiscrepancyDiscrepancyTypeType
+  route: Route
+  lead: Employee
+  date: DateTime
+  weekStartDate: DateTime
+  expectedAmount: Decimal
+  actualAmount: Decimal
+  difference: Decimal
+  description: String
+  category: TransactionDiscrepancyCategoryType
+  status: TransactionDiscrepancyStatusType
+  notes: String
+  screenshotUrls: JSON
+  telegramReported: Boolean
+  reportedAt: DateTime
+  createdAt: DateTime
+  updatedAt: DateTime
+  createdBy: User
+  updatedBy: User
+}
+
+enum TransactionDiscrepancyDiscrepancyTypeType {
+  PAYMENT
+  CREDIT
+  EXPENSE
+}
+
+enum TransactionDiscrepancyCategoryType {
+  COMISION
+  ABONO
+  CREDITO
+  GASTO
+}
+
+enum TransactionDiscrepancyStatusType {
+  PENDING
+  COMPLETED
+  DISCARDED
+}
+
+input TransactionDiscrepancyWhereUniqueInput {
+  id: ID
+}
+
+input TransactionDiscrepancyWhereInput {
+  AND: [TransactionDiscrepancyWhereInput!]
+  OR: [TransactionDiscrepancyWhereInput!]
+  NOT: [TransactionDiscrepancyWhereInput!]
+  id: IDFilter
+  discrepancyType: TransactionDiscrepancyDiscrepancyTypeTypeNullableFilter
+  route: RouteWhereInput
+  lead: EmployeeWhereInput
+  date: DateTimeFilter
+  weekStartDate: DateTimeFilter
+  expectedAmount: DecimalFilter
+  actualAmount: DecimalFilter
+  difference: DecimalFilter
+  description: StringFilter
+  category: TransactionDiscrepancyCategoryTypeNullableFilter
+  status: TransactionDiscrepancyStatusTypeNullableFilter
+  notes: StringFilter
+  telegramReported: BooleanFilter
+  reportedAt: DateTimeNullableFilter
+  createdAt: DateTimeNullableFilter
+  updatedAt: DateTimeNullableFilter
+  createdBy: UserWhereInput
+  updatedBy: UserWhereInput
+}
+
+input TransactionDiscrepancyDiscrepancyTypeTypeNullableFilter {
+  equals: TransactionDiscrepancyDiscrepancyTypeType
+  in: [TransactionDiscrepancyDiscrepancyTypeType!]
+  notIn: [TransactionDiscrepancyDiscrepancyTypeType!]
+  not: TransactionDiscrepancyDiscrepancyTypeTypeNullableFilter
+}
+
+input TransactionDiscrepancyCategoryTypeNullableFilter {
+  equals: TransactionDiscrepancyCategoryType
+  in: [TransactionDiscrepancyCategoryType!]
+  notIn: [TransactionDiscrepancyCategoryType!]
+  not: TransactionDiscrepancyCategoryTypeNullableFilter
+}
+
+input TransactionDiscrepancyStatusTypeNullableFilter {
+  equals: TransactionDiscrepancyStatusType
+  in: [TransactionDiscrepancyStatusType!]
+  notIn: [TransactionDiscrepancyStatusType!]
+  not: TransactionDiscrepancyStatusTypeNullableFilter
+}
+
+input TransactionDiscrepancyOrderByInput {
+  id: OrderDirection
+  discrepancyType: OrderDirection
+  date: OrderDirection
+  weekStartDate: OrderDirection
+  expectedAmount: OrderDirection
+  actualAmount: OrderDirection
+  difference: OrderDirection
+  description: OrderDirection
+  category: OrderDirection
+  status: OrderDirection
+  notes: OrderDirection
+  telegramReported: OrderDirection
+  reportedAt: OrderDirection
+  createdAt: OrderDirection
+  updatedAt: OrderDirection
+}
+
+input TransactionDiscrepancyUpdateInput {
+  discrepancyType: TransactionDiscrepancyDiscrepancyTypeType
+  route: RouteRelateToOneForUpdateInput
+  lead: EmployeeRelateToOneForUpdateInput
+  date: DateTime
+  weekStartDate: DateTime
+  expectedAmount: Decimal
+  actualAmount: Decimal
+  difference: Decimal
+  description: String
+  category: TransactionDiscrepancyCategoryType
+  status: TransactionDiscrepancyStatusType
+  notes: String
+  screenshotUrls: JSON
+  telegramReported: Boolean
+  reportedAt: DateTime
+  createdAt: DateTime
+  updatedAt: DateTime
+  createdBy: UserRelateToOneForUpdateInput
+  updatedBy: UserRelateToOneForUpdateInput
+}
+
+input TransactionDiscrepancyUpdateArgs {
+  where: TransactionDiscrepancyWhereUniqueInput!
+  data: TransactionDiscrepancyUpdateInput!
+}
+
+input TransactionDiscrepancyCreateInput {
+  discrepancyType: TransactionDiscrepancyDiscrepancyTypeType
+  route: RouteRelateToOneForCreateInput
+  lead: EmployeeRelateToOneForCreateInput
+  date: DateTime
+  weekStartDate: DateTime
+  expectedAmount: Decimal
+  actualAmount: Decimal
+  difference: Decimal
+  description: String
+  category: TransactionDiscrepancyCategoryType
+  status: TransactionDiscrepancyStatusType
+  notes: String
+  screenshotUrls: JSON
+  telegramReported: Boolean
+  reportedAt: DateTime
+  createdAt: DateTime
+  updatedAt: DateTime
+  createdBy: UserRelateToOneForCreateInput
+  updatedBy: UserRelateToOneForCreateInput
+}
+
 """
 The `JSON` scalar type represents JSON values as specified by [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf).
 """
@@ -2918,106 +3115,22 @@ type Mutation {
   updateDocumentNotificationLogs(data: [DocumentNotificationLogUpdateArgs!]!): [DocumentNotificationLog]
   deleteDocumentNotificationLog(where: DocumentNotificationLogWhereUniqueInput!): DocumentNotificationLog
   deleteDocumentNotificationLogs(where: [DocumentNotificationLogWhereUniqueInput!]!): [DocumentNotificationLog]
+  createTransactionDiscrepancy(data: TransactionDiscrepancyCreateInput!): TransactionDiscrepancy
+  createTransactionDiscrepancies(data: [TransactionDiscrepancyCreateInput!]!): [TransactionDiscrepancy]
+  updateTransactionDiscrepancy(where: TransactionDiscrepancyWhereUniqueInput!, data: TransactionDiscrepancyUpdateInput!): TransactionDiscrepancy
+  updateTransactionDiscrepancies(data: [TransactionDiscrepancyUpdateArgs!]!): [TransactionDiscrepancy]
+  deleteTransactionDiscrepancy(where: TransactionDiscrepancyWhereUniqueInput!): TransactionDiscrepancy
+  deleteTransactionDiscrepancies(where: [TransactionDiscrepancyWhereUniqueInput!]!): [TransactionDiscrepancy]
   endSession: Boolean!
   authenticateUserWithPassword(email: String!, password: String!): UserAuthenticationWithPasswordResult
   createInitialUser(data: CreateInitialUserInput!): UserAuthenticationWithPasswordSuccess!
-  sendDocumentIssueNotification(documentId: ID!, issueType: String!, description: String): String!
-  moveLoansToDate(leadId: ID!, fromDate: String!, toDate: String!): JSON!
-  movePaymentsToDate(leadId: ID!, fromDate: String!, toDate: String!): JSON!
-  moveExpensesToDate(leadId: ID, routeId: ID, fromDate: String!, toDate: String!): JSON!
-  importTokaXml(xml: String!, month: String!, assignments: [TokaAssignmentInput!]): String!
-  createCustomLeadPaymentReceived(expectedAmount: Float!, cashPaidAmount: Float, bankPaidAmount: Float, falcoAmount: Float, agentId: ID!, leadId: ID!, paymentDate: String!, payments: [PaymentInput!]!): CustomLeadPaymentReceived!
-  updateCustomLeadPaymentReceived(id: ID!, expectedAmount: Float!, cashPaidAmount: Float, bankPaidAmount: Float, falcoAmount: Float, paymentDate: String!, payments: [PaymentInput!]!): CustomLeadPaymentReceived!
-  createPortfolioCleanupAndExcludeLoans(name: String!, description: String, cleanupDate: String!, fromDate: String, toDate: String, routeId: String!, excludedLoanIds: [String!]): JSON!
-  createBulkPortfolioCleanup(name: String!, description: String, cleanupDate: String!, routeId: String!, fromDate: String!, toDate: String!, weeksWithoutPaymentThreshold: Int): JSON!
-  adjustAccountBalance(accountId: String!, targetAmount: Float!, counterAccountId: String, description: String): JSON!
-  createMultipleLoans(loans: [MultipleLoanInput!]!): [JSON!]!
-  updateLoanWithAval(where: ID!, data: UpdateLoanWithAvalInput): JSON!
-  sendTestTelegramMessage(chatId: String!, message: String!, reportConfigId: String, reportConfigName: String, recipientUserId: String, recipientName: String, recipientEmail: String): String!
-  generateReportPDF(reportType: String!, routeIds: [String]): String!
-  sendReportWithPDF(chatId: String!, reportType: String!, routeIds: [String], reportConfigId: String, reportConfigName: String, recipientUserId: String, recipientName: String, recipientEmail: String): String!
-  markLoansDeadDebt(loanIds: [ID!]!, deadDebtDate: String!): String!
-  mergeClients(primaryClientId: ID!, secondaryClientId: ID!): String!
-  promoteToLead(clientId: ID!, currentLeadId: ID!): JSON!
-  createNewLeader(fullName: String!, birthDate: String, phone: String, locationId: ID!, routeId: ID!, replaceExisting: Boolean = false): JSON!
-  validateTelegramChatId(chatId: String!): String!
-}
-
-input TokaAssignmentInput {
-  cardNumber: String!
-  routeId: ID!
-}
-
-type CustomLeadPaymentReceived {
-  id: ID!
-  expectedAmount: Float!
-  paidAmount: Float!
-  cashPaidAmount: Float!
-  bankPaidAmount: Float!
-  falcoAmount: Float!
-  paymentStatus: String!
-  agentId: ID!
-  leadId: ID!
-  paymentDate: String!
-  payments: [Payment!]!
-}
-
-type Payment {
-  id: ID!
-  amount: Float!
-  comission: Float!
-  loanId: String!
-  type: String!
-  paymentMethod: String!
-}
-
-input PaymentInput {
-  amount: Float!
-  comission: Float!
-  loanId: String!
-  type: String!
-  paymentMethod: String!
-}
-
-input MultipleLoanInput {
-  requestedAmount: String!
-  amountGived: String!
-  signDate: String!
-  avalName: String
-  avalPhone: String
-  comissionAmount: String
-  leadId: ID!
-  loantypeId: ID!
-  previousLoanId: ID
-  borrowerData: MultipleBorrowerDataInput
-  avalData: AvalDataInput
-}
-
-input MultipleBorrowerDataInput {
-  fullName: String!
-  phone: String
-}
-
-input AvalDataInput {
-  selectedCollateralId: ID
-  action: String
-  name: String
-  phone: String
-}
-
-input UpdateLoanWithAvalInput {
-  requestedAmount: String
-  amountGived: String
-  comissionAmount: String
-  loantypeId: ID
-  avalData: UpdateAvalDataInput
-}
-
-input UpdateAvalDataInput {
-  selectedCollateralId: ID
-  action: String
-  name: String
-  phone: String
+  testWebhook: String!
+  simulateTelegramStart(chatId: String!, name: String!, username: String): String!
+  processTelegramWebhook(update: JSON!): String!
+  sendTelegramReport(reportType: String!, reportData: JSON!, telegramUsers: [String!]): String!
+  diagnoseTelegramConfiguration: String!
+  upsertNotificationConfig(data: JSON!): String!
+  sendReportNow(configId: ID!): String!
 }
 
 union UserAuthenticationWithPasswordResult = UserAuthenticationWithPasswordSuccess | UserAuthenticationWithPasswordFailure
@@ -3116,6 +3229,9 @@ type Query {
   documentNotificationLog(where: DocumentNotificationLogWhereUniqueInput!): DocumentNotificationLog
   documentNotificationLogs(where: DocumentNotificationLogWhereInput! = {}, orderBy: [DocumentNotificationLogOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: DocumentNotificationLogWhereUniqueInput): [DocumentNotificationLog!]
   documentNotificationLogsCount(where: DocumentNotificationLogWhereInput! = {}): Int
+  transactionDiscrepancy(where: TransactionDiscrepancyWhereUniqueInput!): TransactionDiscrepancy
+  transactionDiscrepancies(where: TransactionDiscrepancyWhereInput! = {}, orderBy: [TransactionDiscrepancyOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: TransactionDiscrepancyWhereUniqueInput): [TransactionDiscrepancy!]
+  transactionDiscrepanciesCount(where: TransactionDiscrepancyWhereInput! = {}): Int
   keystone: KeystoneMeta!
   authenticatedItem: AuthenticatedItem
   getBankIncomeTransactions(startDate: String!, endDate: String!, routeIds: [ID!], onlyAbonos: Boolean = false): JSON!
@@ -3137,6 +3253,9 @@ type Query {
   telegramStatus: String!
   loansForDeadDebt(weeksSinceLoan: Int!, weeksWithoutPayment: Int!): String!
   deadDebtSummary(weeksSinceLoan: Int!, weeksWithoutPayment: Int!): String!
+  getDiscrepancies(routeId: ID, startDate: String, endDate: String, status: String, discrepancyType: String): [Discrepancy]
+  getDiscrepancy(id: ID!): Discrepancy
+  getDiscrepancyStats(routeId: ID, weekStartDate: String): DiscrepancyStats
 }
 
 type LeaderBirthday {
@@ -3184,6 +3303,85 @@ type TransactionSummary {
   bankAbono: Float!
   transferFromCash: Float!
   transferToBank: Float!
+}
+
+type Discrepancy {
+  id: ID!
+  discrepancyType: String!
+  date: String!
+  weekStartDate: String!
+  expectedAmount: Float!
+  actualAmount: Float!
+  difference: Float!
+  description: String!
+  category: String
+  status: String!
+  notes: String
+  screenshotUrls: [String]
+  telegramReported: Boolean
+  reportedAt: String
+  route: DiscrepancyRoute
+  lead: DiscrepancyLead
+  createdAt: String
+  updatedAt: String
+  createdBy: DiscrepancyCreatedBy
+  updatedBy: DiscrepancyUpdatedBy
+}
+
+type DiscrepancyRoute {
+  id: ID!
+  name: String
+}
+
+type DiscrepancyLead {
+  id: ID!
+  personalData: DiscrepancyLeadPersonalData
+}
+
+type DiscrepancyLeadPersonalData {
+  fullName: String
+}
+
+type DiscrepancyCreatedBy {
+  id: ID
+  name: String
+  email: String
+}
+
+type DiscrepancyUpdatedBy {
+  id: ID
+  name: String
+  email: String
+}
+
+type DiscrepancyStats {
+  totalDiscrepancies: Int
+  pendingCount: Int
+  completedCount: Int
+  discardedCount: Int
+  totalDifference: Float
+  byType: [DiscrepancyByType]
+  byRoute: [DiscrepancyByRoute]
+  byWeek: [DiscrepancyByWeek]
+}
+
+type DiscrepancyByType {
+  type: String
+  count: Int
+  totalDifference: Float
+}
+
+type DiscrepancyByRoute {
+  routeId: ID
+  routeName: String
+  count: Int
+  totalDifference: Float
+}
+
+type DiscrepancyByWeek {
+  weekStart: String
+  count: Int
+  totalDifference: Float
 }
 
 union AuthenticatedItem = User

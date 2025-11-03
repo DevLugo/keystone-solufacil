@@ -86,8 +86,13 @@ export default withAuth(
         credentials: true,
       },
       extendExpressApp: (app) => {
+        // Aumentar límite de tamaño del body para screenshots
+        app.use(express.json({ limit: '10mb' }));
+        app.use(express.urlencoded({ limit: '10mb', extended: true }));
+        
         // Servir archivos estáticos desde la carpeta public
         app.use(express.static('public'));
+        
         // Llamar a la función extendExpressApp original
         extendExpressApp(app);
       },
