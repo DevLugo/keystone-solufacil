@@ -24,6 +24,7 @@ import {
   FaSortDown
 } from 'react-icons/fa';
 import ProtectedRoute from '../components/ProtectedRoute';
+import { GET_MONTHLY_EXPENSES_ADMIN, GET_EXPENSES_KPIS } from '../graphql/queries/transactions';
 import { GET_ROUTES } from '../graphql/queries/routes';
 
 // Tipos de gastos disponibles (excluyendo tipos relacionados con préstamos)
@@ -377,7 +378,7 @@ const AdministrarGastosPage = () => {
     return (
       <ProtectedRoute requiredRole="ADMIN">
         <PageContainer header="Administrar Gastos">
-          <GraphQLErrorNotice networkError={expensesError} errors={[]} />
+          <GraphQLErrorNotice networkError={expensesError} />
         </PageContainer>
       </ProtectedRoute>
     );
@@ -385,7 +386,7 @@ const AdministrarGastosPage = () => {
 
   return (
     <ProtectedRoute requiredRole="ADMIN">
-      <PageContainer header="Administrar Gastos del Mes">
+        <PageContainer header="Administrar Gastos del Mes">
         <Box padding="large">
           
           {/* Controles principales */}
@@ -418,17 +419,10 @@ const AdministrarGastosPage = () => {
                   <FaCalendarAlt style={{ marginRight: '6px' }} />
                   Mes
                 </label>
-                <input
+                <TextInput
                   type="month"
                   value={selectedMonth}
                   onChange={(e) => setSelectedMonth(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '14px'
-                  }}
                 />
               </Box>
               

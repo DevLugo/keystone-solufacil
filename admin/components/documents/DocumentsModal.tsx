@@ -1,13 +1,17 @@
 /** @jsxRuntime classic */
 /** @jsx jsx */
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { jsx, Box, Text } from '@keystone-ui/core';
 import { Button } from '@keystone-ui/button';
 import { AlertDialog } from '@keystone-ui/modals';
 import { FaTimes, FaUser, FaUserTie, FaCamera } from 'react-icons/fa';
 import { DocumentThumbnail } from './DocumentThumbnail';
 import { InlineEditField } from './InlineEditField';
+import { useMutation, useApolloClient, gql } from '@apollo/client';
+import { CREATE_DOCUMENT_PHOTO } from '../../graphql/mutations/documents';
+import { UPDATE_PERSONAL_DATA_NAME } from '../../graphql/mutations/personalData';
+import { ImageModal } from './ImageModal';
 
 interface DocumentPhoto {
   id: string;
@@ -46,6 +50,21 @@ interface Loan {
       phones: Array<{ id: string; number: string }>;
     };
   };
+  collaterals: Array<{
+    id: string;
+    fullName: string;
+    phones: Array<{ id: string; number: string }>;
+    addresses: Array<{
+      location: {
+        name: string;
+        municipality: {
+          state: {
+            name: string;
+          };
+        };
+      };
+    }>;
+  }>;
   documentPhotos: DocumentPhoto[];
 }
 
@@ -62,8 +81,8 @@ interface DocumentsModalProps {
   }) => void;
   onDocumentError: (documentId: string, isError: boolean, errorDescription?: string) => void;
   onDocumentMissing: (documentId: string, isMissing: boolean) => void;
-  onCreateMissingDocument: (documentType: 'INE' | 'DOMICILIO' | 'PAGARE', personalDataId: string, loanId: string, personName: string) => void;
-  onDocumentDelete: (documentId: string, documentTitle: string) => void;
+  onCreateMissingDocument: (documentType: 'INE' | 'DOMICILIO' | 'PAGARE', personalDataId: string, loanId: string, personName: string, personType: 'TITULAR' | 'AVAL') => void;
+  onDocumentDelete: (documentId: string, documentTitle: string, documentType: 'INE' | 'DOMICILIO' | 'PAGARE', personalDataId: string) => void;
   onNameEdit: (personalDataId: string, newName: string) => void;
   onPhoneEdit: (personalDataId: string, phoneId: string | undefined, newPhone: string) => void;
 }
@@ -90,6 +109,14 @@ const getDocumentByTypeAndPerson = (
   ) || null;
 };
 
+interface SelectedImage {
+  url: string;
+  title: string;
+  description: string;
+  documentType: string;
+  personType: 'TITULAR' | 'AVAL';
+}
+
 export const DocumentsModal: React.FC<DocumentsModalProps> = ({
   isOpen,
   onClose,
@@ -102,37 +129,65 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
   onNameEdit,
   onPhoneEdit
 }) => {
+  // Hooks siempre al inicio del componente
   const [activeTab, setActiveTab] = useState<'titular' | 'aval'>('titular');
+  const [selectedImage, setSelectedImage] = useState<SelectedImage | null>(null);
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [createDocumentPhoto] = useMutation(CREATE_DOCUMENT_PHOTO);
+  const [updatePersonalDataName] = useMutation(UPDATE_PERSONAL_DATA_NAME);
+  const client = useApolloClient();
 
-  if (!loan) return null;
-
-  const borrowerDocuments = loan.documentPhotos.filter(doc => 
-    doc.personalData.id === loan.borrower.personalData.id
-  );
-  const leadDocuments = loan.documentPhotos.filter(doc => 
-    doc.personalData.id === loan.lead.personalData.id
-  );
-
-  const handleUploadClick = (
+  // Memoizar la función handleUploadClick para evitar recreaciones innecesarias
+  const handleUploadClick = useCallback(async (
     documentType: 'INE' | 'DOMICILIO' | 'PAGARE',
     personType: 'TITULAR' | 'AVAL',
     personalDataId: string,
     personName: string
   ) => {
-    onDocumentUpload({
-      documentType,
-      personType,
-      personalDataId,
-      loanId: loan.id,
-      personName
-    });
-  };
+    if (!loan) return;
+
+    try {
+      // Llamar al callback original primero para crear el documento
+      await onDocumentUpload({
+        documentType,
+        personType,
+        personalDataId,
+        loanId: loan.id,
+        personName
+      });
+
+      // Refrescar el caché de Apollo para asegurar que tenemos los datos más recientes
+      await client.refetchQueries({
+        include: ['GetLoan'], // Asegúrate de que este es el nombre de tu query
+      });
+
+    } catch (error) {
+      console.error('Error al crear documento:', error);
+    }
+  }, [loan, onDocumentUpload, client]);
+
+  // Memoizar los documentos filtrados para evitar recálculos innecesarios
+  const borrowerDocuments = React.useMemo(() => {
+    if (!loan) return [];
+    return loan.documentPhotos.filter(doc => 
+      doc.personalData.id === loan.borrower.personalData.id
+    );
+  }, [loan]);
+
+  // Los documentos del aval son los que pertenecen a los collaterals
+  const collateralDocuments = React.useMemo(() => {
+    if (!loan) return [];
+    return loan.documentPhotos.filter(doc => 
+      loan.collaterals.some(collateral => collateral.id === doc.personalData.id)
+    );
+  }, [loan]);
+
+  if (!loan) return null;
 
   return (
     <AlertDialog
       isOpen={isOpen}
       title=""
-      tone="positive"
       actions={{
         confirm: {
           label: 'Cerrar',
@@ -244,7 +299,29 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
                   </Text>
                   <InlineEditField
                     value={loan.borrower.personalData.fullName}
-                    onSave={(newValue) => onNameEdit(loan.borrower.personalData.id, newValue)}
+                    onSave={async (newValue) => {
+                      try {
+                        const result = await updatePersonalDataName({
+                          variables: {
+                            where: { id: loan.borrower.personalData.id },
+                            data: { fullName: newValue.trim() }
+                          }
+                        });
+                        
+                        if (result.data?.updatePersonalData) {
+                          // Actualizar el caché de Apollo
+                          client.cache.modify({
+                            id: `PersonalData:${loan.borrower.personalData.id}`,
+                            fields: {
+                              fullName: () => newValue.trim()
+                            }
+                          });
+                        }
+                      } catch (error) {
+                        console.error('Error al actualizar nombre:', error);
+                        throw error;
+                      }
+                    }}
                     placeholder="Nombre del titular"
                   />
                 </Box>
@@ -255,7 +332,7 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
                   </Text>
                   <InlineEditField
                     value={loan.borrower.personalData.phones[0]?.number || ''}
-                    onSave={(newValue) => onPhoneEdit(
+                    onSave={async (newValue) => await onPhoneEdit(
                       loan.borrower.personalData.id,
                       loan.borrower.personalData.phones[0]?.id,
                       newValue
@@ -269,8 +346,13 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
               <Box
                 css={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-                  gap: '16px',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                  gap: '20px',
+                  alignItems: 'start',
+                  '@media (max-width: 1024px)': {
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                    gap: '16px'
+                  },
                   '@media (max-width: 768px)': {
                     gridTemplateColumns: 'repeat(2, 1fr)',
                     gap: '12px'
@@ -305,7 +387,18 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
                         isError={document?.isError || false}
                         errorDescription={document?.errorDescription || ''}
                         isMissing={document?.isMissing || false}
-                        onImageClick={() => document && window.open(document.photoUrl, '_blank')}
+                        onImageClick={() => {
+                          if (document?.photoUrl) {
+                            setSelectedImage({
+                              url: document.photoUrl,
+                              title: document.title || '',
+                              description: document.description || '',
+                              documentType: type,
+                              personType: 'TITULAR'
+                            });
+                            setShowImageModal(true);
+                          }
+                        }}
                         onUploadClick={() => handleUploadClick(
                           type,
                           'TITULAR',
@@ -320,10 +413,10 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
                             onDocumentMissing(document.id, isMissing);
                           } else if (isMissing) {
                             // Si no hay documento y queremos marcarlo como faltante, crear uno
-                            onCreateMissingDocument(type, loan.borrower.personalData.id, loan.id, loan.borrower.personalData.fullName);
+                            onCreateMissingDocument(type, loan.borrower.personalData.id, loan.id, loan.borrower.personalData.fullName, 'TITULAR');
                           }
                         }}
-                        onDelete={() => document && onDocumentDelete(document.id, document.title)}
+                        onDelete={() => document && onDocumentDelete(document.id, document.title, document.documentType as 'INE' | 'DOMICILIO' | 'PAGARE', loan.borrower.personalData.id)}
                         size="large"
                       />
                     </Box>
@@ -334,115 +427,195 @@ export const DocumentsModal: React.FC<DocumentsModalProps> = ({
           ) : (
             <Box>
               {/* Información del Aval */}
-              <Box
-                css={{
-                  padding: '16px',
-                  backgroundColor: '#f8fafc',
-                  borderRadius: '12px',
-                  border: '1px solid #e2e8f0',
-                  marginBottom: '20px'
-                }}
-              >
-                <Text weight="semibold" size="medium" marginBottom="small" color="neutral900">
-                  🤝 Aval
-                </Text>
-                
-                <Box marginBottom="small">
-                  <Text size="small" color="neutral700" marginBottom="xsmall">
-                    Nombre
+              {loan.collaterals.length > 0 ? (
+                <Box
+                  css={{
+                    padding: '16px',
+                    backgroundColor: '#f8fafc',
+                    borderRadius: '12px',
+                    border: '1px solid #e2e8f0',
+                    marginBottom: '20px'
+                  }}
+                >
+                  <Text weight="semibold" size="medium" marginBottom="small" color="neutral900">
+                    🤝 Aval
                   </Text>
-                  <InlineEditField
-                    value={loan.lead.personalData.fullName}
-                    onSave={(newValue) => onNameEdit(loan.lead.personalData.id, newValue)}
-                    placeholder="Nombre del aval"
-                  />
-                </Box>
+                  
+                  <Box marginBottom="small">
+                    <Text size="small" color="neutral700" marginBottom="xsmall">
+                      Nombre
+                    </Text>
+                    <InlineEditField
+                      value={loan.collaterals[0].fullName}
+                      onSave={async (newValue) => {
+                        try {
+                          const result = await updatePersonalDataName({
+                            variables: {
+                              where: { id: loan.collaterals[0].id },
+                              data: { fullName: newValue.trim() }
+                            }
+                          });
+                          
+                          if (result.data?.updatePersonalData) {
+                            // Actualizar el caché de Apollo
+                            client.cache.modify({
+                              id: `PersonalData:${loan.collaterals[0].id}`,
+                              fields: {
+                                fullName: () => newValue.trim()
+                              }
+                            });
+                          }
+                        } catch (error) {
+                          console.error('Error al actualizar nombre del aval:', error);
+                          throw error;
+                        }
+                      }}
+                      placeholder="Nombre del aval"
+                    />
+                  </Box>
 
-                <Box marginBottom="small">
-                  <Text size="small" color="neutral700" marginBottom="xsmall">
-                    Teléfono
-                  </Text>
-                  <InlineEditField
-                    value={loan.lead.personalData.phones[0]?.number || ''}
-                    onSave={(newValue) => onPhoneEdit(
-                      loan.lead.personalData.id,
-                      loan.lead.personalData.phones[0]?.id,
-                      newValue
-                    )}
-                    placeholder="Agregar teléfono"
-                  />
+                  <Box marginBottom="small">
+                    <Text size="small" color="neutral700" marginBottom="xsmall">
+                      Teléfono
+                    </Text>
+                    <InlineEditField
+                      value={loan.collaterals[0].phones[0]?.number || ''}
+                      onSave={async (newValue) => await onPhoneEdit(
+                        loan.collaterals[0].id,
+                        loan.collaterals[0].phones[0]?.id,
+                        newValue
+                      )}
+                      placeholder="Agregar teléfono"
+                    />
+                  </Box>
                 </Box>
-              </Box>
+              ) : (
+                <Box
+                  css={{
+                    padding: '16px',
+                    backgroundColor: '#fef3c7',
+                    borderRadius: '12px',
+                    border: '1px solid #f59e0b',
+                    marginBottom: '20px'
+                  }}
+                >
+                  <Text weight="semibold" size="medium" color="neutral900">
+                    🤝 Aval
+                  </Text>
+                  <Text size="small" color="neutral600">
+                    No hay aval asignado a este préstamo
+                  </Text>
+                </Box>
+              )}
 
               {/* Documentos del Aval */}
-              <Box
-                css={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-                  gap: '16px',
-                  '@media (max-width: 768px)': {
-                    gridTemplateColumns: 'repeat(2, 1fr)',
-                    gap: '12px'
-                  }
-                }}
-              >
-                {DOCUMENT_TYPES_AVAL.map((type) => {
-                  const document = getDocumentByTypeAndPerson(
-                    leadDocuments,
-                    type,
-                    loan.lead.personalData.id
-                  );
+              {loan.collaterals.length > 0 ? (
+                <Box
+                  css={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                    gap: '20px',
+                    alignItems: 'start',
+                    '@media (max-width: 1024px)': {
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                      gap: '16px'
+                    },
+                    '@media (max-width: 768px)': {
+                      gridTemplateColumns: 'repeat(2, 1fr)',
+                      gap: '12px'
+                    }
+                  }}
+                >
+                  {DOCUMENT_TYPES_AVAL.map((type) => {
+                    // Usar el primer collateral (aval principal)
+                    const primaryCollateral = loan.collaterals[0];
+                    const document = getDocumentByTypeAndPerson(
+                      collateralDocuments,
+                      type,
+                      primaryCollateral.id
+                    );
 
-                  return (
-                    <Box
-                      key={`aval-${type}`}
-                      css={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        gap: '8px'
-                      }}
-                    >
-                      <Text size="small" weight="semibold" color="neutral700">
-                        {getTypeLabel(type)}
-                      </Text>
-                      <DocumentThumbnail
-                        type={type}
-                        personType="AVAL"
-                        imageUrl={document?.photoUrl}
-                        publicId={document?.publicId}
-                        isError={document?.isError || false}
-                        errorDescription={document?.errorDescription || ''}
-                        isMissing={document?.isMissing || false}
-                        onImageClick={() => document && window.open(document.photoUrl, '_blank')}
-                        onUploadClick={() => handleUploadClick(
-                          type,
-                          'AVAL',
-                          loan.lead.personalData.id,
-                          loan.lead.personalData.fullName
-                        )}
-                        onMarkAsError={(isError, errorDescription) => 
-                          document && onDocumentError(document.id, isError, errorDescription)
-                        }
-                        onMarkAsMissing={(isMissing) => {
-                          if (document) {
-                            onDocumentMissing(document.id, isMissing);
-                          } else if (isMissing) {
-                            // Si no hay documento y queremos marcarlo como faltante, crear uno
-                            onCreateMissingDocument(type, loan.lead.personalData.id, loan.id, loan.lead.personalData.fullName);
-                          }
+                    return (
+                      <Box
+                        key={`aval-${type}`}
+                        css={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '8px'
                         }}
-                        onDelete={() => document && onDocumentDelete(document.id, document.title)}
-                        size="large"
-                      />
-                    </Box>
-                  );
-                })}
-              </Box>
+                      >
+                        <Text size="small" weight="semibold" color="neutral700">
+                          {getTypeLabel(type)}
+                        </Text>
+                        <DocumentThumbnail
+                          type={type}
+                          personType="AVAL"
+                          imageUrl={document?.photoUrl}
+                          publicId={document?.publicId}
+                          isError={document?.isError || false}
+                          errorDescription={document?.errorDescription || ''}
+                          isMissing={document?.isMissing || false}
+                          onImageClick={() => document && window.open(document.photoUrl, '_blank')}
+                          onUploadClick={() => handleUploadClick(
+                            type,
+                            'AVAL',
+                            primaryCollateral.id,
+                            primaryCollateral.fullName
+                          )}
+                          onMarkAsError={(isError, errorDescription) => 
+                            document && onDocumentError(document.id, isError, errorDescription)
+                          }
+                          onMarkAsMissing={(isMissing) => {
+                            if (document) {
+                              onDocumentMissing(document.id, isMissing);
+                            } else if (isMissing) {
+                              // Si no hay documento y queremos marcarlo como faltante, crear uno
+                              onCreateMissingDocument(type, primaryCollateral.id, loan.id, primaryCollateral.fullName, 'AVAL');
+                            }
+                          }}
+                          onDelete={() => document && onDocumentDelete(document.id, document.title, document.documentType as 'INE' | 'DOMICILIO' | 'PAGARE', primaryCollateral.id)}
+                          size="large"
+                        />
+                      </Box>
+                    );
+                  })}
+                </Box>
+              ) : (
+                <Box
+                  css={{
+                    padding: '20px',
+                    backgroundColor: '#fef3c7',
+                    borderRadius: '12px',
+                    border: '1px solid #f59e0b',
+                    textAlign: 'center'
+                  }}
+                >
+                  <Text size="small" color="neutral600">
+                    No se pueden mostrar documentos del aval porque no hay aval asignado
+                  </Text>
+                </Box>
+              )}
             </Box>
           )}
         </Box>
       </Box>
+
+      {/* Modal de imagen */}
+      {showImageModal && selectedImage && (
+        <ImageModal
+          isOpen={showImageModal}
+          onClose={() => {
+            setShowImageModal(false);
+            setSelectedImage(null);
+          }}
+          imageUrl={selectedImage.url}
+          title={selectedImage.title}
+          description={selectedImage.description}
+          documentType={selectedImage.documentType}
+          personType={selectedImage.personType}
+        />
+      )}
     </AlertDialog>
   );
 };

@@ -12,20 +12,17 @@ generator client {
 }
 
 model User {
-  id                     String             @id @default(cuid())
-  name                   String             @default("")
-  email                  String             @unique @default("")
-  password               String?
-  role                   String?            @default("NORMAL")
-  portfolioCleanups      PortfolioCleanup[] @relation("PortfolioCleanup_executedBy")
-  documentPhotos         DocumentPhoto[]    @relation("DocumentPhoto_uploadedBy")
-  reportConfigsCreated   ReportConfig[]     @relation("ReportConfig_createdBy")
-  reportConfigsUpdated   ReportConfig[]     @relation("ReportConfig_updatedBy")
-  reportConfigRecipients ReportConfig[]     @relation("ReportConfig_recipients")
-  telegramUsers          TelegramUser[]     @relation("TelegramUser_platformUser")
-  employee               Employee?          @relation("Employee_user")
-  createdAt              DateTime?          @default(now())
-  from_AuditLog_user     AuditLog[]         @relation("AuditLog_user")
+  id                 String             @id @default(cuid())
+  name               String             @default("")
+  email              String             @unique @default("")
+  password           String?
+  role               String?            @default("NORMAL")
+  portfolioCleanups  PortfolioCleanup[] @relation("PortfolioCleanup_executedBy")
+  documentPhotos     DocumentPhoto[]    @relation("DocumentPhoto_uploadedBy")
+  telegramUsers      TelegramUser[]     @relation("TelegramUser_platformUser")
+  employee           Employee?          @relation("Employee_user")
+  createdAt          DateTime?          @default(now())
+  from_AuditLog_user AuditLog[]         @relation("AuditLog_user")
 }
 
 model Employee {
@@ -425,38 +422,63 @@ model ReportConfig {
   id            String                     @id @default(cuid())
   name          String                     @default("")
   reportType    ReportConfigReportTypeType
-  schedule      Json?                      @default("{\"days\":[],\"hour\":\"09\",\"timezone\":\"America/Mexico_City\"}")
   routes        Route[]                    @relation("ReportConfig_routes")
-  recipients    User[]                     @relation("ReportConfig_recipients")
-  channel       ReportConfigChannelType
+  telegramUsers TelegramUser[]             @relation("ReportConfig_telegramUsers")
+  schedule      Json?                      @default("{\"days\":[],\"hour\":\"09\",\"timezone\":\"America/Mexico_City\"}")
   isActive      Boolean                    @default(true)
   createdAt     DateTime?                  @default(now())
   updatedAt     DateTime?
-  createdBy     User?                      @relation("ReportConfig_createdBy", fields: [createdById], references: [id])
-  createdById   String?                    @map("createdBy")
-  updatedBy     User?                      @relation("ReportConfig_updatedBy", fields: [updatedById], references: [id])
-  updatedById   String?                    @map("updatedBy")
   executionLogs ReportExecutionLog[]       @relation("ReportExecutionLog_reportConfig")
-
-  @@index([createdById])
-  @@index([updatedById])
 }
 
 model TelegramUser {
-  id                 String    @id @default(cuid())
-  chatId             String    @unique @default("")
-  name               String    @default("")
-  username           String    @default("")
-  isActive           Boolean   @default(true)
-  registeredAt       DateTime? @default(now())
-  lastActivity       DateTime? @default(now())
-  reportsReceived    Int?      @default(0)
-  isInRecipientsList Boolean   @default(false)
-  notes              String    @default("")
-  platformUser       User?     @relation("TelegramUser_platformUser", fields: [platformUserId], references: [id])
-  platformUserId     String?   @map("platformUser")
+  id                 String         @id @default(cuid())
+  chatId             String         @unique @default("")
+  name               String         @default("")
+  username           String         @default("")
+  isActive           Boolean        @default(true)
+  registeredAt       DateTime?      @default(now())
+  lastActivity       DateTime?      @default(now())
+  reportsReceived    Int?           @default(0)
+  isInRecipientsList Boolean        @default(false)
+  notes              String         @default("")
+  platformUser       User?          @relation("TelegramUser_platformUser", fields: [platformUserId], references: [id])
+  platformUserId     String?        @map("platformUser")
+  reportConfigs      ReportConfig[] @relation("ReportConfig_telegramUsers")
 
   @@index([platformUserId])
+}
+
+model DocumentNotificationLog {
+  id                   String    @id @default(cuid())
+  documentId           String    @default("")
+  documentType         String    @default("")
+  personalDataId       String    @default("")
+  personName           String    @default("")
+  loanId               String    @default("")
+  routeId              String    @default("")
+  routeName            String    @default("")
+  localityName         String    @default("")
+  routeLeadId          String    @default("")
+  routeLeadName        String    @default("")
+  routeLeadUserId      String    @default("")
+  telegramUserId       String    @default("")
+  telegramChatId       String    @default("")
+  telegramUsername     String    @default("")
+  issueType            String
+  description          String    @default("")
+  messageContent       String    @default("")
+  status               String
+  telegramResponse     String    @default("")
+  telegramErrorCode    Int?
+  telegramErrorMessage String    @default("")
+  sentAt               DateTime?
+  responseTimeMs       Int?
+  retryCount           Int?      @default(0)
+  lastRetryAt          DateTime?
+  notes                String    @default("")
+  createdAt            DateTime? @default(now())
+  updatedAt            DateTime? @default(now())
 }
 
 enum DocumentPhotoDocumentTypeType {
@@ -467,15 +489,7 @@ enum DocumentPhotoDocumentTypeType {
 }
 
 enum ReportConfigReportTypeType {
+  notificacion_tiempo_real
   creditos_con_errores
-  creditos_sin_documentos
-  creditos_completos
   resumen_semanal
-  reporte_financiero
-}
-
-enum ReportConfigChannelType {
-  telegram
-  email
-  whatsapp
 }

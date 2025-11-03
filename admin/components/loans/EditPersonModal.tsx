@@ -58,6 +58,19 @@ const UPDATE_PERSONAL_DATA_PHONE = gql`
   }
 `;
 
+const CREATE_PHONE = gql`
+  mutation CreatePhone($data: PhoneCreateInput!) {
+    createPhone(data: $data) {
+      id
+      number
+      personalData {
+        id
+        fullName
+      }
+    }
+  }
+`;
+
 
 const EditPersonModal: React.FC<EditPersonModalProps> = ({
   isOpen,
@@ -72,6 +85,7 @@ const EditPersonModal: React.FC<EditPersonModalProps> = ({
 
   const [updatePersonalDataName] = useMutation(UPDATE_PERSONAL_DATA_NAME);
   const [updatePersonalDataPhone] = useMutation(UPDATE_PERSONAL_DATA_PHONE);
+  const [createPhone] = useMutation(CREATE_PHONE);
 
   useEffect(() => {
     if (person) {
@@ -89,28 +103,60 @@ const EditPersonModal: React.FC<EditPersonModalProps> = ({
       const nameResult = await updatePersonalDataName({
         variables: {
           where: { id: person.id },
-          data: { fullName: fullName.trim() }
+          data: { fullName: fullName.trim().toUpperCase() }
         }
       });
 
-      // Actualizar teléfono si existe y tiene un ID válido (no temp-phone)
-      if (phone.trim() && person.phones?.[0]?.id && person.phones[0].id !== 'temp-phone') {
-        await updatePersonalDataPhone({
-          variables: {
-            where: { id: person.phones[0].id },
-            data: { number: phone.trim() }
+      let updatedPhones = person.phones || [];
+
+      // Manejar teléfono
+      if (phone.trim()) {
+        const existingPhone = person.phones?.[0];
+        
+        if (existingPhone?.id && existingPhone.id !== 'temp-phone') {
+          // Actualizar teléfono existente
+          await updatePersonalDataPhone({
+            variables: {
+              where: { id: existingPhone.id },
+              data: { number: phone.trim() }
+            }
+          });
+          
+          // Actualizar el array local
+          updatedPhones = updatedPhones.map((p, index) => 
+            index === 0 ? { ...p, number: phone.trim() } : p
+          );
+        } else {
+          // Crear nuevo teléfono
+          const phoneResult = await createPhone({
+            variables: {
+              data: {
+                number: phone.trim(),
+                personalData: {
+                  connect: {
+                    id: person.id
+                  }
+                }
+              }
+            }
+          });
+          
+          if (phoneResult.data?.createPhone) {
+            // Reemplazar el teléfono temporal con el real
+            updatedPhones = [phoneResult.data.createPhone];
           }
-        });
+        }
+      } else {
+        // Si no hay teléfono, mantener el array vacío
+        updatedPhones = [];
       }
 
       if (nameResult.data?.updatePersonalData) {
         // Crear objeto actualizado con los datos modificados
         const updatedPerson = {
           ...person,
-          fullName: fullName.trim(),
-          phones: person.phones?.map((p, index) => 
-            index === 0 ? { ...p, number: phone.trim() } : p
-          ) || []
+          fullName: fullName.trim().toUpperCase(),
+          phones: updatedPhones
         };
         
         onSave(updatedPerson);
@@ -166,7 +212,7 @@ const EditPersonModal: React.FC<EditPersonModalProps> = ({
           <TextInput
             label="Nombre completo"
             value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
+            onChange={(e) => setFullName(e.target.value.toUpperCase())}
             placeholder="Ingresa el nombre completo"
             autoFocus
           />

@@ -30,3 +30,64 @@ export const calculatePaymentProfitAmount = async (
         profitAmount: parseFloat(profitAmount.toFixed(2)),
     };
 };
+
+
+// ========== FUNCIONES DE CÁLCULO DE PROFIT Y RETURN TO CAPITAL ==========
+
+export interface ProfitCalculationParams {
+    paymentAmount: number;
+    requestedAmount: number;
+    interestRate: number;
+    badDebtDate?: Date | null;
+    paymentDate: Date;
+    profitPendingFromPreviousLoan?: number;
+}
+
+export interface ProfitCalculationResult {
+    profitAmount: number;
+    returnToCapital: number;
+}
+
+/**
+ * Calcula el profitAmount y returnToCapital para un pago de préstamo
+ * @param params Parámetros del cálculo
+ * @returns Objeto con profitAmount y returnToCapital calculados
+ */
+export const calculateProfitAndReturnToCapital = (params: ProfitCalculationParams): ProfitCalculationResult => {
+    const {
+        paymentAmount,
+        requestedAmount,
+        interestRate,
+        badDebtDate,
+        paymentDate,
+        profitPendingFromPreviousLoan = 0
+    } = params;
+
+    // Si hay fecha de mala deuda y el pago es después de esa fecha, todo va a profit
+    if (badDebtDate && paymentDate > badDebtDate) {
+        return {
+            profitAmount: paymentAmount,
+            returnToCapital: 0
+        };
+    }
+
+    // Calcular el profit base del préstamo actual
+    const baseProfit = Number(requestedAmount) * (interestRate || 0);
+    
+    // Profit total incluyendo el pendiente del préstamo anterior (para renovaciones)
+    const totalProfit = baseProfit + (profitPendingFromPreviousLoan || 0);
+    
+    // Monto total a pagar (capital + profit)
+    const totalAmountToPay = Number(requestedAmount) + baseProfit;
+    
+    // Calcular profitAmount proporcional al pago
+    const profitAmount = (paymentAmount * totalProfit) / totalAmountToPay;
+    
+    // El resto va a capital
+    const returnToCapital = paymentAmount - profitAmount;
+
+    return {
+        profitAmount: Math.max(0, profitAmount), // Asegurar que no sea negativo
+        returnToCapital: Math.max(0, returnToCapital) // Asegurar que no sea negativo
+    };
+};

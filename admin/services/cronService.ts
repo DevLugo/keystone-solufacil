@@ -10,7 +10,7 @@ interface ReportConfig {
     hour: string;
     timezone?: string;
   };
-  recipients: any[];
+  telegramUsers: any[];
 }
 
 // Interfaz para el contexto de la base de datos

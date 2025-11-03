@@ -211,6 +211,9 @@ interface TransactionItem {
 
 export const User = list({
   access: allowAll,
+  ui: {
+    isHidden: ({ session }: any) => session?.data?.role !== 'ADMIN',
+  },
   fields: {
     name: text({ defaultValue: '' }),
     email: text({ isIndexed: 'unique', defaultValue: '' }),
@@ -219,6 +222,7 @@ export const User = list({
       options: [
         { label: 'Administrador', value: 'ADMIN' },
         { label: 'Usuario Normal', value: 'NORMAL' },
+        { label: 'Capturista', value: 'CAPTURA' },
       ],
       defaultValue: 'NORMAL',
     }),
@@ -233,12 +237,6 @@ export const User = list({
         linkToItem: true
       }
     }),
-    // ✅ NUEVA FUNCIONALIDAD: Configuraciones de reportes creadas por el usuario
-    reportConfigsCreated: relationship({ ref: 'ReportConfig.createdBy', many: true }),
-    // ✅ NUEVA FUNCIONALIDAD: Configuraciones de reportes actualizadas por el usuario
-    reportConfigsUpdated: relationship({ ref: 'ReportConfig.updatedBy', many: true }),
-    // ✅ NUEVA FUNCIONALIDAD: Usuario como destinatario de reportes
-    reportConfigRecipients: relationship({ ref: 'ReportConfig.recipients', many: true }),
     // ✅ NUEVA FUNCIONALIDAD: Usuarios de Telegram vinculados
     telegramUsers: relationship({ ref: 'TelegramUser.platformUser', many: true }),
     employee: relationship({ ref: 'Employee.user' }),
@@ -372,7 +370,7 @@ export const ReportExecutionLog = list({
 
 export const Route = list({
   access: allowAll,
-  ui: { isHidden: true },
+  ui: { isHidden: false },
   fields: {
     name: text(),
     employees: relationship({ ref: 'Employee.routes', many: true }),
@@ -420,6 +418,9 @@ export const Municipality = list({
 
 export const Employee = list({
   access: allowAll,
+  ui: {
+    isHidden: ({ session }: any) => session?.data?.role !== 'ADMIN',
+  },
   fields: {
     oldId: text({ db: { isNullable: true }, isIndexed: 'unique' }),
     routes: relationship({
@@ -488,6 +489,9 @@ export const Employee = list({
 
 export const Loantype = list({
   access: allowAll,
+  ui: {
+    isHidden: ({ session }: any) => session?.data?.role !== 'ADMIN',
+  },
   db: {
     idField: { kind: 'cuid' }, // Usa db.idField para definir el campo id
   },
@@ -2376,13 +2380,111 @@ export const DocumentPhoto = list({
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),
   },
-  
+  hooks: {
+    beforeOperation: async ({ operation, item, context }) => {
+      // Eliminar imagen de Cloudinary antes de eliminar el registro de la base de datos
+      if (operation === 'delete' && item?.publicId) {
+        try {
+          console.log(`🗑️ [DocumentPhoto.beforeOperation] Eliminando imagen de Cloudinary: ${item.publicId}`);
+          
+          // Importar Cloudinary directamente
+          const cloudinary = require('cloudinary').v2;
+          
+          // Configurar Cloudinary si no está configurado
+          if (!cloudinary.config().cloud_name) {
+            cloudinary.config({
+              cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+              api_key: process.env.CLOUDINARY_API_KEY,
+              api_secret: process.env.CLOUDINARY_API_SECRET,
+            });
+          }
+          
+          // Eliminar de Cloudinary directamente
+          await new Promise((resolve, reject) => {
+            cloudinary.uploader.destroy(item.publicId, (error: any, result: any) => {
+              if (error) {
+                reject(error);
+              } else {
+                resolve(result);
+              }
+            });
+          });
+          
+          console.log(`✅ [DocumentPhoto.beforeOperation] Imagen eliminada exitosamente de Cloudinary: ${item.publicId}`);
+        } catch (error) {
+          console.error(`❌ [DocumentPhoto.beforeOperation] Error eliminando imagen de Cloudinary:`, error);
+          // No lanzar el error para no bloquear la eliminación del registro
+          // La imagen puede no existir en Cloudinary o haber otros problemas de conectividad
+        }
+      }
+    },
+    afterOperation: async (args) => {
+      try {
+        const { operation, item, context } = args as any;
+        console.log('📨 [DocumentPhoto.afterOperation] llamada', {
+          operation,
+          id: item?.id,
+          isError: item?.isError,
+          isMissing: item?.isMissing,
+          errorDescription: item?.errorDescription
+        });
+        
+        if (!(operation === 'create' || operation === 'update')) return;
+
+        // Solo notificar si el documento está en error o marcado como faltante
+        const isErrored = !!item?.isError;
+        const isMissing = !!item?.isMissing;
+        
+        console.log('🔍 [DocumentPhoto.afterOperation] verificando condiciones', {
+          isErrored,
+          isMissing,
+          willNotify: isErrored || isMissing
+        });
+        
+        if (!isErrored && !isMissing) {
+          console.log('ℹ️ [DocumentPhoto.afterOperation] sin cambios relevantes (no error/faltante).');
+          return;
+        }
+
+        // Usar el nuevo servicio de notificaciones
+        const { sendDocumentIssueNotification } = require('./admin/services/documentNotificationService');
+        
+        try {
+          const issueType = isErrored ? 'ERROR' : 'MISSING';
+          const description = isErrored ? item?.errorDescription : undefined;
+          
+          console.log('📤 [DocumentPhoto.afterOperation] enviando notificación usando nuevo servicio', {
+            documentId: item.id,
+            issueType,
+            description
+          });
+          
+          const result = await sendDocumentIssueNotification.resolve(
+            null,
+            { 
+              documentId: item.id, 
+              issueType, 
+              description 
+            },
+            context
+          );
+          
+          console.log('✅ [DocumentPhoto.afterOperation] resultado del servicio:', result);
+        } catch (error) {
+          console.error('❌ [DocumentPhoto.afterOperation] Error en servicio de notificaciones:', error);
+        }
+      } catch (error) {
+        console.error('❌ [DocumentPhoto.afterOperation] Error general:', error);
+      }
+    }
+
+  },
 });
 
 // Modelo para configuraciones de reportes automáticos
 export const ReportConfig = list({
   access: allowAll,
-  ui: { isHidden: true },
+  ui: { isHidden: false },
   graphql: {
     plural: 'ReportConfigs',
   },
@@ -2391,13 +2493,19 @@ export const ReportConfig = list({
     reportType: select({
       type: 'enum',
       options: [
-        { label: 'Créditos con Documentos con Error', value: 'creditos_con_errores' },
-        { label: 'Créditos Sin Documentos', value: 'creditos_sin_documentos' },
-        { label: 'Créditos Completos', value: 'creditos_completos' },
-        { label: 'Resumen Semanal de Cartera', value: 'resumen_semanal' },
-        { label: 'Reporte Financiero', value: 'reporte_financiero' }
+        { label: 'Notificación en Tiempo Real de Documentos con Error', value: 'notificacion_tiempo_real' },
+        { label: 'Reporte PDF de Créditos con Documentos con Error', value: 'creditos_con_errores' },
+        { label: 'Reporte PDF resumen semanal', value: 'resumen_semanal' }
       ],
       validation: { isRequired: true }
+    }),
+    routes: relationship({ 
+      ref: 'Route.reportConfigs',
+      many: true
+    }),
+    telegramUsers: relationship({ 
+      ref: 'TelegramUser.reportConfigs',
+      many: true
     }),
     schedule: json({
       defaultValue: {
@@ -2406,29 +2514,9 @@ export const ReportConfig = list({
         timezone: 'America/Mexico_City'
       }
     }),
-    routes: relationship({ 
-      ref: 'Route.reportConfigs',
-      many: true
-    }),
-    recipients: relationship({ 
-      ref: 'User.reportConfigRecipients',
-      many: true
-    }),
-
-    channel: select({
-      type: 'enum',
-      options: [
-        { label: 'Telegram', value: 'telegram' },
-        { label: 'Email', value: 'email' },
-        { label: 'WhatsApp', value: 'whatsapp' }
-      ],
-      validation: { isRequired: true }
-    }),
     isActive: checkbox({ defaultValue: true }),
     createdAt: timestamp({ defaultValue: { kind: 'now' } }),
     updatedAt: timestamp(),
-    createdBy: relationship({ ref: 'User.reportConfigsCreated' }),
-    updatedBy: relationship({ ref: 'User.reportConfigsUpdated' }),
     
     // Logs de ejecución de este reporte
     executionLogs: relationship({ 
@@ -2463,9 +2551,178 @@ export const TelegramUser = list({
       ref: 'User.telegramUsers',
       many: false
     }),
-
+    reportConfigs: relationship({
+      ref: 'ReportConfig.telegramUsers',
+      many: true
+    }),
   },
   
+});
+
+// Modelo para configuración de notificaciones de documentos
+// Modelo para configuración de notificaciones
+export const NotificationConfig = list({
+  access: allowAll,
+  ui: { isHidden: false },
+  graphql: {
+    plural: 'NotificationConfigs',
+  },
+  fields: {
+    name: text({ validation: { isRequired: true } }),
+    isActive: checkbox({ defaultValue: true }),
+    sendErrorNotifications: checkbox({ defaultValue: true }),
+    sendMissingNotifications: checkbox({ defaultValue: true }),
+    errorNotificationMessage: text({
+      defaultValue: '🚨 <b>DOCUMENTO CON ERROR</b>\n\n📋 Tipo: {documentType}\n👤 Persona: {personName} ({personType})\n🏠 Localidad: {localityName}\n🛣️ Ruta: {routeName}\n👨‍💼 Líder: {routeLeadName}\n\n❌ <b>Descripción del Error:</b>\n{errorDescription}\n\n📅 Fecha: {date}\n\n🔗 <a href="{documentUrl}">Ver Documento</a>'
+    }),
+    missingNotificationMessage: text({
+      defaultValue: '📋 <b>DOCUMENTO FALTANTE</b>\n\n👤 Persona: {personName} ({personType})\n🏠 Localidad: {localityName}\n🛣️ Ruta: {routeName}\n👨‍💼 Líder: {routeLeadName}\n\n📅 Fecha: {date}\n\n🔗 <a href="{loanUrl}">Ver Préstamo</a>'
+    }),
+    createdAt: timestamp({ defaultValue: { kind: 'now' } }),
+    updatedAt: timestamp(),
+  },
+});
+
+// ✅ NUEVA TABLA: Logs de notificaciones de documentos
+export const DocumentNotificationLog = list({
+  access: {
+    operation: {
+      query: () => true,
+      create: () => true,
+      update: () => true,
+      delete: () => true,
+    },
+  },
+  fields: {
+    // Información del documento
+    documentId: text({ 
+      validation: { isRequired: true },
+      label: 'ID del Documento'
+    }),
+    documentType: text({ 
+      label: 'Tipo de Documento'
+    }),
+    personalDataId: text({ 
+      label: 'ID de Datos Personales'
+    }),
+    personName: text({ 
+      label: 'Nombre de la Persona'
+    }),
+    
+    // Información del préstamo y ruta
+    loanId: text({ 
+      label: 'ID del Préstamo'
+    }),
+    routeId: text({ 
+      label: 'ID de la Ruta'
+    }),
+    routeName: text({ 
+      label: 'Nombre de la Ruta'
+    }),
+    localityName: text({ 
+      label: 'Nombre de la Localidad'
+    }),
+    
+    // Información del líder de ruta
+    routeLeadId: text({ 
+      label: 'ID del Líder de Ruta'
+    }),
+    routeLeadName: text({ 
+      label: 'Nombre del Líder de Ruta'
+    }),
+    routeLeadUserId: text({ 
+      label: 'ID del Usuario del Líder'
+    }),
+    
+    // Información de Telegram
+    telegramUserId: text({ 
+      label: 'ID del Usuario de Telegram'
+    }),
+    telegramChatId: text({ 
+      label: 'Chat ID de Telegram'
+    }),
+    telegramUsername: text({ 
+      label: 'Username de Telegram'
+    }),
+    
+    // Detalles de la notificación
+    issueType: select({
+      options: [
+        { label: 'Error', value: 'ERROR' },
+        { label: 'Faltante', value: 'MISSING' },
+        { label: 'Reporte Automático', value: 'REPORT' }
+      ],
+      validation: { isRequired: true },
+      label: 'Tipo de Problema'
+    }),
+    description: text({ 
+      label: 'Descripción del Problema'
+    }),
+    messageContent: text({ 
+      label: 'Contenido del Mensaje Enviado'
+    }),
+    
+    // Estado del envío
+    status: select({
+      options: [
+        { label: 'Enviado', value: 'SENT' },
+        { label: 'Error', value: 'ERROR' },
+        { label: 'Falló', value: 'FAILED' },
+        { label: 'Sin Telegram', value: 'NO_TELEGRAM' },
+        { label: 'Sin Líder', value: 'NO_LEADER' },
+        { label: 'Sin Ruta', value: 'NO_ROUTE' }
+      ],
+      validation: { isRequired: true },
+      label: 'Estado del Envío'
+    }),
+    
+    // Respuesta de Telegram
+    telegramResponse: text({ 
+      label: 'Respuesta de Telegram'
+    }),
+    telegramErrorCode: integer({ 
+      label: 'Código de Error de Telegram'
+    }),
+    telegramErrorMessage: text({ 
+      label: 'Mensaje de Error de Telegram'
+    }),
+    
+    // Información de timing
+    sentAt: timestamp({ 
+      label: 'Fecha de Envío'
+    }),
+    responseTimeMs: integer({ 
+      label: 'Tiempo de Respuesta (ms)'
+    }),
+    
+    // Información adicional
+    retryCount: integer({ 
+      defaultValue: 0,
+      label: 'Número de Reintentos'
+    }),
+    lastRetryAt: timestamp({ 
+      label: 'Último Reintento'
+    }),
+    notes: text({ 
+      label: 'Notas Adicionales'
+    }),
+    
+    // Metadatos
+    createdAt: timestamp({ 
+      defaultValue: { kind: 'now' },
+      label: 'Fecha de Creación'
+    }),
+    updatedAt: timestamp({ 
+      defaultValue: { kind: 'now' },
+      label: 'Fecha de Actualización'
+    })
+  },
+  ui: {
+    listView: {
+      initialColumns: ['documentId', 'personName', 'issueType', 'status', 'sentAt'],
+      initialSort: { field: 'createdAt', direction: 'DESC' }
+    }
+  }
 });
 
 export const lists = {
@@ -2497,4 +2754,5 @@ export const lists = {
   DocumentPhoto,
   ReportConfig,
   TelegramUser,
+  DocumentNotificationLog,
 };

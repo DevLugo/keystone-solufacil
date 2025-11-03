@@ -9,6 +9,11 @@ import {
   deadDebtSummary, 
   deadDebtMonthlySummary 
 } from './badDebtResolvers';
+import { getFinancialReport } from './resolvers/financialReportResolvers';
+import { calculatePaymentProfitAmount, calculateProfitAndReturnToCapital } from '../utils/loanPayment';
+import { promoteToLeadResolver, createNewLeaderResolver } from './resolvers/leaderResolvers';
+import { getBankIncomeTransactionsResolver } from './resolvers/bankIncomeResolvers';
+import { sendDocumentIssueNotification } from '../admin/services/documentNotificationService';
 
 // Import fetch for Telegram API calls
 const fetch = require('node-fetch');
@@ -270,6 +275,8 @@ const LeaderBirthdayType = graphql.object<any>()({
 export const extendGraphqlSchema = graphql.extend(base => {
   return {
     mutation: {
+      // Enviar notificación de documento con problema por Telegram al líder de ruta
+      sendDocumentIssueNotification,
       moveLoansToDate: graphql.field({
         type: graphql.nonNull(graphql.JSON),
         args: {
@@ -753,6 +760,9 @@ export const extendGraphqlSchema = graphql.extend(base => {
             
             cashPaidAmount = cashPaidAmount ?? 0;
             bankPaidAmount = bankPaidAmount ?? 0;
+
+            // ✅ Si no hay pagos, permitir registro de transferencia (bankPaidAmount) sin forzar a 0
+            // Esto permite crear solo la transferencia de efectivo->banco cuando se requiera
             const totalPaidAmount = cashPaidAmount + bankPaidAmount;
             // ✅ ELIMINADO: Lógica de Falco - ahora se maneja por separado
             let paymentStatus = 'COMPLETE';
@@ -905,13 +915,20 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     rate: safeToNumber(loan.loantype.rate)
                   };
 
-                  const paymentCalculation = await calculatePaymentProfitAmount(
+                  const requestedAmount = safeToNumber(loan.requestedAmount);
+                  const interestRate = safeToNumber(loan.loantype.rate);
+                  const currentProfit = safeToNumber(loan.profitAmount);
+                  const baseProfit = requestedAmount * interestRate;
+                  const profitPendingFromPreviousLoan = Math.max(0, currentProfit - baseProfit);
+
+                  const paymentCalculation = calculateProfitAndReturnToCapital({
                     paymentAmount,
-                    loanData.profitAmount,
-                    loanData.amountGived + loanData.profitAmount,
-                    loanData.amountGived,
-                    0 // loanPayedAmount - asumimos 0 para el primer pago
-                  );
+                    requestedAmount,
+                    interestRate,
+                    badDebtDate: loan.badDebtDate,
+                    paymentDate: new Date(paymentDate),
+                    profitPendingFromPreviousLoan
+                  });
 
                   returnToCapital = paymentCalculation.returnToCapital;
                   profitAmount = paymentCalculation.profitAmount;
@@ -919,7 +936,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
                 
                 // Preparar datos de transacción para el PAGO (INCOME)
-                transactionData.push({
+                const incomeTransactionData: any = {
                   amount: paymentAmount.toFixed(2),
                   date: new Date(paymentDate),
                   type: 'INCOME',
@@ -931,22 +948,19 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   snapshotRouteId: agent?.routes?.id,
                   returnToCapital: returnToCapital.toFixed(2),
                   profitAmount: profitAmount.toFixed(2),
-                });
+                };
+
+                // ✅ CORREGIDO: Agregar destinationAccount para pagos en efectivo
+                if (payment.paymentMethod === 'CASH') {
+                  incomeTransactionData.destinationAccountId = cashAccount.id;
+                } else if (payment.paymentMethod === 'MONEY_TRANSFER') {
+                  incomeTransactionData.destinationAccountId = bankAccount.id;
+                }
+
+                transactionData.push(incomeTransactionData);
 
                 // Preparar datos de transacción para la COMISIÓN (EXPENSE)
                 if (comissionAmount > 0) {
-                  console.log('🔍 DEBUG - Creando transacción de comisión:', {
-                    amount: comissionAmount.toFixed(2),
-                    date: new Date(paymentDate),
-                    type: 'EXPENSE',
-                    expenseSource: 'LOAN_PAYMENT_COMISSION',
-                    sourceAccountId: cashAccount.id,
-                    loanPaymentId: payment.id,
-                    loanId: payment.loanId,
-                    leadId: leadId,
-                    description: `Comisión por pago de préstamo - ${payment.id}`,
-                  });
-                  
                   transactionData.push({
                     amount: comissionAmount.toFixed(2),
                     date: new Date(paymentDate),
@@ -1147,10 +1161,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   }
                 });
 
-                // ✅ NOTA: No es necesario actualizar el balance bancario aquí porque
-                // ya se actualizó arriba en las líneas 1035-1052 con netBankChange
-                // que incluye el bankPaidAmount. Actualizarlo aquí causaría doble contabilización.
-
                 console.log('✅ Transferencia automática creada exitosamente');
               }
 
@@ -1159,6 +1169,31 @@ export const extendGraphqlSchema = graphql.extend(base => {
             }
 
             // ✅ ELIMINADO: Lógica de transacciones de falco - ahora se maneja por separado
+
+            // 🆕 Si NO hubo pagos pero SÍ hubo bankPaidAmount, crear SOLO transacción de TRANSFERENCIA
+            if ((!payments || payments.length === 0) && bankPaidAmount > 0) {
+              console.log('🔄 Creando transferencia automática (solo transferencia, sin pagos):', {
+                amount: bankPaidAmount,
+                from: 'EMPLOYEE_CASH_FUND',
+                to: 'BANK'
+              });
+
+              await tx.transaction.create({
+                data: {
+                  amount: bankPaidAmount.toFixed(2),
+                  date: new Date(paymentDate),
+                  type: 'TRANSFER',
+                  sourceAccountId: cashAccount.id,
+                  destinationAccountId: bankAccount.id,
+                  leadId: leadId,
+                  leadPaymentReceivedId: leadPaymentReceived.id,
+                  routeId: agent?.routes?.id,
+                  snapshotRouteId: agent?.routes?.id,
+                  description: `Transferencia automática por pago mixto - Líder: ${agentId}`,
+                }
+              });
+              console.log('✅ Transferencia creada (sin pagos)');
+            }
 
             return {
               id: leadPaymentReceived.id,
@@ -1226,9 +1261,50 @@ export const extendGraphqlSchema = graphql.extend(base => {
           payments: graphql.arg({ type: graphql.nonNull(graphql.list(graphql.nonNull(PaymentInputType))) }),
         },
         resolve: async (root, { id, expectedAmount, cashPaidAmount = 0, bankPaidAmount = 0, paymentDate, payments }, context: Context): Promise<LeadPaymentReceivedResponse> => {
+          // Función auxiliar para reintentos con backoff exponencial
+          const retryWithBackoff = async <T>(
+            operation: () => Promise<T>,
+            maxRetries: number = 3,
+            baseDelay: number = 1000
+          ): Promise<T> => {
+            let lastError: Error;
+            
+            for (let attempt = 0; attempt <= maxRetries; attempt++) {
+              try {
+                return await operation();
+              } catch (error) {
+                lastError = error as Error;
+                
+                // No reintentar si es un error de validación o lógica
+                if (error instanceof Error && (
+                  error.message.includes('no encontrado') ||
+                  error.message.includes('no se encontraron') ||
+                  error.message.includes('validation')
+                )) {
+                  throw error;
+                }
+                
+                if (attempt === maxRetries) {
+                  throw lastError;
+                }
+                
+                const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 1000;
+                console.log(`⚠️ Reintentando operación (intento ${attempt + 1}/${maxRetries + 1}) en ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+              }
+            }
+            
+            throw lastError!;
+          };
+
           try {
-            // Usar transacción para garantizar atomicidad y optimizar performance
-            return await context.prisma.$transaction(async (tx) => {
+            // Calcular timeout dinámico basado en la cantidad de pagos
+            const dynamicTimeout = Math.max(120000, payments.length * 2000); // Mínimo 2 min, +2s por pago
+            
+            console.log(`🔄 Iniciando updateCustomLeadPaymentReceived para ${payments.length} pagos (timeout: ${dynamicTimeout}ms)`);
+            
+            return await retryWithBackoff(async () => {
+              return await context.prisma.$transaction(async (tx) => {
             cashPaidAmount = cashPaidAmount ?? 0;
             bankPaidAmount = bankPaidAmount ?? 0;
             const totalPaidAmount = cashPaidAmount + bankPaidAmount;
@@ -1239,6 +1315,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
             }
 
             // Obtener el LeadPaymentReceived existente con pagos y transacciones relacionadas
+            console.log(`🔍 [DEBUG] Obteniendo LeadPaymentReceived existente: ${id}`);
             const existingPayment = await tx.leadPaymentReceived.findUnique({
               where: { id },
               include: {
@@ -1253,42 +1330,137 @@ export const extendGraphqlSchema = graphql.extend(base => {
             if (!existingPayment) {
               throw new Error('Pago no encontrado');
             }
+
+          // ✅ EARLY EXIT: Si no hay cambios, no tocar balances ni transacciones (pero garantizar TRANSFER de auditoría)
+          {
+            const round2 = (n: any) => parseFloat(parseFloat((n ?? 0).toString()).toFixed(2));
+            const sameBank = round2(existingPayment.bankPaidAmount) === round2(bankPaidAmount);
+            const sameExpected = round2(existingPayment.expectedAmount) === round2(expectedAmount);
+            // Normalizar pagos entrantes
+            const incoming = (payments || []).map(p => ({
+              loanId: p.loanId,
+              amount: round2(p.amount),
+              comission: round2(p.comission),
+              paymentMethod: p.paymentMethod
+            }));
+            // Normalizar pagos existentes (del registro principal)
+            const existing = (existingPayment.payments || []).map((p: any) => ({
+              loanId: p.loanId,
+              amount: round2(p.amount),
+              comission: round2(p.comission),
+              paymentMethod: p.paymentMethod
+            }));
+            const keyOf = (p: any) => `${p.loanId}|${p.amount}|${p.comission}|${p.paymentMethod}`;
+            const setA = new Set(incoming.map(keyOf));
+            const setB = new Set(existing.map(keyOf));
+            const samePayments = setA.size === setB.size && [...setA].every(k => setB.has(k));
+            if (sameBank && sameExpected && samePayments) {
+              // 🔎 Garantizar que exista transferencia automática si bankPaidAmount > 0
+              try {
+                const existingTransfers = await context.prisma.transaction.findMany({
+                  where: {
+                    leadPaymentReceivedId: id,
+                    type: 'TRANSFER',
+                    description: { contains: 'Transferencia automática por pago mixto' }
+                  }
+                });
+                if ((bankPaidAmount ?? 0) > 0 && existingTransfers.length === 0) {
+                  // Buscar cuentas del agente para registrar la transferencia
+                  const agentForEarly = await context.prisma.employee.findUnique({
+                    where: { id: existingPayment.agentId || '' },
+                    include: { routes: { include: { accounts: true } } }
+                  });
+                  const cashAccEarly = agentForEarly?.routes?.accounts?.find((a: any) => a.type === 'EMPLOYEE_CASH_FUND');
+                  const bankAccEarly = agentForEarly?.routes?.accounts?.find((a: any) => a.type === 'BANK');
+                  if (cashAccEarly && bankAccEarly) {
+                    await context.prisma.transaction.create({
+                      data: {
+                        amount: round2(bankPaidAmount).toFixed(2),
+                        date: new Date(paymentDate),
+                        type: 'TRANSFER',
+                        sourceAccountId: cashAccEarly.id,
+                        destinationAccountId: bankAccEarly.id,
+                        leadId: existingPayment.leadId || '',
+                        leadPaymentReceivedId: id,
+                        routeId: agentForEarly?.routes?.id,
+                        snapshotRouteId: agentForEarly?.routes?.id,
+                        description: `Transferencia automática por pago mixto (early-exit) - Líder: ${existingPayment.agentId}`,
+                      }
+                    });
+                    console.log('✅ [EARLY EXIT] Transferencia automática creada para auditoría');
+                  }
+                }
+              } catch (txErr) {
+                console.warn('⚠️ [EARLY EXIT] No se pudo garantizar la transferencia automática:', txErr);
+              }
+              const totalPaidAmount = round2((existingPayment.cashPaidAmount || 0)) + round2((existingPayment.bankPaidAmount || 0));
+              const paymentStatus = totalPaidAmount < round2(expectedAmount) ? 'PARTIAL' : 'COMPLETE';
+              return {
+                id: existingPayment.id,
+                expectedAmount: round2(existingPayment.expectedAmount),
+                paidAmount: round2(existingPayment.paidAmount),
+                cashPaidAmount: round2(existingPayment.cashPaidAmount),
+                bankPaidAmount: round2(existingPayment.bankPaidAmount),
+                falcoAmount: 0,
+                paymentStatus,
+                payments: existing.map((p, index) => ({
+                  id: existingPayment.payments[index]?.id || `temp-${index}`,
+                  amount: p.amount,
+                  comission: p.comission,
+                  loanId: p.loanId,
+                  type: existingPayment.payments[index]?.type || 'PAYMENT',
+                  paymentMethod: p.paymentMethod,
+                })),
+                paymentDate,
+                agentId: existingPayment.agentId || '',
+                leadId: existingPayment.leadId || '',
+              } as any;
+            }
+          }
+
+
+            // ✅ NUEVO: Buscar TODOS los LeadPaymentReceived del mismo día y lead
+            const paymentDateObj = new Date(paymentDate);
+            const startOfDay = new Date(paymentDateObj);
+            startOfDay.setHours(0, 0, 0, 0);
+            const endOfDay = new Date(paymentDateObj);
+            endOfDay.setHours(23, 59, 59, 999);
+            
+            const allLeadPaymentsOfDay = await tx.leadPaymentReceived.findMany({
+              where: {
+                leadId: existingPayment.leadId,
+                createdAt: {
+                  gte: startOfDay,
+                  lte: endOfDay
+                }
+              },
+              include: {
+                payments: {
+                  include: {
+                    transactions: true
+                  }
+                }
+              }
+            });
+            
+            // ✅ COMBINAR: Todos los pagos de todos los LeadPaymentReceived del día
+            const allPaymentsOfDay = allLeadPaymentsOfDay.flatMap(lp => lp.payments);
             
             // ✅ BANDERA: Desactivar hooks de LoanPayment para evitar doble contabilidad
             (context as any).skipLoanPaymentHooks = true;
 
-            // 🆕 LOGS DETALLADOS PARA DEBUGGING
-            console.log('🔍 UPDATE: LeadPaymentReceived encontrado:', {
-              id: existingPayment.id,
-              expectedAmount: existingPayment.expectedAmount,
-              paidAmount: existingPayment.paidAmount,
-              paymentsCount: existingPayment.payments.length,
-              payments: existingPayment.payments.map(p => ({
-                id: p.id,
-                amount: p.amount,
-                comission: p.comission,
-                transactionsCount: p.transactions.length,
-                transactionDetails: p.transactions.map(t => ({
-                  id: t.id,
-                  type: t.type,
-                  amount: t.amount,
-                  expenseSource: t.expenseSource,
-                  incomeSource: t.incomeSource
-                }))
-              }))
-            });
             
             // ✅ VERIFICAR: También buscar transacciones relacionadas directamente con LeadPaymentReceived
+            console.log(`🔍 [DEBUG] Buscando transacciones directas para LeadPaymentReceived: ${id}`);
             const directTransactions = await tx.transaction.findMany({
               where: { leadPaymentReceivedId: id }
             });
-            console.log('🔍 UPDATE: Transacciones directamente relacionadas con LeadPaymentReceived:', directTransactions.map(t => ({
-              id: t.id,
-              type: t.type,
-              amount: t.amount,
-              expenseSource: t.expenseSource,
-              incomeSource: t.incomeSource,
-              loanPaymentId: t.loanPaymentId
+            console.log(`🔍 [DEBUG] Encontradas ${directTransactions.length} transacciones directas`);
+            console.log(`🔍 [DEBUG] Transacciones directas:`, directTransactions.map(t => ({ 
+              id: t.id, 
+              type: t.type, 
+              amount: t.amount, 
+              source: t.incomeSource || t.expenseSource 
             })));
 
             const agentId = existingPayment.agentId || '';
@@ -1328,89 +1500,449 @@ export const extendGraphqlSchema = graphql.extend(base => {
               throw new Error('Cuentas del agente no encontradas en su ruta');
             }
 
-            // ✅ NUEVA LÓGICA: Usar exactamente el mismo approach que createCustomLeadPaymentReceived
-            // Eliminar toda la lógica manual compleja de comisiones, usar la lógica probada de create
+            // ✅ MODO RECONSTRUCCIÓN SIMPLE: eliminar y recrear todo para este LeadPaymentReceived
+            {
+              console.log('♻️ [REBUILD] Reconstruyendo completamente pagos y transacciones para LeadPaymentReceived:', id);
 
-            // 🆕 LÓGICA CORREGIDA: Eliminar pagos existentes SIEMPRE que existan
-            // Esto se ejecuta independientemente de si se van a crear nuevos pagos
-            if (existingPayment.payments.length > 0) {
-              console.log('🗑️ UPDATE: Eliminando pagos existentes:', existingPayment.payments.length);
-              console.log('🗑️ UPDATE: IDs de pagos a eliminar:', existingPayment.payments.map(p => p.id));
-              
-              // ✅ CORREGIDO: Obtener TODAS las transacciones relacionadas (por payments + directas)
-              const paymentTransactionIds = existingPayment.payments
-                .flatMap((payment: any) => payment.transactions.map((t: any) => t.id));
-              const allTransactionIds = [...paymentTransactionIds, ...directTransactions.map(t => t.id)];
-              const transactionIds = [...new Set(allTransactionIds)]; // Eliminar duplicados
-              
-              console.log('🗑️ UPDATE: Transacciones a eliminar:', transactionIds.length);
-              console.log('🗑️ UPDATE: IDs de transacciones:', transactionIds);
-              
-              // ✅ DEBUG: Obtener detalles de las transacciones antes de eliminarlas
-              const transactionsToDelete = await tx.transaction.findMany({
-                where: { id: { in: transactionIds } }
-              });
-              console.log('🗑️ UPDATE: Detalles de transacciones a eliminar:', transactionsToDelete.map(t => ({
-                id: t.id,
-                type: t.type,
-                amount: t.amount,
-                expenseSource: t.expenseSource,
-                incomeSource: t.incomeSource,
-                description: `${t.type} de $${t.amount} - ${t.expenseSource || t.incomeSource}`
-              })));
-              
-              // ✅ VERIFICACIÓN ESPECÍFICA: Contar transacciones de pago vs comisión
-              const incomeTransactions = transactionsToDelete.filter(t => t.type === 'INCOME');
-              const commissionTransactions = transactionsToDelete.filter(t => t.type === 'EXPENSE' && t.expenseSource === 'LOAN_PAYMENT_COMISSION');
-              
-              console.log('📊 VERIFICACIÓN: Tipos de transacciones a eliminar:', {
-                totalTransactions: transactionsToDelete.length,
-                incomeCount: incomeTransactions.length,
-                incomeTotal: incomeTransactions.reduce((sum, t) => sum + parseFloat(t.amount?.toString() || '0'), 0),
-                commissionCount: commissionTransactions.length,
-                commissionTotal: commissionTransactions.reduce((sum, t) => sum + parseFloat(t.amount?.toString() || '0'), 0)
-              });
-              
-              // Eliminar transacciones existentes en lote
-              if (transactionIds.length > 0) {
-                const deleteResult = await tx.transaction.deleteMany({
-                  where: { id: { in: transactionIds } }
-                });
-                console.log('✅ UPDATE: Transacciones eliminadas:', deleteResult.count);
-                
-                // ✅ VERIFICACIÓN: Confirmar que las transacciones se eliminaron
-                const remainingTransactions = await tx.transaction.findMany({
-                  where: { id: { in: transactionIds } }
-                });
-                console.log('🔍 VERIFICACIÓN: Transacciones restantes después de eliminación:', remainingTransactions.length);
-                
-                if (remainingTransactions.length > 0) {
-                  console.error('❌ ERROR: Algunas transacciones no se eliminaron:', remainingTransactions.map(t => ({
-                    id: t.id,
-                    type: t.type,
-                    amount: t.amount
-                  })));
-                } else {
-                  console.log('✅ CONFIRMADO: Todas las transacciones se eliminaron correctamente');
+              // 0) Consolidar: eliminar otros LeadPaymentReceived del MISMO DÍA para este líder
+              if (allLeadPaymentsOfDay.length > 1) {
+                console.log(`♻️ [REBUILD] Consolidando ${allLeadPaymentsOfDay.length - 1} LeadPaymentReceived adicionales del día`);
+                const additionalLeadPayments = allLeadPaymentsOfDay.filter(lp => lp.id !== id);
+                for (const additionalLp of additionalLeadPayments) {
+                  await tx.transaction.deleteMany({ where: { leadPaymentReceivedId: additionalLp.id } });
+                  await tx.loanPayment.deleteMany({ where: { leadPaymentReceivedId: additionalLp.id } });
+                  await tx.leadPaymentReceived.delete({ where: { id: additionalLp.id } });
                 }
               }
 
-              // Eliminar pagos existentes en lote
-              console.log('🗑️ UPDATE: Ejecutando deleteMany para LoanPayments...');
-              const deletePaymentsResult = await tx.loanPayment.deleteMany({
+              // 1) Calcular efecto neto anterior para ajustar balances
+              const existingAllTransactions = await tx.transaction.findMany({
                 where: { leadPaymentReceivedId: id }
               });
 
-              console.log('✅ UPDATE: Pagos existentes eliminados:', deletePaymentsResult.count);
-              
-              // 🆕 VERIFICACIÓN: Confirmar que los pagos se eliminaron
-              const remainingPayments = await tx.loanPayment.findMany({
-                where: { leadPaymentReceivedId: id }
+              // 1.a) Además, detectar transacciones del mismo día para este líder
+              // que afecten balances pero que no estén ligadas al LPR (huérfanas)
+              const dayLeadAffectingTransactions = await tx.transaction.findMany({
+                where: {
+                  leadId: leadId,
+                  date: { gte: startOfDay, lte: endOfDay },
+                  OR: [
+                    { type: 'INCOME', incomeSource: { in: ['CASH_LOAN_PAYMENT', 'BANK_LOAN_PAYMENT'] } },
+                    { type: 'EXPENSE', expenseSource: 'LOAN_PAYMENT_COMISSION' },
+                    { type: 'TRANSFER', description: { contains: 'Transferencia automática por pago mixto' } },
+                  ],
+                }
               });
-              console.log('🔍 UPDATE: Pagos restantes después de eliminación:', remainingPayments.length);
-            } else {
-              console.log('ℹ️ UPDATE: No hay pagos existentes para eliminar');
+
+              let oldCashChange = 0;
+              let oldBankChange = 0;
+
+              for (const t of existingAllTransactions) {
+                const amount = parseFloat((t.amount || 0).toString());
+                if (t.type === 'INCOME') {
+                  if (t.incomeSource === 'CASH_LOAN_PAYMENT') oldCashChange += amount;
+                  if (t.incomeSource === 'BANK_LOAN_PAYMENT') oldBankChange += amount;
+                } else if (t.type === 'EXPENSE' && t.expenseSource === 'LOAN_PAYMENT_COMISSION') {
+                  oldCashChange -= amount;
+                }
+              }
+
+              // 1.b) Sumar también las huérfanas del día (se eliminarán más abajo si corresponde)
+              for (const t of dayLeadAffectingTransactions) {
+                const amount = parseFloat((t.amount || 0).toString());
+                if (t.type === 'INCOME') {
+                  if (t.incomeSource === 'CASH_LOAN_PAYMENT') oldCashChange += amount;
+                  if (t.incomeSource === 'BANK_LOAN_PAYMENT') oldBankChange += amount;
+                } else if (t.type === 'EXPENSE' && t.expenseSource === 'LOAN_PAYMENT_COMISSION') {
+                  oldCashChange -= amount;
+                }
+              }
+
+              console.log('♻️ [REBUILD] Efecto previo:', { oldCashChange, oldBankChange, transactions: existingAllTransactions.length });
+
+              // 2) Eliminar todas las transacciones y pagos del LPR
+              await tx.transaction.deleteMany({ where: { leadPaymentReceivedId: id } });
+              await tx.loanPayment.deleteMany({ where: { leadPaymentReceivedId: id } });
+
+              // 2.a) Eliminar transacciones del día para este líder que afectan balances
+              // (huérfanas no ligadas al LPR) ANTES de recrear, para evitar duplicados en SummaryTab
+              if (dayLeadAffectingTransactions.length > 0) {
+                console.log(`🧹 [REBUILD] Eliminando ${dayLeadAffectingTransactions.length} transacciones huérfanas del día para el líder`);
+                await tx.transaction.deleteMany({
+                  where: {
+                    leadId: leadId,
+                    date: { gte: startOfDay, lte: endOfDay },
+                    OR: [
+                      { type: 'INCOME', incomeSource: { in: ['CASH_LOAN_PAYMENT', 'BANK_LOAN_PAYMENT'] } },
+                      { type: 'EXPENSE', expenseSource: 'LOAN_PAYMENT_COMISSION' },
+                      { type: 'TRANSFER', description: { contains: 'Transferencia automática por pago mixto' } },
+                    ],
+                  }
+                });
+              }
+
+              // 3) Actualizar encabezado con nuevos montos/fecha
+              const updatedLpr = await tx.leadPaymentReceived.update({
+                where: { id },
+                data: {
+                  expectedAmount: expectedAmount.toFixed(2),
+                  paidAmount: (cashPaidAmount + bankPaidAmount).toFixed(2),
+                  cashPaidAmount: cashPaidAmount.toFixed(2),
+                  bankPaidAmount: bankPaidAmount.toFixed(2),
+                  falcoAmount: '0.00',
+                  createdAt: new Date(paymentDate),
+                  paymentStatus: (cashPaidAmount + bankPaidAmount) < expectedAmount ? 'PARTIAL' : 'COMPLETE',
+                }
+              });
+
+              // 4) Crear pagos (si hay)
+              if (payments.length > 0) {
+                const paymentData = payments.map(p => ({
+                  amount: p.amount.toFixed(2),
+                  comission: p.comission.toFixed(2),
+                  loanId: p.loanId,
+                  type: p.type,
+                  paymentMethod: p.paymentMethod,
+                  receivedAt: new Date(paymentDate),
+                  leadPaymentReceivedId: id,
+                }));
+                await tx.loanPayment.createMany({ data: paymentData });
+              }
+
+              // 5) Crear transacciones a partir de los pagos recién creados
+              const createdPayments = await tx.loanPayment.findMany({ where: { leadPaymentReceivedId: id } });
+
+              const transactionsToCreate: any[] = [];
+              let newCashChange = 0;
+              let newBankChange = 0;
+
+              // Mapa de loans para cálculo (optimizado: una sola consulta)
+              const loanIdsForCalc = Array.from(new Set(createdPayments.map(p => p.loanId).filter(Boolean))) as string[];
+              const loansForCalc = loanIdsForCalc.length > 0
+                ? await tx.loan.findMany({ where: { id: { in: loanIdsForCalc } }, include: { loantype: true } })
+                : [];
+              const loanMapForCalc = new Map(loansForCalc.map(l => [l.id, l]));
+
+              for (const p of createdPayments) {
+                const payAmount = parseFloat((p.amount || 0).toString());
+                const comAmount = parseFloat((p.comission || 0).toString());
+
+                // Calcular returnToCapital y profitAmount
+                let returnToCapital = 0;
+                let profitAmount = 0;
+                const loan = p.loanId ? loanMapForCalc.get(p.loanId) : null;
+                if (loan && (loan as any).loantype) {
+                  const requestedAmount = safeToNumber((loan as any).requestedAmount);
+                  const interestRate = safeToNumber((loan as any).loantype.rate);
+                  const currentProfit = safeToNumber((loan as any).profitAmount);
+                  const baseProfit = requestedAmount * interestRate;
+                  const profitPendingFromPreviousLoan = Math.max(0, currentProfit - baseProfit);
+                  const calc = calculateProfitAndReturnToCapital({
+                    paymentAmount: payAmount,
+                    requestedAmount,
+                    interestRate,
+                    badDebtDate: (loan as any).badDebtDate,
+                    paymentDate: new Date(paymentDate),
+                    profitPendingFromPreviousLoan,
+                  });
+                  returnToCapital = calc.returnToCapital;
+                  profitAmount = calc.profitAmount;
+                }
+
+                const incomeTx: any = {
+                  amount: payAmount.toFixed(2),
+                  date: new Date(paymentDate),
+                  type: 'INCOME',
+                  incomeSource: p.paymentMethod === 'CASH' ? 'CASH_LOAN_PAYMENT' : 'BANK_LOAN_PAYMENT',
+                  loanPaymentId: p.id,
+                  loanId: p.loanId,
+                  leadId: leadId,
+                  routeId: agent?.routes?.id,
+                  snapshotRouteId: agent?.routes?.id,
+                  returnToCapital: returnToCapital.toFixed(2),
+                  profitAmount: profitAmount.toFixed(2),
+                };
+                if (p.paymentMethod === 'CASH') {
+                  incomeTx.destinationAccountId = cashAccount.id;
+                  newCashChange += payAmount;
+                } else if (p.paymentMethod === 'MONEY_TRANSFER') {
+                  incomeTx.destinationAccountId = bankAccount.id;
+                  newBankChange += payAmount;
+                }
+                transactionsToCreate.push(incomeTx);
+
+                if (comAmount > 0) {
+                  transactionsToCreate.push({
+                    amount: comAmount.toFixed(2),
+                    date: new Date(paymentDate),
+                    type: 'EXPENSE',
+                    expenseSource: 'LOAN_PAYMENT_COMISSION',
+                    sourceAccountId: cashAccount.id,
+                    loanPaymentId: p.id,
+                    loanId: p.loanId,
+                    leadId: leadId,
+                    routeId: agent?.routes?.id,
+                    snapshotRouteId: agent?.routes?.id,
+                    description: `Comisión por pago de préstamo - ${p.id}`,
+                  });
+                  newCashChange -= comAmount; // comisión siempre afecta efectivo
+                }
+              }
+
+              // Transferencia automática: crear registro SOLO para auditoría después; no ajustar balances aquí
+
+              // 6) Crear transacciones (deshabilitar hooks para evitar doble conteo)
+              (context as any).skipTransactionHooks = true;
+              try {
+                if (transactionsToCreate.length > 0) {
+                  const batchSize = 50;
+                  for (let i = 0; i < transactionsToCreate.length; i += batchSize) {
+                    const batch = transactionsToCreate.slice(i, i + batchSize);
+                    await tx.transaction.createMany({ data: batch });
+                  }
+                }
+              } finally {
+                (context as any).skipTransactionHooks = false;
+              }
+
+              // 6.1) Si NO hay pagos y bankPaidAmount = 0, asegurar limpieza total de transacciones de este LPR
+              if (payments.length === 0 && bankPaidAmount === 0) {
+                console.log('🧹 [REBUILD] No hay pagos ni transferencia: limpiando cualquier transacción residual del día para este líder');
+                // Eliminar las del propio LPR
+                await tx.transaction.deleteMany({ where: { leadPaymentReceivedId: id } });
+                // Eliminar transacciones del día que afectan balances (huérfanas) para este líder
+                await tx.transaction.deleteMany({
+                  where: {
+                    leadId: leadId,
+                    date: { gte: startOfDay, lte: endOfDay },
+                    OR: [
+                      { type: 'INCOME', incomeSource: { in: ['CASH_LOAN_PAYMENT', 'BANK_LOAN_PAYMENT'] } },
+                      { type: 'EXPENSE', expenseSource: 'LOAN_PAYMENT_COMISSION' },
+                      { type: 'TRANSFER', description: { contains: 'Transferencia automática por pago mixto' } },
+                    ],
+                  }
+                });
+              }
+
+              // 7) Ajustar balances de cuentas por diferencia neta (nuevo - viejo)
+              // Incluir explícitamente el cambio en bankPaidAmount (transferencia automática efectivo -> banco)
+              const oldBankPaidAmountValue = parseFloat(existingPayment.bankPaidAmount?.toString() || '0');
+              const newBankPaidAmountValue = bankPaidAmount;
+              const bankPaidAmountChange = newBankPaidAmountValue - oldBankPaidAmountValue;
+
+              // Efectivo: pagos CASH - comisiones ya se reflejan en newCashChange/oldCashChange; resta transferencia automática
+              // Banco: pagos TRANSFER ya en newBankChange/oldBankChange; suma transferencia automática
+              const netCashDelta = (newCashChange - oldCashChange) - bankPaidAmountChange;
+              const netBankDelta = (newBankChange - oldBankChange) + bankPaidAmountChange;
+
+              console.log('🔍 [REBUILD] Aplicando deltas de balance con transferencia automática:', {
+                oldCashChange,
+                newCashChange,
+                oldBankChange,
+                newBankChange,
+                oldBankPaidAmountValue,
+                newBankPaidAmountValue,
+                bankPaidAmountChange,
+                netCashDelta,
+                netBankDelta,
+              });
+
+              if (netCashDelta !== 0) {
+                const current = parseFloat((cashAccount.amount || 0).toString());
+                await tx.account.update({ where: { id: cashAccount.id }, data: { amount: (current + netCashDelta).toString() } });
+              }
+              if (netBankDelta !== 0) {
+                const current = parseFloat((bankAccount.amount || 0).toString());
+                await tx.account.update({ where: { id: bankAccount.id }, data: { amount: (current + netBankDelta).toString() } });
+              }
+
+              // 🆕 GARANTIZAR TRANSFERENCIA DE AUDITORÍA DENTRO DE REBUILD (antes del return)
+              // Eliminar transferencias previas de este LPR y recrear según bankPaidAmount
+              try {
+                const existingTransferTransactions = await tx.transaction.findMany({
+                  where: {
+                    leadPaymentReceivedId: id,
+                    type: 'TRANSFER',
+                    description: { contains: 'Transferencia automática por pago mixto' }
+                  }
+                });
+                if (existingTransferTransactions.length > 0) {
+                  await tx.transaction.deleteMany({
+                    where: { id: { in: existingTransferTransactions.map(t => t.id) } }
+                  });
+                }
+
+                if (newBankPaidAmountValue > 0) {
+                  await tx.transaction.create({
+                    data: {
+                      amount: newBankPaidAmountValue.toFixed(2),
+                      date: new Date(paymentDate),
+                      type: 'TRANSFER',
+                      sourceAccountId: cashAccount.id,
+                      destinationAccountId: bankAccount.id,
+                      leadId: leadId,
+                      leadPaymentReceivedId: id,
+                      routeId: agent?.routes?.id,
+                      snapshotRouteId: agent?.routes?.id,
+                      description: `Transferencia automática por pago mixto actualizado - Líder: ${agentId}`,
+                    }
+                  });
+                }
+              } catch (txErr) {
+                console.warn('⚠️ [REBUILD] No se pudo recrear la transferencia automática:', txErr);
+              }
+
+              // 8) Recalcular préstamos afectados
+              try {
+                const affectedIds = Array.from(new Set(createdPayments.map(p => p.loanId).filter(Boolean))) as string[];
+                if (affectedIds.length > 0) {
+                  const loansToUpdate = await tx.loan.findMany({ 
+                    where: { 
+                      id: { in: affectedIds },
+                      status: { not: 'RENOVATED' } // ✅ Excluir préstamos renovados del recálculo
+                    }, 
+                    include: { loantype: true } 
+                  });
+                  const paymentTotals = await tx.loanPayment.groupBy({ by: ['loanId'], _sum: { amount: true }, where: { loanId: { in: affectedIds } } });
+                  const totalsMap = new Map(paymentTotals.map(pt => [pt.loanId, safeToNumber(pt._sum.amount || 0)]));
+                  await Promise.all(loansToUpdate.map(async (loan) => {
+                    const totalPaid = totalsMap.get(loan.id) || 0;
+                    const rate = safeToNumber((loan as any).loantype?.rate);
+                    const requested = safeToNumber((loan as any).requestedAmount);
+                    const weekDuration = Number((loan as any).loantype?.weekDuration || 0);
+                    const totalDebt = requested * (1 + rate);
+                    const expectedWeekly = weekDuration > 0 ? (totalDebt / weekDuration) : 0;
+                    const pending = Math.max(0, totalDebt - totalPaid);
+                    const isCompleted = totalPaid >= totalDebt - 0.005;
+                    await tx.loan.update({
+                      where: { id: loan.id },
+                      data: {
+                        totalDebtAcquired: totalDebt.toFixed(2),
+                        expectedWeeklyPayment: expectedWeekly.toFixed(2),
+                        totalPaid: totalPaid.toFixed(2),
+                        pendingAmountStored: pending.toFixed(2),
+                        ...(isCompleted ? { status: 'FINISHED', finishedDate: new Date(paymentDate) } : { status: 'ACTIVE', finishedDate: null })
+                      }
+                    });
+                  }));
+                }
+              } catch (recalcErr) {
+                console.error('⚠️ [REBUILD] Error recalculando préstamos:', recalcErr);
+              }
+
+              // 9) Respuesta
+              return {
+                id: updatedLpr.id,
+                expectedAmount: parseFloat(updatedLpr.expectedAmount?.toString() || '0'),
+                paidAmount: parseFloat(updatedLpr.paidAmount?.toString() || '0'),
+                cashPaidAmount: parseFloat(updatedLpr.cashPaidAmount?.toString() || '0'),
+                bankPaidAmount: parseFloat(updatedLpr.bankPaidAmount?.toString() || '0'),
+                falcoAmount: 0,
+                paymentStatus: updatedLpr.paymentStatus || 'COMPLETE',
+                payments: payments.map((p, index) => ({
+                  id: `temp-${index}`,
+                  amount: p.amount,
+                  comission: p.comission,
+                  loanId: p.loanId,
+                  type: p.type,
+                  paymentMethod: p.paymentMethod
+                })),
+                paymentDate,
+                agentId,
+                leadId,
+              };
             }
+
+            // ✅ CORREGIDO: Lógica inteligente para eliminar solo pagos que ya no están en la lista
+            
+            
+            
+            
+            // Crear un mapa de pagos nuevos para comparación rápida
+            const newPaymentsMap = new Map();
+            for (const newPayment of payments) {
+              // Usar una clave compuesta para identificar pagos únicos
+              const key = `${newPayment.loanId}-${newPayment.amount}-${newPayment.comission}-${newPayment.paymentMethod}`;
+              newPaymentsMap.set(key, newPayment);
+            }
+            
+            // Identificar pagos existentes que ya no están en la lista nueva
+            const paymentsToDelete = [];
+            const paymentsToKeep = [];
+            
+            for (const existingPaymentItem of allPaymentsOfDay) {
+              const key = `${existingPaymentItem.loanId}-${existingPaymentItem.amount}-${existingPaymentItem.comission}-${existingPaymentItem.paymentMethod}`;
+              
+              if (newPaymentsMap.has(key)) {
+                paymentsToKeep.push(existingPaymentItem);
+              } else {
+                paymentsToDelete.push(existingPaymentItem);
+              }
+            }
+            // ✅ NUEVO: Eliminar LeadPaymentReceived adicionales del día y consolidar en el principal
+            if (allLeadPaymentsOfDay.length > 1) {
+              // Eliminar todos los LeadPaymentReceived adicionales (mantener solo el principal)
+              const additionalLeadPayments = allLeadPaymentsOfDay.filter(lp => lp.id !== id);
+              for (const additionalLp of additionalLeadPayments) {
+                // Eliminar transacciones asociadas
+                await tx.transaction.deleteMany({
+                  where: { leadPaymentReceivedId: additionalLp.id }
+                });
+                
+                // Eliminar pagos asociados
+                await tx.loanPayment.deleteMany({
+                  where: { leadPaymentReceivedId: additionalLp.id }
+                });
+                
+                // Eliminar el LeadPaymentReceived
+                await tx.leadPaymentReceived.delete({
+                  where: { id: additionalLp.id }
+                });
+              }
+            }
+
+            // Eliminar solo los pagos que ya no están en la lista
+            if (paymentsToDelete.length > 0) {
+              
+              // Obtener IDs de transacciones de los pagos a eliminar
+              const paymentIdsToDelete = paymentsToDelete.map(p => p.id);
+              const paymentTransactionIds = paymentsToDelete
+                .flatMap((payment: any) => payment.transactions.map((t: any) => t.id));
+              
+              // ✅ CORREGIDO: Filtrar transferencias bancarias de las transacciones a eliminar
+              const allTransactionIds = [...paymentTransactionIds, ...directTransactions.map(t => t.id)];
+              const transactionIds = [...new Set(allTransactionIds)]; // Eliminar duplicados
+              
+              // ✅ CORREGIDO: Obtener las transacciones para filtrar transferencias bancarias
+              const transactionsToCheck = await tx.transaction.findMany({
+                where: { id: { in: transactionIds } },
+                select: { id: true, type: true, description: true }
+              });
+              
+              // ✅ CORREGIDO: Excluir transferencias bancarias de la eliminación
+              const transactionsToDelete = transactionsToCheck.filter(t => 
+                !(t.type === 'TRANSFER' && t.description?.includes('Transferencia automática por pago mixto'))
+              ).map(t => t.id);
+              
+              console.log(`🔍 [DEBUG] Transacciones a eliminar: ${transactionsToDelete.length} (excluyendo transferencias bancarias)`);
+              console.log(`🔍 [DEBUG] Transferencias bancarias preservadas: ${transactionIds.length - transactionsToDelete.length}`);
+              
+            // ✅ OPTIMIZADO: Eliminar solo transacciones no-bancarias en lotes más pequeños para evitar timeouts
+            if (transactionsToDelete.length > 0) {
+              const batchSize = 50; // Procesar en lotes de 50 transacciones
+              for (let i = 0; i < transactionsToDelete.length; i += batchSize) {
+                const batch = transactionsToDelete.slice(i, i + batchSize);
+                
+                await tx.transaction.deleteMany({
+                  where: { id: { in: batch } }
+                });
+              }
+            }
+              await tx.loanPayment.deleteMany({
+                where: { id: { in: paymentIdsToDelete } }
+              });
+            }
+            
 
             // Actualizar el LeadPaymentReceived
             const leadPaymentReceived = await tx.leadPaymentReceived.update({
@@ -1426,14 +1958,15 @@ export const extendGraphqlSchema = graphql.extend(base => {
               },
             });
 
-            // ✅ NUEVA LÓGICA: Calcular cambios de balances SIEMPRE (incluso si no hay pagos nuevos)
+            // ✅ CORREGIDO: Calcular cambios de balances ANTES de eliminar transacciones
+            // Esto evita la doble afectación del balance
             
-            // Calcular totales de pagos ANTERIORES
+            // ✅ CORREGIDO: Calcular totales solo de pagos que se van a eliminar
             let oldCashPayments = 0;
             let oldBankPayments = 0;
             let oldCommissions = 0;
             
-            for (const oldPayment of existingPayment.payments) {
+            for (const oldPayment of paymentsToDelete) {
               const oldAmount = parseFloat((oldPayment.amount || 0).toString());
               const oldCommission = parseFloat((oldPayment.comission || 0).toString());
               
@@ -1445,21 +1978,29 @@ export const extendGraphqlSchema = graphql.extend(base => {
               oldCommissions += oldCommission;
             }
             
-            // Calcular totales de pagos NUEVOS
+            // ✅ CORREGIDO: Calcular totales solo de pagos que realmente se van a crear
             let newCashPayments = 0;
             let newBankPayments = 0;
             let newCommissions = 0;
             
             for (const payment of payments) {
-              const paymentAmount = payment.amount || 0;
-              const commissionAmount = payment.comission || 0;
-              
-              if (payment.paymentMethod === 'CASH') {
-                newCashPayments += paymentAmount;
-              } else if (payment.paymentMethod === 'MONEY_TRANSFER') {
-                newBankPayments += paymentAmount;
+              const key = `${payment.loanId}-${payment.amount}-${payment.comission}-${payment.paymentMethod}`;
+              const isExisting = paymentsToKeep.some(existing => {
+                const existingKey = `${existing.loanId}-${existing.amount}-${existing.comission}-${existing.paymentMethod}`;
+                return existingKey === key;
+              });
+
+              if (!isExisting) {
+                const paymentAmount = payment.amount || 0;
+                const commissionAmount = payment.comission || 0;
+                
+                if (payment.paymentMethod === 'CASH') {
+                  newCashPayments += paymentAmount;
+                } else if (payment.paymentMethod === 'MONEY_TRANSFER') {
+                  newBankPayments += paymentAmount;
+                }
+                newCommissions += commissionAmount;
               }
-              newCommissions += commissionAmount;
             }
             
             // ✅ CALCULAR SOLO LOS CAMBIOS (diferencias)
@@ -1472,86 +2013,121 @@ export const extendGraphqlSchema = graphql.extend(base => {
             const newBankPaidAmountValue = bankPaidAmount;
             const bankPaidAmountChange = newBankPaidAmountValue - oldBankPaidAmountValue;
             
-            console.log('🔍 DEBUG - Cambios calculados:', {
-              oldCashPayments,
-              newCashPayments,
-              cashPaymentChange,
-              oldBankPayments,
-              newBankPayments,
-              bankPaymentChange,
-              oldBankPaidAmountValue,
-              newBankPaidAmountValue,
-              bankPaidAmountChange,
-              oldCommissions,
-              newCommissions,
-              commissionChange
-            });
+            // ✅ CORREGIDO: Calcular cambios netos correctamente por método de pago
+            // La lógica debe ser idéntica a createCustomLeadPaymentReceived:
+            // - Pagos CASH: aumentan balance de efectivo, comisiones lo disminuyen
+            // - Pagos TRANSFER: aumentan balance de banco, comisiones disminuyen efectivo
+            // - bankPaidAmount: transferencia automática de efectivo a banco
             
-            // ✅ MANEJO DE CAMBIOS EN BALANCES (incluso si no hay transacciones nuevas)
-            // ✅ CORRECCIÓN: deleteMany NO dispara hooks, necesitamos calcular manualmente el efecto de eliminar transacciones
-            // Calcular el efecto directo de los cambios netos POR MÉTODO DE PAGO:
-            // - cashPaymentChange: solo cambios en pagos CASH → afecta balance de efectivo
-            // - bankPaymentChange: solo cambios en pagos TRANSFER → afecta balance de banco  
-            // - bankPaidAmountChange: cambios en transferencia automática → afecta balance de banco
-            // - commissionChange: TODAS las comisiones → SIEMPRE afectan balance de efectivo
-            // EJEMPLO: Cambiar transferencia de $500 a $600 → Bank: +$100, Cash: -$100
-            const netCashChange = cashPaymentChange - commissionChange - bankPaidAmountChange; // Pagos CASH + comisiones - transferencia automática
-            const netBankChange = bankPaymentChange + bankPaidAmountChange; // Pagos TRANSFER + transferencia automática
+            // Calcular el cambio neto en efectivo:
+            // + Pagos CASH nuevos - Pagos CASH antiguos
+            // - Comisiones nuevas + Comisiones antiguas  
+            // - Transferencia automática nueva + Transferencia automática antigua
+            const netCashChange = cashPaymentChange - commissionChange - bankPaidAmountChange;
             
-            console.log('🔍 DEBUG - Cambios netos para cuentas (CORREGIDO - efecto directo):', {
+            // Calcular el cambio neto en banco:
+            // + Pagos TRANSFER nuevos - Pagos TRANSFER antiguos
+            // + Transferencia automática nueva - Transferencia automática antigua
+            const netBankChange = bankPaymentChange + bankPaidAmountChange;
+            
+            console.log('🔍 DEBUG - Cambios netos para cuentas (CORREGIDO - por método de pago):', {
               cashPaymentChange,
               commissionChange,
               bankPaidAmountChange,
               netCashChange: `${cashPaymentChange} - (${commissionChange}) - (${bankPaidAmountChange}) = ${netCashChange}`,
               bankPaymentChange,
               netBankChange: `${bankPaymentChange} + (${bankPaidAmountChange}) = ${netBankChange}`,
-              explanation: 'Incluye cambios en bankPaidAmount (transferencia automática)'
+              explanation: 'Cálculo correcto por método de pago individual'
             });
             
             // ✅ DEBUG: Log detallado de lo que significa el cálculo
             if (cashPaymentChange !== 0 || bankPaymentChange !== 0 || commissionChange !== 0 || bankPaidAmountChange !== 0) {
-              console.log(`💡 EXPLICACIÓN CORREGIDA: Efecto directo por método de pago:`);
+              console.log(`💡 EXPLICACIÓN CORREGIDA: Cálculo por método de pago individual:`);
               console.log(`   - Cambio en pagos CASH: $${cashPaymentChange} → afecta balance de efectivo`);
               console.log(`   - Cambio en pagos TRANSFER: $${bankPaymentChange} → afecta balance de banco`);
-              console.log(`   - Cambio en transferencia automática: $${bankPaidAmountChange} → afecta balance de banco`);
+              console.log(`   - Cambio en transferencia automática: $${bankPaidAmountChange} → efectivo a banco`);
               console.log(`   - Cambio en comisiones: $${commissionChange} → SIEMPRE afecta balance de efectivo`);
               console.log(`   - Balance EFECTIVO: $${cashPaymentChange} - ($${commissionChange}) - ($${bankPaidAmountChange}) = $${netCashChange}`);
               console.log(`   - Balance BANCO: $${bankPaymentChange} + ($${bankPaidAmountChange}) = $${netBankChange}`);
-              console.log(`💡 EJEMPLO: Cambiar transferencia de $500 a $600 → Cash: -$100, Bank: +$100`);
+              console.log(`💡 EJEMPLO: Préstamo 1 CASH $100 + Préstamo 2 TRANSFER $200 → Cash: +$100, Bank: +$200`);
             }
 
-            if (payments.length > 0) {
-              const paymentData = payments.map(payment => ({
-                amount: payment.amount.toFixed(2),
-                comission: payment.comission.toFixed(2),
-                loanId: payment.loanId,
-                type: payment.type,
-                paymentMethod: payment.paymentMethod,
-                receivedAt: new Date(paymentDate),
-                leadPaymentReceivedId: leadPaymentReceived.id,
-              }));
-
-              await tx.loanPayment.createMany({ data: paymentData });
-
-              // Obtener los pagos creados para crear las transacciones
-              const createdPaymentRecords = await tx.loanPayment.findMany({
-                where: { leadPaymentReceivedId: leadPaymentReceived.id }
+            // ✅ CORREGIDO: Solo crear pagos que realmente son nuevos (no están en paymentsToKeep)
+            const paymentsToCreate = [];
+            for (const newPayment of payments) {
+              const key = `${newPayment.loanId}-${newPayment.amount}-${newPayment.comission}-${newPayment.paymentMethod}`;
+              const isExisting = paymentsToKeep.some(existing => {
+                const existingKey = `${existing.loanId}-${existing.amount}-${existing.comission}-${existing.paymentMethod}`;
+                return existingKey === key;
               });
+              
+              if (!isExisting) {
+                paymentsToCreate.push(newPayment);
+                console.log(`🆕 [DEBUG] Pago nuevo a crear: ${key}`);
+              } else {
+                console.log(`✅ [DEBUG] Pago ya existe, no se crea: ${key}`);
+              }
+            }
+            
+            console.log(`🔍 [DEBUG] Análisis de pagos:`);
+            console.log(`   - Total pagos enviados: ${payments.length}`);
+            console.log(`   - Pagos existentes encontrados: ${allPaymentsOfDay.length}`);
+            console.log(`   - Pagos a mantener: ${paymentsToKeep.length}`);
+            console.log(`   - Pagos a eliminar: ${paymentsToDelete.length}`);
+            console.log(`   - Pagos nuevos a crear: ${paymentsToCreate.length}`);
+            
+            if (paymentsToCreate.length > 0) {
+              console.log(`💾 Creando ${paymentsToCreate.length} pagos realmente nuevos...`);
+              
+              // ✅ OPTIMIZADO: Crear pagos en lotes para mejor performance
+              const batchSize = 25; // Procesar en lotes de 25 pagos
+              const createdPaymentRecords = [];
+              
+              for (let i = 0; i < paymentsToCreate.length; i += batchSize) {
+                const batch = paymentsToCreate.slice(i, i + batchSize);
+                const paymentData = batch.map(payment => ({
+                  amount: payment.amount.toFixed(2),
+                  comission: payment.comission.toFixed(2),
+                  loanId: payment.loanId,
+                  type: payment.type,
+                  paymentMethod: payment.paymentMethod,
+                  receivedAt: new Date(paymentDate),
+                  leadPaymentReceivedId: leadPaymentReceived.id,
+                }));
 
-              // OPTIMIZADO: Obtener todos los datos necesarios en una sola consulta
-              const loanIds = createdPaymentRecords.map(p => p.loanId);
+                await tx.loanPayment.createMany({ data: paymentData });
+              }
+
+              // ✅ CORREGIDO: Obtener solo los pagos que acabamos de crear
+              const allCreatedPayments = await tx.loanPayment.findMany({
+                where: { 
+                  leadPaymentReceivedId: leadPaymentReceived.id,
+                  // Solo obtener pagos que coincidan con los que acabamos de crear
+                  OR: paymentsToCreate.map(payment => ({
+                    loanId: payment.loanId,
+                    amount: payment.amount.toFixed(2),
+                    comission: payment.comission.toFixed(2),
+                    paymentMethod: payment.paymentMethod
+                  }))
+                }
+              });
+              
+              console.log(`🔍 [DEBUG] Pagos obtenidos para crear transacciones: ${allCreatedPayments.length}`);
+              console.log(`🔍 [DEBUG] Pagos a crear: ${paymentsToCreate.length}`);
+
+              // ✅ OPTIMIZADO: Obtener todos los datos necesarios en una sola consulta
+              const loanIds = allCreatedPayments.map(p => p.loanId).filter(Boolean) as string[];
               const loans = await tx.loan.findMany({
                 where: { id: { in: loanIds } },
                 include: { loantype: true }
               });
               const loanMap = new Map(loans.map(loan => [loan.id, loan]));
 
-              // ✅ CREAR TRANSACCIONES para los pagos nuevos
+              // ✅ OPTIMIZADO: Crear transacciones en lotes
               const transactionData = [];
+              const transactionBatchSize = 50;
 
-              console.log('🔍 DEBUG - Procesando pagos:', createdPaymentRecords.length);
-
-              for (const payment of createdPaymentRecords) {
+              for (const payment of allCreatedPayments) {
                 const paymentAmount = parseFloat((payment.amount || 0).toString());
                 const comissionAmount = parseFloat((payment.comission || 0).toString());
 
@@ -1562,27 +2138,27 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 let profitAmount = 0;
 
                 if (loan && loan.loantype) {
-                  const loanData = {
-                    amountGived: safeToNumber(loan.amountGived),
-                    profitAmount: safeToNumber(loan.profitAmount),
-                    weekDuration: loan.loantype.weekDuration || 0,
-                    rate: safeToNumber(loan.loantype.rate)
-                  };
+                  const requestedAmount = safeToNumber(loan.requestedAmount);
+                  const interestRate = safeToNumber(loan.loantype.rate);
+                  const currentProfit = safeToNumber(loan.profitAmount);
+                  const baseProfit = requestedAmount * interestRate;
+                  const profitPendingFromPreviousLoan = Math.max(0, currentProfit - baseProfit);
 
-                  const paymentCalculation = await calculatePaymentProfitAmount(
+                  const paymentCalculation = calculateProfitAndReturnToCapital({
                     paymentAmount,
-                    loanData.profitAmount,
-                    loanData.amountGived + loanData.profitAmount,
-                    loanData.amountGived,
-                    0
-                  );
+                    requestedAmount,
+                    interestRate,
+                    badDebtDate: loan.badDebtDate,
+                    paymentDate: new Date(paymentDate),
+                    profitPendingFromPreviousLoan
+                  });
 
                   returnToCapital = paymentCalculation.returnToCapital;
                   profitAmount = paymentCalculation.profitAmount;
                 }
                 
                 // Preparar datos de transacción para el pago principal
-                transactionData.push({
+                const incomeTransactionData: any = {
                   amount: (payment.amount || 0).toString(),
                   date: new Date(paymentDate),
                   type: 'INCOME',
@@ -1594,7 +2170,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   snapshotRouteId: agent?.routes?.id,
                   returnToCapital: returnToCapital.toFixed(2),
                   profitAmount: profitAmount.toFixed(2),
-                });
+                };
+
+                // ✅ CORREGIDO: Agregar destinationAccount para pagos en efectivo
+                if (payment.paymentMethod === 'CASH') {
+                  incomeTransactionData.destinationAccountId = cashAccount.id;
+                } else if (payment.paymentMethod === 'MONEY_TRANSFER') {
+                  incomeTransactionData.destinationAccountId = bankAccount.id;
+                }
+
+                transactionData.push(incomeTransactionData);
 
                 // Crear transacción separada para la comisión si existe
                 if (comissionAmount > 0) {
@@ -1612,20 +2197,22 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     description: `Comisión por pago de préstamo - ${payment.id}`,
                   });
                 }
-
               }
 
-              console.log('🔍 DEBUG - Total transacciones a crear:', transactionData.length);
-              console.log('🔍 DEBUG - Transacciones de comisiones:', transactionData.filter(t => t.type === 'EXPENSE' && t.expenseSource === 'LOAN_PAYMENT_COMISSION').length);
-
-              // Crear todas las transacciones de una vez
+              // ✅ OPTIMIZADO: Crear transacciones en lotes para evitar timeouts
               if (transactionData.length > 0) {
+                console.log(`💾 Creando ${transactionData.length} transacciones en lotes...`);
+                // ✅ CORREGIDO: Deshabilitar hooks temporalmente para evitar duplicación de balance
+                (context as any).skipTransactionHooks = true;
                 try {
-                await tx.transaction.createMany({ data: transactionData });
-                  console.log('✅ Transacciones creadas exitosamente');
-                } catch (transactionError) {
-                  console.error('Error creando transacciones:', transactionError);
-                  throw transactionError;
+                  for (let i = 0; i < transactionData.length; i += transactionBatchSize) {
+                    const batch = transactionData.slice(i, i + transactionBatchSize);
+                    await tx.transaction.createMany({ data: batch });
+                  }
+                  console.log(`✅ Creadas ${transactionData.length} transacciones exitosamente`);
+                } finally {
+                  // ✅ CORREGIDO: Rehabilitar hooks después de crear transacciones
+                  (context as any).skipTransactionHooks = false;
                 }
               }
             }
@@ -1633,27 +2220,24 @@ export const extendGraphqlSchema = graphql.extend(base => {
             // ✅ ACTUALIZAR BALANCES SIEMPRE (incluso si no hay pagos nuevos)
             // Actualizar cuenta de efectivo solo si hay cambio
             if (netCashChange !== 0) {
-                  const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
+              const currentCashAmount = parseFloat((cashAccount.amount || 0).toString());
               const newCashAmount = currentCashAmount + netCashChange;
-                  
-              console.log('🔧 Actualizando cuenta de efectivo:', {
-                    currentAmount: currentCashAmount,
-                netCashChange,
-                newAmount: newCashAmount,
-                details: `$${currentCashAmount} + (${netCashChange}) = $${newCashAmount}`
+              
+              console.log(`💰 [DEBUG] Actualizando balance de efectivo: ${currentCashAmount} + ${netCashChange} = ${newCashAmount}`);
+              console.log(`💰 [DEBUG] Cuenta de efectivo ID: ${cashAccount.id}`);
+              
+              const updateResult = await tx.account.update({
+                where: { id: cashAccount.id },
+                data: { amount: newCashAmount.toString() }
               });
               
-              console.log(`💰 VERIFICACIÓN: Aplicando cambio directo en balance de EFECTIVO:`);
+              console.log(`💰 VERIFICACIÓN: Aplicando cambio por método de pago en balance de EFECTIVO:`);
               console.log(`   Balance actual: $${currentCashAmount}`);
               console.log(`   Cambio en pagos CASH: $${cashPaymentChange}`);
-              console.log(`   Cambio en comisiones (TODAS): $${commissionChange} (se resta porque menos gasto = más balance)`);
-              console.log(`   Cambio neto EFECTIVO: $${cashPaymentChange} - ($${commissionChange}) = $${netCashChange}`);
+              console.log(`   Cambio en comisiones: $${commissionChange} (se resta porque menos gasto = más balance)`);
+              console.log(`   Cambio en transferencia automática: $${bankPaidAmountChange} (se resta porque va al banco)`);
+              console.log(`   Cambio neto EFECTIVO: $${cashPaymentChange} - ($${commissionChange}) - (${bankPaidAmountChange}) = $${netCashChange}`);
               console.log(`   Balance final EFECTIVO: $${currentCashAmount} + ($${netCashChange}) = $${newCashAmount}`);
-                  
-                  await tx.account.update({
-                    where: { id: cashAccount.id },
-                    data: { amount: newCashAmount.toString() }
-                  });
               
               console.log('✅ Cuenta de efectivo actualizada exitosamente');
             }
@@ -1666,17 +2250,28 @@ export const extendGraphqlSchema = graphql.extend(base => {
               console.log('🔧 Actualizando cuenta bancaria:', {
                 currentAmount: currentBankAmount,
                 netBankChange,
-                newAmount: newBankAmount
+                newAmount: newBankAmount,
+                details: `$${currentBankAmount} + (${netBankChange}) = $${newBankAmount}`
               });
               
-              await tx.account.update({
+              console.log(`💰 VERIFICACIÓN: Aplicando cambio por método de pago en balance de BANCO:`);
+              console.log(`   Balance actual: $${currentBankAmount}`);
+              console.log(`   Cambio en pagos TRANSFER: $${bankPaymentChange}`);
+              console.log(`   Cambio en transferencia automática: $${bankPaidAmountChange} (se suma porque viene del efectivo)`);
+              console.log(`   Cambio neto BANCO: $${bankPaymentChange} + ($${bankPaidAmountChange}) = $${netBankChange}`);
+              console.log(`   Balance final BANCO: $${currentBankAmount} + ($${netBankChange}) = $${newBankAmount}`);
+              
+              const bankUpdateResult = await tx.account.update({
                 where: { id: bankAccount.id },
                 data: { amount: newBankAmount.toString() }
               });
+              
+              console.log(`🏦 [DEBUG] Balance bancario actualizado exitosamente: ${bankUpdateResult.amount}`);
+            } else {
+              console.log(`🏦 [DEBUG] No hay cambio en balance bancario (netBankChange = ${netBankChange})`);
             }
 
-            // 🆕 RECÁLCULO FINAL POR PRÉSTAMO (después de recrear pagos/transacciones)
-            // Incluye tanto los préstamos con pagos nuevos como los que tenían pagos antes y ahora fueron eliminados
+            // 🆕 RECÁLCULO OPTIMIZADO POR PRÉSTAMO (después de recrear pagos/transacciones)
             try {
               const affectedLoanIdsSet = new Set<string>();
               
@@ -1691,24 +2286,34 @@ export const extendGraphqlSchema = graphql.extend(base => {
               // Préstamos que tenían pagos antes (pueden haber quedado sin pagos tras esta edición)
               (existingPayment.payments || []).forEach((p: any) => p?.loanId && affectedLoanIdsSet.add(p.loanId));
 
-              const affectedLoanIdsArr = Array.from(affectedLoanIdsSet);
-              console.log('🔄 UPDATE: Recalculando préstamos afectados:', affectedLoanIdsArr);
+              const affectedLoanIdsArr = Array.from(affectedLoanIdsSet).filter(Boolean) as string[];
               
               if (affectedLoanIdsArr.length > 0) {
-                await Promise.all(affectedLoanIdsArr.map(async (loanId) => {
-                  const loan = await tx.loan.findUnique({ 
-                    where: { id: loanId }, 
-                    include: { loantype: true }
-                  });
-                  if (!loan) return;
+                console.log(`🔄 Recalculando ${affectedLoanIdsArr.length} préstamos afectados...`);
+                
+                // ✅ OPTIMIZADO: Obtener todos los préstamos y sus tipos en una sola consulta
+                const loansToUpdate = await tx.loan.findMany({
+                  where: { 
+                    id: { in: affectedLoanIdsArr },
+                    status: { not: 'RENOVATED' } // ✅ Excluir préstamos renovados del recálculo
+                  },
+                  include: { loantype: true }
+                });
 
-                  // Sumar pagos actuales desde la tabla (más confiable dentro de la tx)
-                  const agg = await tx.loanPayment.aggregate({
-                    _sum: { amount: true },
-                    where: { loanId }
-                  } as any);
-                  const totalPaid = safeToNumber(agg?._sum?.amount || 0);
+                // ✅ OPTIMIZADO: Obtener totales de pagos para todos los préstamos en una sola consulta
+                const paymentTotals = await tx.loanPayment.groupBy({
+                  by: ['loanId'],
+                  _sum: { amount: true },
+                  where: { loanId: { in: affectedLoanIdsArr } }
+                });
+                
+                const paymentTotalsMap = new Map(
+                  paymentTotals.map(pt => [pt.loanId, safeToNumber(pt._sum.amount || 0)])
+                );
 
+                // ✅ OPTIMIZADO: Actualizar préstamos en lotes
+                const updatePromises = loansToUpdate.map(async (loan) => {
+                  const totalPaid = paymentTotalsMap.get(loan.id) || 0;
                   const rate = safeToNumber((loan as any).loantype?.rate);
                   const requested = safeToNumber((loan as any).requestedAmount);
                   const weekDuration = Number((loan as any).loantype?.weekDuration || 0);
@@ -1717,15 +2322,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   const pending = Math.max(0, totalDebt - totalPaid);
                   const isCompleted = totalPaid >= totalDebt - 0.005; // tolerancia centavos
 
-                  console.log(`🔄 UPDATE: Actualizando préstamo ${loanId}:`, {
-                    totalPaid,
-                    pending,
-                    totalDebt,
-                    isCompleted
-                  });
-
-                  await tx.loan.update({
-                    where: { id: loanId },
+                  return tx.loan.update({
+                    where: { id: loan.id },
                     data: {
                       totalDebtAcquired: totalDebt.toFixed(2),
                       expectedWeeklyPayment: expectedWeekly.toFixed(2),
@@ -1737,7 +2335,11 @@ export const extendGraphqlSchema = graphql.extend(base => {
                       )
                     }
                   });
-                }));
+                });
+
+                // Ejecutar todas las actualizaciones en paralelo
+                await Promise.all(updatePromises);
+                console.log(`✅ Recalculados ${loansToUpdate.length} préstamos exitosamente`);
               }
             } catch (recalcErr) {
               console.error('⚠️ Error recalculando préstamos tras updateCustomLeadPaymentReceived:', recalcErr);
@@ -1750,12 +2352,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
             const newBankPaidAmount = bankPaidAmount;
             const bankAmountChange = newBankPaidAmount - oldBankPaidAmount;
             
-            console.log('🔍 UPDATE: Manejo de transferencias automáticas (solo registros):', {
-              oldBankPaidAmount,
-              newBankPaidAmount, 
-              bankAmountChange,
-              nota: 'Los balances ya fueron ajustados con netBankChange'
-            });
 
             // Buscar transferencias automáticas existentes de este LeadPaymentReceived
             const existingTransferTransactions = await tx.transaction.findMany({
@@ -1767,7 +2363,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
             });
 
             if (existingTransferTransactions.length > 0) {
-              console.log('🔄 UPDATE: Eliminando transferencias automáticas existentes:', existingTransferTransactions.length);
               
               // Eliminar transferencias existentes
               await tx.transaction.deleteMany({
@@ -1781,20 +2376,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 return sum + parseFloat((t.amount || 0).toString());
               }, 0);
 
-              console.log('🧹 UPDATE: Solo eliminando registros de transferencias (sin revertir balances):', {
-                transferenciasEliminadas: existingTransferTransactions.length,
-                montoTotal: totalRevertedAmount,
-                razon: 'netBankChange ya calculó las diferencias correctamente'
-              });
             }
 
-            // Crear nueva transferencia si hay monto bancario
+            // Crear nueva transferencia si hay monto bancario (SIEMPRE registrar la transacción para auditoría)
             if (newBankPaidAmount > 0) {
-              console.log('🔄 UPDATE: Creando nueva transferencia automática por pago mixto:', {
-                amount: newBankPaidAmount,
-                from: 'EMPLOYEE_CASH_FUND',
-                to: 'BANK'
-              });
 
               // Crear transacción de transferencia desde efectivo hacia banco
               await tx.transaction.create({
@@ -1812,12 +2397,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
               });
 
-              // ✅ CORREGIDO: No actualizar balances aquí, netBankChange ya los maneja correctamente
-              console.log('📝 UPDATE: Registro de transferencia automática creado (balances ya ajustados por netBankChange):', {
-                bankPaidAmount: newBankPaidAmount,
-                razon: 'Los balances se actualizaron correctamente con netBankChange arriba',
-                netBankChange: 'ya aplicado en líneas anteriores'
-              });
+              // Nota: Los balances ya se actualizaron vía netCashDelta/netBankDelta; aquí solo dejamos rastro auditable
             }
 
             // ✅ ELIMINADO: Lógica de transacciones de falco - ahora se maneja por separado
@@ -1827,35 +2407,79 @@ export const extendGraphqlSchema = graphql.extend(base => {
             const finalPayments = await tx.loanPayment.findMany({
               where: { leadPaymentReceivedId: id }
             });
-            console.log('🔍 UPDATE: Estado final - Pagos restantes:', Array.isArray(finalPayments) ? finalPayments.length : 'No es array');
-            console.log('🔍 UPDATE: Estado final - IDs de pagos:', Array.isArray(finalPayments) ? finalPayments.map(p => p.id) : 'No es array');
+
+            // ✅ VALIDACIÓN FINAL: Verificar que no queden transacciones huérfanas (EXCEPTO transferencias bancarias)
+            console.log(`🔍 [DEBUG] Verificando transacciones restantes para LeadPaymentReceived: ${id}`);
+            const remainingTransactions = await tx.transaction.findMany({
+              where: { leadPaymentReceivedId: id }
+            });
+
+            if (remainingTransactions.length > 0) {
+              // ✅ CORREGIDO: Separar transferencias bancarias de transacciones huérfanas
+              const transferTransactions = remainingTransactions.filter(t => 
+                t.type === 'TRANSFER' && 
+                t.description?.includes('Transferencia automática por pago mixto')
+              );
+              
+              const orphanTransactions = remainingTransactions.filter(t => 
+                !(t.type === 'TRANSFER' && t.description?.includes('Transferencia automática por pago mixto'))
+              );
+
+              console.log(`🔍 [DEBUG] Transacciones restantes: ${remainingTransactions.length}`);
+              console.log(`🔍 [DEBUG] - Transferencias bancarias (mantener): ${transferTransactions.length}`);
+              console.log(`🔍 [DEBUG] - Transacciones huérfanas (eliminar): ${orphanTransactions.length}`);
+
+              if (orphanTransactions.length > 0) {
+                console.warn(`⚠️ [DEBUG] ADVERTENCIA: Quedan ${orphanTransactions.length} transacciones huérfanas para LeadPaymentReceived ${id}`);
+                console.warn(`⚠️ [DEBUG] Transacciones huérfanas:`, orphanTransactions.map(t => ({ id: t.id, type: t.type, amount: t.amount, paymentMethod: t.incomeSource || t.expenseSource })));
+                
+                // ✅ CORREGIDO: Eliminar solo transacciones huérfanas (NO transferencias bancarias)
+                console.log(`🗑️ [DEBUG] Eliminando ${orphanTransactions.length} transacciones huérfanas...`);
+                const orphanTransactionIds = orphanTransactions.map(t => t.id);
+              
+              const deleteOrphanResult = await tx.transaction.deleteMany({
+                where: { id: { in: orphanTransactionIds } }
+              });
+              
+              console.log(`✅ [DEBUG] Eliminadas ${deleteOrphanResult.count} transacciones huérfanas`);
+              }
+
+              if (transferTransactions.length > 0) {
+                console.log(`✅ [DEBUG] Manteniendo ${transferTransactions.length} transferencias bancarias:`, 
+                  transferTransactions.map(t => ({ id: t.id, amount: t.amount, description: t.description })));
+              }
+            } else {
+              console.log(`✅ [DEBUG] Verificación exitosa: No quedan transacciones restantes`);
+            }
 
             // ✅ REACTIVAR: Hooks de LoanPayment
             (context as any).skipLoanPaymentHooks = false;
 
-            return {
-              id: leadPaymentReceived.id,
-              expectedAmount: parseFloat(leadPaymentReceived.expectedAmount?.toString() || '0'),
-              paidAmount: parseFloat(leadPaymentReceived.paidAmount?.toString() || '0'),
-              cashPaidAmount: parseFloat(leadPaymentReceived.cashPaidAmount?.toString() || '0'),
-              bankPaidAmount: parseFloat(leadPaymentReceived.bankPaidAmount?.toString() || '0'),
-              falcoAmount: 0, // ✅ ELIMINADO: Falco se maneja por separado
-              paymentStatus: leadPaymentReceived.paymentStatus || 'COMPLETE',
-              payments: payments.map((p, index) => ({
-                id: `temp-${index}`, // ID temporal para evitar el error
-                amount: p.amount,
-                comission: p.comission,
-                loanId: p.loanId,
-                type: p.type,
-                paymentMethod: p.paymentMethod
-              })),
-              paymentDate,
-              agentId,
-              leadId,
-            };
-          }, {
-            timeout: 45000 // 45 segundos de timeout de transacción (fallback generoso)
-          });
+                return {
+                  id: leadPaymentReceived.id,
+                  expectedAmount: parseFloat(leadPaymentReceived.expectedAmount?.toString() || '0'),
+                  paidAmount: parseFloat(leadPaymentReceived.paidAmount?.toString() || '0'),
+                  cashPaidAmount: parseFloat(leadPaymentReceived.cashPaidAmount?.toString() || '0'),
+                  bankPaidAmount: parseFloat(leadPaymentReceived.bankPaidAmount?.toString() || '0'),
+                  falcoAmount: 0, // ✅ ELIMINADO: Falco se maneja por separado
+                  paymentStatus: leadPaymentReceived.paymentStatus || 'COMPLETE',
+                  payments: payments.map((p, index) => ({
+                    id: `temp-${index}`, // ID temporal para evitar el error
+                    amount: p.amount,
+                    comission: p.comission,
+                    loanId: p.loanId,
+                    type: p.type,
+                    paymentMethod: p.paymentMethod
+                  })),
+                  paymentDate,
+                  agentId,
+                  leadId,
+                };
+              }, {
+                timeout: dynamicTimeout, // Timeout dinámico basado en cantidad de pagos
+                isolationLevel: 'ReadCommitted' // Nivel de aislamiento más eficiente
+              });
+            });
           } catch (error) {
             // ✅ REACTIVAR: Hooks de LoanPayment en caso de error
             (context as any).skipLoanPaymentHooks = false;
@@ -1869,19 +2493,40 @@ export const extendGraphqlSchema = graphql.extend(base => {
               paymentsCount: payments?.length || 0
             });
             
-            // Manejo específico para error de timeout de transacción
-            if (error instanceof Error && error.message.includes('Transaction already closed')) {
+            // Manejo específico para errores de conexión PostgreSQL
+            if (error instanceof Error && (
+              error.message.includes('Connection closed') ||
+              error.message.includes('Connection terminated') ||
+              error.message.includes('Connection lost') ||
+              error.message.includes('Error in PostgreSQL connection')
+            )) {
               throw new Error(
-                'La operación tardó demasiado tiempo debido a la latencia del servidor. ' +
-                'Por favor, intente procesar menos pagos a la vez o contacte al administrador.'
+                `Error de conexión con la base de datos. La operación se reintentó automáticamente pero falló. ` +
+                `Por favor, intente nuevamente. Si el problema persiste, contacte al administrador. ` +
+                `(Pagos procesados: ${payments?.length || 0})`
+              );
+            }
+            
+            // Manejo específico para error de timeout de transacción
+            if (error instanceof Error && (
+              error.message.includes('Transaction already closed') ||
+              error.message.includes('timeout')
+            )) {
+              const estimatedTimeout = Math.max(120, (payments?.length || 0) * 2);
+              throw new Error(
+                `La operación tardó demasiado tiempo (${estimatedTimeout}s) debido a la latencia del servidor. ` +
+                `Se procesaron ${payments?.length || 0} pagos. ` +
+                `Por favor, intente procesar menos pagos a la vez o contacte al administrador.`
               );
             }
             
             // Manejo específico para error de Prisma P2028
             if (error instanceof Error && 'code' in error && error.code === 'P2028') {
+              const estimatedTimeout = Math.max(120, (payments?.length || 0) * 2);
               throw new Error(
-                'Timeout de transacción: La operación excedió el tiempo límite de 45 segundos. ' +
-                'Esto puede deberse a la latencia de red con el servidor de base de datos.'
+                `Timeout de transacción: La operación excedió el tiempo límite de ${estimatedTimeout} segundos. ` +
+                `Esto puede deberse a la latencia de red con el servidor de base de datos. ` +
+                `Pagos procesados: ${payments?.length || 0}`
               );
             }
             
@@ -2546,14 +3191,14 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 // ✅ AGREGAR: Finalizar préstamo previo si existe
                 if (loanData.previousLoanId) {
                   await tx.loan.update({
-                    where: { id: loanData.previousLoanId },
-                    data: {
-                      status: 'RENOVATED',
-                      finishedDate: new Date(loanData.signDate)
-                      // ✅ NUEVA FUNCIONALIDAD: Establecer fecha de renovación (descomentado después de migración)
-                      // renewedDate: new Date(loanData.signDate)
-                    }
-                  });
+                      where: { id: loanData.previousLoanId },
+                      data: {
+                        status: 'RENOVATED',
+                        finishedDate: new Date(loanData.signDate)
+                        // ✅ NUEVA FUNCIONALIDAD: Establecer fecha de renovación (descomentado después de migración)
+                        // renewedDate: new Date(loanData.signDate)
+                      }
+                    });
                 }
 
                 // ✅ AGREGAR: Recalcular métricas del préstamo
@@ -2649,6 +3294,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 requestedAmount: graphql.arg({ type: graphql.String }),
                 amountGived: graphql.arg({ type: graphql.String }),
                 comissionAmount: graphql.arg({ type: graphql.String }),
+                loantypeId: graphql.arg({ type: graphql.ID }),
                 avalData: graphql.arg({ 
                   type: graphql.inputObject({
                     name: 'UpdateAvalDataInput',
@@ -2690,6 +3336,194 @@ export const extendGraphqlSchema = graphql.extend(base => {
               });
               
               console.log('✅ Préstamo básico actualizado:', updatedLoan.id);
+
+              // ✅ NUEVA FUNCIONALIDAD: Recálculo de abonos si cambió el porcentaje
+                console.log("🔍 DEBUG - loantypeId recibido:", data.loantypeId);
+                console.log("🔍 DEBUG - loantypeId original:", originalLoan?.loantypeId);
+              if (data.loantypeId && originalLoan?.loantypeId !== data.loantypeId) {
+                console.log('🔄 Detectado cambio de porcentaje, recalculando abonos...');
+                
+                // Obtener el nuevo tipo de préstamo
+                const newLoanType = await context.prisma.Loantype.findUnique({
+                  where: { id: data.loantypeId }
+                });
+
+                if (newLoanType) {
+                  // 1. Calcular profit pendiente del préstamo anterior
+                  let profitPendingFromPreviousLoan = 0;
+                  if (updatedLoan.previousLoanId) {
+                    console.log('🔍 Calculando profit pendiente del préstamo anterior:', updatedLoan.previousLoanId);
+                    
+                    // Obtener todas las transacciones del préstamo anterior siguiendo Loan->LoanPayment->Transactions
+                    const previousLoanPayments = await tx.loanPayment.findMany({
+                      where: {
+                        loanId: updatedLoan.previousLoanId
+                      },
+                      include: {
+                        transactions: {
+                          where: {
+                            type: 'INCOME'
+                          }
+                        }
+                      }
+                    });
+                    
+                    // Extraer todas las transacciones de los pagos
+                    const previousLoanTransactions = previousLoanPayments.flatMap(payment => payment.transactions);
+                    
+                    // Sumar todo el profitAmount de las transacciones del préstamo anterior
+                    const totalProfitFromTransactions = previousLoanTransactions.reduce((sum, transaction) => {
+                      return sum + parseFloat(transaction.profitAmount?.toString() || '0');
+                    }, 0);
+                    
+                    // Obtener el profitAmount del préstamo anterior
+                    const previousLoan = await tx.loan.findUnique({
+                      where: { id: updatedLoan.previousLoanId }
+                    });
+                    
+                    if (previousLoan) {
+                      const previousLoanProfitAmount = parseFloat(previousLoan.profitAmount?.toString() || '0');
+                      // El profit pendiente es la diferencia entre el profit total del préstamo y el ya cobrado en transacciones
+                      profitPendingFromPreviousLoan = Math.max(0, previousLoanProfitAmount - totalProfitFromTransactions);
+                      
+                      console.log('📊 Profit del préstamo anterior:', {
+                        previousLoanId: updatedLoan.previousLoanId,
+                        previousLoanProfitAmount,
+                        totalProfitFromTransactions,
+                        profitPendingFromPreviousLoan,
+                        formula: `${previousLoanProfitAmount} - ${totalProfitFromTransactions} = ${profitPendingFromPreviousLoan}`
+                      });
+                    }
+                  } else {
+                    console.log('ℹ️ No hay préstamo anterior, profit pendiente = 0');
+                  }
+                  
+                  // 2. Recalcular profitAmount del préstamo actual + profit pendiente del anterior
+                  const requestedAmount = parseFloat(updatedLoan.requestedAmount.toString());
+                  const interestRate = parseFloat(newLoanType.rate.toString());
+                  const baseProfitAmount = requestedAmount * interestRate;
+                  const newProfitAmount = baseProfitAmount + profitPendingFromPreviousLoan;
+                  
+                  // 3. Calcular totalDebtAcquired: requestedAmount * (1 + rate)
+                  const newTotalDebtAcquired = requestedAmount * (1 + interestRate);
+                  
+                  console.log('💰 Cálculo final del profit y totalDebtAcquired:', {
+                    requestedAmount,
+                    interestRate,
+                    baseProfitAmount,
+                    profitPendingFromPreviousLoan,
+                    newProfitAmount,
+                    newTotalDebtAcquired,
+                    formula: `requestedAmount * (1 + rate) = ${requestedAmount} * (1 + ${interestRate}) = ${newTotalDebtAcquired}`
+                  });
+                  
+                  // Calcular pendingAmountStored y expectedWeeklyPayment
+                  const newPendingAmountStored = newTotalDebtAcquired; // Se recalculará después con los pagos reales
+                  const newExpectedWeeklyPayment = newTotalDebtAcquired / (newLoanType.weekDuration || 1);
+                  // Actualizar el préstamo con los nuevos cálculos
+                  await tx.loan.update({
+                    where: { id: where },
+                    data: {
+                      profitAmount: newProfitAmount.toFixed(2),
+                      expectedWeeklyPayment: newExpectedWeeklyPayment.toFixed(2),
+                      totalDebtAcquired: newTotalDebtAcquired.toFixed(2),
+                      pendingAmountStored: newPendingAmountStored.toFixed(2),
+                      loantype: { connect: { id: data.loantypeId } }
+                    }
+                  });
+                  
+                  console.log('✅ Préstamo actualizado con profitAmount recalculado:', {
+                    loanId: where,
+                    newProfitAmount: newProfitAmount.toFixed(2),
+                    profitPendingFromPreviousLoan,
+                    baseProfitAmount
+                  });
+                  console.log("🔍 DEBUG - Préstamo actualizado con loantypeId:", data.loantypeId);
+                  console.log("🔍 DEBUG - Datos enviados a la actualización:", {
+                    profitAmount: newProfitAmount.toFixed(2),
+                    totalDebtAcquired: newTotalDebtAcquired.toFixed(2),
+                    expectedWeeklyPayment: newExpectedWeeklyPayment.toFixed(2),
+                    pendingAmountStored: newPendingAmountStored.toFixed(2),
+                    loantype: { connect: { id: data.loantypeId } }
+                  });
+
+                  // Obtener todos los abonos del préstamo
+                  const loanPayments = await tx.loanPayment.findMany({
+                    where: { loanId: where },
+                    orderBy: { receivedAt: 'asc' }
+                  });
+
+                  console.log(`📊 Recalculando ${loanPayments.length} abonos...`);
+
+                  // Recalcular cada abono
+                  let totalPaidAmount = 0;
+                  for (const payment of loanPayments) {
+                    const paymentAmount = parseFloat(payment.amount.toString());
+                    
+                    // Calcular returnToCapital y profitAmount usando la nueva lógica
+                    const paymentCalculation = calculateProfitAndReturnToCapital({
+                      paymentAmount,
+                      requestedAmount,
+                      interestRate,
+                      badDebtDate: updatedLoan.badDebtDate,
+                      paymentDate: payment.receivedAt || new Date(),
+                      profitPendingFromPreviousLoan
+                    });
+
+
+                    // Actualizar las transacciones asociadas
+                    const transactions = await tx.transaction.findMany({
+                      where: { loanPaymentId: payment.id }
+                    });
+
+                    for (const transaction of transactions) {
+                      await tx.transaction.update({
+                        where: { id: transaction.id },
+                        data: {
+                          returnToCapital: paymentCalculation.returnToCapital.toFixed(2),
+                          profitAmount: paymentCalculation.profitAmount.toFixed(2)
+                        }
+                      });
+                    }
+
+                    totalPaidAmount += paymentAmount;
+                    console.log(`✅ Abono ${payment.id} recalculado: returnToCapital=${paymentCalculation.returnToCapital}, profitAmount=${paymentCalculation.profitAmount}`);
+                  }
+
+                  console.log('✅ Recálculo de abonos completado');
+                  // Actualizar valores de la tabla de préstamos basándose en los pagos reales
+                  const totalPaidFromTransactions = loanPayments.reduce((sum, payment) => {
+                    return sum + parseFloat(payment.amount.toString());
+                  }, 0);
+                  
+                  // Recalcular newPendingAmountStored con los pagos reales
+                  const finalPendingAmountStored = Math.max(0, newTotalDebtAcquired - totalPaidFromTransactions);
+                  const newTotalPaid = totalPaidFromTransactions;
+                  
+                  // Actualizar el préstamo con los valores reales calculados
+                  await tx.loan.update({
+                    where: { id: where },
+                    data: {
+                      totalPaid: newTotalPaid.toFixed(2),
+                      pendingAmountStored: finalPendingAmountStored.toFixed(2)
+                    }
+                  });
+
+                  console.log(`✅ Préstamo actualizado con valores reales: totalDebtAcquired=${newTotalDebtAcquired}, totalPaid=${newTotalPaid}, pendingAmountStored=${finalPendingAmountStored}`);
+                }
+              }
+              
+              // ✅ ACTUALIZAR LOANTYPE SIEMPRE (incluso si no hay cambio de porcentaje)
+              if (data.loantypeId) {
+                console.log("🔄 Actualizando loantype a:", data.loantypeId);
+                await tx.loan.update({
+                  where: { id: where },
+                  data: {
+                    loantype: { connect: { id: data.loantypeId } }
+                  }
+                });
+                console.log("✅ Loantype actualizado exitosamente");
+              }
 
               // 1.1 Actualizar transacciones asociadas LOAN_GRANTED y LOAN_GRANTED_COMISSION si cambian montos/fecha
               try {
@@ -2737,60 +3571,68 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
               // 1.2 Actualizar balance de cuenta EMPLOYEE_CASH_FUND según delta de montos (usar originalLoan)
               try {
-
                 if (originalLoan) {
-                  const lead = await context.db.Employee.findOne({ where: { id: (originalLoan as any).leadId } });
-                  const account = await context.prisma.account.findFirst({
-                    where: {
-                      routes: { 
-                        some: { id: (lead as any)?.routesId }
-                      },
-                      type: 'EMPLOYEE_CASH_FUND'
+                  const parseAmountNum = (v: any) => parseFloat((v ?? '0').toString());
+
+                  const oldAmount = parseAmountNum((originalLoan as any).amountGived);
+                  const oldCommission = parseAmountNum((originalLoan as any).comissionAmount);
+                  const newAmount = parseAmountNum((data as any).amountGived ?? updatedLoan.amountGived);
+                  const newCommission = parseAmountNum((data as any).comissionAmount ?? updatedLoan.comissionAmount);
+
+                  // ✅ VERIFICAR: Solo actualizar balance si los montos realmente cambiaron
+                  const amountsChanged = (oldAmount !== newAmount) || (oldCommission !== newCommission);
+                  
+                  if (amountsChanged) {
+                    console.log('💰 Detectado cambio en montos, actualizando balance de cuenta...');
+                    
+                    const lead = await context.db.Employee.findOne({ where: { id: (originalLoan as any).leadId } });
+                    const account = await context.prisma.account.findFirst({
+                      where: {
+                        routes: { 
+                          some: { id: (lead as any)?.routesId }
+                        },
+                        type: 'EMPLOYEE_CASH_FUND'
+                      }
+                    });
+
+                    if (account) {
+                      const oldTotal = oldAmount + oldCommission;
+                      const newTotal = newAmount + newCommission;
+                      const balanceChange = oldTotal - newTotal; // mismo criterio que schema.ts
+
+                      const currentAmount = parseFloat(account.amount.toString());
+                      const updatedAmount = currentAmount + balanceChange;
+
+                      console.log('💰 Calculando actualización de cuenta:', {
+                        oldAmount,
+                        oldCommission,
+                        newAmount,
+                        newCommission,
+                        oldTotal,
+                        newTotal,
+                        balanceChange,
+                        currentAmount,
+                        updatedAmount
+                      });
+
+                      const updateResult = await context.db.Account.updateOne({
+                        where: { id: account.id },
+                        data: { amount: updatedAmount.toString() }
+                      });
+
+                      console.log('💰 Cuenta EMPLOYEE_CASH_FUND actualizada:', {
+                        accountId: account.id,
+                        oldTotal,
+                        newTotal,
+                        balanceChange,
+                        updatedAmount,
+                        updateResult
+                      });
+                    } else {
+                      console.log('⚠️ No se encontró cuenta EMPLOYEE_CASH_FUND para la ruta:', (lead as any)?.routesId);
                     }
-                  });
-
-                  if (account) {
-                    const parseAmountNum = (v: any) => parseFloat((v ?? '0').toString());
-
-                    const oldAmount = parseAmountNum((originalLoan as any).amountGived);
-                    const oldCommission = parseAmountNum((originalLoan as any).comissionAmount);
-                    const newAmount = parseAmountNum((data as any).amountGived ?? updatedLoan.amountGived);
-                    const newCommission = parseAmountNum((data as any).comissionAmount ?? updatedLoan.comissionAmount);
-
-                    const oldTotal = oldAmount + oldCommission;
-                    const newTotal = newAmount + newCommission;
-                    const balanceChange = oldTotal - newTotal; // mismo criterio que schema.ts
-
-                    const currentAmount = parseFloat(account.amount.toString());
-                    const updatedAmount = currentAmount + balanceChange;
-
-                    console.log('💰 Calculando actualización de cuenta:', {
-                      oldAmount,
-                      oldCommission,
-                      newAmount,
-                      newCommission,
-                      oldTotal,
-                      newTotal,
-                      balanceChange,
-                      currentAmount,
-                      updatedAmount
-                    });
-
-                    const updateResult = await context.db.Account.updateOne({
-                      where: { id: account.id },
-                      data: { amount: updatedAmount.toString() }
-                    });
-
-                    console.log('💰 Cuenta EMPLOYEE_CASH_FUND actualizada:', {
-                      accountId: account.id,
-                      oldTotal,
-                      newTotal,
-                      balanceChange,
-                      updatedAmount,
-                      updateResult
-                    });
                   } else {
-                    console.log('⚠️ No se encontró cuenta EMPLOYEE_CASH_FUND para la ruta:', (lead as any)?.routesId);
+                    console.log('ℹ️ No hay cambios en los montos, manteniendo balance de cuenta sin cambios');
                   }
                 }
               } catch (e) {
@@ -2821,11 +3663,12 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     }
                   }
 
+                  // Reemplazar completamente el aval existente con el nuevo seleccionado
                   await tx.loan.update({
                     where: { id: where },
-                    data: { collaterals: { set: [], connect: [{ id: avalData.selectedCollateralId }] } }
+                    data: { collaterals: { set: [{ id: avalData.selectedCollateralId }] } }
                   });
-                  console.log('🔗 Aval conectado al préstamo:', avalData.selectedCollateralId);
+                  console.log('🔗 Aval reemplazado en el préstamo:', avalData.selectedCollateralId);
 
                 // 2) Si no hay ID pero action==='create' y hay nombre, crear y conectar
                 } else if (avalData.action === 'create' && avalData.name) {
@@ -2837,16 +3680,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   });
                   await tx.loan.update({
                     where: { id: where },
-                    data: { collaterals: { set: [], connect: [{ id: newAval.id }] } }
+                    data: { collaterals: { set: [{ id: newAval.id }] } }
                   });
-                  console.log('➕ Nuevo aval creado y conectado:', newAval.id);
+                  console.log('➕ Nuevo aval creado y reemplazado:', newAval.id);
 
                 // 3) Si action==='clear', limpiar conexiones
                 } else if (avalData.action === 'clear') {
                   await tx.loan.update({ where: { id: where }, data: { collaterals: { set: [] } } });
-                console.log('🧹 Conexiones de aval limpiadas del préstamo');
+                  console.log('🧹 Conexiones de aval limpiadas del préstamo');
                 } else {
-                  console.log('ℹ️ Sin cambios de aval aplicables.');
+                  console.log('ℹ️ Sin cambios de aval aplicables - manteniendo conexiones existentes.');
                 }
               }
               
@@ -2896,53 +3739,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
               });
               
               console.log('✅ Préstamo actualizado exitosamente con avales:', finalLoan?.id);
-              
-              // 1.2 Actualizar balance de cuenta EMPLOYEE_CASH_FUND según delta de montos
-              try {
-                // Obtener préstamo original para calcular delta
-                const originalLoan = await tx.loan.findUnique({ where: { id: where } });
-                if (originalLoan) {
-                  // Buscar lead y cuenta
-                  const lead = await context.db.Employee.findOne({ where: { id: (originalLoan as any).leadId } });
-                  const account = await context.prisma.account.findFirst({
-                    where: {
-                      routes: { some: { id: (lead as any)?.routesId } },
-                      type: 'EMPLOYEE_CASH_FUND'
-                    }
-                  });
-
-                  if (account) {
-                    const parseAmount = (v: any) => parseFloat((v ?? '0').toString());
-
-                    const oldAmount = parseAmount((originalLoan as any).amountGived);
-                    const oldCommission = parseAmount((originalLoan as any).comissionAmount);
-                    const newAmount = parseAmount((data as any).amountGived ?? updatedLoan.amountGived);
-                    const newCommission = parseAmount((data as any).comissionAmount ?? updatedLoan.comissionAmount);
-
-                    const oldTotal = oldAmount + oldCommission;
-                    const newTotal = newAmount + newCommission;
-                    const balanceChange = oldTotal - newTotal; // mismo signo que schema.ts
-
-                    const currentAmount = parseFloat(account.amount.toString());
-                    const updatedAmount = currentAmount + balanceChange;
-
-                    await context.db.Account.updateOne({
-                      where: { id: account.id },
-                      data: { amount: updatedAmount.toString() }
-                    });
-
-                    console.log('💰 Cuenta EMPLOYEE_CASH_FUND actualizada:', {
-                      accountId: account.id,
-                      oldTotal,
-                      newTotal,
-                      balanceChange,
-                      updatedAmount
-                    });
-                  }
-                }
-              } catch (e) {
-                console.error('⚠️ No se pudo actualizar la cuenta asociada:', e);
-              }
 
               return {
                 success: true,
@@ -2966,73 +3762,423 @@ export const extendGraphqlSchema = graphql.extend(base => {
         type: graphql.nonNull(graphql.String),
         args: { 
           chatId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
-          message: graphql.arg({ type: graphql.nonNull(graphql.String) })
+          message: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          reportConfigId: graphql.arg({ type: graphql.String }),
+          reportConfigName: graphql.arg({ type: graphql.String }),
+          recipientUserId: graphql.arg({ type: graphql.String }),
+          recipientName: graphql.arg({ type: graphql.String }),
+          recipientEmail: graphql.arg({ type: graphql.String })
         },
-        resolve: async (root, { chatId, message }, context: Context) => {
+        resolve: async (root, { 
+          chatId, 
+          message, 
+          reportConfigId = 'unknown',
+          reportConfigName = 'Mensaje de Prueba',
+          recipientUserId = 'unknown',
+          recipientName = 'Usuario Desconocido',
+          recipientEmail = 'unknown@example.com'
+        }, context: Context) => {
+          const startTime = Date.now();
+          const { NotificationLogService } = require('../admin/services/notificationLogService');
+          const logService = new NotificationLogService(context);
+          let logId: string | null = null;
+
           try {
-            console.log('🚀 sendTestTelegramMessage llamado con:', { chatId, message });
+            console.log('🚀 sendTestTelegramMessage llamado con:', { chatId, message, reportConfigName, recipientName });
             
+            // Crear log inicial
+            const initialLog = await logService.createReportLog({
+              reportType: 'mensaje_prueba',
+              reportConfigId,
+              reportConfigName,
+              recipientUserId,
+              recipientName,
+              recipientEmail,
+              telegramChatId: chatId,
+              messageContent: message,
+              status: 'ERROR', // Inicial como error, se actualizará
+              notes: 'Iniciando envío de mensaje de prueba'
+            });
+            logId = initialLog.id;
+            
+            const sendStartTime = Date.now();
             const sent = await sendTelegramMessageToUser(chatId, message);
+            const responseTime = Date.now() - sendStartTime;
             
             if (sent) {
+              await logService.updateLog(logId, {
+                status: 'SENT',
+                sentAt: new Date(),
+                responseTimeMs: responseTime,
+                notes: 'Mensaje de prueba enviado exitosamente'
+              });
               return `✅ Mensaje enviado exitosamente a ${chatId}`;
             } else {
+              await logService.updateLog(logId, {
+                status: 'FAILED',
+                sentAt: new Date(),
+                responseTimeMs: responseTime,
+                notes: 'Error al enviar mensaje de prueba'
+              });
               return `❌ Error al enviar mensaje a ${chatId}`;
             }
           } catch (error) {
             console.error('❌ Error en sendTestTelegramMessage:', error);
+            if (logId) {
+              await logService.updateLog(logId, {
+                status: 'ERROR',
+                telegramErrorMessage: error.message,
+                responseTimeMs: Date.now() - startTime,
+                notes: `Error general: ${error.message}`
+              });
+            }
             return `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
           }
         }
       }),
-      // ✅ NUEVA MUTATION: Enviar reporte con PDF a Telegram (versión temporal sin routeIds)
-      sendReportWithPDF: graphql.field({
-        type: graphql.nonNull(graphql.String),
+      // ✅ NUEVA MUTATION: Generar reporte PDF para descarga
+      generateReportPDF: graphql.field({
+        type: graphql.nonNull(graphql.String), // Retorna base64 del PDF
         args: { 
-          chatId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
-          reportType: graphql.arg({ type: graphql.nonNull(graphql.String) })
+          reportType: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          routeIds: graphql.arg({ type: graphql.list(graphql.String) })
         },
-        resolve: async (root, { chatId, reportType }, context: Context) => {
+        resolve: async (root, { reportType, routeIds = [] }, context: Context) => {
           try {
-            console.log('🚀🚀🚀 MUTACIÓN sendReportWithPDF LLAMADA 🚀🚀🚀');
-            console.log('📋 Parámetros recibidos:', { chatId, reportType });
-            console.log('📋 Tipo de reporte exacto:', `"${reportType}"`);
-            console.log('📋 ¿Es créditos con errores?', reportType === 'creditos_con_errores');
+            console.log('📥 Generando reporte PDF para descarga:', { reportType, routeIds });
             
             // Generar PDF del reporte usando la función con streams y datos reales
-            console.log('📋 Llamando generatePDFWithStreams...');
-            const pdfBuffer = await generatePDFWithStreams(reportType, context, []);
-            console.log('📋 PDF generado, tamaño:', pdfBuffer.length, 'bytes');
-            const filename = `reporte_${reportType}_${Date.now()}.pdf`;
-            const caption = `📊 <b>REPORTE AUTOMÁTICO</b>\n\nTipo: ${reportType}\nGenerado: ${new Date().toLocaleString('es-ES')}\n\n✅ Enviado desde Keystone Admin`;
-            
-            console.log('📱 PDF generado, tamaño:', pdfBuffer.length, 'bytes');
+            const pdfBuffer = await generatePDFWithStreams(reportType, context, routeIds);
+            console.log('📥 PDF generado para descarga, tamaño:', pdfBuffer.length, 'bytes');
             
             // Verificar que el PDF se generó correctamente
             if (pdfBuffer.length === 0) {
               console.error('❌ PDF generado con 0 bytes');
+              throw new Error('No se pudo generar el PDF (0 bytes)');
+            }
+            
+            // Convertir a base64 para enviar al frontend
+            const base64PDF = pdfBuffer.toString('base64');
+            return base64PDF;
+            
+          } catch (error) {
+            console.error('❌ Error generando reporte PDF para descarga:', error);
+            throw new Error(`Error generando reporte: ${error.message}`);
+          }
+        }
+      }),
+      // ✅ NUEVA MUTATION: Enviar reporte con PDF a Telegram (con filtro de rutas)
+      sendReportWithPDF: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        args: { 
+          chatId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          reportType: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          routeIds: graphql.arg({ type: graphql.list(graphql.String) }),
+          reportConfigId: graphql.arg({ type: graphql.String }),
+          reportConfigName: graphql.arg({ type: graphql.String }),
+          recipientUserId: graphql.arg({ type: graphql.String }),
+          recipientName: graphql.arg({ type: graphql.String }),
+          recipientEmail: graphql.arg({ type: graphql.String })
+        },
+        resolve: async (root, { 
+          chatId, 
+          reportType, 
+          routeIds = [], 
+          reportConfigId = 'unknown',
+          reportConfigName = 'Reporte Manual',
+          recipientUserId = 'unknown',
+          recipientName = 'Usuario Desconocido',
+          recipientEmail = 'unknown@example.com'
+        }, context: Context) => {
+          const startTime = Date.now();
+          const { NotificationLogService } = require('../admin/services/notificationLogService');
+          const logService = new NotificationLogService(context);
+          let logId: string | null = null;
+
+          try {
+            console.log('🚀🚀🚀 MUTACIÓN sendReportWithPDF LLAMADA 🚀🚀🚀');
+            console.log('📋 Parámetros recibidos:', { chatId, reportType, routeIds, reportConfigName, recipientName });
+            
+            // Crear log inicial
+            const initialLog = await logService.createReportLog({
+              reportType,
+              reportConfigId,
+              reportConfigName,
+              recipientUserId,
+              recipientName,
+              recipientEmail,
+              telegramChatId: chatId,
+              messageContent: `Reporte PDF: ${reportType}`,
+              status: 'ERROR', // Inicial como error, se actualizará
+              notes: 'Iniciando envío de reporte PDF'
+            });
+            logId = initialLog.id;
+
+            // Generar PDF del reporte usando la función con streams y datos reales
+            console.log('📋 Llamando generatePDFWithStreams...');
+            const pdfBuffer = await generatePDFWithStreams(reportType, context, routeIds);
+            console.log('📋 PDF generado, tamaño:', pdfBuffer.length, 'bytes');
+            const filename = `reporte_${reportType}_${Date.now()}.pdf`;
+            const caption = `📊 <b>REPORTE AUTOMÁTICO</b>\n\nTipo: ${reportType}\nGenerado: ${new Date().toLocaleString('es-ES')}\n\n✅ Enviado desde Keystone Admin`;
+            
+            // Verificar que el PDF se generó correctamente
+            if (pdfBuffer.length === 0) {
+              console.error('❌ PDF generado con 0 bytes');
+              await logService.updateLog(logId, {
+                status: 'FAILED',
+                telegramErrorMessage: 'PDF generado con 0 bytes',
+                responseTimeMs: Date.now() - startTime,
+                notes: 'Error: PDF generado con 0 bytes'
+              });
               return `❌ Error: No se pudo generar el PDF (0 bytes)`;
             }
             
             // Enviar PDF real a Telegram
+            const sendStartTime = Date.now();
             const sent = await sendTelegramFile(chatId, pdfBuffer, filename, caption);
+            const responseTime = Date.now() - sendStartTime;
             
             if (sent) {
+              await logService.updateLog(logId, {
+                status: 'SENT',
+                sentAt: new Date(),
+                responseTimeMs: responseTime,
+                notes: `Reporte PDF enviado exitosamente (${filename}, ${(pdfBuffer.length / 1024).toFixed(2)} KB)`
+              });
               return `✅ Reporte PDF enviado exitosamente a ${chatId} (${filename}, ${(pdfBuffer.length / 1024).toFixed(2)} KB)`;
             } else {
+              await logService.updateLog(logId, {
+                status: 'FAILED',
+                sentAt: new Date(),
+                responseTimeMs: responseTime,
+                notes: 'Error al enviar PDF a Telegram'
+              });
               return `❌ Error al enviar reporte PDF a ${chatId}`;
             }
           } catch (error) {
             console.error('❌ Error en sendReportWithPDF:', error);
+            if (logId) {
+              await logService.updateLog(logId, {
+                status: 'ERROR',
+                telegramErrorMessage: error.message,
+                responseTimeMs: Date.now() - startTime,
+                notes: `Error general: ${error.message}`
+              });
+            }
             return `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
           }
         }
       }),
       
       // ✅ FUNCIONALIDAD SIMPLIFICADA: Marcar créditos como cartera muerta
-      markLoansDeadDebt,
+      markLoansDeadDebt: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        args: {
+          loanIds: graphql.arg({ type: graphql.nonNull(graphql.list(graphql.nonNull(graphql.ID))) }),
+          deadDebtDate: graphql.arg({ type: graphql.nonNull(graphql.String) })
+        },
+        resolve: async (source, { loanIds, deadDebtDate }, context: Context) => {
+          try {
+            const result = await context.prisma.loan.updateMany({
+              where: {
+                id: { in: loanIds },
+                badDebtDate: null
+              },
+              data: {
+                badDebtDate: new Date(deadDebtDate)
+              }
+            });
+            
+            return JSON.stringify({
+              success: true,
+              message: `${result.count} créditos marcados como cartera muerta exitosamente`,
+              updatedCount: result.count
+            });
+          } catch (error) {
+            return JSON.stringify({
+              success: false,
+              message: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              updatedCount: 0
+            });
+          }
+        }
+      }),
+
+      // Mutación para fusionar clientes
+      mergeClients: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        args: {
+          primaryClientId: graphql.arg({ type: graphql.nonNull(graphql.ID) }),
+          secondaryClientId: graphql.arg({ type: graphql.nonNull(graphql.ID) })
+        },
+        resolve: async (root, { primaryClientId, secondaryClientId }, context: Context) => {
+          try {
+            // Verificar que los IDs sean diferentes
+            if (primaryClientId === secondaryClientId) {
+              return 'Error: No se puede fusionar un cliente consigo mismo';
+            }
+
+            // Verificar que ambos clientes existan
+            const primaryClient = await context.prisma.personalData.findUnique({
+              where: { id: primaryClientId },
+              include: {
+                borrower: true,
+                employee: true
+              }
+            });
+
+            const secondaryClient = await context.prisma.personalData.findUnique({
+              where: { id: secondaryClientId },
+              include: {
+                borrower: true,
+                employee: true
+              }
+            });
+
+            if (!primaryClient) {
+              return 'Error: Cliente principal no encontrado';
+            }
+
+            if (!secondaryClient) {
+              return 'Error: Cliente secundario no encontrado';
+            }
+
+            // El cliente secundario puede no tener registros de préstamos como cliente,
+            // pero puede estar registrado solo como aval, lo cual es válido
+
+            // Si el cliente principal no tiene borrower, crear uno
+            if (!primaryClient.borrower) {
+              await context.prisma.borrower.create({
+                data: {
+                  personalDataId: primaryClientId
+                }
+              });
+            }
+
+            // Obtener el borrower del cliente principal
+            const primaryBorrower = await context.prisma.borrower.findUnique({
+              where: { personalDataId: primaryClientId }
+            });
+
+            if (!primaryBorrower) {
+              return 'Error: No se pudo obtener el registro de borrower del cliente principal';
+            }
+
+            // Transferir todos los préstamos del cliente secundario al principal (solo si tiene borrower)
+            if (secondaryClient.borrower) {
+              await context.prisma.loan.updateMany({
+                where: { borrowerId: secondaryClient.borrower.id },
+                data: { borrowerId: primaryBorrower.id }
+              });
+            }
+
+            // Transferir todos los préstamos donde el cliente secundario es aval
+            // Primero encontrar todos los préstamos donde el cliente secundario es aval
+            const loansWithSecondaryAsCollateral = await context.prisma.loan.findMany({
+              where: {
+                collaterals: {
+                  some: {
+                    id: secondaryClientId
+                  }
+                }
+              }
+            });
+
+            // Para cada préstamo, remover el cliente secundario como aval y agregar el principal
+            for (const loan of loansWithSecondaryAsCollateral) {
+              await context.prisma.loan.update({
+                where: { id: loan.id },
+                data: {
+                  collaterals: {
+                    disconnect: { id: secondaryClientId },
+                    connect: { id: primaryClientId }
+                  }
+                }
+              });
+            }
+
+            // Transferir documentos personales
+            await context.prisma.documentPhoto.updateMany({
+              where: { personalDataId: secondaryClientId },
+              data: { personalDataId: primaryClientId }
+            });
+
+            // Transferir direcciones
+            await context.prisma.address.updateMany({
+              where: { personalDataId: secondaryClientId },
+              data: { personalDataId: primaryClientId }
+            });
+
+            // Transferir teléfonos
+            await context.prisma.phone.updateMany({
+              where: { personalDataId: secondaryClientId },
+              data: { personalDataId: primaryClientId }
+            });
+
+            // Eliminar el borrower del cliente secundario
+            if (secondaryClient.borrower) {
+              await context.prisma.borrower.delete({
+                where: { id: secondaryClient.borrower.id }
+              });
+            }
+
+            // Eliminar el cliente secundario
+            await context.prisma.personalData.delete({
+              where: { id: secondaryClientId }
+            });
+
+            return `Clientes fusionados exitosamente. Cliente principal: ${primaryClient.fullName} (${primaryClient.clientCode}), Cliente eliminado: ${secondaryClient.fullName} (${secondaryClient.clientCode})`;
+
+          } catch (error) {
+            console.error('Error al fusionar clientes:', error);
+            return `Error al fusionar clientes: ${error instanceof Error ? error.message : 'Error desconocido'}`;
+          }
+        }
+      }),
+
+      promoteToLead: promoteToLeadResolver,
+
+      createNewLeader: createNewLeaderResolver,
+
+      // ✅ NUEVA MUTATION: Validar Chat ID de Telegram
+      validateTelegramChatId: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        args: {
+          chatId: graphql.arg({ type: graphql.nonNull(graphql.String) })
+        },
+        resolve: async (root, { chatId }, context: Context) => {
+          try {
+            console.log('🔍 [validateTelegramChatId] Validando chat ID:', chatId);
+            
+            const { TelegramService } = require('../admin/services/telegramService');
+            const botToken = process.env.TELEGRAM_BOT_TOKEN;
+            
+            if (!botToken) {
+              return JSON.stringify({
+                isValid: false,
+                error: 'TELEGRAM_BOT_TOKEN no configurado'
+              });
+            }
+
+            const service = new TelegramService({ botToken, chatId });
+            const validation = await service.validateChatId(chatId);
+            
+            console.log('✅ [validateTelegramChatId] Validación completada:', validation);
+            return JSON.stringify(validation);
+          } catch (error) {
+            console.error('❌ [validateTelegramChatId] Error:', error);
+            return JSON.stringify({
+              isValid: false,
+              error: `Error validando chat ID: ${error.message}`
+            });
+          }
+        }
+      })
     },
     query: {
+      // ✅ NUEVA FUNCIONALIDAD: Obtener entradas al banco con filtros
+      getBankIncomeTransactions: getBankIncomeTransactionsResolver,
+      
       // ✅ NUEVA FUNCIONALIDAD: Obtener cumpleaños de líderes por mes
       previewBulkPortfolioCleanup: graphql.field({
         type: graphql.nonNull(graphql.JSON),
@@ -3681,84 +4827,96 @@ export const extendGraphqlSchema = graphql.extend(base => {
               // Determinar si es un gasto en efectivo o bancario
               const isBankExpense = sourceAccount?.type === 'BANK';
               
-              if (isBankExpense) {
-                console.log(`💰 Gasto bancario: ${transaction.expenseSource} - $${amount} para ${leaderKey}`);
-                console.log(`   - Balance banco antes: ${localidades[transactionDate][leaderKey].BANK_BALANCE}`);
-                console.log(`   - NOTA: Los gastos bancarios NO se descuentan del balance bancario (solo se suman ingresos)`);
-                console.log(`   - Balance banco después: ${localidades[transactionDate][leaderKey].BANK_BALANCE}`);
-              }
-              
-              // CORREGIDO: Verificar el tipo de gasto según expenseSource
-              // IMPORTANTE: Los gastos bancarios NO se descuentan del BANK_BALANCE
-              // El BANK_BALANCE solo suma ingresos bancarios
+              // CORREGIDO: Los gastos deben descontar del balance de la cuenta de origen
               if (transaction.expenseSource === 'GASOLINE') {
                 localidades[transactionDate][leaderKey].GASOLINE += amount;
-                // Solo descontar del balance de efectivo si es gasto en efectivo
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'VIATIC') {
                 localidades[transactionDate][leaderKey].VIATIC += amount;
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'ACCOMMODATION') {
                 localidades[transactionDate][leaderKey].ACCOMMODATION += amount;
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'VEHICULE_MAINTENANCE') {
                 localidades[transactionDate][leaderKey].VEHICULE_MAINTENANCE += amount;
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'NOMINA_SALARY') {
                 localidades[transactionDate][leaderKey].NOMINA_SALARY += amount;
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'EXTERNAL_SALARY') {
                 localidades[transactionDate][leaderKey].EXTERNAL_SALARY += amount;
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'CREDITO') {
                 localidades[transactionDate][leaderKey].CREDITO += amount;
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'LOAN_GRANTED') {
                 localidades[transactionDate][leaderKey].LOAN_GRANTED += amount;
-                console.log(`💰 Préstamo otorgado: ${amount} - isBankExpense: ${isBankExpense} para ${leaderKey}`);
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
-                  console.log(`   - CASH_BALANCE después: ${localidades[transactionDate][leaderKey].CASH_BALANCE}`);
                 }
               } else if (transaction.expenseSource === 'LOAN_GRANTED_COMISSION') {
                 localidades[transactionDate][leaderKey].LOAN_GRANTED_COMISSION += amount;
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'LOAN_PAYMENT_COMISSION') {
                 localidades[transactionDate][leaderKey].LOAN_PAYMENT_COMISSION += amount;
-                console.log(`💰 Comisión pago: ${amount} - isBankExpense: ${isBankExpense} para ${leaderKey}`);
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
-                  console.log(`   - CASH_BALANCE después: ${localidades[transactionDate][leaderKey].CASH_BALANCE}`);
                 }
               } else if (transaction.expenseSource === 'LEAD_COMISSION') {
                 localidades[transactionDate][leaderKey].LEAD_COMISSION += amount;
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else if (transaction.expenseSource === 'LEAD_EXPENSE') {
                 localidades[transactionDate][leaderKey].LEAD_EXPENSE += amount;
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               } else {
                 localidades[transactionDate][leaderKey].OTRO += amount;
-                if (!isBankExpense) {
+                if (isBankExpense) {
+                  localidades[transactionDate][leaderKey].BANK_BALANCE -= amount;
+                } else {
                   localidades[transactionDate][leaderKey].CASH_BALANCE -= amount;
                 }
               }
@@ -5674,7 +6832,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   const expectedBefore = weeksElapsed > 0 ? weeksElapsed * (expectedWeekly || 0) : 0;
                   const surplusBefore = paidBeforeWeek - expectedBefore;
 
-                  // Aplicar reglas de contribución (considerando excedente previo)
+                  // ✅ CORRECCIÓN: Aplicar la misma lógica de sobrepago que se usa en historial-cliente.tsx
+                  // Usar la lógica de coverageType de generatePaymentChronology
+                  const coversWithSurplus = (surplusBefore + weeklyPaid) >= expectedWeekly && expectedWeekly > 0;
+                  let coverageType: 'FULL' | 'COVERED_BY_SURPLUS' | 'PARTIAL' | 'MISS' = 'MISS';
+                  if (weeklyPaid >= expectedWeekly) coverageType = 'FULL';
+                  else if (coversWithSurplus && weeklyPaid > 0) coverageType = 'COVERED_BY_SURPLUS';
+                  else if (coversWithSurplus && weeklyPaid === 0) coverageType = 'COVERED_BY_SURPLUS';
+                  else if (weeklyPaid > 0) coverageType = 'PARTIAL';
+
+                  // Aplicar reglas de contribución basadas en coverageType
                   let cvContribution = 0;
                   let cvReason = '';
                   
@@ -5687,15 +6854,20 @@ export const extendGraphqlSchema = graphql.extend(base => {
                         cvReason = 'Semana de otorgamiento (no se espera pago)';
                       } else {
                         // Primera semana de pago: SÍ se espera pago
-                        cvContribution = 1;
-                        cvReason = 'Sin pago en primera semana';
-                        data.cv += 1;
-                        data.cvAmount += Number(loan.amountGived || 0);
+                        if (coverageType === 'COVERED_BY_SURPLUS') {
+                          cvContribution = 0;
+                          cvReason = 'Sin pago (cubierto por sobrepago)';
+                        } else {
+                          cvContribution = 1;
+                          cvReason = 'Sin pago en primera semana';
+                          data.cv += 1;
+                          data.cvAmount += Number(loan.amountGived || 0);
+                        }
                       }
                     } else {
-                      if (surplusBefore >= (expectedWeekly || 0)) {
+                      if (coverageType === 'COVERED_BY_SURPLUS') {
                         cvContribution = 0;
-                        cvReason = 'Excedente previo';
+                        cvReason = 'Sin pago (cubierto por sobrepago)';
                       } else {
                         cvContribution = 1;
                         cvReason = 'Sin pago';
@@ -5704,21 +6876,29 @@ export const extendGraphqlSchema = graphql.extend(base => {
                       }
                     }
                   } else if (expectedWeekly > 0) {
-                    if (weeklyPaid >= expectedWeekly) {
+                    if (coverageType === 'FULL') {
                       cvContribution = 0;
                       cvReason = 'Pago completo';
-                    } else if (surplusBefore >= expectedWeekly) {
+                    } else if (coverageType === 'COVERED_BY_SURPLUS') {
                       cvContribution = 0;
-                      cvReason = 'Excedente previo';
-                    } else if (weeklyPaid < 0.5 * expectedWeekly) {
+                      cvReason = 'Pago parcial (cubierto por sobrepago)';
+                    } else if (coverageType === 'PARTIAL') {
+                      if (weeklyPaid < 0.5 * expectedWeekly) {
+                        cvContribution = 1;
+                        cvReason = 'Pago < 50%';
+                        data.cv += 1;
+                        data.cvAmount += Number(loan.amountGived || 0);
+                      } else {
+                        cvContribution = 0.5;
+                        cvReason = 'Pago 50-100%';
+                        data.cv += 0.5;
+                      }
+                    } else {
+                      // MISS - no hay pago y no hay sobrepago
                       cvContribution = 1;
-                      cvReason = 'Pago < 50%';
+                      cvReason = 'Sin pago';
                       data.cv += 1;
                       data.cvAmount += Number(loan.amountGived || 0);
-                    } else {
-                      cvContribution = 0.5;
-                      cvReason = 'Pago 50-100%';
-                      data.cv += 0.5;
                     }
                   }
 
@@ -5894,9 +7074,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 
                 previousWeekActiveAtEnd[locality] = data.activeAtEnd;
               });
-
               reportData[weekKey] = localitiesData;
-
               // 🔍 DEBUG: Log resumen para semana 3 de Atasta
               if (isAtastaWeek3) {
                 console.log(`\n📊 RESUMEN SEMANA 2 ATASTA:`);
@@ -6313,10 +7491,43 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     const requested = parseFloat(loan.requestedAmount?.toString?.() || `${loan.requestedAmount || 0}`);
                     if (duration > 0) expectedWeekly = (requested * (1 + rate)) / duration;
                   } catch {}
-                  if (weeklyPaid === 0) cvPrev += 1;
-                  else if (expectedWeekly > 0) {
-                    if (weeklyPaid < 0.5 * expectedWeekly) cvPrev += 1;
-                    else if (weeklyPaid < expectedWeekly) cvPrev += 0.5;
+                  // Calcular sobrepago previo
+                  let paidBeforeWeekPrev = 0;
+                  for (const p of loan.payments || []) {
+                    const pd = new Date(p.receivedAt || p.createdAt);
+                    if (pd < weekStartPrev) paidBeforeWeekPrev += Number(p.amount || 0);
+                  }
+                  
+                  // Calcular semanas transcurridas desde la firma hasta la semana anterior
+                  const sign = new Date(loan.signDate);
+                  const signWeekStartPrev = new Date(sign);
+                  while (signWeekStartPrev.getDay() !== 1) {
+                    signWeekStartPrev.setDate(signWeekStartPrev.getDate() - 1);
+                  }
+                  signWeekStartPrev.setHours(0, 0, 0, 0);
+                  
+                  const weeksSinceSignPrev = Math.floor((weekStartPrev.getTime() - signWeekStartPrev.getTime()) / (7 * 24 * 60 * 60 * 1000));
+                  const weeksElapsedPrev = Math.max(0, weeksSinceSignPrev - 1);
+                  const expectedBeforePrev = weeksElapsedPrev > 0 ? weeksElapsedPrev * expectedWeekly : 0;
+                  const surplusBeforePrev = paidBeforeWeekPrev - expectedBeforePrev;
+                  
+                  // Aplicar lógica de coverageType
+                  const coversWithSurplusPrev = (surplusBeforePrev + weeklyPaid) >= expectedWeekly && expectedWeekly > 0;
+                  let coverageTypePrev: 'FULL' | 'COVERED_BY_SURPLUS' | 'PARTIAL' | 'MISS' = 'MISS';
+                  if (weeklyPaid >= expectedWeekly) coverageTypePrev = 'FULL';
+                  else if (coversWithSurplusPrev && weeklyPaid > 0) coverageTypePrev = 'COVERED_BY_SURPLUS';
+                  else if (coversWithSurplusPrev && weeklyPaid === 0) coverageTypePrev = 'COVERED_BY_SURPLUS';
+                  else if (weeklyPaid > 0) coverageTypePrev = 'PARTIAL';
+                  
+                  // Solo contar como CV si NO está cubierto por sobrepago
+                  if (coverageTypePrev === 'MISS') {
+                    cvPrev += 1;
+                  } else if (coverageTypePrev === 'PARTIAL' && expectedWeekly > 0) {
+                    if (weeklyPaid < 0.5 * expectedWeekly) {
+                      cvPrev += 1;
+                    } else if (weeklyPaid < expectedWeekly) {
+                      cvPrev += 0.5;
+                    }
                   }
                 });
                 payingClientsPrevMonth = Math.max(0, activePrevEnd - cvPrev);
@@ -7307,11 +8518,12 @@ export const extendGraphqlSchema = graphql.extend(base => {
         
         return Promise.race([reportPromise, timeoutPromise]);
       } catch (error) {
-        console.error('Error in getFinancialReport:', error);
-        throw new Error(`Error generating financial report: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        console.error('Error en getRouteStats:', error);
+        throw error;
       }
     },
   }),
+  getFinancialReport: getFinancialReport,
       // Query para obtener cartera por ruta
       getCartera: graphql.field({
         type: graphql.nonNull(graphql.JSON),
@@ -7628,6 +8840,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
           try {
             console.log('🔍 Búsqueda de clientes:', { searchTerm, routeId, locationId, limit });
             
+            // Verificar si el usuario es admin
+            const session = context.session as any;
+            const isAdmin = session?.data?.role === 'ADMIN';
+            
             const whereCondition: any = {
               OR: [
                 {
@@ -7635,9 +8851,20 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     contains: searchTerm,
                     mode: 'insensitive'
                   }
+                },
+                {
+                  clientCode: {
+                    contains: searchTerm,
+                    mode: 'insensitive'
+                  }
                 }
               ]
             };
+
+            // Si no es admin, excluir personalData asociados a Users (a través de employee)
+            if (!isAdmin) {
+              whereCondition.employee = null;
+            }
 
             console.log('📋 whereCondition inicial:', JSON.stringify(whereCondition, null, 2));
 
@@ -7679,10 +8906,20 @@ export const extendGraphqlSchema = graphql.extend(base => {
               where: {
                 collaterals: {
                   some: {
-                    fullName: {
-                      contains: searchTerm,
-                      mode: 'insensitive'
-                    }
+                    OR: [
+                      {
+                        fullName: {
+                          contains: searchTerm,
+                          mode: 'insensitive'
+                        }
+                      },
+                      {
+                        clientCode: {
+                          contains: searchTerm,
+                          mode: 'insensitive'
+                        }
+                      }
+                    ]
                   }
                 }
               },
@@ -7715,8 +8952,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 },
                 lead: {
                   include: {
+                    routes: true, // Incluir información de la ruta del líder
                     personalData: {
                       include: {
+                        phones: true, // Incluir teléfonos del líder
                         addresses: {
                           include: {
                             location: {
@@ -7769,8 +9008,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
                         status: true,
                         lead: {
                           include: {
+                            routes: true, // Incluir información de la ruta del líder
                             personalData: {
                               include: {
+                                phones: true, // Incluir teléfonos del líder
                                 addresses: {
                                   include: {
                                     location: {
@@ -7805,6 +9046,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
             }
 
             console.log('✅ Clientes encontrados:', clients.length);
+            
+            // Debug: verificar clientCode
+            if (clients.length > 0) {
+              console.log('🔍 Debug clientCode - Primer cliente:', {
+                id: clients[0].id,
+                fullName: clients[0].fullName,
+                clientCode: clients[0].clientCode,
+                hasClientCode: 'clientCode' in clients[0]
+              });
+            }
 
             // 🔗 Combinar resultados: clientes como deudores + como avalistas
             const combinedResults = new Map();
@@ -7856,13 +9107,33 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
               }
 
+              // Obtener información del líder para ruta y teléfono
+              let leaderRoute = 'N/A';
+              let leaderPhone = 'N/A';
+              
+              if (loans.length > 0) {
+                const latestLoan = loans.reduce((latest, loan) => {
+                  const loanDate = new Date(loan.signDate);
+                  const latestDate = new Date(latest.signDate);
+                  return loanDate > latestDate ? loan : latest;
+                });
+                
+                if (latestLoan.lead?.routes?.name) {
+                  leaderRoute = latestLoan.lead.routes.name;
+                }
+                
+                if (latestLoan.lead?.personalData?.phones?.[0]?.number) {
+                  leaderPhone = latestLoan.lead.personalData.phones[0].number;
+                }
+              }
+
               combinedResults.set(client.id, {
                 id: client.id,
                 name: client.fullName || 'Sin nombre',
-                dui: 'N/A', // Campo no disponible en PersonalData
-                phone: client.phones[0]?.number || 'N/A',
+                clientCode: client.clientCode || 'Sin clave', // Usar clientCode real
+                phone: leaderPhone, // Teléfono del líder
                 address: client.addresses[0] ? `${client.addresses[0].location?.name || 'Sin localidad'}` : 'N/A',
-                route: client.addresses[0]?.location?.route?.name || 'N/A',
+                route: leaderRoute, // Ruta del líder
                 location: location,
                 municipality: municipality,
                 state: state,
@@ -7916,6 +9187,15 @@ export const extendGraphqlSchema = graphql.extend(base => {
                         existingClient.state = leadLocation.municipality?.state?.name || 'Sin estado';
                         existingClient.city = loan.lead.personalData.addresses[0].street || 'Sin dirección';
                       }
+                      
+                      // Actualizar ruta y teléfono del líder si este préstamo es más reciente
+                      if (loan.lead?.routes?.name) {
+                        existingClient.route = loan.lead.routes.name;
+                      }
+                      
+                      if (loan.lead?.personalData?.phones?.[0]?.number) {
+                        existingClient.phone = loan.lead.personalData.phones[0].number;
+                      }
                     }
                   }
                 }
@@ -7955,9 +9235,17 @@ export const extendGraphqlSchema = graphql.extend(base => {
         },
         resolve: async (root, { clientId, routeId, locationId }, context: Context) => {
           try {
+            // Verificar si el usuario es admin
+            const session = context.session as any;
+            const isAdmin = session?.data?.role === 'ADMIN';
+            
             // Obtener datos del cliente
             const client = await context.prisma.personalData.findUnique({
-              where: { id: clientId },
+              where: { 
+                id: clientId,
+                // Si no es admin, excluir personalData asociados a Users (a través de employee)
+                ...(isAdmin ? {} : { employee: null })
+              },
               include: {
                 phones: true,
                 addresses: {
@@ -7977,7 +9265,24 @@ export const extendGraphqlSchema = graphql.extend(base => {
                         loantype: true,
                         lead: {
                           include: {
-                            personalData: true,
+                            personalData: {
+                              include: {
+                                phones: true,
+                                addresses: {
+                                  include: {
+                                    location: {
+                                      include: {
+                                        municipality: {
+                                          include: {
+                                            state: true
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
                             routes: true
                           }
                         },
@@ -7991,6 +9296,11 @@ export const extendGraphqlSchema = graphql.extend(base => {
                           where: {
                             type: { in: ['EXPENSE', 'INCOME'] }
                           }
+                        },
+                        collaterals: {
+                          include: {
+                            phones: { select: { number: true } }
+                          }
                         }
                       },
                       orderBy: { signDate: 'desc' }
@@ -8002,6 +9312,11 @@ export const extendGraphqlSchema = graphql.extend(base => {
 
             if (!client) {
               throw new Error('Cliente no encontrado');
+            }
+
+            // Si no es admin y el cliente está asociado a un User (a través de employee), denegar acceso
+            if (!isAdmin && client.employee) {
+              throw new Error('Acceso denegado: Información privada de usuario');
             }
 
             // Obtener préstamos como cliente (a través de borrower)
@@ -8023,7 +9338,24 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 loantype: true,
                 lead: {
                   include: {
-                    personalData: true,
+                    personalData: {
+                      include: {
+                        phones: true,
+                        addresses: {
+                          include: {
+                            location: {
+                              include: {
+                                municipality: {
+                                  include: {
+                                    state: true
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
                     routes: true
                   }
                 },
@@ -8045,7 +9377,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 },
                 collaterals: {
                   include: {
-                    phones: true,
+                    phones: { select: { number: true } },
                     addresses: {
                       include: {
                         location: true
@@ -8317,8 +9649,20 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 noPaymentPeriods: noPaymentPeriods,
                 renewedFrom: loan.previousLoanId,
                 renewedTo: null, // Se calculará después
-                avalName: loan.avalName || null,
-                avalPhone: loan.avalPhone || null
+                avalName: (() => {
+                  if (loan.collaterals && loan.collaterals.length > 0) {
+                    const primaryCollateral = loan.collaterals[0];
+                    return primaryCollateral.fullName || null;
+                  }
+                  return null;
+                })(),
+                avalPhone: (() => {
+                  if (loan.collaterals && loan.collaterals.length > 0) {
+                    const primaryCollateral = loan.collaterals[0];
+                    return primaryCollateral.phones?.[0]?.number || null;
+                  }
+                  return null;
+                })()
               };
             };
 
@@ -8350,18 +9694,62 @@ export const extendGraphqlSchema = graphql.extend(base => {
             const totalAmountPaidAsClient = loansAsClient.reduce((sum, loan) => sum + loan.totalPaid, 0);
             const currentPendingDebtAsClient = loansAsClient.reduce((sum, loan) => sum + (loan.status === 'ACTIVO' ? loan.pendingDebt : 0), 0);
 
+            // Obtener información del líder del préstamo más reciente (igual que en searchClients)
+            let leaderInfo = {
+              name: 'N/A',
+              route: 'N/A',
+              location: 'N/A',
+              municipality: 'N/A',
+              state: 'N/A',
+              phone: 'N/A'
+            };
+
+            if (clientLoans.length > 0) {
+              const latestLoan = clientLoans.reduce((latest, loan) => {
+                const loanDate = new Date(loan.signDate);
+                const latestDate = new Date(latest.signDate);
+                return loanDate > latestDate ? loan : latest;
+              });
+
+              console.log('🔍 DEBUG - latestLoan.lead:', latestLoan.lead);
+              console.log('🔍 DEBUG - latestLoan.lead.personalData:', latestLoan.lead?.personalData);
+              console.log('🔍 DEBUG - latestLoan.lead.personalData.addresses:', latestLoan.lead?.personalData?.addresses);
+
+              if (latestLoan.lead?.personalData) {
+                const lead = latestLoan.lead;
+                leaderInfo.name = lead.personalData.fullName || 'N/A';
+                leaderInfo.route = lead.routes?.name || 'N/A';
+                
+                // Obtener información de localidad del líder (igual que en searchClients)
+                if (lead.personalData.addresses?.[0]?.location) {
+                  const leadLocation = lead.personalData.addresses[0].location;
+                  leaderInfo.location = leadLocation.name || 'Sin localidad';
+                  leaderInfo.municipality = leadLocation.municipality?.name || 'Sin municipio';
+                  leaderInfo.state = leadLocation.municipality?.state?.name || 'Sin estado';
+                }
+                
+                // Obtener teléfono del líder
+                if (lead.personalData.phones?.[0]?.number) {
+                  leaderInfo.phone = lead.personalData.phones[0].number;
+                }
+              }
+            }
+
+            console.log('🔍 DEBUG - leaderInfo final:', leaderInfo);
+
             return {
               client: {
                 id: client.id,
                 fullName: client.fullName,
-                dui: 'N/A', // Campo no disponible en PersonalData
+                clientCode: client.clientCode || 'Sin clave', // Usar clientCode real
                 phones: client.phones.map((phone: any) => phone.number),
                 addresses: client.addresses.map((address: any) => ({
                   street: address.street,
                   city: address.city,
                   location: address.location?.name,
                   route: address.location?.route?.name
-                }))
+                })),
+                leader: leaderInfo
               },
               summary: {
                 totalLoansAsClient,
@@ -8451,7 +9839,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
           return 'Estado de Telegram verificado - Revisa la consola del servidor';
         }
       }),
-
       // ✅ FUNCIONALIDAD SIMPLIFICADA: Cartera muerta
       loansForDeadDebt: graphql.field({
         type: graphql.nonNull(graphql.String),
@@ -8535,8 +9922,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
                         payments: {
                       none: { receivedAt: { gte: weeksWithoutPaymentMinDate } }
                         }
+                  }
+            }
                       },
-                      {
+                  {
                         // Créditos que no tienen ningún pago
                     payments: { none: {} }
                   }
@@ -9784,19 +11173,19 @@ export const extendGraphqlSchema = graphql.extend(base => {
         args: {
           reportType: graphql.arg({ type: graphql.nonNull(graphql.String) }),
           reportData: graphql.arg({ type: graphql.nonNull(graphql.JSON) }),
-          recipients: graphql.arg({ type: graphql.list(graphql.nonNull(graphql.String)) })
+          telegramUsers: graphql.arg({ type: graphql.list(graphql.nonNull(graphql.String)) })
         },
-        resolve: async (root, { reportType, reportData, recipients }, context: Context) => {
+        resolve: async (root, { reportType, reportData, telegramUsers }, context: Context) => {
           try {
-            console.log('📊 Enviando reporte de Telegram:', { reportType, reportData, recipients });
+            console.log('📊 Enviando reporte de Telegram:', { reportType, reportData, telegramUsers });
             
             // Obtener usuarios destinatarios
             let targetUsers;
-            if (recipients && recipients.length > 0) {
+            if (telegramUsers && telegramUsers.length > 0) {
               // Enviar a usuarios específicos
               targetUsers = await (context.prisma as any).telegramUser.findMany({
                 where: {
-                  chatId: { in: recipients },
+                  chatId: { in: telegramUsers },
                   isActive: true
                 }
               });
@@ -9853,7 +11242,89 @@ export const extendGraphqlSchema = graphql.extend(base => {
         }
       }),
 
+      // ✅ NUEVA MUTATION: Diagnosticar configuración de Telegram
+      diagnoseTelegramConfiguration: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        resolve: async (root, args, context: Context) => {
+          try {
+            console.log('🔍 [diagnoseTelegramConfiguration] Iniciando diagnóstico...');
+            
+            const { TelegramService } = require('../admin/services/telegramService');
+            const botToken = process.env.TELEGRAM_BOT_TOKEN;
+            
+            if (!botToken) {
+              return JSON.stringify({
+                isValid: false,
+                errors: ['TELEGRAM_BOT_TOKEN no configurado'],
+                warnings: []
+              });
+            }
+
+            const service = new TelegramService({ botToken, chatId: 'dummy' });
+            const diagnosis = await service.diagnoseConfiguration();
+            
+            console.log('✅ [diagnoseTelegramConfiguration] Diagnóstico completado:', diagnosis);
+            return JSON.stringify(diagnosis);
+          } catch (error) {
+            console.error('❌ [diagnoseTelegramConfiguration] Error:', error);
+            return JSON.stringify({
+              isValid: false,
+              errors: [`Error en diagnóstico: ${error.message}`],
+              warnings: []
+            });
+          }
+        }
+      }),
+
+
       // Mutation simple para enviar reporte ahora
+      // Upsert configuración de notificaciones
+      upsertNotificationConfig: graphql.field({
+        type: graphql.nonNull(graphql.String),
+        args: {
+          data: graphql.arg({ type: graphql.nonNull(graphql.JSON) })
+        },
+        resolve: async (root, { data }, context: Context) => {
+          try {
+            // Buscar configuración existente
+            const existingConfig = await (context.prisma as any).notificationConfig.findFirst();
+            
+            if (existingConfig) {
+              // Actualizar configuración existente
+              await (context.prisma as any).notificationConfig.update({
+                where: { id: existingConfig.id },
+                data: {
+                  name: data.name,
+                  isActive: data.isActive,
+                  sendErrorNotifications: data.sendErrorNotifications,
+                  sendMissingNotifications: data.sendMissingNotifications,
+                  errorNotificationMessage: data.errorNotificationMessage,
+                  missingNotificationMessage: data.missingNotificationMessage,
+                  updatedAt: new Date()
+                }
+              });
+              return JSON.stringify({ id: existingConfig.id, ...data });
+            } else {
+              // Crear nueva configuración
+              const newConfig = await (context.prisma as any).notificationConfig.create({
+                data: {
+                  name: data.name,
+                  isActive: data.isActive,
+                  sendErrorNotifications: data.sendErrorNotifications,
+                  sendMissingNotifications: data.sendMissingNotifications,
+                  errorNotificationMessage: data.errorNotificationMessage,
+                  missingNotificationMessage: data.missingNotificationMessage
+                }
+              });
+              return JSON.stringify({ id: newConfig.id, ...data });
+            }
+          } catch (error) {
+            console.error('❌ Error upserting notification config:', error);
+            throw new Error(`Error saving notification config: ${error.message}`);
+          }
+        }
+      }),
+
       sendReportNow: graphql.field({
         type: graphql.nonNull(graphql.String),
         args: {
@@ -9879,7 +11350,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
             // Obtener usuarios de la plataforma que son destinatarios
             const platformRecipients = await (context.prisma as any).user.findMany({
               where: {
-                id: { in: reportConfig.recipients?.map(r => r.id) || [] }
+                id: { in: reportConfig.telegramUsers?.map(u => u.id) || [] }
               }
             });
 
@@ -9941,7 +11412,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
             return `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
           }
         }
-      }),
+      })
     }
   };
 });
@@ -10119,7 +11590,7 @@ function generateTestPDF(reportType: string, data: any = {}): Buffer {
 }
 
 // ✅ FUNCIÓN ALTERNATIVA PARA GENERAR PDF (USANDO STREAMS)
-async function generatePDFWithStreams(reportType: string, context: Context, routeIds: string[] = []): Promise<Buffer> {
+export async function generatePDFWithStreams(reportType: string, context: Context, routeIds: string[] = []): Promise<Buffer> {
   return new Promise(async (resolve, reject) => {
     try {
       const PDFDocument = require('pdfkit');
@@ -10197,10 +11668,6 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
   try {
     console.log('🎯 Iniciando generación de reporte de créditos con documentos con error...');
     
-    // Calcular fecha de hace 2 meses
-    const twoMonthsAgo = new Date();
-    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
-    
     // Filtro de rutas específicas si se proporcionan
     const routeFilter = routeIds.length > 0 ? {
       lead: {
@@ -10210,12 +11677,9 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
       }
     } : {};
     
-    // Obtener todos los créditos de los últimos 2 meses con información completa
+    // Obtener TODOS los créditos con información completa (sin filtro de fecha para incluir histórico completo)
     const allRecentCredits = await context.prisma.loan.findMany({
       where: {
-        signDate: {
-          gte: twoMonthsAgo
-        },
         ...routeFilter
       },
       include: {
@@ -10258,9 +11722,11 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
       ]
     });
 
-    console.log(`📊 Encontrados ${allRecentCredits.length} créditos en los últimos 2 meses`);
+    console.log(`📊 Encontrados ${allRecentCredits.length} créditos en total (histórico completo)`);
 
     // Procesar y organizar datos para la tabla
+    // IMPORTANTE: Solo se incluyen documentos que YA FUERON REVISADOS y marcados como problemáticos
+    // (isError: true o isMissing: true). Los documentos sin revisar NO aparecen en el reporte.
     const tableData: any[] = [];
     
     for (const credit of allRecentCredits) {
@@ -10272,36 +11738,77 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
       const clientName = credit.borrower?.personalData?.fullName || 'Sin nombre';
       const signDate = new Date(credit.signDate);
       
-      // Analizar documentos del cliente
-      const clientDocuments = credit.documentPhotos || [];
-      const clientDocErrors = clientDocuments.filter(doc => doc.isError);
+      const borrowerPersonalDataId = credit.borrower?.personalData?.id;
+
+      // Analizar documentos del cliente - SOLO los que ya fueron revisados y tienen problemas
+      const clientDocuments = borrowerPersonalDataId
+        ? (credit.documentPhotos || []).filter(doc => doc.personalDataId === borrowerPersonalDataId)
+        : [];
+      const clientDocErrors = clientDocuments.filter(doc => doc.isError === true);
+      const clientMissingDocs = clientDocuments.filter(doc => doc.isMissing === true);
       
-      // Verificar documentos faltantes del cliente
-      const requiredDocTypes = ['INE', 'DOMICILIO', 'PAGARE'];
-      const clientAvailableTypes = clientDocuments.map(doc => doc.documentType);
-      const clientMissingDocs = requiredDocTypes.filter(type => !clientAvailableTypes.includes(type));
+      // Analizar documentos del aval (si existe) - SOLO los que ya fueron revisados y tienen problemas
+      // IMPORTANTE: Los documentos del aval están asociados al PersonalData del aval, no al Loan específico
+      // Por lo tanto, mostramos los documentos del aval solo si están asociados a este crédito específico
+      const avalPersonalDataId = credit.collaterals?.[0]?.id;
+      const avalDocuments = avalPersonalDataId ? 
+        (credit.documentPhotos || []).filter(doc => doc.personalDataId === avalPersonalDataId) : [];
+      const avalDocErrors = avalDocuments.filter(doc => doc.isError === true);
+      const avalMissingDocs = avalDocuments.filter(doc => doc.isMissing === true);
       
-      // Analizar documentos del aval (si existe)
-      const avalDocuments = credit.collaterals?.[0]?.documentPhotos || [];
-      const avalDocErrors = avalDocuments.filter(doc => doc.isError);
-      const avalAvailableTypes = avalDocuments.map(doc => doc.documentType);
-      const avalMissingDocs = requiredDocTypes.filter(type => !avalAvailableTypes.includes(type));
+      // Log básico solo para créditos con problemas
+      if (clientDocErrors.length > 0 || clientMissingDocs.length > 0 || avalDocErrors.length > 0 || avalMissingDocs.length > 0) {
+        console.log(`🔍 [GraphQL] Crédito con problemas: ${credit.id} (${clientName}) - Errores: ${clientDocErrors.length + avalDocErrors.length}, Faltantes: ${clientMissingDocs.length + avalMissingDocs.length}`);
+      }
       
-      // Solo incluir si hay problemas
+      // Solo incluir si hay problemas REALES (documentos ya revisados con errores o faltantes)
       const hasClientProblems = clientDocErrors.length > 0 || clientMissingDocs.length > 0;
       const hasAvalProblems = avalDocErrors.length > 0 || avalMissingDocs.length > 0;
+      
+      // Log para debugging
+      if (clientDocuments.length > 0 || avalDocuments.length > 0) {
+        console.log(`🔍 Crédito ${credit.id} - Cliente: ${clientName}`);
+        console.log(`   📄 Documentos cliente: ${clientDocuments.length} total`);
+        console.log(`   ❌ Con error: ${clientDocErrors.length}`);
+        console.log(`   ⚠️ Faltantes: ${clientMissingDocs.length}`);
+        console.log(`   📄 Documentos aval: ${avalDocuments.length} total`);
+        console.log(`   ❌ Con error aval: ${avalDocErrors.length}`);
+        console.log(`   ⚠️ Faltantes aval: ${avalMissingDocs.length}`);
+        console.log(`   ✅ Incluir en reporte: ${hasClientProblems || hasAvalProblems}`);
+        
+        // Log detallado de documentos para debugging
+        if (clientDocuments.length > 0) {
+          console.log(`   📋 Detalles documentos cliente:`);
+          clientDocuments.forEach((doc, index) => {
+            console.log(`      ${index + 1}. ${doc.documentType} - isError: ${doc.isError}, isMissing: ${doc.isMissing}`);
+          });
+        }
+        if (avalDocuments.length > 0) {
+          console.log(`   📋 Detalles documentos aval:`);
+          avalDocuments.forEach((doc, index) => {
+            console.log(`      ${index + 1}. ${doc.documentType} - isError: ${doc.isError}, isMissing: ${doc.isMissing}`);
+          });
+        }
+      }
       
       if (hasClientProblems || hasAvalProblems) {
         // Agregar fila para problemas del cliente
         if (hasClientProblems) {
-          const errorDescriptions = clientDocErrors.map(doc => `${doc.documentType} con error`);
-          const missingDescriptions = clientMissingDocs.map(type => `${type} faltante`);
+          // Generar descripciones con observaciones entre paréntesis
+          const errorDescriptions = clientDocErrors.map(doc => {
+            const observation = doc.errorDescription ? ` (${doc.errorDescription})` : '';
+            return `${doc.documentType} con error${observation}`;
+          });
+          const missingDescriptions = clientMissingDocs.map(doc => {
+            return `${doc.documentType} faltante`;
+          });
           const allProblems = [...errorDescriptions, ...missingDescriptions];
           
-          const detailedObservations = clientDocErrors
-            .map(doc => doc.errorDescription)
-            .filter(Boolean)
-            .join('; ') || 'Sin observaciones específicas';
+          // Log detallado para debugging
+          console.log(`   🔧 Generando descripciones para ${clientName}:`);
+          console.log(`      📝 Error descriptions: [${errorDescriptions.join(', ')}]`);
+          console.log(`      📝 Missing descriptions: [${missingDescriptions.join(', ')}]`);
+          console.log(`      📝 All problems: [${allProblems.join(', ')}]`);
           
           tableData.push({
             locality,
@@ -10309,22 +11816,22 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
             clientName,
             signDate,
             problemType: 'CLIENTE',
-            problemDescription: allProblems.join('; '),
-            observations: detailedObservations
+            problemDescription: allProblems.join('; ')
           });
         }
         
         // Agregar fila para problemas del aval
         if (hasAvalProblems && credit.collaterals?.[0]) {
           const avalName = credit.collaterals[0].fullName || 'Aval sin nombre';
-          const avalErrorDescriptions = avalDocErrors.map(doc => `${doc.documentType} con error`);
-          const avalMissingDescriptions = avalMissingDocs.map(type => `${type} faltante`);
+          // Generar descripciones con observaciones entre paréntesis
+          const avalErrorDescriptions = avalDocErrors.map(doc => {
+            const observation = doc.errorDescription ? ` (${doc.errorDescription})` : '';
+            return `${doc.documentType} con error${observation}`;
+          });
+          const avalMissingDescriptions = avalMissingDocs.map(doc => {
+            return `${doc.documentType} faltante`;
+          });
           const allAvalProblems = [...avalErrorDescriptions, ...avalMissingDescriptions];
-          
-          const avalDetailedObservations = avalDocErrors
-            .map(doc => doc.errorDescription)
-            .filter(Boolean)
-            .join('; ') || 'Sin observaciones específicas';
           
           tableData.push({
             locality,
@@ -10332,8 +11839,7 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
             clientName: `${clientName} (Aval: ${avalName})`,
             signDate,
             problemType: 'AVAL',
-            problemDescription: allAvalProblems.join('; '),
-            observations: avalDetailedObservations
+            problemDescription: allAvalProblems.join('; ')
           });
         }
       }
@@ -10351,22 +11857,16 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
     });
     doc.moveDown(1.5);
     
-    // Información del período
-    const reportStartDate = new Date();
-    reportStartDate.setMonth(reportStartDate.getMonth() - 2);
-    doc.fontSize(12).fillColor('#64748b').text(`Período de Análisis: ${reportStartDate.toLocaleDateString('es-ES')} - ${new Date().toLocaleDateString('es-ES')}`, 50, doc.y, { 
-      width: 500, 
-      align: 'center' 
-    });
-    
-    // Información de rutas
-    if (routeIds.length > 0) {
-      doc.fontSize(10).fillColor('#64748b').text(`Rutas analizadas: ${routeIds.length} ruta(s) específica(s)`, { align: 'center' });
+    doc.moveDown(1);
+
+    // 🔍 DEBUG: Mostrar resumen final
+    console.log(`📊 [GraphQL] Procesamiento completado. Total de registros en tabla: ${tableData.length}`);
+    if (tableData.length === 0) {
+      console.log(`⚠️ [GraphQL] ADVERTENCIA: No se encontraron créditos con documentos problemáticos`);
+      console.log(`📋 [GraphQL] Verificar que existan documentos marcados con isError=true o isMissing=true`);
     } else {
-      doc.fontSize(10).fillColor('#64748b').text('Análisis: Todas las rutas del sistema', { align: 'center' });
+      console.log(`✅ [GraphQL] Se encontraron ${tableData.length} créditos con documentos problemáticos`);
     }
-    
-    doc.moveDown(2);
 
     // Si no hay datos reales, mostrar mensaje de éxito
     if (tableData.length === 0) {
@@ -10394,10 +11894,7 @@ async function generateCreditsWithDocumentErrorsReportContent(doc: any, context:
 
     console.log(`📊 Generando tabla moderna con ${tableData.length} registros...`);
     
-    // Generar estadísticas de resumen antes de la tabla
-    await generateExecutiveSummary(doc, tableData);
-    
-    // Generar tabla moderna mejorada
+    // Generar tabla moderna directamente
     await generateModernDocumentErrorTable(doc, tableData);
     
     console.log('✅ Reporte de créditos con errores generado exitosamente');
@@ -10536,17 +12033,16 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
     const pageWidth = 512; // Ancho total disponible (612 - 100 márgenes)
     const startX = 50;
     const headerHeight = 35;
-    const rowHeight = 50;
+    const rowHeight = 120; // Altura significativamente mayor para acomodar observaciones completas
     let currentY = doc.y;
     
-    // Configuración de columnas con más espacio para observaciones
+    // Configuración de columnas sin observaciones (se incluyen en problemas)
     const columns = [
-      { header: 'RUTA', width: 60, align: 'left' },
-      { header: 'LOCALIDAD', width: 90, align: 'left' },
-      { header: 'CLIENTE', width: 130, align: 'left' },
-      { header: 'TIPO', width: 50, align: 'center' },
-      { header: 'PROBLEMAS', width: 90, align: 'left' },
-      { header: 'OBSERVACIONES', width: 192, align: 'left' }
+      { header: 'RUTA', width: 80, align: 'left' },
+      { header: 'LOCALIDAD', width: 100, align: 'left' },
+      { header: 'CLIENTE', width: 150, align: 'left' },
+      { header: 'TIPO', width: 60, align: 'center' },
+      { header: 'PROBLEMAS', width: 180, align: 'left' } // Reducir aún más para evitar corte
     ];
     
     // Función para dibujar header moderno
@@ -10598,8 +12094,7 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
         data.locality || 'N/A', 
         data.clientName || 'N/A',
         data.problemType || 'N/A',
-        data.problemDescription || 'N/A',
-        data.observations || 'N/A'
+        data.problemDescription || 'N/A'
       ];
       
       // Dibujar celdas con contenido optimizado
@@ -10625,33 +12120,96 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
             align: 'center' 
           });
         }
-        // Columna de problemas con formato especial
+        // Columna de problemas con formato especial y manejo de observaciones
         else if (index === 4) {
           const problems = cellText.split(';').filter(p => p.trim());
+          
+          // Log para debugging del renderizado
+          console.log(`   🎨 Renderizando problemas para ${data.clientName}:`);
+          console.log(`      📝 Cell text: "${cellText}"`);
+          console.log(`      📝 Problems array: [${problems.map(p => `"${p}"`).join(', ')}]`);
+          console.log(`      📝 Problems count: ${problems.length}`);
+          
           doc.fontSize(8);
           let textY = y + 8;
           
-          for (let i = 0; i < Math.min(problems.length, 3); i++) {
+          for (let i = 0; i < problems.length; i++) {
             const problem = problems[i].trim();
+            
+            // Log para debugging del bucle de renderizado
+            console.log(`      🔄 Procesando problema ${i + 1}: "${problem}"`);
+            
+            // Log para debugging del espacio disponible
+            console.log(`         📏 Espacio disponible: textY=${textY}, y=${y}, rowHeight=${rowHeight}, límite=${y + rowHeight - 10}`);
+            
             if (textY < y + rowHeight - 10) {
-                          if (problem.includes('con error')) {
-              doc.fillColor('#dc2626');
-              doc.text(`ERROR: ${problem.replace('con error', '').trim()}`, x + 4, textY, { width: col.width - 8 });
-            } else if (problem.includes('faltante')) {
-              doc.fillColor('#ea580c');
-              doc.text(`FALTA: ${problem.replace('faltante', '').trim()}`, x + 4, textY, { width: col.width - 8 });
+              if (problem.includes('con error')) {
+                console.log(`         ✅ Detectado como ERROR: "${problem}"`);
+                // Separar el tipo de documento de la observación
+                const parts = problem.split(' (');
+                const docType = parts[0].replace('con error', '').trim();
+                const observation = parts.length > 1 ? parts[1].replace(')', '').trim() : '';
+                
+                doc.fillColor('#dc2626');
+                doc.text(`ERROR: ${docType}`, x + 4, textY, { width: col.width - 20 });
+                textY += 12;
+                
+                // Si hay observación, mostrarla en la siguiente línea
+                if (observation && textY < y + rowHeight - 15) {
+                  doc.fontSize(7).fillColor('#dc2626');
+                  // Mostrar observación con salto de línea automático y ancho más conservador
+                  const observationText = `(${observation})`;
+                  const availableWidth = col.width - 24; // Margen muy generoso para evitar corte
+                  
+                  // Renderizar observación con cálculo manual de líneas
+                  const lineHeight = 8;
+                  const maxCharsPerLine = Math.floor(availableWidth / 4); // Aproximación de caracteres por línea
+                  const words = observationText.split(' ');
+                  let currentLine = '';
+                  let lineCount = 0;
+                  
+                  for (const word of words) {
+                    const testLine = currentLine + (currentLine ? ' ' : '') + word;
+                    if (testLine.length > maxCharsPerLine && currentLine) {
+                        // Renderizar línea actual
+                        doc.text(currentLine, x + 8, textY + (lineCount * lineHeight), { width: availableWidth });
+                        currentLine = word;
+                        lineCount++;
+                    } else {
+                        currentLine = testLine;
+                    }
+                  }
+                  
+                  // Renderizar última línea
+                  if (currentLine) {
+                    doc.text(currentLine, x + 8, textY + (lineCount * lineHeight), { width: availableWidth });
+                    lineCount++;
+                  }
+                  
+                  // Ajustar textY basado en el número de líneas generadas
+                  textY += lineCount * lineHeight + 4; // Espacio adicional entre problemas
+                  
+                  // Log para debugging del cálculo de textY
+                  console.log(`         📐 Cálculo textY: lineCount=${lineCount}, lineHeight=${lineHeight}, textY anterior=${textY - (lineCount * lineHeight + 4)}, textY nuevo=${textY}`);
+                }
+              } else if (problem.includes('faltante')) {
+                console.log(`         ⚠️ Detectado como FALTANTE: "${problem}"`);
+                const docType = problem.replace('faltante', '').trim();
+                doc.fillColor('#ea580c');
+                doc.text(`FALTA: ${docType}`, x + 4, textY, { width: col.width - 20 });
+                textY += 12;
               } else {
+                console.log(`         ❓ Detectado como OTRO: "${problem}"`);
                 doc.fillColor('#374151');
-                doc.text(`• ${problem}`, x + 4, textY, { width: col.width - 8 });
+                doc.text(`• ${problem}`, x + 4, textY, { width: col.width - 20 });
+                textY += 12;
               }
-              textY += 12;
+            } else {
+              console.log(`         ❌ NO HAY ESPACIO SUFICIENTE para renderizar: "${problem}"`);
             }
           }
           
-          if (problems.length > 3) {
-            doc.fontSize(7).fillColor('#64748b');
-            doc.text(`+${problems.length - 3} más...`, x + 4, textY, { width: col.width - 8 });
-          }
+          // Ya no mostramos "+X más..." - ahora mostramos todos los problemas
         }
         // Otras columnas con formato estándar
         else {
@@ -10696,7 +12254,9 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
     // Agrupar datos por semana para mejor organización
     const weekGroups = new Map<string, any[]>();
     tableData.forEach(row => {
-      const weekStart = getWeekStart(row.signDate);
+      // Usar la fecha del crédito para calcular la semana correcta
+      const creditDate = new Date(row.signDate);
+      const weekStart = getWeekStart(creditDate);
       const weekKey = weekStart.toISOString().split('T')[0];
       if (!weekGroups.has(weekKey)) {
         weekGroups.set(weekKey, []);
@@ -10713,8 +12273,8 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
       const weekData = weekGroups.get(weekKey) || [];
       const weekStart = new Date(weekKey);
       
-      // Nueva página si es necesario
-      if (currentY > 650) {
+      // Nueva página si es necesario (considerando la altura de las filas)
+      if (currentY > 500) {
         doc.addPage();
         await addModernCompanyHeader(doc);
         doc.fontSize(16).fillColor('#1e40af').text('REPORTE DE CRÉDITOS (Continuación)', 50, doc.y, { align: 'center' });
@@ -10729,16 +12289,23 @@ async function generateModernDocumentErrorTable(doc: any, tableData: any[]): Pro
       doc.strokeColor('#0284c7').lineWidth(1).rect(startX, weekHeaderY, pageWidth, 25).stroke();
       
       doc.fontSize(11).fillColor('#0284c7');
-      doc.text(`Semana del ${weekStart.toLocaleDateString('es-ES')}`, startX + 10, weekHeaderY + 8);
+      const weekEnd = new Date(weekKey);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      const weekStartFormatted = weekStart.toLocaleDateString('es-ES');
+      const weekEndFormatted = weekEnd.toLocaleDateString('es-ES');
+      doc.text(`Semana del ${weekStartFormatted} - ${weekEndFormatted}`, startX + 10, weekHeaderY + 8);
       doc.text(`(${weekData.length} registro${weekData.length !== 1 ? 's' : ''})`, startX + 300, weekHeaderY + 8);
       
       currentY = weekHeaderY + 25;
       
       // Dibujar filas de la semana
       for (const rowData of weekData) {
-        if (currentY > 650) {
+        // Verificar si hay espacio suficiente para la fila (considerando la altura aumentada)
+        if (currentY + rowHeight > 700) {
           doc.addPage();
           await addModernCompanyHeader(doc);
+          doc.fontSize(16).fillColor('#1e40af').text('REPORTE DE CRÉDITOS (Continuación)', 50, doc.y, { align: 'center' });
+          doc.moveDown(2);
           currentY = doc.y;
           currentY = drawModernTableHeader(currentY);
         }
@@ -10883,6 +12450,24 @@ function sanitizeText(text: string): string {
     .replace(/\s+/g, ' ') // Normalizar espacios múltiples
     .trim()
     .substring(0, 80); // Limitar longitud
+}
+
+// ✅ FUNCIÓN PARA TRUNCAR TEXTO DE MANERA INTELIGENTE
+function truncateText(text: string, maxLength: number): string {
+  if (!text) return '';
+  if (text.length <= maxLength) return text;
+  
+  // Buscar el último espacio antes del límite para no cortar palabras
+  const truncated = text.substring(0, maxLength - 3);
+  const lastSpace = truncated.lastIndexOf(' ');
+  
+  if (lastSpace > maxLength * 0.7) {
+    // Si el último espacio está cerca del final, cortar ahí
+    return text.substring(0, lastSpace) + '...';
+  } else {
+    // Si no, cortar directamente
+    return truncated + '...';
+  }
 }
 // ✅ FUNCIÓN PARA GENERAR TABLA REAL DE DOCUMENTOS CON ERROR (VERSIÓN LIMPIA)
 async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGroups: Map<string, any[]>) {
@@ -11032,7 +12617,10 @@ async function generateRealDocumentErrorTable(doc: any, tableData: any[], weekGr
     
     // Header de semana
     doc.fontSize(10).fillColor('#1e40af');
-    doc.text(`Semana del ${weekStart.toLocaleDateString('es-ES')} (${weekData.length} registros)`, startX, currentY + 5);
+    const weekEnd = getWeekEnd(weekStart);
+    const weekStartFormatted = weekStart.toLocaleDateString('es-ES');
+    const weekEndFormatted = weekEnd.toLocaleDateString('es-ES');
+    doc.text(`Semana del ${weekStartFormatted} - ${weekEndFormatted} (${weekData.length} registros)`, startX, currentY + 5);
     doc.fillColor('black');
     currentY += 18;
     
@@ -11198,7 +12786,10 @@ async function generateDocumentErrorTableContent(doc: any, tableData: any[], wee
       
       // Header de semana con estilo profesional
       doc.fontSize(10).fillColor('#1e40af');
-      const weekText = `Semana del ${weekStart.toLocaleDateString('es-ES')} (${weekData.length} registros)`;
+      const weekEnd = getWeekEnd(weekStart);
+      const weekStartFormatted = weekStart.toLocaleDateString('es-ES');
+      const weekEndFormatted = weekEnd.toLocaleDateString('es-ES');
+      const weekText = `Semana del ${weekStartFormatted} - ${weekEndFormatted} (${weekData.length} registros)`;
       doc.text(weekText, startX, currentY + 5);
       doc.fillColor('black');
       currentY += 20;
@@ -11244,6 +12835,15 @@ function getWeekStart(date: Date): Date {
   d.setDate(diff);
   d.setHours(0, 0, 0, 0);
   return d;
+}
+
+// ✅ FUNCIÓN AUXILIAR PARA OBTENER EL FIN DE LA SEMANA (DOMINGO)
+function getWeekEnd(date: Date): Date {
+  const weekStart = getWeekStart(date);
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6); // Agregar 6 días para llegar al domingo
+  weekEnd.setHours(23, 59, 59, 999);
+  return weekEnd;
 }
 
 // ✅ FUNCIÓN PARA ENVIAR ARCHIVO A TELEGRAM
@@ -11309,3 +12909,155 @@ function getMonday(date: Date): Date {
   const diff = d.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is Sunday
   return new Date(d.setDate(diff));
 }
+
+// Mutación para crear un teléfono
+export const createPhone = graphql.field({
+  type: graphql.object<{
+    id: string;
+    number: string;
+    personalData: {
+      id: string;
+      fullName: string;
+    };
+  }>()({
+    name: 'Phone',
+    fields: {
+      id: graphql.field({ type: graphql.nonNull(graphql.ID) }),
+      number: graphql.field({ type: graphql.String }),
+      personalData: graphql.field({
+        type: graphql.object<{
+          id: string;
+          fullName: string;
+        }>()({
+          name: 'PersonalData',
+          fields: {
+            id: graphql.field({ type: graphql.nonNull(graphql.ID) }),
+            fullName: graphql.field({ type: graphql.String }),
+          },
+        }),
+      }),
+    },
+  }),
+  args: {
+    data: graphql.arg({
+      type: graphql.nonNull(graphql.inputObject({
+        name: 'PhoneCreateInput',
+        fields: {
+          number: graphql.arg({ type: graphql.String }),
+          personalData: graphql.arg({ 
+            type: graphql.inputObject({
+              name: 'PersonalDataConnectInput',
+              fields: {
+                connect: graphql.arg({
+                  type: graphql.inputObject({
+                    name: 'PersonalDataWhereUniqueInput',
+                    fields: {
+                      id: graphql.arg({ type: graphql.nonNull(graphql.ID) }),
+                    },
+                    isOneOf: false,
+                  }),
+                }),
+              },
+              isOneOf: false,
+            })
+          }),
+        },
+        isOneOf: false,
+      })),
+    }),
+  },
+  resolve: async (root, { data }, context) => {
+    const { number, personalData } = data;
+    
+    const phone = await context.prisma.phone.create({
+      data: {
+        number,
+        personalData: {
+          connect: {
+            id: personalData?.connect?.id,
+          },
+        },
+      },
+      include: {
+        personalData: {
+          select: {
+            id: true,
+            fullName: true,
+          },
+        },
+      },
+    });
+
+    return phone;
+  },
+});
+
+// Mutación para actualizar un teléfono
+export const updatePhone = graphql.field({
+  type: graphql.object<{
+    id: string;
+    number: string;
+    personalData: {
+      id: string;
+      fullName: string;
+    };
+  }>()({
+    name: 'Phone',
+    fields: {
+      id: graphql.field({ type: graphql.nonNull(graphql.ID) }),
+      number: graphql.field({ type: graphql.String }),
+      personalData: graphql.field({
+        type: graphql.object<{
+          id: string;
+          fullName: string;
+        }>()({
+          name: 'PersonalData',
+          fields: {
+            id: graphql.field({ type: graphql.nonNull(graphql.ID) }),
+            fullName: graphql.field({ type: graphql.String }),
+          },
+        }),
+      }),
+    },
+  }),
+  args: {
+    where: graphql.arg({
+      type: graphql.nonNull(graphql.inputObject({
+        name: 'PhoneWhereUniqueInput',
+        fields: {
+          id: graphql.arg({ type: graphql.nonNull(graphql.ID) }),
+        },
+        isOneOf: false,
+      })),
+    }),
+    data: graphql.arg({
+      type: graphql.nonNull(graphql.inputObject({
+        name: 'PhoneUpdateInput',
+        fields: {
+          number: graphql.arg({ type: graphql.String }),
+        },
+        isOneOf: false,
+      })),
+    }),
+  },
+  resolve: async (root, { where, data }, context) => {
+    const { number } = data;
+    
+    const phone = await context.prisma.phone.update({
+      where: { id: where.id },
+      data: {
+        number,
+      },
+      include: {
+        personalData: {
+          select: {
+            id: true,
+            fullName: true,
+          },
+        },
+      },
+    });
+
+    return phone;
+  },
+});

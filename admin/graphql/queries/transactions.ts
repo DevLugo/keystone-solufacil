@@ -93,3 +93,86 @@ export const GET_EXPENSES_BY_DATE_SIMPLE = gql`
     }
   }
 `;
+
+// Query para obtener todos los gastos del mes con información completa para administración
+export const GET_MONTHLY_EXPENSES_ADMIN = gql`
+  query GetMonthlyExpensesAdmin($startDate: DateTime!, $endDate: DateTime!, $routeIds: [ID!]) {
+    transactions(where: {
+      AND: [
+        { date: { gte: $startDate } },
+        { date: { lt: $endDate } },
+        { type: { equals: "EXPENSE" } },
+        { expenseSource: { notIn: ["LOAN_GRANTED", "LOAN_PAYMENT_COMISSION", "LOAN_GRANTED_COMISSION"] } },
+        { 
+          OR: [
+            { route: { id: { in: $routeIds } } },
+            { sourceAccount: { routes: { some: { id: { in: $routeIds } } } } }
+          ]
+        }
+      ]
+    }
+    orderBy: { date: desc }
+    ) {
+      id
+      amount
+      type
+      expenseSource
+      description
+      date
+      expenseGroupId
+      route { 
+        id 
+        name
+      }
+      sourceAccount {
+        id
+        name
+        type
+        amount
+        routes {
+          id
+          name
+        }
+      }
+      lead {
+        id
+        personalData {
+          fullName
+        }
+      }
+    }
+  }
+`;
+
+// Query para obtener KPIs de gastos por tipo y cuenta
+export const GET_EXPENSES_KPIS = gql`
+  query GetExpensesKPIs($startDate: DateTime!, $endDate: DateTime!, $routeIds: [ID!]) {
+    transactions(where: {
+      AND: [
+        { date: { gte: $startDate } },
+        { date: { lt: $endDate } },
+        { type: { equals: "EXPENSE" } },
+        { expenseSource: { notIn: ["LOAN_GRANTED", "LOAN_PAYMENT_COMISSION", "LOAN_GRANTED_COMISSION"] } },
+        { 
+          OR: [
+            { route: { id: { in: $routeIds } } },
+            { sourceAccount: { routes: { some: { id: { in: $routeIds } } } } }
+          ]
+        }
+      ]
+    }) {
+      id
+      amount
+      expenseSource
+      sourceAccount {
+        id
+        name
+        type
+      }
+      route {
+        id
+        name
+      }
+    }
+  }
+`;

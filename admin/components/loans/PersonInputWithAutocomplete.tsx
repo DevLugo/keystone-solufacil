@@ -279,17 +279,19 @@ const PersonInputWithAutocomplete: React.FC<PersonInputWithAutocompleteProps> = 
 
   // Handlers
   const handleNameChange = useCallback((value: string) => {
-    setName(value);
+    // ✅ Convertir automáticamente a mayúsculas
+    const upperCaseValue = value.toUpperCase();
+    setName(upperCaseValue);
     
-    if (enableAutocomplete && value.length >= 2) {
+    if (enableAutocomplete && upperCaseValue.length >= 2) {
       searchPotentialCollaterals({ 
-        variables: searchVariables || { searchTerm: value }
+        variables: searchVariables || { searchTerm: upperCaseValue }
       });
     } else {
       setSearchResults([]);
     }
     
-    onNameChange(value);
+    onNameChange(upperCaseValue);
   }, [enableAutocomplete, searchPotentialCollaterals, searchVariables, onNameChange]);
 
   const handlePhoneChange = useCallback((value: string) => {

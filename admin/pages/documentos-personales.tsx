@@ -3,13 +3,13 @@
 /** @jsxFrag React.Fragment */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Box, jsx, Stack, Text } from '@keystone-ui/core';
+import { Box, jsx, Text } from '@keystone-ui/core';
 import { Button } from '@keystone-ui/button';
 import { TextInput, Select } from '@keystone-ui/fields';
 import { LoadingDots } from '@keystone-ui/loading';
 import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
 import { AlertDialog } from '@keystone-ui/modals';
-import { FaSearch, FaEye, FaEdit, FaTrash, FaUser, FaUserTie, FaMoneyBillWave, FaCalendarAlt, FaMapMarkerAlt, FaFilter } from 'react-icons/fa';
+import { FaSearch, FaUser, FaUserTie, FaCalendarAlt, FaMapMarkerAlt, FaFilter } from 'react-icons/fa';
 import { useQuery, useMutation } from '@apollo/client';
 import { gql } from '@apollo/client';
 import { PageContainer } from '@keystone-6/core/admin-ui/components';
@@ -18,6 +18,7 @@ import { ImageModal } from '../components/documents/ImageModal';
 import { UploadModal } from '../components/documents/UploadModal';
 import { DocumentsModal } from '../components/documents/DocumentsModal';
 import { ErrorModal } from '../components/documents/ErrorModal';
+import { ToastContainer, ToastProps } from '../components/Toast';
 import { UPDATE_PERSONAL_DATA_NAME, UPDATE_PERSONAL_DATA_PHONE, CREATE_PERSONAL_DATA_PHONE, UPDATE_DOCUMENT_PHOTO_MISSING } from '../graphql/mutations/personalData';
 
 // Query para obtener rutas
@@ -81,6 +82,24 @@ const GET_LOANS_WITH_DOCUMENTS = gql`
         routes {
           id
           name
+        }
+      }
+      collaterals {
+        id
+        fullName
+        phones {
+          id
+          number
+        }
+        addresses {
+          location {
+            name
+            municipality {
+              state {
+                name
+              }
+            }
+          }
         }
       }
       documentPhotos {
@@ -210,6 +229,21 @@ interface Loan {
     };
     routes: Array<{ id: string; name: string }>;
   };
+  collaterals: Array<{
+    id: string;
+    fullName: string;
+    phones: Array<{ id: string; number: string }>;
+    addresses: Array<{
+      location: {
+        name: string;
+        municipality: {
+          state: {
+            name: string;
+          };
+        };
+      };
+    }>;
+  }>;
   documentPhotos: DocumentPhoto[];
 }
 
@@ -235,9 +269,12 @@ export default function DocumentosPersonalesPage() {
   // Estados para el DatePicker de semanas
     const [selectedDate, setSelectedDate] = useState<Date>(() => {
     try {
-      const now = new Date();
-      now.setHours(0, 0, 0, 0);
-      return now;
+      // Inicializar con la semana anterior (no la semana actual)
+      const today = new Date();
+      const weekStart = new Date(today);
+      weekStart.setDate(today.getDate() - (today.getDay() + 6) - 7); // -7 días para ir a la semana anterior
+      weekStart.setHours(0, 0, 0, 0);
+      return weekStart;
     } catch (error) {
       return new Date('2025-01-01T00:00:00.000Z');
     }
@@ -245,10 +282,10 @@ export default function DocumentosPersonalesPage() {
 
   // Estado para el selector de semanas
   const [selectedWeek, setSelectedWeek] = useState<{ label: string; value: string } | null>(() => {
-    // Inicializar con la semana actual
+    // Inicializar con la semana anterior (no la semana actual)
     const today = new Date();
     const weekStart = new Date(today);
-    weekStart.setDate(today.getDate() - (today.getDay() + 6));
+    weekStart.setDate(today.getDate() - (today.getDay() + 6) - 7); // -7 días para ir a la semana anterior
     weekStart.setHours(0, 0, 0, 0);
     
     const weekEnd = new Date(weekStart);
@@ -261,12 +298,12 @@ export default function DocumentosPersonalesPage() {
     return { label, value };
   });
 
-  // Generar opciones de semanas (últimas 12 semanas)
+  // Generar opciones de semanas (últimas 12 semanas, excluyendo la semana en curso)
   const weekOptions = useMemo(() => {
     const options = [];
     const today = new Date();
     
-    for (let i = 0; i < 12; i++) {
+    for (let i = 1; i <= 12; i++) {
       const weekStart = new Date(today);
       weekStart.setDate(today.getDate() - (today.getDay() + 6) - (i * 7));
       weekStart.setHours(0, 0, 0, 0);
@@ -323,21 +360,25 @@ export default function DocumentosPersonalesPage() {
     personalDataId: string;
     loanId: string;
     personName: string;
+    loan?: any;
   }>({
     isOpen: false,
     documentType: 'INE',
     personType: 'TITULAR',
     personalDataId: '',
     loanId: '',
-    personName: ''
+    personName: '',
+    loan: null
   });
 
   const [documentsModal, setDocumentsModal] = useState<{
     isOpen: boolean;
     loan: Loan | null;
+    temporarilyClosed: boolean; // Para manejar el cierre temporal cuando se abre el modal de subir
   }>({
     isOpen: false,
-    loan: null
+    loan: null,
+    temporarilyClosed: false
   });
 
   const [errorModal, setErrorModal] = useState<{
@@ -360,6 +401,24 @@ export default function DocumentosPersonalesPage() {
     personalDataId: string;
     phoneId?: string;
   } | null>(null);
+
+  // Estados para toasts
+  const [toasts, setToasts] = useState<ToastProps[]>([]);
+
+  // Funciones para manejar toasts
+  const addToast = (toast: Omit<ToastProps, 'id' | 'onClose'>) => {
+    const id = Date.now().toString();
+    const newToast: ToastProps = {
+      ...toast,
+      id,
+      onClose: removeToast
+    };
+    setToasts(prev => [...prev, newToast]);
+  };
+
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id));
+  };
 
   // Función para obtener el fin de la semana (domingo) basada en la fecha de inicio
   const getEndOfWeek = (startDate: Date): Date => {
@@ -387,7 +446,7 @@ export default function DocumentosPersonalesPage() {
       date: selectedDate.toISOString(),
       nextDate: getEndOfWeek(selectedDate).toISOString()
     },
-    fetchPolicy: 'cache-and-network'
+    fetchPolicy: 'network-only'
   });
 
   // Mutations
@@ -477,6 +536,7 @@ export default function DocumentosPersonalesPage() {
     documentType: 'INE' | 'DOMICILIO' | 'PAGARE';
     personalDataId: string;
     loanId: string;
+    personType?: 'TITULAR' | 'AVAL';
     isError: boolean;
     errorDescription: string;
   }) => {
@@ -498,10 +558,38 @@ export default function DocumentosPersonalesPage() {
         }
       });
 
+      // Mostrar toast de éxito
+      addToast({
+        type: 'success',
+        title: 'Documento subido exitosamente',
+        message: `${data.documentType} de ${data.title} se ha guardado correctamente`,
+        duration: 4000
+      });
+
       // Refrescar datos
-      refetch();
+      await refetch();
+
+      // Reabrir el modal de documentos si estaba temporalmente cerrado
+      if (documentsModal.temporarilyClosed && documentsModal.loan) {
+        setTimeout(() => {
+          setDocumentsModal(prev => ({
+            ...prev,
+            isOpen: true,
+            temporarilyClosed: false
+          }));
+        }, 200); // Delay un poco más largo para asegurar que el modal de subir se cierre completamente
+      }
     } catch (error) {
       console.error('Error al crear documento:', error);
+      
+      // Mostrar toast de error
+      addToast({
+        type: 'error',
+        title: 'Error al subir documento',
+        message: error instanceof Error ? error.message : 'Ocurrió un error inesperado',
+        duration: 6000
+      });
+      
       throw error;
     }
   };
@@ -511,6 +599,14 @@ export default function DocumentosPersonalesPage() {
     try {
       await deleteDocumentPhoto({
         variables: { id: documentId }
+      });
+
+      // Mostrar toast de éxito
+      addToast({
+        type: 'success',
+        title: 'Documento eliminado',
+        message: 'El documento se ha eliminado correctamente',
+        duration: 3000
       });
 
       // Actualizar estado local inmediatamente
@@ -525,18 +621,26 @@ export default function DocumentosPersonalesPage() {
       refetch();
     } catch (error) {
       console.error('Error al eliminar documento:', error);
-      alert('Error al eliminar el documento');
+      
+      // Mostrar toast de error
+      addToast({
+        type: 'error',
+        title: 'Error al eliminar documento',
+        message: 'No se pudo eliminar el documento. Inténtalo de nuevo.',
+        duration: 5000
+      });
     }
   };
 
   // Función para manejar el estado de error del documento
   const handleDocumentError = async (documentId: string, isError: boolean, errorDescription?: string) => {
     try {
+      const normalizedDescription = isError ? (errorDescription ?? '') : '';
       await updateDocumentPhotoError({
         variables: { 
           id: documentId, 
           isError, 
-          errorDescription: errorDescription || null 
+          errorDescription: normalizedDescription 
         }
       });
 
@@ -580,7 +684,8 @@ export default function DocumentosPersonalesPage() {
     documentType: 'INE' | 'DOMICILIO' | 'PAGARE',
     personalDataId: string,
     loanId: string,
-    personName: string
+    personName: string,
+    personType: 'TITULAR' | 'AVAL'
   ) => {
     try {
       await createDocumentPhoto({
@@ -622,18 +727,13 @@ export default function DocumentosPersonalesPage() {
       // Usar la descripción del error del documento real, no la que viene del componente
       const existingErrorDescription = document.errorDescription || '';
       
-      if (isError) {
-        // Si ya está marcado como error, mostrar/editar el error
-        openErrorModal(documentId, document.documentType, personType, existingErrorDescription);
-      } else {
-        // Si no está marcado como error, abrir modal para nuevo error
-        openErrorModal(documentId, document.documentType, personType, '');
-      }
+      // Siempre abrir el modal de error, que manejará tanto marcar como desmarcar
+      openErrorModal(documentId, document.documentType, personType, existingErrorDescription);
     }
   };
 
   // Función para abrir modal de confirmación de eliminación
-  const handleDocumentDelete = (documentId: string, documentTitle: string) => {
+  const handleDocumentDelete = (documentId: string, documentTitle: string, documentType?: 'INE' | 'DOMICILIO' | 'PAGARE', personalDataId?: string) => {
     setDeleteConfirmDialog({
       isOpen: true,
       documentId,
@@ -688,23 +788,54 @@ export default function DocumentosPersonalesPage() {
     personType: 'TITULAR' | 'AVAL',
     personalDataId: string,
     loanId: string,
-    personName: string
+    personName: string,
+    loan?: any
   ) => {
-    setUploadModal({
-      isOpen: true,
-      documentType,
-      personType,
-      personalDataId,
-      loanId,
-      personName
-    });
+    // Cerrar temporalmente el modal de documentos si está abierto
+    if (documentsModal.isOpen) {
+      setDocumentsModal(prev => ({
+        ...prev,
+        isOpen: false,
+        temporarilyClosed: true
+      }));
+      
+      // Pequeño delay para asegurar que el modal de documentos se cierre antes de abrir el de subir
+      setTimeout(() => {
+        setUploadModal({
+          isOpen: true,
+          documentType,
+          personType,
+          personalDataId,
+          loanId,
+          personName,
+          loan
+        });
+      }, 100);
+    } else {
+      // Si el modal de documentos no está abierto, abrir directamente el modal de subir
+      setUploadModal({
+        isOpen: true,
+        documentType,
+        personType,
+        personalDataId,
+        loanId,
+        personName,
+        loan
+      });
+    }
   };
 
   // Función para abrir modal de documentos
   const openDocumentsModal = (loan: Loan) => {
+    // Cerrar el modal de subir si está abierto
+    if (uploadModal.isOpen) {
+      setUploadModal({ ...uploadModal, isOpen: false });
+    }
+    
     setDocumentsModal({
       isOpen: true,
-      loan
+      loan,
+      temporarilyClosed: false
     });
   };
 
@@ -712,7 +843,8 @@ export default function DocumentosPersonalesPage() {
   const closeDocumentsModal = () => {
     setDocumentsModal({
       isOpen: false,
-      loan: null
+      loan: null,
+      temporarilyClosed: false
     });
   };
 
@@ -747,6 +879,18 @@ export default function DocumentosPersonalesPage() {
       closeErrorModal();
     } catch (error) {
       console.error('Error al marcar documento como error:', error);
+    }
+  };
+
+  // Función para desmarcar error
+  const unmarkError = async () => {
+    if (!errorModal.documentId) return;
+
+    try {
+      await handleDocumentError(errorModal.documentId, false, '');
+      closeErrorModal();
+    } catch (error) {
+      console.error('Error al desmarcar documento como error:', error);
     }
   };
 
@@ -785,7 +929,7 @@ export default function DocumentosPersonalesPage() {
         // Actualizar teléfono existente
         await updatePersonalDataPhone({
           variables: {
-            id: phoneId,
+            where: { id: phoneId },
             data: { number: newPhone }
           }
         });
@@ -816,8 +960,9 @@ export default function DocumentosPersonalesPage() {
     const titularDocs = documents.filter((doc: any) => 
       doc.personalData.id === loan.borrower.personalData.id
     );
+    // Los documentos del aval son los que pertenecen a los collaterals
     const avalDocs = documents.filter((doc: any) => 
-      doc.personalData.id === loan.lead.personalData.id
+      loan.collaterals.some((collateral: any) => collateral.id === doc.personalData.id)
     );
     
     // Función auxiliar para verificar si un tipo de documento está revisado
@@ -985,10 +1130,12 @@ export default function DocumentosPersonalesPage() {
         maxWidth: '100%',
         paddingLeft: '8px',
         paddingRight: '8px',
+        paddingBottom: '40px', // Espacio adicional en la parte inferior
         overflow: 'hidden',
         '@media (max-width: 768px)': {
           paddingLeft: '4px',
-          paddingRight: '4px'
+          paddingRight: '4px',
+          paddingBottom: '60px' // Más espacio en móviles para asegurar que el botón se vea completo
         },
         // Animaciones CSS
         '@keyframes bounce': {
@@ -1466,7 +1613,15 @@ export default function DocumentosPersonalesPage() {
         </Box>
 
         {/* Lista de créditos */}
-        <Box css={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <Box css={{ 
+          display: 'flex', 
+          flexDirection: 'column', 
+          gap: '16px',
+          marginBottom: '20px', // Espacio adicional después de la lista
+          '@media (max-width: 768px)': {
+            marginBottom: '30px' // Más espacio en móviles
+          }
+        }}>
           {/* Loader sutil cuando se está cargando nueva información */}
           {(queryLoading || isChangingRoute) && !loading && (
             <Box
@@ -1493,8 +1648,9 @@ export default function DocumentosPersonalesPage() {
             const borrowerDocuments = loan.documentPhotos.filter(doc => 
               doc.personalData.id === loan.borrower.personalData.id
             );
-            const leadDocuments = loan.documentPhotos.filter(doc => 
-              doc.personalData.id === loan.lead.personalData.id
+            // Los documentos del aval son los que pertenecen a los collaterals
+            const collateralDocuments = loan.documentPhotos.filter(doc => 
+              loan.collaterals.some(collateral => collateral.id === doc.personalData.id)
             );
 
             return (
@@ -1690,9 +1846,9 @@ export default function DocumentosPersonalesPage() {
                               maxWidth: 'calc(100vw - 120px)'
                             }
                           }}
-                          title={loan.lead.personalData.fullName}
+                          title={loan.collaterals[0]?.fullName || 'Sin aval'}
                         >
-                          {loan.lead.personalData.fullName}
+                          {loan.collaterals[0]?.fullName || 'Sin aval'}
                         </div>
                       </Box>
 
@@ -1817,11 +1973,13 @@ export default function DocumentosPersonalesPage() {
                         }
                       }}>
                         {DOCUMENT_TYPES_AVAL.map((type) => {
-                          const document = getDocumentByTypeAndPerson(
-                            leadDocuments,
+                          // Para los avales, necesitamos obtener el primer collateral (aval principal)
+                          const primaryCollateral = loan.collaterals[0];
+                          const document = primaryCollateral ? getDocumentByTypeAndPerson(
+                            collateralDocuments,
                             type,
-                            loan.lead.personalData.id
-                          );
+                            primaryCollateral.id
+                          ) : null;
                           const hasDocument = !!document;
                           const hasError = hasDocument && document.isError;
                           const isMissing = hasDocument && document.isMissing;
@@ -2010,18 +2168,6 @@ export default function DocumentosPersonalesPage() {
         personType={imageModal.personType}
       />
 
-      {/* Modal de subida */}
-      <UploadModal
-        isOpen={uploadModal.isOpen}
-        onClose={() => setUploadModal({ ...uploadModal, isOpen: false })}
-        onUpload={handleDocumentUpload}
-        documentType={uploadModal.documentType}
-        personType={uploadModal.personType}
-        personalDataId={uploadModal.personalDataId}
-        loanId={uploadModal.loanId}
-        personName={uploadModal.personName}
-      />
-
       {/* Modal de confirmación de eliminación */}
       <AlertDialog
         isOpen={deleteConfirmDialog.isOpen}
@@ -2050,16 +2196,15 @@ export default function DocumentosPersonalesPage() {
         onClose={closeDocumentsModal}
         loan={documentsModal.loan}
         onDocumentUpload={(data) => {
-          // Cerrar modal de documentos y abrir modal de subida
-          closeDocumentsModal();
-          setUploadModal({
-            isOpen: true,
-            documentType: data.documentType,
-            personType: data.personType,
-            personalDataId: data.personalDataId,
-            loanId: data.loanId,
-            personName: data.personName
-          });
+          // Usar la función openUploadModal que maneja el cierre temporal del modal de documentos
+          openUploadModal(
+            data.documentType,
+            data.personType,
+            data.personalDataId,
+            data.loanId,
+            data.personName,
+            documentsModal.loan
+          );
         }}
         onDocumentError={handleMarkAsError}
         onDocumentMissing={handleDocumentMissing}
@@ -2069,14 +2214,46 @@ export default function DocumentosPersonalesPage() {
         onPhoneEdit={handlePhoneEdit}
       />
 
+      {/* Modal de subida - Renderizado DESPUÉS del modal de documentos para asegurar z-index correcto */}
+      <UploadModal
+        isOpen={uploadModal.isOpen}
+        onClose={() => {
+          setUploadModal({ ...uploadModal, isOpen: false });
+          // Reabrir el modal de documentos si estaba temporalmente cerrado
+          if (documentsModal.temporarilyClosed && documentsModal.loan) {
+            setTimeout(() => {
+              setDocumentsModal(prev => ({
+                ...prev,
+                isOpen: true,
+                temporarilyClosed: false
+              }));
+            }, 200); // Delay consistente con el de handleDocumentUpload
+          }
+        }}
+        onUpload={handleDocumentUpload}
+        documentType={uploadModal.documentType}
+        personType={uploadModal.personType}
+        personalDataId={uploadModal.personalDataId}
+        loanId={uploadModal.loanId}
+        personName={uploadModal.personName}
+        loan={uploadModal.loan}
+      />
+
       {/* Modal de error */}
       <ErrorModal
         isOpen={errorModal.isOpen}
         onClose={closeErrorModal}
         onConfirm={confirmError}
+        onUnmarkError={unmarkError}
         documentType={errorModal.documentType}
         personType={errorModal.personType}
         existingError={errorModal.existingError}
+      />
+
+      {/* Toast Container */}
+      <ToastContainer
+        toasts={toasts}
+        onClose={removeToast}
       />
     </PageContainer>
   );

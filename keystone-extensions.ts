@@ -6,6 +6,8 @@ import { generatePaymentChronology, PaymentChronologyItem } from './admin/utils/
 const prisma = new PrismaClient();
 
 export const extendExpressApp = (app: express.Express) => {
+  // Endpoint para generar reportes
+  
   // Endpoint para recibir webhooks de Telegram
   app.post('/api/telegram-webhook', express.json(), async (req, res) => {
     try {
@@ -922,7 +924,7 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
               where: { isActive: true },
               include: {
                 routes: true,
-                recipients: true
+                telegramUsers: true
               }
             });
 
@@ -1137,45 +1139,45 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         }
 
         try {
-          const folder = (req as any).body?.folder || 'documentos-personales';
+          // Obtener parámetros del body
+          const body = (req as any).body || {};
+          const folder = body.folder;
+          const loanData = body.loan ? JSON.parse(body.loan) : null;
+          const documentType = body.documentType;
+          const personType = body.personType;
 
-          // Subir a Cloudinary usando upload_stream
-          const result = await new Promise((resolve, reject) => {
-            const stream = cloudinary.uploader.upload_stream(
-              {
-                folder: folder,
-                resource_type: 'image',
-                transformation: [
-                  { quality: 'auto:good' },
-                  { fetch_format: 'auto' }
-                ],
-                allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
-                max_bytes: 10 * 1024 * 1024,
-              },
-              (error: any, result: any) => {
-                if (error) {
-                  reject(error);
-                } else {
-                  resolve({
-                    public_id: result.public_id,
-                    secure_url: result.secure_url,
-                    url: result.url,
-                    format: result.format,
-                    width: result.width,
-                    height: result.height,
-                    bytes: result.bytes,
-                  });
-                }
+          // Usar el sistema de almacenamiento simplificado
+          const { simpleUploadDocument } = await import('./utils/storage/simple');
+          
+          // Subir usando el sistema de almacenamiento configurable
+          const result = await simpleUploadDocument(
+            file.buffer,
+            loanData,
+            documentType || 'general',
+            {
+              customConfig: body.customConfig,
+              personType: personType,
+              metadata: {
+                originalName: file.originalname,
+                mimeType: file.mimetype,
+                fileSize: file.size // Cambiar 'size' por 'fileSize' para evitar conflicto
               }
-            );
+            }
+          );
 
-            // Convertir buffer a stream
-            const { Readable } = require('stream');
-            const readable = Readable.from(file.buffer);
-            readable.pipe(stream);
-          });
+          // Convertir resultado al formato esperado por el frontend
+          const response = {
+            public_id: result.public_id,
+            secure_url: result.secure_url,
+            url: result.url,
+            format: result.format,
+            width: result.width,
+            height: result.height,
+            bytes: result.bytes,
+            provider: result.provider
+          };
 
-          res.status(200).json(result);
+          res.status(200).json(response);
         } catch (error) {
           console.error('Error al subir a Cloudinary:', error);
           res.status(500).json({
@@ -1388,39 +1390,116 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         const weeksElapsedSinceBoundary = Math.max(0, Math.floor((getMonday(weekEnd).getTime() - getMonday(boundaryForCalc).getTime()) / msPerWeek));
         const nSemanaValue = weeksElapsedSinceBoundary + 1;
         
-        // LÓGICA SIMPLIFICADA PARA VDO:
-        // Pago VDO = Cantidad total que se espera hubieran pagado al final de la semana pasada
+        // ✅ LÓGICA CORREGIDA PARA VDO BASADA EN HISTORIAL-CLIENTE.TSX:
+        // Usar la misma lógica que detecta faltas en el historial de cliente
         
         let arrearsAmount = 0;
         
-        // Calcular cuántas semanas completas han pasado desde el boundary hasta el final de la semana pasada
-        // Para semana actual: semanas hasta el domingo anterior
-        // Para semana siguiente: semanas hasta el domingo actual
+        // Función para obtener el lunes de la semana (igual que en historial-cliente.tsx)
+        const getMondayOfWeek = (date: Date): Date => {
+          const monday = new Date(date);
+          const dayOfWeek = monday.getDay();
+          const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+          monday.setDate(monday.getDate() + diff);
+          return monday;
+        };
+        
+        // Función para obtener el domingo de la semana (igual que en historial-cliente.tsx)
+        const getSundayOfWeek = (date: Date): Date => {
+          const sunday = new Date(date);
+          const dayOfWeek = sunday.getDay();
+          const diff = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+          sunday.setDate(sunday.getDate() + diff);
+          return sunday;
+        };
+        
+        // Calcular hasta qué fecha evaluar (igual que en historial-cliente.tsx)
         const isNextWeek = weekMode === 'next';
         const endOfLastWeek = isNextWeek ? weekEnd : new Date(weekStart.getTime() - 1);
         
-        // Calcular semanas completas desde el boundary hasta el final de la semana pasada
-        const weeksSinceBoundary = Math.max(0, Math.floor((getMonday(endOfLastWeek).getTime() - getMonday(boundaryForCalc).getTime()) / msPerWeek));
+        // Generar todas las semanas desde la segunda semana después de la firma (igual que historial-cliente.tsx)
+        const signDate = new Date(loan.signDate);
+        const weeks: { monday: Date, sunday: Date }[] = [];
+        let currentMonday = getMondayOfWeek(signDate);
+        currentMonday.setDate(currentMonday.getDate() + 7); // Primera semana no se espera pago
         
-        // Calcular cuánto debería haber pagado hasta el final de la semana pasada
-        const expectedAmount = expectedWeeklyPayment * weeksSinceBoundary;
+        while (currentMonday <= endOfLastWeek) {
+          const sunday = getSundayOfWeek(currentMonday);
+          weeks.push({ 
+            monday: new Date(currentMonday), 
+            sunday: new Date(sunday) 
+          });
+          currentMonday.setDate(currentMonday.getDate() + 7);
+        }
         
-        // Calcular cuánto ha pagado realmente hasta el final de la semana pasada
-        const totalPaidUpToLastWeek = (loan.payments || []).reduce((sum: number, p: any) => {
-          const d = new Date(p.receivedAt || p.createdAt);
-          if (d >= boundaryForCalc && d <= endOfLastWeek) {
-            return sum + parseFloat((p.amount || 0).toString());
+        // Obtener fechas de pago (igual que en historial-cliente.tsx)
+        const paymentDates = (loan.payments || [])
+          .filter(payment => payment.amount > 0)
+          .map(payment => new Date(payment.receivedAt || payment.createdAt))
+          .sort((a, b) => a.getTime() - b.getTime());
+        
+        let weeksWithoutPayment = 0;
+        let surplusAccumulated = 0; // Sobrepago acumulado
+        
+        for (let weekIndex = 0; weekIndex < weeks.length; weekIndex++) {
+          const week = weeks[weekIndex];
+          
+          const now = new Date();
+          if (week.sunday > now) {
+            break; // No evaluar semanas futuras
           }
-          return sum;
-        }, 0);
+          
+          // Calcular pagado antes de esta semana
+          const paidBeforeWeek = (loan.payments || []).reduce((sum: number, p: any) => {
+            const paymentDate = new Date(p.receivedAt || p.createdAt);
+            return paymentDate < week.monday ? sum + parseFloat((p.amount || 0).toString()) : sum;
+          }, 0);
+          
+          const expectedBefore = weekIndex * expectedWeeklyPayment;
+          
+          // Calcular sobrepago acumulado antes de esta semana
+          surplusAccumulated = paidBeforeWeek - expectedBefore;
+          
+          // Buscar pagos en esta semana específica
+          const paymentsInWeek = (loan.payments || []).filter((p: any) => {
+            const paymentDate = new Date(p.receivedAt || p.createdAt);
+            return paymentDate >= week.monday && paymentDate <= week.sunday;
+          });
+          
+          const weeklyPaid = paymentsInWeek.reduce((sum: number, p: any) => 
+            sum + parseFloat((p.amount || 0).toString()), 0
+          );
+          
+          // Verificar si la semana está cubierta (pago directo + sobrepago)
+          const isWeekCovered = (surplusAccumulated + weeklyPaid) >= expectedWeeklyPayment && expectedWeeklyPayment > 0;
+          
+          // Solo contar como falta si NO está cubierta
+          if (!isWeekCovered) {
+            weeksWithoutPayment++;
+          }
+          
+          // Actualizar sobrepago para la siguiente semana
+          surplusAccumulated = surplusAccumulated + weeklyPaid - expectedWeeklyPayment;
+        }
         
-        // VDO = lo que debería haber pagado hasta el final de la semana pasada - lo que realmente pagó
-        // Pero limitado al monto pendiente almacenado
-        if (expectedAmount > totalPaidUpToLastWeek) {
-          arrearsAmount = Math.max(0, Math.min(
-            expectedAmount - totalPaidUpToLastWeek, 
-            pendingAmountStored
-          ));
+        // Calcular PAGO VDO = semanas sin pago × pago semanal esperado
+        arrearsAmount = Math.max(0, Math.min(
+          weeksWithoutPayment * expectedWeeklyPayment,
+          pendingAmountStored
+        ));
+        
+        // Debug específico para casos problemáticos
+        if (loan.borrower?.personalData?.fullName?.includes('JUANA SANTIAGO LOPEZ') || arrearsAmount > 0) {
+          console.log(`🔍 VDO Debug - ${loan.borrower?.personalData?.fullName}:`);
+          console.log(`   - Pago semanal esperado: ${expectedWeeklyPayment}`);
+          console.log(`   - Total de semanas evaluadas: ${weeks.length}`);
+          console.log(`   - Semanas sin pago: ${weeksWithoutPayment}`);
+          console.log(`   - PAGO VDO calculado: ${arrearsAmount}`);
+          console.log(`   - Monto pendiente almacenado: ${pendingAmountStored}`);
+          console.log(`   - Rango de semana: ${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}`);
+          console.log(`   - Fechas de pago: ${paymentDates.map(d => d.toLocaleDateString()).join(', ')}`);
+          console.log(`   - Sobrepago final acumulado: ${surplusAccumulated}`);
+          console.log(`   - Fecha actual: ${new Date().toLocaleDateString()}`);
         }
         
 

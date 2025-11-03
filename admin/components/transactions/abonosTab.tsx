@@ -1,7 +1,8 @@
 /** @jsxRuntime classic */
 /** @jsx jsx */
+/** @jsxFrag React.Fragment */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { gql, useQuery, useMutation, useLazyQuery } from '@apollo/client';
 import { Box, jsx } from '@keystone-ui/core';
 import { LoadingDots } from '@keystone-ui/loading';
@@ -13,23 +14,38 @@ import { PageContainer, GraphQLErrorNotice } from '@keystone-6/core/admin-ui/com
 import { DatePicker, Select, TextInput } from '@keystone-ui/fields';
 import { LoanPayment } from '../../../schema';
 import type { Employee, Option } from '../../types/transaction';
-import { FaPlus, FaEllipsisV, FaInfoCircle, FaCalendarAlt } from 'react-icons/fa';
+import { FaPlus, FaEllipsisV, FaInfoCircle, FaCalendarAlt, FaEdit } from 'react-icons/fa';
 
 // Import components
 import RouteLeadSelector from '../routes/RouteLeadSelector';
 import KPIBar from './KPIBar';
 import { DateMover } from './utils/DateMover';
 import { useBalanceRefresh } from '../../contexts/BalanceRefreshContext';
+import EditPersonModal from '../loans/EditPersonModal';
+import AvalInputWithAutocomplete from '../loans/AvalInputWithAutocomplete';
+import { generatePaymentChronology, PaymentChronologyItem } from '../../utils/paymentChronology';
+import { GET_LEAD_PAYMENTS } from '../../graphql/queries/payments';
 
 const GET_LEADS = gql`
   query GetLeads($routeId: ID!) {
-    employees(where: { routes: { id: { equals: $routeId } } }) {
+    employees(where: { 
+      AND: [
+        { routes: { id: { equals: $routeId } } },
+        { type: { equals: "LEAD" } }
+      ]
+    }) {
       id
       type
       personalData {
         fullName
       }
     }
+  }
+`;
+
+const GET_CLIENT_HISTORY = gql`
+  query GetClientHistory($clientId: String!, $routeId: String, $locationId: String) {
+    getClientHistory(clientId: $clientId, routeId: $routeId, locationId: $locationId)
   }
 `;
 
@@ -71,6 +87,11 @@ const GET_LOANS_BY_LEAD = gql`
       id
       weeklyPaymentAmount
       signDate
+      status
+      finishedDate
+      badDebtDate
+      amountGived
+      profitAmount
       loantype {
         id
         name
@@ -78,61 +99,24 @@ const GET_LOANS_BY_LEAD = gql`
       }
       borrower {
         personalData{
+          id
           fullName
+          clientCode
         }
       }
-    }
-  }
-`;
-
-const GET_LEAD_PAYMENTS = gql`
-  query GetLeadPayments($date: DateTime!, $nextDate: DateTime!, $leadId: ID!) {
-    loanPayments(where: { 
-      AND: [
-        { receivedAt: { gte: $date, lt: $nextDate } },
-        { leadPaymentReceived: { lead: { id: { equals: $leadId } } } }
-      ]
-    }) {
-      id
-      amount
-      comission
-      type
-      paymentMethod
-      receivedAt
-      loan {
+      collaterals {
         id
-        signDate
-        borrower {
-          personalData {
-            fullName
-          }
+        fullName
+        phones {
+          id
+          number
         }
       }
-      leadPaymentReceived {
+      payments {
         id
-        expectedAmount
-        paidAmount
-        cashPaidAmount
-        bankPaidAmount
-        falcoAmount
-        paymentStatus
-        createdAt
-        agent {
-          personalData {
-            fullName
-          }
-        }
-        lead {
-          id
-          personalData {
-            fullName
-          }
-        }
-        falcoCompensatoryPayments {
-          id
-          amount
-          createdAt
-        }
+        receivedAt
+        amount
+        paymentMethod
       }
     }
   }
@@ -210,6 +194,27 @@ const GET_MIGRATED_PAYMENTS = gql`
           personalData {
             fullName
           }
+        }
+      }
+    }
+  }
+`;
+
+const GET_CLIENT_DATA = gql`
+  query GetClientData($id: ID!) {
+    personalData(where: { id: $id }) {
+      id
+      fullName
+      clientCode
+      phones {
+        id
+        number
+      }
+      addresses {
+        id
+        location {
+          id
+          name
         }
       }
     }
@@ -316,6 +321,53 @@ const UNMARK_LOAN_AS_DECEASED = gql`
   }
 `;
 
+const PROMOTE_TO_LEAD = gql`
+  mutation PromoteToLead($clientId: ID!, $currentLeadId: ID!) {
+    promoteToLead(clientId: $clientId, currentLeadId: $currentLeadId)
+  }
+`;
+
+const UPDATE_LOAN_COLLATERALS = gql`
+  mutation UpdateLoanCollaterals($loanId: ID!, $collateralIds: [ID!]!) {
+    updateLoan(
+      where: { id: $loanId }
+      data: { 
+        collaterals: { 
+          set: $collateralIds 
+        } 
+      }
+    ) {
+      id
+      collaterals {
+        id
+        fullName
+        phones {
+          id
+          number
+        }
+      }
+    }
+  }
+`;
+
+const UPDATE_PHONE = gql`
+  mutation UpdatePhone($phoneId: ID!, $number: String!) {
+    updatePhone(
+      where: { id: $phoneId }
+      data: { number: $number }
+    ) {
+      id
+      number
+    }
+  }
+`;
+
+const UPDATE_LOAN_WITH_AVAL = gql`
+  mutation UpdateLoanWithAval($where: ID!, $data: UpdateLoanWithAvalInput!) {
+    updateLoanWithAval(where: $where, data: $data)
+  }
+`;
+
 type Lead = {
   id: string;
   personalData: {
@@ -396,7 +448,8 @@ const RouteSelector = React.memo(({ onRouteSelect, value }: { onRouteSelect: (ro
 const LeadSelector = React.memo(({ routeId, onLeadSelect, value }: { routeId: string | undefined, onLeadSelect: (lead: Option | null) => void, value: Option | null }) => {
   const { data: leadsData, loading: leadsLoading, error: leadsError } = useQuery<{ employees: Lead[] }>(GET_LEADS, {
     variables: { routeId: routeId || '' },
-    skip: !routeId,
+    // Removido skip para evitar el error "Rendered more hooks than during the previous render"
+    // El query se ejecutará siempre pero puede retornar datos vacíos si routeId es undefined
   });
 
   const leadOptions = useMemo(() => 
@@ -569,6 +622,7 @@ export const CreatePaymentForm = ({
     editedPayments: { [key: string]: any };
     isEditing: boolean;
     showSuccessMessage: boolean;
+    hasUserEditedDistribution: boolean;
     groupedPayments?: Record<string, {
       payments: Array<{
         amount: number;
@@ -602,6 +656,7 @@ export const CreatePaymentForm = ({
     editedPayments: {},
     isEditing: false,
     showSuccessMessage: false,
+    hasUserEditedDistribution: false,
   });
 
   // ✅ AGREGAR: Estado para comisión masiva
@@ -610,7 +665,7 @@ export const CreatePaymentForm = ({
   const { 
     payments, comission, isModalOpen, isFalcoModalOpen, isCreateFalcoModalOpen, isMovePaymentsModalOpen, falcoPaymentAmount, 
     selectedFalcoId, createFalcoAmount, loadPaymentDistribution, existingPayments, editedPayments, 
-    isEditing, showSuccessMessage, groupedPayments
+    isEditing, showSuccessMessage, groupedPayments, hasUserEditedDistribution
   } = state;
 
   // Estado separado para trackear pagos tachados (eliminados visualmente)
@@ -620,6 +675,9 @@ export const CreatePaymentForm = ({
 
   // Estado para recordar valores previos por pago (para restaurar tras deshacer deceso)
   const [previousValuesByPaymentId, setPreviousValuesByPaymentId] = useState<Record<string, { amount: number; comission: number }>>({});
+
+  // Estado para rastrear comisiones editadas manualmente (para evitar recálculo automático)
+  const [manuallyEditedCommissions, setManuallyEditedCommissions] = useState<Set<string>>(new Set()); // IDs de pagos existentes o índices de pagos nuevos
 
   // Estados para el menú de 3 puntos y modal de deceso
   const [showMenuForPayment, setShowMenuForPayment] = useState<string | null>(null);
@@ -631,6 +689,126 @@ export const CreatePaymentForm = ({
     isOpen: false,
     loanId: null,
     clientName: ''
+  });
+
+  // Estado para modal de edición de aval
+  const [avalEditModal, setAvalEditModal] = useState<{
+    isOpen: boolean;
+    loan: any | null;
+  }>({
+    isOpen: false,
+    loan: null
+  });
+
+  // Estado para los datos del aval en edición
+  const [editingAvalData, setEditingAvalData] = useState<any>(null);
+
+  // Estado para filas seleccionadas para eliminar
+  const [selectedRowsForDeletion, setSelectedRowsForDeletion] = useState<Set<string>>(new Set());
+
+  // Debug: Log cuando cambie editingAvalData
+  useEffect(() => {
+    console.log('🔍 editingAvalData cambió:', editingAvalData);
+  }, [editingAvalData]);
+
+  // Función para manejar la selección de filas
+  const handleRowSelection = (paymentId: string, event: React.MouseEvent) => {
+    // Verificar si el clic fue en un elemento interactivo
+    const target = event.target as HTMLElement;
+    
+    // Verificar si hay texto seleccionado (para evitar activar cuando se selecciona texto)
+    const selection = window.getSelection();
+    if (selection && selection.toString().length > 0) {
+      console.log('🔍 Hay texto seleccionado, ignorando selección de fila:', selection.toString());
+      return;
+    }
+    
+    // Verificar si el elemento o sus padres tienen el atributo data-no-select
+    const hasNoSelectAttribute = target.closest('[data-no-select="true"]');
+    if (hasNoSelectAttribute) {
+      console.log('🔍 Clic en elemento con data-no-select, ignorando selección de fila:', target);
+      return;
+    }
+    
+    const isInteractiveElement = target.closest(`
+      input, 
+      select, 
+      button, 
+      [role="button"], 
+      .react-select__control, 
+      .react-select__menu,
+      .react-select__value-container,
+      .react-select__input-container,
+      .react-select__indicators,
+      .react-select__indicator,
+      .react-select__dropdown-indicator,
+      .react-select__clear-indicator,
+      .react-select__placeholder,
+      .react-select__single-value,
+      .react-select__multi-value,
+      .react-select__option,
+      [data-testid*="select"],
+      [class*="select"],
+      [class*="dropdown"]
+    `);
+    
+    if (isInteractiveElement) {
+      console.log('🔍 Clic en elemento interactivo, ignorando selección de fila:', target);
+      return;
+    }
+
+    console.log('🔍 Marcando fila como falta (strikethrough):', paymentId);
+    
+    // Determinar si es un pago existente o nuevo
+    if (paymentId.startsWith('new-')) {
+      // Es un pago nuevo - usar índice
+      const index = parseInt(paymentId.replace('new-', ''));
+      setStrikethroughNewPaymentIndices(prev => {
+        if (prev.includes(index)) {
+          // Si ya está marcado, lo desmarcamos
+          console.log('🔍 Desmarcando pago nuevo como falta:', index);
+          return prev.filter(i => i !== index);
+        } else {
+          // Si no está marcado, lo marcamos
+          console.log('🔍 Marcando pago nuevo como falta:', index);
+          return [...prev, index];
+        }
+      });
+    } else {
+      // Es un pago existente - usar ID
+      setStrikethroughPaymentIds(prev => {
+        if (prev.includes(paymentId)) {
+          // Si ya está marcado, lo desmarcamos
+          console.log('🔍 Desmarcando pago existente como falta:', paymentId);
+          return prev.filter(id => id !== paymentId);
+        } else {
+          // Si no está marcado, lo marcamos
+          console.log('🔍 Marcando pago existente como falta:', paymentId);
+          return [...prev, paymentId];
+        }
+      });
+    }
+  };
+
+  // Función para limpiar todas las selecciones
+  const clearAllSelections = () => {
+    setSelectedRowsForDeletion(new Set());
+    setStrikethroughPaymentIds([]);
+    setStrikethroughNewPaymentIndices([]);
+    console.log('🔍 Todas las selecciones y marcas de falta limpiadas');
+  };
+
+  // Estado para el modal de promoción a líder
+  const [promoteModal, setPromoteModal] = useState<{
+    isOpen: boolean;
+    clientId: string | null;
+    clientName: string;
+    currentLeadId: string | null;
+  }>({
+    isOpen: false,
+    clientId: null,
+    clientName: '',
+    currentLeadId: null
   });
 
   // Estado para trackear préstamos marcados como deceso
@@ -687,11 +865,7 @@ export const CreatePaymentForm = ({
     const regularPayments = paymentsData?.loanPayments || [];
     const migratedPayments = migratedPaymentsData?.loanPayments || [];
     
-    console.log('🚀 CONSULTA COMPLETADA');
-    console.log('📅 Fecha seleccionada:', selectedDate);
-    console.log('👤 Lead seleccionado:', selectedLead?.id);
-    console.log('🔍 Pagos regulares encontrados:', regularPayments.length);
-    console.log('🔍 Pagos migrados encontrados:', migratedPayments.length);
+    
     
     if (regularPayments.length > 0 || migratedPayments.length > 0) {
       // Marcar los pagos migrados para identificarlos en la UI
@@ -724,7 +898,7 @@ export const CreatePaymentForm = ({
     }
   }, [paymentsData, migratedPaymentsData, selectedDate, selectedLead?.id]);
 
-  const { data: loansData, loading: loansLoading, error: loansError } = useQuery<{ loans: Loan[] }>(GET_LOANS_BY_LEAD, {
+  const { data: loansData, loading: loansLoading, error: loansError, refetch: refetchLoans } = useQuery<{ loans: Loan[] }>(GET_LOANS_BY_LEAD, {
     variables: { 
       where: {
         lead: {
@@ -750,12 +924,71 @@ export const CreatePaymentForm = ({
   const [createFalcoPayment, { loading: falcoPaymentLoading }] = useMutation(CREATE_FALCO_PAYMENT);
   const [markLoanAsDeceased, { loading: markDeceasedLoading }] = useMutation(MARK_LOAN_AS_DECEASED);
   const [unmarkLoanAsDeceased, { loading: unmarkDeceasedLoading }] = useMutation(UNMARK_LOAN_AS_DECEASED);
+  const [promoteToLead, { loading: promoteLoading }] = useMutation(PROMOTE_TO_LEAD);
+  const [updateLoanCollaterals, { loading: updateCollateralsLoading }] = useMutation(UPDATE_LOAN_COLLATERALS);
+  const [updatePhone, { loading: updatePhoneLoading }] = useMutation(UPDATE_PHONE);
+  const [updateLoanWithAval, { loading: updateLoanWithAvalLoading }] = useMutation(UPDATE_LOAN_WITH_AVAL);
+
+  // Hook para obtener datos completos del cliente
+  const [getClientData, { loading: clientDataLoading }] = useLazyQuery(GET_CLIENT_DATA, {
+    onCompleted: (data) => {
+      if (data.personalData) {
+        setEditingClient(data.personalData);
+        setIsEditClientModalOpen(true);
+      } else {
+        console.log('❌ No se encontraron datos del cliente en la respuesta');
+      }
+    },
+    onError: (error) => {
+      console.error('❌ Error en getClientData:', error);
+    }
+  });
+
+  // Hook para obtener historial del cliente (mismo que historial-cliente.tsx)
+  const [getClientHistory, { data: clientHistoryData, loading: clientHistoryLoading }] = useLazyQuery(GET_CLIENT_HISTORY);
+  
+  // Estado para almacenar historiales de clientes
+  const [clientHistories, setClientHistories] = useState<{[clientId: string]: any}>({});
+
+  // Manejar datos del historial cuando se reciben
+  useEffect(() => {
+    if (clientHistoryData?.getClientHistory) {
+      const historyData = clientHistoryData.getClientHistory;
+      const clientId = historyData.client?.id;
+      if (clientId) {
+        setClientHistories(prev => ({
+          ...prev,
+          [clientId]: historyData
+        }));
+      }
+    }
+  }, [clientHistoryData]);
 
   // Estado para controlar loading general de guardado
   const [isSaving, setIsSaving] = useState(false);
   
   // Estado para tooltip de comisiones
   const [showCommissionTooltip, setShowCommissionTooltip] = useState(false);
+
+  // Estados para modal de edición de cliente
+  const [isEditClientModalOpen, setIsEditClientModalOpen] = useState(false);
+  const [editingClient, setEditingClient] = useState<any>(null);
+
+  // ✅ MOVIDO: Hooks useCallback al principio para evitar problemas de orden
+
+  // Función separada para solicitar historiales (evita bucle infinito)
+  const requestClientHistory = useCallback((clientId: string, clientName: string) => {
+    if (!clientHistories[clientId]) {
+      console.log(`Solicitando historial para cliente ${clientId} (${clientName})`);
+      getClientHistory({
+        variables: {
+          clientId: clientId,
+          routeId: null,
+          locationId: null
+        }
+      });
+    }
+  }, [clientHistories, getClientHistory]);
 
   const router = useRouter();
 
@@ -776,16 +1009,28 @@ export const CreatePaymentForm = ({
       return multiplier >= 1 ? baseCommission * multiplier : 0;
     };
 
+    // Esto preserva ediciones anteriores
+    const currentPayment = state.editedPayments[paymentId] || payment;
+
     let updatedPayment: any = {
-      ...payment,
+      ...currentPayment,
       [field]: value
     };
 
-    // Si se actualiza el monto, recalcular la comisión dinámicamente
+    // Si se actualiza el monto, recalcular la comisión dinámicamente SOLO si no fue editada manualmente
     if (field === 'amount') {
-      const amountNum = parseFloat(String(value) || '0');
-      const loanId = (payment as any).loan?.id || (payment as any).loanId;
-      updatedPayment.comission = computeDynamicCommission(loanId, amountNum);
+      const paymentKey = `existing-${paymentId}`;
+      if (!manuallyEditedCommissions.has(paymentKey)) {
+        const amountNum = parseFloat(String(value) || '0');
+        const loanId = (payment as any).loan?.id || (payment as any).loanId;
+        updatedPayment.comission = computeDynamicCommission(loanId, amountNum);
+      }
+    }
+    
+    // Si se actualiza la comisión manualmente, marcar como editada manualmente
+    if (field === 'comission') {
+      const paymentKey = `existing-${paymentId}`;
+      setManuallyEditedCommissions(prev => new Set(prev).add(paymentKey));
     }
 
     setState(prev => ({
@@ -988,11 +1233,229 @@ export const CreatePaymentForm = ({
     }
   };
 
+  // Función para manejar la promoción a líder
+  const handlePromoteToLead = async () => {
+    if (!promoteModal.clientId || !promoteModal.currentLeadId) return;
+    
+    try {
+      const result = await promoteToLead({
+        variables: {
+          clientId: promoteModal.clientId,
+          currentLeadId: promoteModal.currentLeadId
+        }
+      });
+
+      // La respuesta es un objeto JSON directamente
+      const response = result.data?.promoteToLead;
+      
+      if (response?.success) {
+        alert('Cliente promovido a líder exitosamente');
+        // Recargar los datos para reflejar los cambios
+        window.location.reload();
+      } else {
+        alert(response?.message || 'Error al promover a líder');
+      }
+    } catch (error) {
+      console.error('Error promoviendo a líder:', error);
+      alert('Error al promover a líder');
+    } finally {
+      setPromoteModal({ isOpen: false, clientId: null, clientName: '', currentLeadId: null });
+    }
+  };
+
+  // Handlers para modal de edición de cliente
+  const handleEditClient = (loanId: string) => {
+    // Buscar el préstamo en los datos de préstamos
+    const loan = loansData?.loans?.find(l => l.id === loanId);
+    
+    // Si el préstamo tiene borrower con personalData.id, usar ese ID
+    if (loan?.borrower?.personalData && 'id' in loan.borrower.personalData) {
+      getClientData({ variables: { id: (loan.borrower.personalData as any).id } });
+      return;
+    }
+    
+    // Si no, buscar en los pagos existentes como fallback
+    const existingPayment = existingPayments.find((p: any) => p.loan?.id === loanId);
+    
+    if (existingPayment?.loan?.borrower?.personalData && 'id' in existingPayment.loan.borrower.personalData) {
+      getClientData({ variables: { id: (existingPayment.loan.borrower.personalData as any).id } });
+      return;
+    }
+    
+    // Buscar en los datos de pagos registrados (paymentsData)
+    if (paymentsData?.loanPayments) {
+      const registeredPayment = paymentsData.loanPayments.find((p: any) => p.loan?.id === loanId);
+      
+      if (registeredPayment?.loan?.borrower?.personalData && 'id' in registeredPayment.loan.borrower.personalData) {
+        getClientData({ variables: { id: (registeredPayment.loan.borrower.personalData as any).id } });
+        return;
+      }
+    }
+    
+    // Si no se encuentra en ningún lugar, mostrar error
+    alert('No se pudo encontrar la información del cliente. Inténtalo de nuevo.');
+  };
+
+  const handleCloseEditClientModal = () => {
+    setIsEditClientModalOpen(false);
+    setEditingClient(null);
+  };
+
+  // Función para abrir modal de edición de aval
+  const openAvalEditModal = (loan: any) => {
+    // Extraer información del aval de los collaterals (igual que en CreditosTab)
+    const firstCollateral = loan.collaterals?.[0];
+    const avalName = firstCollateral?.fullName || '';
+    const avalPhone = firstCollateral?.phones?.[0]?.number || '';
+    const selectedCollateralId = firstCollateral?.id;
+    const selectedCollateralPhoneId = firstCollateral?.phones?.[0]?.id;
+    
+    setAvalEditModal({
+      isOpen: true,
+      loan
+    });
+    
+    // Pre-cargar los datos del aval existente (igual que en CreditosTab)
+    setEditingAvalData({
+      id: selectedCollateralId,
+      fullName: avalName,
+      phone: avalPhone,
+      phoneId: selectedCollateralPhoneId,
+      avalAction: selectedCollateralId ? 'connect' : 'create'
+    });
+  };
+
+  // Función para cerrar modal de edición de aval
+  const closeAvalEditModal = () => {
+    setAvalEditModal({
+      isOpen: false,
+      loan: null
+    });
+    setEditingAvalData(null);
+  };
+
+  // Función para guardar los cambios del aval
+  const handleSaveAvalChanges = async () => {
+    if (!editingAvalData || !avalEditModal.loan) {
+      console.log('❌ No hay datos del aval para guardar');
+      return;
+    }
+
+    try {
+      console.log('💾 Guardando cambios del aval:', editingAvalData);
+      
+      const loanId = avalEditModal.loan.id;
+      
+      // Preparar datos para la mutación (igual que en CreditosTab)
+      const avalData = editingAvalData.id
+        ? {
+            // Con ID seleccionado: forzar connect
+            selectedCollateralId: editingAvalData.id,
+            action: 'connect' as const
+          }
+        : (
+            (editingAvalData.fullName || editingAvalData.phone)
+              ? {
+                  // Sin ID: si hay datos escritos, crear/actualizar según avalAction
+                  name: editingAvalData.fullName || '',
+                  phone: editingAvalData.phone || '',
+                  action: editingAvalData.avalAction || 'create'
+                }
+              : { action: 'clear' as const }
+          );
+
+      console.log('🔄 Enviando actualización de aval:', avalData);
+
+      // Usar la mutación personalizada updateLoanWithAval (igual que en CreditosTab)
+      const { data } = await updateLoanWithAval({
+        variables: {
+          where: loanId,
+          data: {
+            avalData
+          }
+        }
+      });
+
+      const response = data?.updateLoanWithAval;
+      console.log('📊 Respuesta de updateLoanWithAval:', response);
+
+      if (response?.success) {
+        console.log('✅ Aval actualizado exitosamente');
+        closeAvalEditModal();
+        
+        // Refrescar los datos de loans para mostrar los cambios
+        try {
+          await refetchLoans();
+          console.log('✅ Datos de loans refrescados después de actualizar aval');
+        } catch (error) {
+          console.error('❌ Error al refrescar datos de loans:', error);
+        }
+        
+        // Refrescar datos si es necesario
+        if (onSaveComplete) {
+          onSaveComplete();
+        }
+      } else {
+        console.error('❌ Error en la respuesta de updateLoanWithAval:', response);
+        throw new Error(response?.message || 'Error desconocido al actualizar aval');
+      }
+    } catch (error) {
+      console.error('❌ Error al actualizar el aval:', error);
+    }
+  };
+
+  const handleSaveEditedClient = async (updatedClient: any) => {
+    // Refrescar los datos para mostrar los cambios
+    if (onSaveComplete) {
+      onSaveComplete();
+    }
+    
+    // Refrescar los datos de pagos para asegurar que se muestren los cambios
+    try {
+      await Promise.all([
+        refetchPayments(),
+        refetchMigratedPayments(),
+        refetchFalcos()
+      ]);
+    } catch (error) {
+      console.error('Error al refrescar datos después de editar cliente:', error);
+    }
+    
+    handleCloseEditClientModal();
+  };
+
   const handleSaveAllChanges = async () => {
     try {
+      
+        // ✅ VERIFICACIÓN: Verificar si los pagos tachados realmente existen en existingPayments
+        const nonExistentTachados = strikethroughPaymentIds.filter(id => 
+          !existingPayments.some((payment: any) => payment.id === id)
+        );
+        
+        if (nonExistentTachados.length > 0) {
+          // Refrescar los datos
+          await refetchPayments();
+          await refetchMigratedPayments();
+          
+          // Limpiar el estado de eliminación ya que los datos están actualizados
+          setStrikethroughPaymentIds([]);
+          setStrikethroughNewPaymentIndices([]);
+          
+          return; // Salir de la función para que se ejecute con datos frescos
+        }
+      
       // Agrupar los pagos por leadPaymentReceived (excluyendo los tachados y migrados, incluyendo los marcados como pagados)
-      const paymentsByLeadPayment = existingPayments
-        .filter((payment: any) => !strikethroughPaymentIds.includes(payment.id) && !payment.isMigrated)
+      const filteredPayments = existingPayments.filter((payment: any) => {
+        const isStrikethrough = strikethroughPaymentIds.includes(payment.id);
+        const isMigrated = payment.isMigrated;
+        const shouldInclude = !isStrikethrough && !isMigrated;
+        
+        
+        return shouldInclude;
+      });
+      
+      
+      const paymentsByLeadPayment = filteredPayments
         .reduce((acc: Record<string, {
           payments: Array<{
             amount: number;
@@ -1204,12 +1667,20 @@ export const CreatePaymentForm = ({
         .filter(p => (parseFloat(p.amount || '0') !== 0 || parseFloat(p.comission?.toString() || '0') !== 0));
 
       // ✅ SEPARAR: expectedAmount para mutación (todos) vs expectedCashAmount para validación (solo efectivo)
-      const expectedTotalAmount = filteredNewPayments.length > 0
-        ? filteredNewPayments
-            .reduce((sum, payment) => sum + parseFloat(payment.amount || '0'), 0)
-        : state.groupedPayments 
-          ? Object.values(state.groupedPayments)[0]?.expectedAmount || 0
-          : 0;
+      // Calcular expectedAmount incluyendo pagos existentes Y nuevos si hay groupedPayments
+      let expectedTotalAmount = 0;
+      if (state.groupedPayments) {
+        // Sumar pagos existentes de groupedPayments
+        const existingAmount = Object.values(state.groupedPayments)[0]?.expectedAmount || 0;
+        // Sumar pagos nuevos
+        const newAmount = filteredNewPayments
+          .reduce((sum, payment) => sum + parseFloat(payment.amount || '0'), 0);
+        expectedTotalAmount = existingAmount + newAmount;
+      } else if (filteredNewPayments.length > 0) {
+        // Solo pagos nuevos (sin existentes)
+        expectedTotalAmount = filteredNewPayments
+          .reduce((sum, payment) => sum + parseFloat(payment.amount || '0'), 0);
+      }
 
       // ✅ CORREGIDO: Calcular efectivo esperado basándose en el contexto correcto
       let expectedCashAmount;
@@ -1217,12 +1688,7 @@ export const CreatePaymentForm = ({
         // Caso: Hay pagos nuevos - usar totalByPaymentMethod de la UI
         expectedCashAmount = totalByPaymentMethod.cashTotal - bankPaidAmount;
       } else if (state.groupedPayments) {
-        // Caso: Solo pagos existentes editados - calcular desde groupedPayments
-        const { payments: groupedPaymentsList } = Object.values(state.groupedPayments)[0];
-        const cashFromGrouped = (groupedPaymentsList as any[])
-          .filter((p: any) => p.paymentMethod === 'CASH')
-          .reduce((sum: number, p: any) => sum + parseFloat(p.amount || '0'), 0);
-        expectedCashAmount = cashFromGrouped - bankPaidAmount;
+        expectedCashAmount = totalByPaymentMethod.cashTotal - bankPaidAmount;
       } else {
         expectedCashAmount = 0 - bankPaidAmount;
       }
@@ -1245,8 +1711,69 @@ export const CreatePaymentForm = ({
         return;
       }
 
-      // Si hay pagos nuevos, crear un nuevo LeadPaymentReceived
-      if (filteredNewPayments.length > 0) {
+      // ✅ CORREGIDO: Lógica para determinar si crear nuevo o actualizar existente
+      if (state.groupedPayments) {
+        // Si ya existen pagos para este día, actualizar incluyendo pagos existentes Y nuevos
+        console.log('✅ Ejecutando updateCustomLeadPaymentReceived para pagos existentes:', state.groupedPayments);
+        console.log('✅ Pagos nuevos a agregar:', filteredNewPayments);
+        for (const [leadPaymentId, data] of Object.entries(state.groupedPayments)) {
+          const { payments, paymentDate } = data;
+          const { cashPaidAmount, bankPaidAmount } = loadPaymentDistribution;
+          
+          // ✅ CORREGIDO: Combinar pagos existentes con pagos nuevos
+          const existingPaymentsArray = [...(payments as any[])];
+          
+          // Agregar pagos nuevos al mismo leadPayment
+          const newPaymentsArray = filteredNewPayments.map(payment => ({
+            amount: parseFloat(payment.amount || '0'),
+            comission: parseFloat(payment.comission?.toString() || '0'),
+            loanId: payment.loanId,
+            type: payment.type,
+            paymentMethod: payment.paymentMethod
+          }));
+          
+          // Combinar ambos arrays
+          const allPayments = [...existingPaymentsArray, ...newPaymentsArray];
+          
+          console.log('✅ Combinando pagos existentes y nuevos:', {
+            existentes: existingPaymentsArray.length,
+            nuevos: newPaymentsArray.length,
+            total: allPayments.length
+          });
+          
+          // Limpiar pagos 0/0 antes de enviar actualización
+          const cleanedPayments = allPayments.filter((p: any) => {
+            const amt = parseFloat(p.amount?.toString() || '0');
+            const com = parseFloat(p.comission?.toString() || '0');
+            return !(amt === 0 && com === 0);
+          });
+          
+          // Calcular expectedAmount incluyendo ambos tipos de pagos
+          const cleanedExpected = cleanedPayments.reduce((sum: number, p: any) => {
+            const amt = parseFloat(p.amount?.toString() || '0');
+            return sum + amt;
+          }, 0);
+
+          await updateCustomLeadPaymentReceived({
+            variables: {
+              id: leadPaymentId,
+              expectedAmount: cleanedExpected,
+              cashPaidAmount,
+              bankPaidAmount,
+              falcoAmount: 0, // ✅ ELIMINADO: Falco se maneja por separado
+              paymentDate,
+              payments: cleanedPayments.map((payment: any) => ({
+                amount: parseFloat(payment.amount?.toString() || '0'),
+                comission: parseFloat(payment.comission?.toString() || '0'),
+                loanId: payment.loanId,
+                type: payment.type,
+                paymentMethod: payment.paymentMethod
+              }))
+            }
+          });
+        }
+      } else if (filteredNewPayments.length > 0) {
+        // Si no existen pagos para este día, crear nuevo
         console.log('✅ Ejecutando createCustomLeadPaymentReceived con:', {
           expectedAmount: expectedTotalAmount,
           cashPaidAmount,
@@ -1274,40 +1801,6 @@ export const CreatePaymentForm = ({
               }))
           }
         });
-      }
-
-      // Si hay pagos existentes editados, actualizarlos
-      if (state.groupedPayments) {
-        console.log('✅ Ejecutando updateCustomLeadPaymentReceived para pagos existentes:', state.groupedPayments);
-        for (const [leadPaymentId, data] of Object.entries(state.groupedPayments)) {
-          const { payments, paymentDate } = data;
-          const { cashPaidAmount, bankPaidAmount } = loadPaymentDistribution;
-          // Limpiar pagos 0/0 antes de enviar actualización
-          const cleanedPayments = (payments as any[]).filter((p: any) => {
-            const amt = parseFloat(p.amount || '0');
-            const com = parseFloat(p.comission?.toString() || '0');
-            return !(amt === 0 && com === 0);
-          });
-          const cleanedExpected = cleanedPayments.reduce((sum: number, p: any) => sum + parseFloat(p.amount || '0'), 0);
-
-          await updateCustomLeadPaymentReceived({
-            variables: {
-              id: leadPaymentId,
-              expectedAmount: cleanedExpected,
-              cashPaidAmount,
-              bankPaidAmount,
-              falcoAmount: 0, // ✅ ELIMINADO: Falco se maneja por separado
-              paymentDate,
-              payments: cleanedPayments.map((payment: any) => ({
-                amount: parseFloat(payment.amount || '0'),
-                comission: parseFloat(payment.comission?.toString() || '0'),
-                loanId: payment.loanId,
-                type: payment.type,
-                paymentMethod: payment.paymentMethod
-              }))
-            }
-          });
-        }
       }
 
       // ✅ CORREGIDO: Refrescar todos los datos para obtener el balance real de la DB
@@ -1364,8 +1857,14 @@ export const CreatePaymentForm = ({
   };
 
   useEffect(() => {
+    console.log('🔍 [DEBUG] useEffect loansData/existingPayments ejecutándose...');
+    console.log('   - loansData?.loans?.length:', loansData?.loans?.length);
+    console.log('   - existingPayments.length:', existingPayments.length);
+    console.log('   - payments.length (actual):', payments.length);
+    
     // Si no hay pagos existentes y tenemos datos de préstamos, cargar los pagos semanales
     if (loansData?.loans && existingPayments.length === 0) {
+      console.log('✅ [DEBUG] Creando pagos automáticamente desde loansData...');
       const newPayments = loansData.loans.map(loan => ({
         amount: loan.weeklyPaymentAmount,
         // ✅ MODIFICAR: Usar comisión por defecto del loanType si existe
@@ -1390,15 +1889,19 @@ export const CreatePaymentForm = ({
         return dateA.getTime() - dateB.getTime(); // Ascendente: crédito más viejo arriba
       });
       
-      console.log('Pagos semanales creados con comisiones por defecto del loanType:', sortedNewPayments);
+      console.log('✅ [DEBUG] Pagos semanales creados con comisiones por defecto del loanType:', sortedNewPayments.length);
       sortedNewPayments.forEach((payment, index) => {
-        console.log(`Pago ${index + 1}: ${payment.loan?.borrower?.personalData?.fullName} - Comisión: ${payment.comission} (del loanType: ${payment.loan?.loantype?.name}) - Fecha Crédito: ${payment.loan?.signDate ? new Date(payment.loan.signDate).toLocaleDateString('es-MX') : 'N/A'}`);
+        console.log(`   ${index + 1}. ${payment.loan?.borrower?.personalData?.fullName} - Comisión: ${payment.comission} (del loanType: ${payment.loan?.loantype?.name}) - Fecha Crédito: ${payment.loan?.signDate ? new Date(payment.loan.signDate).toLocaleDateString('es-MX') : 'N/A'}`);
       });
       
       updateState({ payments: sortedNewPayments });
     } else if (existingPayments.length > 0) {
       // Si hay pagos existentes, limpiar los pagos nuevos
+      console.log('🧹 [DEBUG] Limpiando pagos automáticos porque hay pagos existentes...');
+      console.log('   - Pagos que se van a limpiar:', payments.length);
       updateState({ payments: [] });
+    } else {
+      console.log('ℹ️ [DEBUG] No se ejecuta ninguna acción - no hay loansData o existingPayments');
     }
   }, [loansData, comission, existingPayments.length]);
 
@@ -1455,6 +1958,9 @@ export const CreatePaymentForm = ({
       }
     } else if (field === 'comission') {
       (newPayments[index][field] as unknown as string) = value;
+      // Marcar comisión como editada manualmente
+      const paymentKey = `new-${index}`;
+      setManuallyEditedCommissions(prev => new Set(prev).add(paymentKey));
     } else {
       // ✅ VALIDACIÓN: Asegurar que amount nunca sea null o undefined
       if (field === 'amount') {
@@ -1462,22 +1968,25 @@ export const CreatePaymentForm = ({
       } else {
         (newPayments[index][field] as any) = value;
       }
-      // Reglas de comisión dinámica según monto vs pago esperado
+      // Reglas de comisión dinámica según monto vs pago esperado SOLO si no fue editada manualmente
       if (field === 'amount') {
-        const amt = parseFloat(String(value) || '0');
-        const loanId = newPayments[index].loanId;
-        if (loanId && loansData?.loans) {
-          const loan = loansData.loans.find(l => l.id === loanId);
-          const expectedWeekly = loan ? parseFloat(loan.weeklyPaymentAmount || '0') : 0;
-          const baseCommission = loan ? Math.round(parseFloat(loan.loantype?.loanPaymentComission || '0')) || 0 : 0;
-          if (!expectedWeekly || !baseCommission || !isFinite(amt) || amt <= 0) {
-            (newPayments[index].comission as any) = 0;
+        const paymentKey = `new-${index}`;
+        if (!manuallyEditedCommissions.has(paymentKey)) {
+          const amt = parseFloat(String(value) || '0');
+          const loanId = newPayments[index].loanId;
+          if (loanId && loansData?.loans) {
+            const loan = loansData.loans.find(l => l.id === loanId);
+            const expectedWeekly = loan ? parseFloat(loan.weeklyPaymentAmount || '0') : 0;
+            const baseCommission = loan ? Math.round(parseFloat(loan.loantype?.loanPaymentComission || '0')) || 0 : 0;
+            if (!expectedWeekly || !baseCommission || !isFinite(amt) || amt <= 0) {
+              (newPayments[index].comission as any) = 0;
+            } else {
+              const multiplier = Math.floor(amt / expectedWeekly);
+              (newPayments[index].comission as any) = multiplier >= 1 ? baseCommission * multiplier : 0;
+            }
           } else {
-            const multiplier = Math.floor(amt / expectedWeekly);
-            (newPayments[index].comission as any) = multiplier >= 1 ? baseCommission * multiplier : 0;
+            (newPayments[index].comission as any) = 0;
           }
-        } else {
-          (newPayments[index].comission as any) = 0;
         }
       }
     }
@@ -1523,19 +2032,40 @@ export const CreatePaymentForm = ({
     return { cashTotal, transferTotal };
   }, [payments, existingPayments, editedPayments, strikethroughNewPaymentIndices, strikethroughPaymentIds]);
 
-  // ✅ NUEVO ENFOQUE: Calcular loadPaymentDistribution de manera derivada para asegurar sincronización
+  // ✅ NUEVO ENFOQUE: Calcular loadPaymentDistribution priorizando valor persistido en DB
   const computedLoadPaymentDistribution = useMemo(() => {
-    // ✅ VALIDAR: Limitar bankPaidAmount al efectivo disponible
     const availableCash = totalByPaymentMethod.cashTotal;
-    const requestedTransfer = loadPaymentDistribution.bankPaidAmount;
-    const validTransfer = Math.min(requestedTransfer, Math.max(0, availableCash));
-    
+
+    // Tomar bankPaidAmount persistido si existe en algún pago existente (leadPaymentReceived)
+    const persistedBank = (() => {
+      const found = existingPayments.find((p: any) => p.leadPaymentReceived?.bankPaidAmount !== undefined);
+      if (!found) return undefined;
+      const raw = found.leadPaymentReceived?.bankPaidAmount;
+      if (raw === null || raw === undefined) return undefined;
+      const num = parseFloat(raw.toString());
+      return isFinite(num) ? num : undefined;
+    })();
+
+    // Si el usuario ya editó manualmente la distribución, respetar su entrada y NO sobrescribir con persistidos
+    const requestedTransfer = hasUserEditedDistribution
+      ? loadPaymentDistribution.bankPaidAmount
+      : (persistedBank !== undefined ? persistedBank : loadPaymentDistribution.bankPaidAmount);
+
+    // Limitar transferencia al efectivo disponible y a valores no negativos
+    const validTransfer = Math.min(Math.max(0, requestedTransfer || 0), Math.max(0, availableCash));
+
     return {
       totalPaidAmount: totalAmount,
-      bankPaidAmount: validTransfer, // Limitado al efectivo disponible
-      cashPaidAmount: availableCash - validTransfer, // Efectivo menos lo transferido
+      bankPaidAmount: validTransfer,
+      cashPaidAmount: Math.max(0, availableCash - validTransfer)
     };
-  }, [totalAmount, totalByPaymentMethod.cashTotal, loadPaymentDistribution.bankPaidAmount]);
+  }, [
+    totalAmount,
+    totalByPaymentMethod.cashTotal,
+    loadPaymentDistribution.bankPaidAmount,
+    existingPayments,
+    hasUserEditedDistribution
+  ]);
 
   // Actualizar estado solo cuando sea necesario
   useEffect(() => {
@@ -1589,7 +2119,53 @@ export const CreatePaymentForm = ({
   const existingPaymentsCount = useMemo(() => {
     return existingPayments.filter((payment: any) => !strikethroughPaymentIds.includes(payment.id)).length;
   }, [existingPayments, strikethroughPaymentIds]);
+// Calcular créditos que debían pagar pero no aparecen registrados
+const calculateMissingPayments = () => {
+  // Solo mostrar si ya hay pagos registrados para esta fecha
+  if (!loansData?.loans || !selectedDate || existingPayments.length === 0) return [];
+  
+  const selectedDateObj = new Date(selectedDate);
+  
+  // Obtener IDs de préstamos que SÍ tienen pagos registrados (excluyendo los marcados como pagados temporalmente)
+  // Incluir también los marcados temporalmente como pagados (isMissingPayment)
+  const paidLoanIds = new Set(
+    existingPayments
+      .map((payment: any) => payment.loanId || payment.loan?.id)
+      .filter(Boolean)
+  );
+  
+  // Filtrar préstamos que debían pagar en esta fecha pero no tienen pago registrado
+  const missingPayments = loansData.loans.filter((loan: any) => {
+    // Verificar que el préstamo está activo (no terminado)
+    if (loan.finishedDate) return false;
+    
+    // Verificar que el préstamo ya había comenzado antes de la fecha seleccionada
+    const signDate = new Date(loan.signDate);
+    if (signDate >= selectedDateObj) return false;
+    
+    // Verificar que no tiene pago registrado para esta fecha
+    return !paidLoanIds.has(loan.id);
+  });
+  
+  return missingPayments;
+};
 
+// ✅ SIMPLIFICADO: Los datos ya vienen ordenados por signDate desde la query GraphQL
+// Solo necesitamos mantener el orden que viene de la base de datos
+const missingPayments = calculateMissingPayments();
+
+// Solicitar historiales de clientes que aparecen como "sin pago" (sin causar bucles infinitos)
+useEffect(() => {
+  if (missingPayments.length > 0) {
+    missingPayments.forEach((loan: any) => {
+      const clientId = loan.borrower?.personalData?.id;
+      const clientName = loan.borrower?.personalData?.fullName;
+      if (clientId && clientName) {
+        requestClientHistory(clientId, clientName);
+      }
+    });
+  }
+}, [missingPayments, requestClientHistory]);
 
 
   // Contar pagos migrados para mostrar información (debe estar antes de los returns condicionales)
@@ -1619,40 +2195,7 @@ export const CreatePaymentForm = ({
     );
   }
 
-  // Calcular créditos que debían pagar pero no aparecen registrados
-  const calculateMissingPayments = () => {
-    // Solo mostrar si ya hay pagos registrados para esta fecha
-    if (!loansData?.loans || !selectedDate || existingPayments.length === 0) return [];
-    
-    const selectedDateObj = new Date(selectedDate);
-    
-    // Obtener IDs de préstamos que SÍ tienen pagos registrados (excluyendo los marcados como pagados temporalmente)
-    // Incluir también los marcados temporalmente como pagados (isMissingPayment)
-    const paidLoanIds = new Set(
-      existingPayments
-        .map((payment: any) => payment.loanId || payment.loan?.id)
-        .filter(Boolean)
-    );
-    
-    // Filtrar préstamos que debían pagar en esta fecha pero no tienen pago registrado
-    const missingPayments = loansData.loans.filter((loan: any) => {
-      // Verificar que el préstamo está activo (no terminado)
-      if (loan.finishedDate) return false;
-      
-      // Verificar que el préstamo ya había comenzado antes de la fecha seleccionada
-      const signDate = new Date(loan.signDate);
-      if (signDate >= selectedDateObj) return false;
-      
-      // Verificar que no tiene pago registrado para esta fecha
-      return !paidLoanIds.has(loan.id);
-    });
-    
-    return missingPayments;
-  };
-
-  // ✅ SIMPLIFICADO: Los datos ya vienen ordenados por signDate desde la query GraphQL
-  // Solo necesitamos mantener el orden que viene de la base de datos
-  const missingPayments = calculateMissingPayments();
+  
 
   if (loansLoading || paymentsLoading || migratedPaymentsLoading || falcosLoading) return <LoadingDots label="Loading data" size="large" />;
   if (loansError) return <GraphQLErrorNotice errors={loansError?.graphQLErrors || []} networkError={loansError?.networkError} />;
@@ -2124,6 +2667,96 @@ export const CreatePaymentForm = ({
                 </div>
               );
             })()
+          },
+          {
+            label: 'Distribución Líder',
+            value: (() => {
+              const { cashPaidAmount, bankPaidAmount } = computedLoadPaymentDistribution;
+              if (cashPaidAmount === 0 && bankPaidAmount === 0) {
+                return 'Sin distribución';
+              }
+              return `E:$${cashPaidAmount.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} T:$${bankPaidAmount.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+            })(),
+            color: '#7C2D12',
+            backgroundColor: '#FEF3C7',
+            borderColor: '#FDE68A',
+            showTooltip: true,
+            tooltipContent: (() => {
+              const { cashPaidAmount, bankPaidAmount } = computedLoadPaymentDistribution;
+              const totalDistributed = cashPaidAmount + bankPaidAmount;
+              const availableCash = totalByPaymentMethod.cashTotal;
+              
+              return (
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+                    Distribución del Pago de la Líder
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '4px 0',
+                    borderBottom: '1px solid #F3F4F6',
+                    fontSize: '11px'
+                  }}>
+                    <span style={{ color: '#374151' }}>
+                      💵 Efectivo en Caja
+                    </span>
+                    <span style={{ fontWeight: '600', color: '#7C2D12' }}>
+                      ${cashPaidAmount.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '4px 0',
+                    borderBottom: '1px solid #F3F4F6',
+                    fontSize: '11px'
+                  }}>
+                    <span style={{ color: '#374151' }}>
+                      🏦 Transferencia al Banco
+                    </span>
+                    <span style={{ fontWeight: '600', color: '#7C2D12' }}>
+                      ${bankPaidAmount.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    borderBottom: '1px solid #F3F4F6',
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    backgroundColor: '#FEF3C7',
+                    margin: '4px -8px',
+                    padding: '6px 8px',
+                    borderRadius: '4px'
+                  }}>
+                    <span style={{ color: '#7C2D12' }}>
+                      Total Distribuido
+                    </span>
+                    <span style={{ color: '#7C2D12' }}>
+                      ${totalDistributed.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                  {totalDistributed > availableCash && (
+                    <div style={{
+                      color: '#DC2626',
+                      fontSize: '10px',
+                      textAlign: 'center',
+                      padding: '4px',
+                      backgroundColor: '#FEE2E2',
+                      border: '1px solid #FECACA',
+                      borderRadius: '4px',
+                      marginTop: '8px'
+                    }}>
+                      ⚠️ La distribución excede el efectivo disponible
+                    </div>
+                  )}
+                </div>
+              );
+            })()
           }
         ]}
         buttons={[]}
@@ -2226,9 +2859,8 @@ export const CreatePaymentForm = ({
                   <span style={{ 
                     fontSize: '14px', 
                     fontWeight: '600', 
-                    color: '#92400E',
-                    backgroundColor: '#F59E0B',
                     color: 'white',
+                    backgroundColor: '#F59E0B',
                     padding: '4px 12px',
                     borderRadius: '20px',
                     display: 'flex',
@@ -2388,6 +3020,7 @@ export const CreatePaymentForm = ({
             </div>
           </div>
 
+
           <table style={styles.table}>
             <thead>
               <tr>
@@ -2399,6 +3032,7 @@ export const CreatePaymentForm = ({
                   #
                 </th>
                 <th>Estado</th>
+                <th>Código</th>
                 <th>Cliente</th>
                 <th style={{ 
                   position: 'relative',
@@ -2442,8 +3076,67 @@ export const CreatePaymentForm = ({
                       ⚠️ SIN PAGO
                     </span>
                   </td>
-                  <td style={{ color: '#DC2626', fontWeight: '500' }}>
-                    {loan.borrower?.personalData?.fullName || 'Sin nombre'}
+                  <td style={{
+                    textAlign: 'center'
+                  }}>
+                    {(() => {
+                      // Función para generar código corto a partir del id (igual que en generar-listados)
+                      const shortCodeFromId = (id?: string): string => {
+                        if (!id) return '';
+                        const base = id.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+                        return base.slice(-6);
+                      };
+
+                      const clientCode = loan.borrower?.personalData?.clientCode || 
+                                       shortCodeFromId(loan.borrower?.personalData?.id);
+                      
+                      return (
+                        <span style={{
+                          display: 'inline-block',
+                          padding: '2px 6px',
+                          backgroundColor: '#FEE2E2',
+                          color: '#DC2626',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          border: '1px solid #FCA5A5'
+                        }}>
+                          {clientCode || 'N/A'}
+                        </span>
+                      );
+                    })()}
+                  </td>
+                  <td style={{ 
+                    color: '#DC2626', 
+                    fontWeight: '500',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <span>{loan.borrower?.personalData?.fullName || 'Sin nombre'}</span>
+                    {loan.borrower?.personalData?.id && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditClient(loan.id);
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          borderRadius: '4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#6B7280',
+                          fontSize: '12px'
+                        }}
+                        title="Editar cliente"
+                      >
+                        <FaEdit />
+                      </button>
+                    )}
                   </td>
                   <td style={{ color: '#DC2626', fontWeight: '500' }}>
                     {loan.signDate ? 
@@ -2499,9 +3192,10 @@ export const CreatePaymentForm = ({
                       </Button>
                     ) : (
                       <span style={{
-                        color: '#6B7280',
+                        color: '#dc2626',
                         fontSize: '12px',
-                        fontStyle: 'italic'
+                        fontStyle: 'italic',
+                        fontWeight: '600'
                       }}>
                         Sin pago registrado
                       </span>
@@ -2527,14 +3221,20 @@ export const CreatePaymentForm = ({
                 const editedPayment = editedPayments[payment.id] || payment;
                 const isStrikethrough = strikethroughPaymentIds.includes(payment.id);
                 const hasZeroCommission = parseFloat(editedPayment.comission || '0') === 0;
+                const isTransferPayment = editedPayment.paymentMethod === 'MONEY_TRANSFER';
                 console.log(`Pago ${payment.id}: isStrikethrough=${isStrikethrough}, hasZeroCommission=${hasZeroCommission}, strikethroughPaymentIds=`, strikethroughPaymentIds);
                 
                 return (
-                  <tr key={`existing-${payment.id}`} style={{ 
-                    backgroundColor: isStrikethrough ? '#fee2e2' : (hasZeroCommission ? '#FEF3C7' : '#f8fafc'),
-                    opacity: isStrikethrough ? 0.7 : 1,
-                    borderLeft: isStrikethrough ? '4px solid #ef4444' : (hasZeroCommission ? '4px solid #D97706' : 'none')
-                  }}>
+                  <tr 
+                    key={`existing-${payment.id}`} 
+                    style={{ 
+                      backgroundColor: isStrikethrough ? '#fee2e2' : (hasZeroCommission ? '#FEF3C7' : (isTransferPayment ? '#F3E8FF' : '#f8fafc')),
+                      opacity: isStrikethrough ? 0.7 : 1,
+                      borderLeft: isStrikethrough ? '4px solid #ef4444' : (hasZeroCommission ? '4px solid #D97706' : (isTransferPayment ? '4px solid #8B5CF6' : 'none')),
+                      cursor: 'default',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
                     <td style={{ 
                       textAlign: 'center',
                       fontWeight: 'bold',
@@ -2641,9 +3341,68 @@ export const CreatePaymentForm = ({
                     <td style={{
                       textDecoration: isStrikethrough ? 'line-through' : 'none',
                       color: isStrikethrough ? '#dc2626' : 'inherit',
-                      fontWeight: isStrikethrough ? '500' : 'inherit'
+                      fontWeight: isStrikethrough ? '500' : 'inherit',
+                      textAlign: 'center'
                     }}>
-                      {payment.loan?.borrower?.personalData?.fullName}
+                      {(() => {
+                        // Función para generar código corto a partir del id (igual que en generar-listados)
+                        const shortCodeFromId = (id?: string): string => {
+                          if (!id) return '';
+                          const base = id.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+                          return base.slice(-6);
+                        };
+
+                        const clientCode = payment.loan?.borrower?.personalData?.clientCode || 
+                                         shortCodeFromId(payment.loan?.borrower?.personalData?.id);
+                        
+                        return (
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '2px 6px',
+                            backgroundColor: '#EFF6FF',
+                            color: '#1E40AF',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: '600',
+                            border: '1px solid #BFDBFE'
+                          }}>
+                            {clientCode || 'N/A'}
+                          </span>
+                        );
+                      })()}
+                    </td>
+                    <td style={{
+                      textDecoration: isStrikethrough ? 'line-through' : 'none',
+                      color: isStrikethrough ? '#dc2626' : 'inherit',
+                      fontWeight: isStrikethrough ? '500' : 'inherit',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}>
+                      <span>{payment.loan?.borrower?.personalData?.fullName}</span>
+                      {payment.loan?.borrower?.personalData?.id && !isStrikethrough && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditClient(payment.loanId || payment.loan?.id || '');
+                          }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: '4px',
+                            borderRadius: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#6B7280',
+                            fontSize: '12px'
+                          }}
+                          title="Editar cliente"
+                        >
+                          <FaEdit />
+                        </button>
+                      )}
                     </td>
                     <td style={{
                       textDecoration: isStrikethrough ? 'line-through' : 'none',
@@ -2666,7 +3425,7 @@ export const CreatePaymentForm = ({
                     }}>
                       {isEditing && !payment.isMigrated ? (
                         <TextInput
-                          type="number" step="1" step="1"
+                          type="number" step="1"
                           value={editedPayment.amount}
                           onChange={e => handleEditExistingPayment(payment.id, 'amount', e.target.value)}
                           disabled={isStrikethrough}
@@ -2691,7 +3450,7 @@ export const CreatePaymentForm = ({
                       {isEditing && !payment.isMigrated ? (
                         <div style={{ position: 'relative' }}>
                           <TextInput
-                            type="number" step="1" step="1" step="1"
+                            type="number" step="1"
                             value={editedPayment.comission}
                             onChange={e => handleEditExistingPayment(payment.id, 'comission', e.target.value)}
                             disabled={isStrikethrough}
@@ -2749,15 +3508,17 @@ export const CreatePaymentForm = ({
                       fontWeight: isStrikethrough ? '500' : 'inherit'
                     }}>
                       {isEditing && !payment.isMigrated ? (
-                        <Select
-                          options={paymentMethods}
-                          value={paymentMethods.find(option => option.value === editedPayment.paymentMethod) || null}
-                          onChange={(option) => handleEditExistingPayment(payment.id, 'paymentMethod', (option as Option).value)}
-                          isDisabled={isStrikethrough}
-                          size="small"
-                          style={{ height: HEIGHT_SYSTEM.small, fontSize: FONT_SYSTEM.small }}
-                            
-                        />
+                        <div 
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Select
+                            options={paymentMethods}
+                            value={paymentMethods.find(option => option.value === editedPayment.paymentMethod) || null}
+                            onChange={(option) => handleEditExistingPayment(payment.id, 'paymentMethod', (option as Option).value)}
+                            isDisabled={isStrikethrough}
+                          />
+                        </div>
                       ) : (
                         <span style={{
                           ...(payment.isMigrated ? { color: '#6B7280', fontStyle: 'italic' } : {}),
@@ -2770,54 +3531,155 @@ export const CreatePaymentForm = ({
                       )}
                     </td>
                     <td>
-                      {!payment.isMigrated && isEditing && (
-                        <div style={{ display: 'flex', gap: '4px' }}>
-                          {strikethroughPaymentIds.includes(payment.id) ? (
+                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                        {/* Menú de 3 puntos para pagos existentes */}
+                        {!payment.isMigrated && (
+                          <div style={{ position: 'relative' }}>
                             <Button
-                              tone="positive"
+                              tone="passive"
                               size="small"
-                              onClick={() => {
-                                // Restaurar pago (quitar de tachados)
-                                console.log('Restaurando pago:', payment.id);
-                                setStrikethroughPaymentIds(prev => prev.filter(id => id !== payment.id));
+                              onClick={(e) => { 
+                                e.stopPropagation(); 
+                                console.log('🔍 Abriendo menú para pago existente:', payment.id);
+                                setShowMenuForPayment(`existing-${payment.id}`); 
                               }}
-                              title="Restaurar pago"
+                              style={{ padding: '4px' }}
                             >
-                              ✓
+                              <FaEllipsisV size={12} />
                             </Button>
-                          ) : (
-                            <Button
-                              tone="negative"
-                              size="small"
-                              onClick={() => {
-                                // Marcar como tachado (eliminado visualmente)
-                                console.log('Marcando como tachado:', payment.id);
-                                setStrikethroughPaymentIds(prev => {
-                                  const newIds = [...prev, payment.id];
-                                  console.log('Nuevos IDs tachados:', newIds);
-                                  return newIds;
-                                });
-                                // También eliminar del estado editedPayments
-                                const newEditedPayments = { ...editedPayments };
-                                delete newEditedPayments[payment.id];
-                                setState(prev => ({ ...prev, editedPayments: newEditedPayments }));
-                              }}
-                              title="Marcar como eliminado"
-                            >
-                              <TrashIcon size="small" />
-                            </Button>
-                          )}
-                        </div>
-                      )}
-                      {payment.isMigrated && (
-                        <span style={{
-                          fontSize: '12px',
-                          color: '#9CA3AF',
-                          fontStyle: 'italic',
-                        }}>
-                          No editable
-                        </span>
-                      )}
+                            
+                            {showMenuForPayment === `existing-${payment.id}` && (
+                              <div style={{
+                                position: 'absolute',
+                                top: '100%',
+                                right: '0',
+                                backgroundColor: 'white',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '6px',
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                zIndex: 1000,
+                                minWidth: '180px'
+                              }}>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const loanId = (payment.loanId || payment.loan?.id || '');
+                                    if (!loanId) return;
+                                    handleEditClient(loanId);
+                                    setShowMenuForPayment(null);
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: 'none',
+                                    backgroundColor: 'transparent',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    color: '#374151',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    borderBottom: '1px solid #e5e7eb'
+                                  }}
+                                  onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#f9fafb'}
+                                  onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
+                                >
+                                  <FaEdit size={12} />
+                                  Editar Cliente
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const loanId = (payment.loanId || payment.loan?.id || '');
+                                    if (loanId) {
+                                      const selectedLoan = loansData?.loans?.find(l => l.id === loanId);
+                                      if (selectedLoan) {
+                                        openAvalEditModal(selectedLoan);
+                                      }
+                                    }
+                                    setShowMenuForPayment(null);
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: 'none',
+                                    backgroundColor: 'transparent',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    color: '#374151',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
+                                  }}
+                                  onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#f9fafb'}
+                                  onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
+                                >
+                                  👤 Editar aval
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Botones de edición existentes */}
+                        {!payment.isMigrated && isEditing && (
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            {strikethroughPaymentIds.includes(payment.id) ? (
+                              <Button
+                                tone="positive"
+                                size="small"
+                                onClick={() => {
+                                  // Restaurar pago (quitar de tachados)
+                                  console.log('Restaurando pago:', payment.id);
+                                  setStrikethroughPaymentIds(prev => prev.filter(id => id !== payment.id));
+                                }}
+                                title="Restaurar pago"
+                              >
+                                ✓
+                              </Button>
+                            ) : (
+                              <Button
+                                tone="negative"
+                                size="small"
+                                onClick={() => {
+                                  // Marcar como tachado (eliminado visualmente)
+                                  console.log('🗑️ [FRONTEND DEBUG] Marcando como tachado:', payment.id);
+                                  console.log('🗑️ [FRONTEND DEBUG] Detalles del pago:', {
+                                    id: payment.id,
+                                    loanId: payment.loan?.id,
+                                    amount: payment.amount,
+                                    clientName: payment.loan?.borrower?.personalData?.fullName,
+                                    receivedAt: payment.receivedAt,
+                                    paymentMethod: payment.paymentMethod
+                                  });
+                                  
+                                  
+                                  setStrikethroughPaymentIds(prev => [...prev, payment.id]);
+                                  
+                                  // También eliminar del estado editedPayments
+                                  const newEditedPayments = { ...editedPayments };
+                                  delete newEditedPayments[payment.id];
+                                  setState(prev => ({ ...prev, editedPayments: newEditedPayments }));
+                                }}
+                                title="Marcar como eliminado"
+                              >
+                                <TrashIcon size="small" />
+                              </Button>
+                            )}
+                          </div>
+                        )}
+                        {payment.isMigrated && (
+                          <span style={{
+                            fontSize: '12px',
+                            color: '#9CA3AF',
+                            fontStyle: 'italic',
+                          }}>
+                            No editable
+                          </span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -2828,12 +3690,20 @@ export const CreatePaymentForm = ({
                 const isStrikethrough = strikethroughNewPaymentIndices.includes(index);
                 const hasZeroCommission = parseFloat(payment.comission?.toString() || '0') === 0;
                 const isDeceased = deceasedLoanIds.has(payment.loanId || '');
+                const isTransferPayment = payment.paymentMethod === 'MONEY_TRANSFER';
+                const paymentKey = `new-${index}`;
                 return (
-                <tr key={`new-${index}`} style={{ 
-                  backgroundColor: isDeceased ? '#f3f4f6' : (isStrikethrough ? '#fee2e2' : (hasZeroCommission ? '#FEF3C7' : '#ECFDF5')),
-                  opacity: isDeceased ? 0.6 : (isStrikethrough ? 0.7 : 1),
-                  borderLeft: isDeceased ? '4px solid #6b7280' : (isStrikethrough ? '4px solid #ef4444' : (hasZeroCommission ? '4px solid #D97706' : 'none'))
-                }}>
+                <tr 
+                  key={paymentKey} 
+                  onClick={(e) => handleRowSelection(paymentKey, e)}
+                  style={{ 
+                    backgroundColor: isDeceased ? '#f3f4f6' : (isStrikethrough ? '#fee2e2' : (hasZeroCommission ? '#FEF3C7' : (isTransferPayment ? '#F3E8FF' : '#ECFDF5'))),
+                    opacity: isDeceased ? 0.6 : (isStrikethrough ? 0.7 : 1),
+                    borderLeft: isDeceased ? '4px solid #6b7280' : (isStrikethrough ? '4px solid #ef4444' : (hasZeroCommission ? '4px solid #D97706' : (isTransferPayment ? '4px solid #8B5CF6' : 'none'))),
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
                   <td style={{ 
                     textAlign: 'center',
                     fontWeight: 'bold',
@@ -2864,25 +3734,74 @@ export const CreatePaymentForm = ({
                   <td style={{
                     textDecoration: isStrikethrough ? 'line-through' : 'none',
                     color: isStrikethrough ? '#dc2626' : 'inherit',
+                    fontWeight: isStrikethrough ? '500' : 'inherit',
+                    textAlign: 'center'
+                  }}>
+                    {(() => {
+                      // Función para generar código corto a partir del id (igual que en generar-listados)
+                      const shortCodeFromId = (id?: string): string => {
+                        if (!id) return '';
+                        const base = id.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+                        return base.slice(-6);
+                      };
+
+                      const selectedLoan = loansData?.loans?.find(loan => loan.id === payment.loanId);
+                      const clientCode = selectedLoan?.borrower?.personalData?.clientCode || 
+                                       shortCodeFromId(selectedLoan?.borrower?.personalData?.id);
+                      
+                      return (
+                        <span style={{
+                          display: 'inline-block',
+                          padding: '2px 6px',
+                          backgroundColor: '#EFF6FF',
+                          color: '#1E40AF',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          border: '1px solid #BFDBFE'
+                        }}>
+                          {clientCode || 'N/A'}
+                        </span>
+                      );
+                    })()}
+                  </td>
+                  <td style={{
+                    textDecoration: isStrikethrough ? 'line-through' : 'none',
+                    color: isStrikethrough ? '#dc2626' : 'inherit',
                     fontWeight: isStrikethrough ? '500' : 'inherit'
                   }}>
                     {payment.isUserAdded ? (
                       // Pagos agregados por usuario: siempre mostrar dropdown
-                      <Select
-                        options={loansData?.loans
-                          ?.filter(loan => loan.borrower && loan.borrower.personalData)
-                          ?.map(loan => ({
-                            value: loan.id,
-                            label: loan.borrower?.personalData?.fullName || 'Sin nombre'
-                          })) || []}
-                        value={loansData?.loans.find(loan => loan.id === payment.loanId) ? {
-                          value: payment.loanId,
-                          label: loansData.loans.find(loan => loan.id === payment.loanId)?.borrower?.personalData?.fullName || 'Sin nombre'
+                      <div 
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Select
+                          options={loansData?.loans
+                            ?.filter(loan => loan.borrower && loan.borrower.personalData)
+                            ?.map(loan => ({
+                              value: loan.id,
+                              label: `${loan.borrower?.personalData?.fullName || 'Sin nombre'} (${loan.signDate ? new Date(loan.signDate).toLocaleDateString('es-MX', {
+                                year: 'numeric',
+                                month: '2-digit',
+                                day: '2-digit'
+                              }) : 'Sin fecha'})`
+                            })) || []}
+                          value={loansData?.loans.find(loan => loan.id === payment.loanId) ? {
+                            value: payment.loanId,
+                            label: (() => {
+                            const selectedLoan = loansData.loans.find(loan => loan.id === payment.loanId);
+                            return `${selectedLoan?.borrower?.personalData?.fullName || 'Sin nombre'} (${selectedLoan?.signDate ? new Date(selectedLoan.signDate).toLocaleDateString('es-MX', {
+                              year: 'numeric',
+                              month: '2-digit',
+                              day: '2-digit'
+                            }) : 'Sin fecha'})`;
+                          })()
                         } : null}
                         onChange={(option) => handleChange(index, 'loanId', (option as Option).value)}
                         isDisabled={isStrikethrough || isDeceased}
-                        size="small"
                       />
+                      </div>
                     ) : (
                       // Pagos existentes: mostrar solo texto
                       loansData?.loans.find(loan => loan.id === payment.loanId)?.borrower?.personalData?.fullName || 'Sin nombre'
@@ -2912,39 +3831,57 @@ export const CreatePaymentForm = ({
                     color: isStrikethrough ? '#dc2626' : 'inherit',
                     fontWeight: isStrikethrough ? '500' : 'inherit'
                   }}>
-                    <TextInput
-                      type="number" step="1"
-                      value={Math.round(parseFloat(payment.amount || '0'))}
-                      onChange={(e) => handleChange(index, 'amount', e.target.value)}
-                      disabled={isStrikethrough || isDeceased}
-                      style={{ height: HEIGHT_SYSTEM.small, fontSize: FONT_SYSTEM.small }}
-                    />
+                    <div 
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseUp={(e) => e.stopPropagation()}
+                      data-no-select="true"
+                    >
+                      <TextInput
+                        type="number" step="1"
+                        value={Math.round(parseFloat(payment.amount || '0'))}
+                        onChange={(e) => handleChange(index, 'amount', e.target.value)}
+                        disabled={isStrikethrough || isDeceased}
+                        style={{ height: HEIGHT_SYSTEM.small, fontSize: FONT_SYSTEM.small }}
+                      />
+                    </div>
                   </td>
                   <td style={{
                     textDecoration: isStrikethrough ? 'line-through' : 'none',
                     color: isStrikethrough ? '#dc2626' : 'inherit',
                     fontWeight: isStrikethrough ? '500' : 'inherit'
                   }}>
-                    <TextInput
-                      type="number" step="1"
-                      value={Math.round(parseFloat(payment.comission?.toString() || '0'))}
-                      onChange={(e) => handleChange(index, 'comission', e.target.value)}
-                      disabled={isStrikethrough || isDeceased}
-                      style={{ height: HEIGHT_SYSTEM.small, fontSize: FONT_SYSTEM.small }}
-                    />
+                    <div 
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseUp={(e) => e.stopPropagation()}
+                      data-no-select="true"
+                    >
+                      <TextInput
+                        type="number" step="1"
+                        value={Math.round(parseFloat(payment.comission?.toString() || '0'))}
+                        onChange={(e) => handleChange(index, 'comission', e.target.value)}
+                        disabled={isStrikethrough || isDeceased}
+                        style={{ height: HEIGHT_SYSTEM.small, fontSize: FONT_SYSTEM.small }}
+                      />
+                    </div>
                   </td>
                   <td style={{
                     textDecoration: isStrikethrough ? 'line-through' : 'none',
                     color: isStrikethrough ? '#dc2626' : 'inherit',
                     fontWeight: isStrikethrough ? '500' : 'inherit'
                   }}>
-                    <Select
-                      options={paymentMethods}
-                      value={paymentMethods.find(option => option.value === payment.paymentMethod) || null}
-                      onChange={(option) => handleChange(index, 'paymentMethod', (option as Option).value)}
-                      isDisabled={isStrikethrough || isDeceased}
-                      size="small"
-                    />
+                    <div 
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Select
+                        options={paymentMethods}
+                        value={paymentMethods.find(option => option.value === payment.paymentMethod) || null}
+                        onChange={(option) => handleChange(index, 'paymentMethod', (option as Option).value)}
+                        isDisabled={isStrikethrough || isDeceased}
+                      />
+                    </div>
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
@@ -2973,62 +3910,221 @@ export const CreatePaymentForm = ({
                             minWidth: '180px'
                           }}>
                             {!isDeceased ? (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const selectedLoan = loansData?.loans?.find(loan => loan.id === (payment.loanId || payment.loan?.id));
-                                  setDeceasedModal({
-                                    isOpen: true,
-                                    loanId: (payment.loanId || payment.loan?.id || ''),
-                                    clientName: selectedLoan?.borrower?.personalData?.fullName || 'Cliente'
-                                  });
-                                  setShowMenuForPayment(null);
-                                }}
-                                style={{
-                                  width: '100%',
-                                  padding: '10px 12px',
-                                  border: 'none',
-                                  backgroundColor: 'transparent',
-                                  textAlign: 'left',
-                                  cursor: 'pointer',
-                                  fontSize: '14px',
-                                  color: '#dc2626',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '8px'
-                                }}
-                                onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#fef2f2'}
-                                onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
-                              >
-                                💀 Registrar deceso
-                              </button>
+                              <>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const loanId = (payment.loanId || payment.loan?.id || '');
+                                    console.log('🔍 Botón Editar Cliente (no fallecido) clickeado, loanId:', loanId);
+                                    if (!loanId) {
+                                      console.log('❌ No hay loanId, cancelando');
+                                      return;
+                                    }
+                                    handleEditClient(loanId);
+                                    setShowMenuForPayment(null);
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: 'none',
+                                    backgroundColor: 'transparent',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    color: '#374151',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    borderBottom: '1px solid #e5e7eb'
+                                  }}
+                                  onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#f9fafb'}
+                                  onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
+                                >
+                                  <FaEdit size={12} />
+                                  Editar Cliente
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const loanId = (payment.loanId || payment.loan?.id || '');
+                                    if (loanId) {
+                                      const selectedLoan = loansData?.loans?.find(l => l.id === loanId);
+                                      if (selectedLoan) {
+                                        openAvalEditModal(selectedLoan);
+                                      }
+                                    }
+                                    setShowMenuForPayment(null);
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: 'none',
+                                    backgroundColor: 'transparent',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    color: '#374151',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    borderBottom: '1px solid #e5e7eb'
+                                  }}
+                                  onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#f9fafb'}
+                                  onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
+                                >
+                                  👤 Editar aval
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const selectedLoan = loansData?.loans?.find(loan => loan.id === payment.loanId);
+                                    setDeceasedModal({
+                                      isOpen: true,
+                                      loanId: (payment.loanId || ''),
+                                      clientName: selectedLoan?.borrower?.personalData?.fullName || 'Cliente'
+                                    });
+                                    setShowMenuForPayment(null);
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: 'none',
+                                    backgroundColor: 'transparent',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    color: '#dc2626',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
+                                  }}
+                                  onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#fef2f2'}
+                                  onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
+                                >
+                                  💀 Registrar deceso
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const selectedLoan = loansData?.loans?.find(loan => loan.id === payment.loanId);
+                                    if (selectedLoan?.borrower?.personalData) {
+                                      setPromoteModal({
+                                        isOpen: true,
+                                        clientId: selectedLoan.borrower.personalData.id,
+                                        clientName: selectedLoan.borrower.personalData.fullName || 'Cliente',
+                                        currentLeadId: selectedLead?.id || ''
+                                      });
+                                    }
+                                    setShowMenuForPayment(null);
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: 'none',
+                                    backgroundColor: 'transparent',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    color: '#059669',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    borderBottom: '1px solid #e5e7eb'
+                                  }}
+                                  onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#f0fdf4'}
+                                  onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
+                                >
+                                  👑 Promover a lider
+                                </button>
+                              </>
                             ) : (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const loanId = (payment.loanId || payment.loan?.id || '');
-                                  if (!loanId) return;
-                                  handleUnmarkAsDeceased(loanId);
-                                  setShowMenuForPayment(null);
-                                }}
-                                style={{
-                                  width: '100%',
-                                  padding: '10px 12px',
-                                  border: 'none',
-                                  backgroundColor: 'transparent',
-                                  textAlign: 'left',
-                                  cursor: 'pointer',
-                                  fontSize: '14px',
-                                  color: '#2563eb',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '8px'
-                                }}
-                                onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#eff6ff'}
-                                onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
-                              >
-                                ↩️ Deshacer deceso
-                              </button>
+                              <>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const loanId = (payment.loanId || payment.loan?.id || '');
+                                    if (!loanId) {
+                                      console.log('❌ No hay loanId, cancelando');
+                                      return;
+                                    }
+                                    handleEditClient(loanId);
+                                    setShowMenuForPayment(null);
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: 'none',
+                                    backgroundColor: 'transparent',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    color: '#374151',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    borderBottom: '1px solid #e5e7eb'
+                                  }}
+                                  onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#f9fafb'}
+                                  onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
+                                >
+                                  <FaEdit size={12} />
+                                  Editar Cliente
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const selectedLoan = loansData?.loans?.find(loan => loan.id === payment.loanId);
+                                    if (selectedLoan) {
+                                      openAvalEditModal(selectedLoan);
+                                    }
+                                    setShowMenuForPayment(null);
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: 'none',
+                                    backgroundColor: 'transparent',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    color: '#374151',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    borderBottom: '1px solid #e5e7eb'
+                                  }}
+                                  onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#f9fafb'}
+                                  onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
+                                >
+                                  👤 Editar aval
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const loanId = (payment.loanId || payment.loan?.id || '');
+                                    if (!loanId) return;
+                                    handleUnmarkAsDeceased(loanId);
+                                    setShowMenuForPayment(null);
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    border: 'none',
+                                    backgroundColor: 'transparent',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    color: '#2563eb',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
+                                  }}
+                                  onMouseEnter={(e) => (e.target as HTMLButtonElement).style.backgroundColor = '#eff6ff'}
+                                  onMouseLeave={(e) => (e.target as HTMLButtonElement).style.backgroundColor = 'transparent'}
+                                >
+                                  ↩️ Deshacer deceso
+                                </button>
+                              </>
                             )}
                           </div>
                         )}
@@ -3083,7 +4179,7 @@ export const CreatePaymentForm = ({
           confirm: { 
             label: 'Reportar Falco', 
             action: () => handleCreateFalco(), 
-            loading: customLeadPaymentLoading 
+            loading: customLeadPaymentLoading || updateLoading 
           },
           cancel: { 
             label: 'Cancelar', 
@@ -3450,7 +4546,7 @@ export const CreatePaymentForm = ({
           confirm: { 
             label: 'Confirmar', 
             action: () => handleSubmit(), 
-            loading: customLeadPaymentLoading 
+            loading: customLeadPaymentLoading || updateLoading 
           },
           cancel: { 
             label: 'Cerrar', 
@@ -3544,8 +4640,9 @@ export const CreatePaymentForm = ({
                 type="number"
                 min="0"
                 max={totalByPaymentMethod.cashTotal} // Limitar solo al efectivo real
-                value={loadPaymentDistribution.bankPaidAmount}
+                value={loadPaymentDistribution.bankPaidAmount.toString()}
                 onChange={(e) => {
+                  updateState({ hasUserEditedDistribution: true });
                   const transferAmount = Math.max(0, Math.min(parseFloat(e.target.value) || 0, totalByPaymentMethod.cashTotal));
                   // ✅ CORREGIDO: El efectivo disponible para distribución es solo el efectivo real menos la transferencia
                   const cashAmount = totalByPaymentMethod.cashTotal - transferAmount;
@@ -3671,6 +4768,78 @@ export const CreatePaymentForm = ({
         </Box>
       </AlertDialog>
 
+      {/* Modal de confirmación de promoción a líder */}
+      <AlertDialog 
+        title="Promover a Líder" 
+        isOpen={promoteModal.isOpen} 
+        actions={{
+          confirm: { 
+            label: 'Promover a Líder', 
+            action: handlePromoteToLead, 
+            loading: promoteLoading 
+          },
+          cancel: { 
+            label: 'Cancelar', 
+            action: () => setPromoteModal({ isOpen: false, clientId: null, clientName: '', currentLeadId: null }) 
+          }
+        }}
+      >
+        <Box padding="large">
+          <div style={{
+            backgroundColor: '#F0FDF4',
+            border: '1px solid #BBF7D0',
+            borderRadius: '8px',
+            padding: '16px',
+            marginBottom: '16px'
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              marginBottom: '12px',
+              color: '#059669',
+              fontWeight: '600'
+            }}>
+              👑 Promoción a Líder
+            </div>
+            <p style={{ margin: 0, fontSize: '14px', color: '#047857' }}>
+              ¿Seguro que deseas promover a <strong>{promoteModal.clientName}</strong> a líder?
+            </p>
+          </div>
+          
+          <div style={{ marginBottom: '16px' }}>
+            <h4 style={{ margin: '0 0 8px 0', color: '#374151' }}>Acciones que se realizarán:</h4>
+            <div style={{ 
+              backgroundColor: '#F9FAFB', 
+              padding: '12px', 
+              borderRadius: '6px',
+              border: '1px solid #E5E7EB'
+            }}>
+              <div style={{ marginBottom: '8px' }}>
+                <strong>1.</strong> Se creará un nuevo registro de Employee para {promoteModal.clientName}
+              </div>
+              <div style={{ marginBottom: '8px' }}>
+                <strong>2.</strong> Todos los clientes activos del líder actual serán transferidos al nuevo líder
+              </div>
+              <div>
+                <strong>3.</strong> La información del líder anterior (dirección) se mantendrá idéntica
+              </div>
+            </div>
+          </div>
+          
+          <div style={{
+            backgroundColor: '#EFF6FF',
+            border: '1px solid #BFDBFE',
+            borderRadius: '6px',
+            padding: '12px',
+            fontSize: '13px',
+            color: '#1E40AF'
+          }}>
+            <strong>💡 Información:</strong> Esta acción creará un nuevo líder y transferirá toda la cartera de clientes activos.
+          </div>
+        </Box>
+      </AlertDialog>
+
       {/* Modal de Mover Pagos */}
       {console.log('🔍 Estado isMovePaymentsModalOpen:', isMovePaymentsModalOpen)}
       {isMovePaymentsModalOpen && (
@@ -3770,6 +4939,114 @@ export const CreatePaymentForm = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal de edición de cliente */}
+      <EditPersonModal
+        isOpen={isEditClientModalOpen}
+        onClose={handleCloseEditClientModal}
+        person={editingClient}
+        onSave={handleSaveEditedClient}
+        title="Editar Cliente"
+      />
+
+      {/* Modal de edición de aval */}
+      {avalEditModal.isOpen && avalEditModal.loan && (
+        <Box
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+        >
+          <Box
+            style={{
+              backgroundColor: 'white',
+              padding: '32px',
+              borderRadius: '12px',
+              width: '500px',
+              maxWidth: '90%',
+              maxHeight: '90vh',
+              overflow: 'auto',
+            }}
+          >
+            <div style={{ marginBottom: '24px' }}>
+              <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '600', color: '#1a1f36' }}>
+                Modificar Información del Aval
+              </h2>
+              <p style={{ margin: '8px 0 0 0', color: '#697386', fontSize: '14px' }}>
+                Modifica los datos del aval para el préstamo de {avalEditModal.loan.borrower?.personalData?.fullName || 'Cliente'}
+              </p>
+            </div>
+
+            <div style={{ marginBottom: '24px' }}>
+              <AvalInputWithAutocomplete
+                loanId="editing-aval"
+                currentName={editingAvalData?.fullName || ''}
+                currentPhone={editingAvalData?.phone || ''}
+                selectedCollateralId={editingAvalData?.id}
+                selectedCollateralPhoneId={editingAvalData?.phoneId}
+                onAvalChange={(avalData) => {
+                  // Actualizar el estado local con los datos del aval (igual que en CreditosTab)
+                  const newState = {
+                    ...editingAvalData,
+                    fullName: avalData.avalName,
+                    phone: avalData.avalPhone,
+                    id: avalData.selectedCollateralId,
+                    phoneId: avalData.selectedCollateralPhoneId,
+                    avalAction: avalData.avalAction
+                  };
+                  setEditingAvalData(newState);
+                }}
+                onAvalUpdated={async (updatedPerson) => {
+                  // Actualizar el estado local con los datos actualizados (igual que en CreditosTab)
+                  console.log('Aval actualizado:', updatedPerson);
+                  setEditingAvalData((prev: any) => ({
+                    ...prev,
+                    fullName: updatedPerson.fullName,
+                    phone: updatedPerson.phones?.[0]?.number || '',
+                    id: updatedPerson.id,
+                    phoneId: updatedPerson.phones?.[0]?.id,
+                    avalAction: 'update'
+                  }));
+                }}
+                usedPersonIds={[]}
+                borrowerLocationId={undefined}
+                includeAllLocations={false}
+                readonly={false}
+                isFromPrevious={false}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <Button
+                tone="negative"
+                size="large"
+                onClick={closeAvalEditModal}
+                style={{ padding: '10px 20px', borderRadius: '8px', fontSize: '14px' }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                tone="positive"
+                size="large"
+                onClick={handleSaveAvalChanges}
+                isDisabled={!editingAvalData || updateLoanWithAvalLoading}
+                isLoading={updateLoanWithAvalLoading}
+                style={{ padding: '10px 20px', borderRadius: '8px', fontSize: '14px' }}
+              >
+                {updateLoanWithAvalLoading ? 'Guardando...' : 'Guardar Cambios'}
+              </Button>
+            </div>
+          </Box>
+        </Box>
       )}
     </Box>
   );

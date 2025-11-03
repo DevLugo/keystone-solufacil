@@ -18,12 +18,12 @@ interface MenuSection {
 const menuSections: MenuSection[] = [
   {
     title: 'Clientes',
-    roles: ['NORMAL', 'ADMIN'],
+    roles: ['CAPTURA', 'NORMAL', 'ADMIN'],
     items: [
       {
         label: 'Historial de Clientes',
         href: '/historial-cliente',
-        roles: ['NORMAL', 'ADMIN']
+        roles: ['CAPTURA', 'NORMAL', 'ADMIN']
       },
       {
         label: 'Carga de Documentos',
@@ -35,12 +35,12 @@ const menuSections: MenuSection[] = [
   },
   {
     title: 'Operaciones',
-    roles: ['NORMAL', 'ADMIN'],
+    roles: ['CAPTURA', 'NORMAL', 'ADMIN'],
     items: [
       {
         label: 'Captura Semanal',
         href: '/transacciones',
-        roles: ['NORMAL', 'CAPTURA', 'ADMIN']
+        roles: ['CAPTURA', 'ADMIN']
       },
       {
         label: 'Carga Gastos Toka',
@@ -51,6 +51,11 @@ const menuSections: MenuSection[] = [
         label: 'Listados de Rutas',
         href: '/generar-listados',
         roles: ['NORMAL', 'ADMIN']
+      },
+      {
+        label: 'Nuevo Líder',
+        href: '/nuevo-lider',
+        roles: ['ADMIN', 'CAPTURA']
       }
     ]
   },
@@ -101,7 +106,22 @@ const menuSections: MenuSection[] = [
       },
       {
         label: 'Usuarios de Telegram',
-        href: '/telegram-users',
+        href: '/telegram-users-admin',
+        roles: ['ADMIN']
+      },
+      {
+        label: 'Logs de Notificaciones',
+        href: '/logs-notificaciones',
+        roles: ['ADMIN']
+      },
+      {
+        label: 'Diagnóstico de Telegram',
+        href: '/diagnostico-telegram',
+        roles: ['ADMIN']
+      },
+      {
+        label: 'Administrar Gastos',
+        href: '/administrar-gastos',
         roles: ['ADMIN']
       },
       {

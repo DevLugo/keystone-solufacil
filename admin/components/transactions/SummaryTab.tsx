@@ -39,118 +39,18 @@ const GET_TRANSACTIONS_SUMMARY = gql`
   }
 `;
 
-const GET_BANK_INCOME_TRANSACTIONS = gql`
-  query GetBankIncomeTransactions($startDate: DateTime!, $endDate: DateTime!, $routeId: ID!) {
-    transactions(where: {
-      AND: [
-        { date: { gte: $startDate, lte: $endDate } },
-        { route: { id: { equals: $routeId } } },
-        {
-          OR: [
-            { 
-              AND: [
-                { type: { equals: "TRANSFER" } },
-                { destinationAccount: { type: { equals: "BANK" } } }
-              ]
-            },
-            { 
-              AND: [
-                { type: { equals: "INCOME" } },
-                { 
-                  OR: [
-                    { incomeSource: { equals: "BANK_LOAN_PAYMENT" } },
-                    { incomeSource: { equals: "MONEY_INVESMENT" } }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    }) {
+const GET_ALL_ROUTES = gql`
+  query GetAllRoutes {
+    routes {
       id
-      amount
-      type
-      incomeSource
-      createdAt
-      date
-      description
-      route {
-        id
-        name
-      }
-      lead {
-        id
-        personalData {
-          fullName
-          addresses {
-            location {
-              name
-              municipality {
-                name
-                state {
-                  name
-                }
-              }
-            }
-          }
-        }
-      }
-      destinationAccount {
-        id
-        type
-      }
-      sourceAccount {
-        id
-        type
-      }
-        leadPaymentReceived {
-          id
-          lead {
-            id
-            personalData {
-              fullName
-              addresses {
-                location {
-                  name
-                  municipality {
-                    name
-                    state {
-                      name
-                    }
-                  }
-                }
-              }
-            }
-          }
-          payments {
-            id
-            amount
-            receivedAt
-            loan {
-              borrower {
-                personalData {
-                  fullName
-                }
-              }
-            }
-          }
-        }
-        loanPayment {
-          id
-          amount
-          comission
-          paymentMethod
-          receivedAt
-          loan {
-            borrower {
-              personalData {
-                fullName
-              }
-            }
-          }
-        }
+      name
     }
+  }
+`;
+
+const GET_BANK_INCOME_TRANSACTIONS = gql`
+  query GetBankIncomeTransactions($startDate: String!, $endDate: String!, $routeIds: [ID!]!, $onlyAbonos: Boolean) {
+    getBankIncomeTransactions(startDate: $startDate, endDate: $endDate, routeIds: $routeIds, onlyAbonos: $onlyAbonos)
   }
 `;
 
@@ -333,55 +233,55 @@ export const SummaryTab = ({ selectedDate, selectedRoute, refreshKey }: SummaryT
   const [expandedLocality, setExpandedLocality] = useState<string | null>(null);
   const [showBankIncomeModal, setShowBankIncomeModal] = useState(false);
   const [isLoadingBankIncome, setIsLoadingBankIncome] = useState(false);
+  
+  // Estados para filtros del modal
+  const [onlyAbonos, setOnlyAbonos] = useState(false);
+  const [customStartDate, setCustomStartDate] = useState<string>('');
+  const [customEndDate, setCustomEndDate] = useState<string>('');
+  const [selectedRouteIds, setSelectedRouteIds] = useState<string[]>([]);
+  const [availableRoutes, setAvailableRoutes] = useState<Array<{ id: string; name: string }>>([]);
+
+  // Query para obtener todas las rutas disponibles
+  const { data: allRoutesData } = useQuery(GET_ALL_ROUTES, {
+    skip: !showBankIncomeModal
+  });
 
   // Query para obtener entradas al banco (solo se ejecuta cuando se abre el modal)
   const { data: bankIncomeData, loading: bankIncomeLoading, refetch: refetchBankIncome, error: bankIncomeError } = useQuery(GET_BANK_INCOME_TRANSACTIONS, {
     variables: {
-      routeId: selectedRoute?.id,
-      startDate: (() => {
+      routeIds: selectedRouteIds.length > 0 ? selectedRouteIds : (selectedRoute?.id ? [selectedRoute.id] : []),
+      startDate: customStartDate ? new Date(customStartDate + 'T06:00:00.000Z').toISOString() : (() => {
         // Calcular inicio de semana (lunes) en UTC para 00:00 hora México (06:00 UTC)
-        console.log('🔍 selectedDate original:', selectedDate);
         const startOfWeek = new Date(selectedDate);
-        const dayOfWeek = startOfWeek.getDay(); // 0 = domingo, 1 = lunes, etc.
-        const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // Ajustar para que lunes = 0
-        console.log('🔍 dayOfWeek:', dayOfWeek, 'daysToMonday:', daysToMonday);
+        const dayOfWeek = startOfWeek.getDay();
+        const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
         startOfWeek.setDate(startOfWeek.getDate() + daysToMonday);
-        console.log('🔍 startOfWeek (lunes):', startOfWeek);
         
         const year = startOfWeek.getFullYear();
         const month = startOfWeek.getMonth();
         const day = startOfWeek.getDate();
-        console.log('🔍 startOfWeek components:', { year, month, day });
-        const startDate = new Date(Date.UTC(year, month, day, 6, 0, 0, 0)); // 06:00 UTC = 00:00 México
-        console.log('🔍 startDate calculado (lunes):', startDate);
-        const result = startDate.toISOString();
-        console.log('🔍 startDate ISO result:', result);
-        return result;
+        const startDate = new Date(Date.UTC(year, month, day, 6, 0, 0, 0));
+        return startDate.toISOString();
       })(),
-      endDate: (() => {
+      endDate: customEndDate ? new Date(customEndDate + 'T23:59:59.999Z').toISOString() : (() => {
         // Calcular fin de semana (domingo) en UTC para 23:59 hora México (05:59 UTC del día siguiente)
-        console.log('🔍 selectedDate original para endDate:', selectedDate);
         const startOfWeek = new Date(selectedDate);
-        const dayOfWeek = startOfWeek.getDay(); // 0 = domingo, 1 = lunes, etc.
-        const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // Ajustar para que lunes = 0
+        const dayOfWeek = startOfWeek.getDay();
+        const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
         startOfWeek.setDate(startOfWeek.getDate() + daysToMonday);
         
         const endOfWeek = new Date(startOfWeek);
-        endOfWeek.setDate(endOfWeek.getDate() + 6); // Domingo
-        console.log('🔍 endOfWeek (domingo):', endOfWeek);
+        endOfWeek.setDate(endOfWeek.getDate() + 6);
         
         const year = endOfWeek.getFullYear();
         const month = endOfWeek.getMonth();
         const day = endOfWeek.getDate();
-        console.log('🔍 endOfWeek components:', { year, month, day });
-        const endDate = new Date(Date.UTC(year, month, day + 1, 5, 59, 59, 999)); // 05:59 UTC del día siguiente = 23:59 México
-        console.log('🔍 endDate calculado (domingo):', endDate);
-        const result = endDate.toISOString();
-        console.log('🔍 endDate ISO result:', result);
-        return result;
-      })()
+        const endDate = new Date(Date.UTC(year, month, day + 1, 5, 59, 59, 999));
+        return endDate.toISOString();
+      })(),
+      onlyAbonos: onlyAbonos
     },
-    skip: !showBankIncomeModal || !selectedDate || !selectedRoute?.id, // Solo ejecutar cuando el modal esté abierto y tengamos los datos necesarios
+    skip: !showBankIncomeModal || !selectedDate || (selectedRouteIds.length === 0 && !selectedRoute?.id), // Solo ejecutar cuando el modal esté abierto y tengamos los datos necesarios
     fetchPolicy: 'no-cache', // No usar caché
     notifyOnNetworkStatusChange: true,
     onCompleted: (data) => {
@@ -398,321 +298,91 @@ export const SummaryTab = ({ selectedDate, selectedRoute, refreshKey }: SummaryT
     }
   }, [refreshKey, refetch, selectedDate]);
 
+  // Función para calcular fechas por defecto (semana actual)
+  const getDefaultWeekDates = () => {
+    const startOfWeek = new Date(selectedDate);
+    const dayOfWeek = startOfWeek.getDay();
+    const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    startOfWeek.setDate(startOfWeek.getDate() + daysToMonday);
+    
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(endOfWeek.getDate() + 6);
+    
+    return {
+      start: startOfWeek.toISOString().split('T')[0],
+      end: endOfWeek.toISOString().split('T')[0]
+    };
+  };
+
+  // Inicializar fechas por defecto cuando se abre el modal
+  useEffect(() => {
+    if (showBankIncomeModal && !customStartDate && !customEndDate) {
+      const defaultDates = getDefaultWeekDates();
+      setCustomStartDate(defaultDates.start);
+      setCustomEndDate(defaultDates.end);
+    }
+  }, [showBankIncomeModal, selectedDate]);
+
+  // Inicializar rutas disponibles y seleccionar la ruta actual por defecto
+  useEffect(() => {
+    if (allRoutesData?.routes) {
+      setAvailableRoutes(allRoutesData.routes);
+      if (selectedRoute?.id && !selectedRouteIds.includes(selectedRoute.id)) {
+        setSelectedRouteIds([selectedRoute.id]);
+      }
+    }
+  }, [allRoutesData, selectedRoute]);
+
   // Procesar datos de entradas al banco usando useMemo
   const { bankIncomes, totalTransactions, totalAmount } = useMemo(() => {
-    console.log('🚀 Iniciando processBankIncomeData con:', bankIncomeData);
-    
-    // Solo procesar si tenemos datos y no estamos en estado de carga
     if (!bankIncomeData || bankIncomeLoading) {
-      console.log('❌ No hay bankIncomeData o está cargando, retornando array vacío');
-      return { bankIncomes: [], totalTransactions: 0, totalAmount: 0 };
+      return {
+        bankIncomes: [],
+        totalTransactions: 0,
+        totalAmount: 0
+      };
     }
 
-    console.log('🔍 Procesando datos de entradas al banco:', bankIncomeData);
-
-    const bankIncomes: BankIncomeData[] = [];
-    let totalAmount = 0;
-
-    // Procesar transacciones que aumentan el balance del banco
-    if (bankIncomeData.transactions) {
-      console.log('📋 Hay transacciones para procesar:', bankIncomeData.transactions.length);
-      console.log('📋 Todas las transacciones encontradas:', bankIncomeData.transactions.map((t: any) => ({
-        id: t.id,
-        type: t.type,
-        amount: t.amount,
-        createdAt: t.createdAt,
-        date: t.date,
-        routeId: t.route?.id,
-        routeName: t.route?.name,
-        incomeSource: t.incomeSource,
-        destinationAccount: t.destinationAccount?.type,
-        sourceAccount: t.sourceAccount?.type,
-        description: t.description,
-        leadName: t.lead?.personalData?.fullName
-      })));
-      
-      // Buscar específicamente transacciones de Nicolás Bravo Campeche
-      const nicolasBravoTransactions = bankIncomeData.transactions.filter((t: any) => 
-        t.route?.name?.toLowerCase().includes('nicolas') || 
-        t.route?.name?.toLowerCase().includes('bravo') ||
-        t.route?.name?.toLowerCase().includes('campeche')
-      );
-      
-      console.log('🏛️ Transacciones de Nicolás Bravo Campeche:', nicolasBravoTransactions.map((t: any) => ({
-        id: t.id,
-        type: t.type,
-        amount: t.amount,
-        createdAt: t.createdAt,
-        routeName: t.route?.name,
-        incomeSource: t.incomeSource,
-        description: t.description,
-        leadPaymentReceivedId: t.leadPaymentReceived?.id
-      })));
-      
-      // Buscar transacciones con leadPaymentReceived específico
-      const leadPaymentTransactions = bankIncomeData.transactions.filter((t: any) => 
-        t.leadPaymentReceived?.id === 'cmg2omsj60021vpayxbbya1lt'
-      );
-      
-      console.log('💳 Transacciones del LeadPaymentReceived cmg2omsj60021vpayxbbya1lt:', leadPaymentTransactions.map((t: any) => ({
-        id: t.id,
-        type: t.type,
-        amount: t.amount,
-        createdAt: t.createdAt,
-        incomeSource: t.incomeSource,
-        description: t.description
-      })));
-      
-      // Filtrar transacciones por ruta seleccionada
-      const filteredTransactions = bankIncomeData.transactions.filter((transaction: any) => {
-        const isCorrectRoute = transaction.route?.id === selectedRoute?.id;
-        if (!isCorrectRoute) {
-          console.log('❌ Transacción no es de la ruta seleccionada:', {
-            transactionRouteId: transaction.route?.id,
-            selectedRouteId: selectedRoute?.id,
-            routeName: transaction.route?.name
-          });
-        }
-        return isCorrectRoute;
-      });
-      
-      console.log('📋 Transacciones filtradas por ruta:', filteredTransactions.length);
-      
-      // Log de transacciones que podrían ser entradas al banco
-      const potentialBankIncomes = filteredTransactions.filter((t: any) => {
-        return t.type === 'TRANSFER' || 
-               t.type === 'INCOME' || 
-               (t.destinationAccount?.type === 'BANK') ||
-               (t.incomeSource === 'BANK_LOAN_PAYMENT' || t.incomeSource === 'MONEY_INVESMENT');
-      });
-      
-      console.log('💰 Transacciones potenciales de entrada al banco:', potentialBankIncomes.map((t: any) => ({
-        id: t.id,
-        type: t.type,
-        amount: t.amount,
-        incomeSource: t.incomeSource,
-        destinationAccount: t.destinationAccount?.type,
-        description: t.description
-      })));
-      
-      for (const transaction of filteredTransactions) {
-        console.log('📊 Procesando transacción:', {
-          id: transaction.id,
-          type: transaction.type,
-          incomeSource: transaction.incomeSource,
-          amount: transaction.amount,
-          destinationAccount: transaction.destinationAccount
-        });
-        
-        let name = '';
-        let locality = '';
-        let employeeName = '';
-        let leaderLocality = '';
-
-        // Obtener nombre del empleado que realizó la transacción y su localidad
-        if (transaction.lead?.personalData) {
-          employeeName = transaction.lead.personalData.fullName || 'Empleado desconocido';
-          
-          // Extraer localidad del líder
-          if (transaction.lead.personalData.addresses && transaction.lead.personalData.addresses.length > 0) {
-            const address = transaction.lead.personalData.addresses[0];
-            if (address.location) {
-              leaderLocality = address.location.name || 'Sin localidad';
-              if (address.location.municipality?.state?.name) {
-                leaderLocality += `, ${address.location.municipality.state.name}`;
-              }
-            }
-          }
-          
-          console.log('🔍 Datos del líder:', {
-            employeeName,
-            leaderLocality,
-            locationName: transaction.lead.personalData.addresses?.[0]?.location?.name,
-            stateName: transaction.lead.personalData.addresses?.[0]?.location?.municipality?.state?.name,
-            fullAddress: transaction.lead.personalData.addresses?.[0]
-          });
-        }
-
-        // Determinar si es una entrada al banco y el nombre según el tipo de transacción
-        let isBankIncome = false;
-        
-        switch (transaction.type) {
-          case 'TRANSFER':
-            // Verificar si es una transferencia al banco
-            if (transaction.destinationAccount?.type === 'BANK') {
-              // Para pagos de líder, usar la localidad como nombre principal
-              // Forzar el uso de la localidad extraída
-              name = leaderLocality;
-              locality = 'Entradas al Banco';
-              isBankIncome = true;
-              console.log('✅ TRANSFER al banco - ANTES de procesar leadPaymentReceived:', { 
-                finalName: name,
-                leaderLocality, 
-                locality, 
-                employeeName,
-                hasLeadPaymentReceived: !!transaction.leadPaymentReceived
-              });
-            } else {
-              console.log('❌ TRANSFER no al banco:', transaction.destinationAccount?.type);
-              continue; // Saltar esta transacción
-            }
-            break;
-          case 'INCOME':
-            console.log('🔍 Procesando INCOME con incomeSource:', transaction.incomeSource);
-            // Solo procesar INCOME que realmente aumentan el balance del banco
-            if (transaction.incomeSource === 'BANK_LOAN_PAYMENT' || 
-                transaction.incomeSource === 'MONEY_INVESMENT') {
-              
-              if (transaction.incomeSource === 'BANK_LOAN_PAYMENT') {
-                name = transaction.description || 'Pago bancario de préstamo';
-                locality = 'Entradas al Banco';
-                isBankIncome = true;
-                console.log('✅ Procesando BANK_LOAN_PAYMENT:', { name, locality });
-              } else if (transaction.incomeSource === 'MONEY_INVESMENT') {
-                name = transaction.description || 'Inversión de dinero';
-                locality = 'Entradas al Banco';
-                isBankIncome = true;
-                console.log('✅ Procesando MONEY_INVESMENT:', { name, locality });
-              }
-            } else {
-              console.log('❌ Saltando transacción INCOME:', transaction.incomeSource);
-              continue; // Saltar esta transacción
-            }
-            break;
-          default:
-            // Para otros tipos, verificar si tienen destinationAccount bancario
-            if (transaction.destinationAccount?.type === 'BANK') {
-              name = transaction.description || `Transacción ${transaction.type}`;
-              locality = 'Entradas al Banco';
-              isBankIncome = true;
-              console.log('✅ Otra transacción al banco:', { type: transaction.type, name, locality });
-            } else {
-              console.log('❌ Transacción no al banco:', { type: transaction.type, destinationAccount: transaction.destinationAccount?.type });
-              continue; // Saltar esta transacción
-            }
-        }
-        
-        // Si no es una entrada al banco, saltar esta transacción
-        if (!isBankIncome) {
-          console.log('❌ No es entrada al banco, saltando transacción:', transaction.type);
-          continue; // Saltar esta transacción
-        }
-
-        // Si hay LeadPaymentReceived asociado, usar esa información
-        if (transaction.leadPaymentReceived) {
-          const lpr = transaction.leadPaymentReceived;
-          
-          // Extraer localidad del líder desde leadPaymentReceived
-          if (lpr.lead?.personalData?.addresses && lpr.lead.personalData.addresses.length > 0) {
-            const address = lpr.lead.personalData.addresses[0];
-            if (address.location) {
-              leaderLocality = address.location.name || 'Sin localidad';
-              if (address.location.municipality?.state?.name) {
-                leaderLocality += `, ${address.location.municipality.state.name}`;
-              }
-            }
-          }
-          
-          // Si hay pagos asociados, usar el nombre del cliente (no del líder)
-          if (lpr.payments && lpr.payments.length > 0) {
-            const firstPayment = lpr.payments[0];
-            if (firstPayment.loan?.borrower?.personalData) {
-              name = firstPayment.loan.borrower.personalData.fullName || 'Cliente desconocido';
-            }
-          } else {
-            // Si no hay pagos, usar el nombre del líder como fallback
-            if (lpr.lead?.personalData) {
-              name = lpr.lead.personalData.fullName || 'Líder desconocido';
-            }
-          }
-        } else {
-          // Si no hay LeadPaymentReceived, buscar el nombre del cliente en loanPayment
-          if (transaction.loanPayment) {
-            // Para pagos de préstamos, obtener el nombre del cliente desde loanPayment.loan.borrower
-            if (transaction.loanPayment.loan?.borrower?.personalData?.fullName) {
-              name = transaction.loanPayment.loan.borrower.personalData.fullName;
-            } else if (transaction.description && transaction.description !== 'Pago bancario de préstamo') {
-              name = transaction.description;
-            } else {
-              name = 'Pago de préstamo';
-            }
-          } else {
-            // Si no hay LeadPaymentReceived ni loanPayment, usar la información de la ruta y el lead
-            // locality ya se estableció en el switch anterior
-            
-            // Si no hay descripción específica, usar el nombre del lead
-            if (!name || name === 'Ingreso bancario') {
-              if (transaction.lead?.personalData?.fullName) {
-                name = `Ingreso - ${transaction.lead.personalData.fullName}`;
-              }
-            }
-          }
-        }
-
-        // Log después de procesar leadPaymentReceived
-        if (transaction.type === 'TRANSFER') {
-          console.log('✅ TRANSFER al banco - DESPUÉS de procesar leadPaymentReceived:', { 
-            finalName: name,
-            leaderLocality, 
-            employeeName
-          });
-        }
-
-        // Determinar el tipo de pago
-        const isClientPayment = transaction.type === 'INCOME' && transaction.incomeSource === 'BANK_LOAN_PAYMENT';
-        const isLeaderPayment = transaction.type === 'TRANSFER' && transaction.destinationAccount?.type === 'BANK';
-
-        const bankIncomeItem = {
-          id: transaction.id,
-          name,
-          date: transaction.date || transaction.createdAt, // Usar date si existe, sino createdAt
-          amount: parseFloat(transaction.amount),
-          type: transaction.type,
-          locality,
-          employeeName,
-          leaderLocality,
-          description: transaction.description,
-          isClientPayment,
-          isLeaderPayment
-        };
-        
-        console.log('💾 Agregando transacción al array:', bankIncomeItem);
-        bankIncomes.push(bankIncomeItem);
-        totalAmount += parseFloat(transaction.amount);
-      }
-      console.log('✅ Bucle completado. Total procesadas:', bankIncomes.length);
-    } else {
-      console.log('❌ No hay transacciones en bankIncomeData.transactions');
+    const response = bankIncomeData.getBankIncomeTransactions;
+    if (!response || !response.success) {
+      return {
+        bankIncomes: [],
+        totalTransactions: 0,
+        totalAmount: 0
+      };
     }
 
-    const result = {
-      bankIncomes: bankIncomes.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
-      totalTransactions: bankIncomes.length,
+    const transactions = response.transactions || [];
+
+    const processedIncomes = transactions.map((transaction: any) => {
+      const isClientPayment = transaction.isClientPayment || (transaction.type === 'INCOME' && transaction.incomeSource === 'BANK_LOAN_PAYMENT');
+      const isLeaderPayment = transaction.isLeaderPayment || (transaction.type === 'TRANSFER');
+      
+      return {
+        id: transaction.id,
+        name: transaction.name || 'Sin nombre',
+        date: transaction.date,
+        amount: transaction.amount,
+        type: transaction.type,
+        locality: transaction.locality,
+        employeeName: transaction.employeeName,
+        leaderLocality: transaction.leaderLocality,
+        description: transaction.description,
+        isClientPayment,
+        isLeaderPayment
+      };
+    });
+
+    const totalAmount = processedIncomes.reduce((sum: any, income: any) => sum + income.amount, 0);
+    const totalTransactions = processedIncomes.length;
+
+    return {
+      bankIncomes: processedIncomes,
+      totalTransactions,
       totalAmount
     };
-    
-    console.log('✅ Resultado final:', result);
-    return result;
   }, [bankIncomeData, bankIncomeLoading]);
 
-  if (!selectedDate) return <div>Seleccione una fecha</div>;
-  
-  // Validar que se haya seleccionado una ruta
-  if (!selectedRoute) {
-    return (
-      <SelectionMessage
-        icon="📍"
-        title="Selecciona una Ruta"
-        description="Para mostrar el resumen financiero, necesitas seleccionar una ruta específica."
-        requirements={[
-          "Selecciona una ruta desde el selector superior",
-          "El resumen se generará automáticamente",
-          "Podrás ver todos los datos de la ruta seleccionada"
-        ]}
-      />
-    );
-  }
-  
   if (loading) return (
     <Box css={{ 
       display: 'flex', 
@@ -874,6 +544,30 @@ export const SummaryTab = ({ selectedDate, selectedRoute, refreshKey }: SummaryT
   }, {});
 
   const localities = Object.values(groupedByLocality) as LocalitySummary[];
+
+  // Funciones para manejar el modal
+  const handleRefreshBankIncome = () => {
+    refetchBankIncome();
+  };
+
+  const handleCloseModal = () => {
+    setShowBankIncomeModal(false);
+    setOnlyAbonos(false);
+    setCustomStartDate('');
+    setCustomEndDate('');
+    setSelectedRouteIds([]);
+  };
+
+  const handleResetFilters = () => {
+    setOnlyAbonos(false);
+    setCustomStartDate('');
+    setCustomEndDate('');
+    if (selectedRoute?.id) {
+      setSelectedRouteIds([selectedRoute.id]);
+    } else {
+      setSelectedRouteIds([]);
+    }
+  };
 
   return (
     <Box css={{ 
@@ -2011,11 +1705,24 @@ export const SummaryTab = ({ selectedDate, selectedRoute, refreshKey }: SummaryT
       {/* Modal de Entradas al Banco */}
       <BankIncomeModal
         isOpen={showBankIncomeModal}
-        onClose={() => setShowBankIncomeModal(false)}
+        onClose={handleCloseModal}
         bankIncomes={bankIncomes}
         totalTransactions={totalTransactions}
         totalAmount={totalAmount}
-        loading={bankIncomeLoading || isLoadingBankIncome}
+        loading={bankIncomeLoading}
+        onlyAbonos={onlyAbonos}
+        onOnlyAbonosChange={setOnlyAbonos}
+        startDate={customStartDate}
+        onStartDateChange={setCustomStartDate}
+        endDate={customEndDate}
+        onEndDateChange={setCustomEndDate}
+        selectedRouteIds={selectedRouteIds}
+        onRouteIdsChange={setSelectedRouteIds}
+        availableRoutes={availableRoutes}
+        onRefresh={handleRefreshBankIncome}
+        customStartDate={customStartDate}
+        customEndDate={customEndDate}
+        onResetFilters={handleResetFilters}
       />
       
       {/* CSS para animaciones */}

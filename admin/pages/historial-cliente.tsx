@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useQuery, useLazyQuery } from '@apollo/client';
+import { useQuery, useLazyQuery, useMutation } from '@apollo/client';
 import { gql } from '@apollo/client';
 import { PageContainer } from '@keystone-6/core/admin-ui/components';
 import { Select } from '@keystone-ui/fields';
@@ -9,6 +9,7 @@ import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
 import { DocumentThumbnail } from '../components/documents/DocumentThumbnail';
 import { ImageModal } from '../components/documents/ImageModal';
 import { generatePaymentChronology, PaymentChronologyItem } from '../utils/paymentChronology';
+import { useAuth } from '../hooks/useAuth';
 
 // GraphQL Queries
 const GET_ROUTES = gql`
@@ -43,13 +44,13 @@ const GET_CLIENT_HISTORY = gql`
 `;
 
 const GET_CLIENT_DOCUMENTS = gql`
-  query GetClientDocuments($clientId: String!) {
+  query GetClientDocuments($clientId: ID!) {
     documentPhotos(
       where: {
         OR: [
           { personalData: { id: { equals: $clientId } } },
           { loan: { borrower: { personalData: { id: { equals: $clientId } } } } },
-          { loan: { lead: { personalData: { id: { equals: $clientId } } } } }
+          { loan: { collaterals: { some: { id: { equals: $clientId } } } } }
         ]
       }
       orderBy: { createdAt: desc }
@@ -69,12 +70,22 @@ const GET_CLIENT_DOCUMENTS = gql`
         id
         borrower {
           personalData {
+            id
             fullName
           }
         }
         lead {
           personalData {
+            id
             fullName
+          }
+        }
+        collaterals {
+          id
+          fullName
+          phones {
+            id
+            number
           }
         }
       }
@@ -82,11 +93,170 @@ const GET_CLIENT_DOCUMENTS = gql`
   }
 `;
 
+// Nueva query para obtener documentos del último préstamo
+const GET_LAST_LOAN_DOCUMENTS = gql`
+  query GetLastLoanDocuments($loanId: ID!) {
+    documentPhotos(
+      where: {
+        loan: { id: { equals: $loanId } }
+      }
+      orderBy: { createdAt: desc }
+    ) {
+      id
+      title
+      description
+      photoUrl
+      publicId
+      documentType
+      createdAt
+      personalData {
+        id
+        fullName
+      }
+      loan {
+        id
+        borrower {
+          personalData {
+            id
+            fullName
+          }
+        }
+        lead {
+          personalData {
+            id
+            fullName
+          }
+        }
+        collaterals {
+          id
+          fullName
+          phones {
+            id
+            number
+          }
+        }
+      }
+    }
+  }
+`;
+
+// Query específica para documentos del cliente (solo como titular)
+const GET_CLIENT_DOCUMENTS_ONLY = gql`
+  query GetClientDocumentsOnly($clientId: ID!) {
+    documentPhotos(
+      where: {
+        AND: [
+          { personalData: { id: { equals: $clientId } } },
+          { loan: { borrower: { personalData: { id: { equals: $clientId } } } } }
+        ]
+      }
+      orderBy: { createdAt: desc }
+    ) {
+      id
+      title
+      description
+      photoUrl
+      publicId
+      documentType
+      isError
+      errorDescription
+      isMissing
+      createdAt
+      personalData {
+        id
+        fullName
+      }
+      loan {
+        id
+        borrower {
+          personalData {
+            id
+            fullName
+          }
+        }
+        lead {
+          personalData {
+            id
+            fullName
+          }
+        }
+        collaterals {
+          id
+          fullName
+          phones {
+            id
+            number
+          }
+        }
+      }
+    }
+  }
+`;
+
+// Query específica para documentos del aval
+  const GET_AVAL_DOCUMENTS_ONLY = gql`
+    query GetAvalDocumentsOnly($loanId: ID!) {
+      loan(where: { id: $loanId }) {
+        id
+        collaterals {
+          id
+          fullName
+        }
+        documentPhotos {
+          id
+          title
+          description
+          photoUrl
+          publicId
+          documentType
+          isError
+          errorDescription
+          isMissing
+          createdAt
+          personalData {
+            id
+            fullName
+          }
+          loan {
+            id
+            borrower {
+              personalData {
+                id
+                fullName
+              }
+            }
+            lead {
+              personalData {
+                id
+                fullName
+              }
+            }
+            collaterals {
+              id
+              fullName
+              phones {
+                id
+                number
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+
+const MERGE_CLIENTS = gql`
+  mutation MergeClients($primaryClientId: ID!, $secondaryClientId: ID!) {
+    mergeClients(primaryClientId: $primaryClientId, secondaryClientId: $secondaryClientId)
+  }
+`;
+
 // Interfaces
 interface ClientSearchResult {
   id: string;
   name: string;
-  dui: string;
+  clientCode: string; // Cambiado de dui a clientCode
   phone: string;
   address: string;
   route: string;
@@ -164,6 +334,9 @@ interface ClientDocument {
   photoUrl: string;
   publicId: string;
   documentType: 'INE' | 'DOMICILIO' | 'PAGARE';
+  isError: boolean;
+  errorDescription?: string;
+  isMissing: boolean;
   createdAt: string;
   personalData: {
     id: string;
@@ -183,6 +356,11 @@ interface ClientDocument {
         fullName: string;
       };
     };
+    collaterals: Array<{
+      id: string;
+      fullName: string;
+      phones: Array<{ id: string; number: string }>;
+    }>;
   };
 }
 
@@ -190,7 +368,7 @@ interface ClientHistoryData {
   client: {
     id: string;
     fullName: string;
-    dui: string;
+    clientCode: string; // Cambiado de dui a clientCode
     phones: string[];
     addresses: Array<{
       street: string;
@@ -198,6 +376,14 @@ interface ClientHistoryData {
       location: string;
       route: string;
     }>;
+    leader: {
+      name: string;
+      route: string;
+      location: string;
+      municipality: string;
+      state: string;
+      phone: string;
+    };
   };
   summary: {
     totalLoansAsClient: number;
@@ -250,6 +436,96 @@ const getStatusColor = (status: string): string => {
 
 // Main Component
 const HistorialClientePage: React.FC = () => {
+  console.log('🚀 COMPONENTE CARGADO: HistorialClientePage');
+  
+  // Agregar estilos CSS para animaciones
+  React.useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes modalSlideIn {
+        from {
+          opacity: 0;
+          transform: scale(0.9) translateY(-20px);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1) translateY(0);
+        }
+      }
+    `;
+    document.head.appendChild(style);
+    
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
+
+  const { isAdmin, canMergeClients } = useAuth();
+
+  // Función para calcular la distancia de Levenshtein (diferencias entre strings)
+  const levenshteinDistance = (str1: string, str2: string): number => {
+    const matrix = [];
+    const len1 = str1.length;
+    const len2 = str2.length;
+
+    // Inicializar matriz
+    for (let i = 0; i <= len2; i++) {
+      matrix[i] = [i];
+    }
+    for (let j = 0; j <= len1; j++) {
+      matrix[0][j] = j;
+    }
+
+    // Llenar matriz
+    for (let i = 1; i <= len2; i++) {
+      for (let j = 1; j <= len1; j++) {
+        if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1, // sustitución
+            matrix[i][j - 1] + 1,     // inserción
+            matrix[i - 1][j] + 1      // eliminación
+          );
+        }
+      }
+    }
+
+    return matrix[len2][len1];
+  };
+
+  // Función para detectar posibles duplicados
+  const findPotentialDuplicates = (clients: ClientSearchResult[]): Array<{client1: ClientSearchResult, client2: ClientSearchResult, similarity: number}> => {
+    const duplicates: Array<{client1: ClientSearchResult, client2: ClientSearchResult, similarity: number}> = [];
+    
+    for (let i = 0; i < clients.length; i++) {
+      for (let j = i + 1; j < clients.length; j++) {
+        const client1 = clients[i];
+        const client2 = clients[j];
+        
+        // Normalizar nombres (remover acentos, convertir a mayúsculas)
+        const name1 = client1.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+        const name2 = client2.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+        
+        // Calcular distancia de Levenshtein
+        const distance = levenshteinDistance(name1, name2);
+        const maxLength = Math.max(name1.length, name2.length);
+        const similarity = ((maxLength - distance) / maxLength) * 100;
+        
+        // Considerar duplicado si la similitud es >= 85% (máximo 2-3 diferencias en nombres cortos)
+        if (similarity >= 85 && distance <= 3) {
+          duplicates.push({
+            client1,
+            client2,
+            similarity: Math.round(similarity)
+          });
+        }
+      }
+    }
+    
+    // Ordenar por similitud descendente
+    return duplicates.sort((a, b) => b.similarity - a.similarity);
+  };
   const [selectedRoute, setSelectedRoute] = useState<any>(null);
   const [selectedLocation, setSelectedLocation] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -257,29 +533,38 @@ const HistorialClientePage: React.FC = () => {
   const [clientResults, setClientResults] = useState<ClientSearchResult[]>([]);
   const [showClientHistory, setShowClientHistory] = useState<boolean>(false);
   const [showAutocomplete, setShowAutocomplete] = useState<boolean>(false);
+  const [potentialDuplicates, setPotentialDuplicates] = useState<Array<{client1: ClientSearchResult, client2: ClientSearchResult, similarity: number}>>([]);
+  const [showDuplicates, setShowDuplicates] = useState<boolean>(false);
   
-  // Estado para el modal de imagen
-  const [imageModal, setImageModal] = useState<{
-    isOpen: boolean;
-    imageUrl: string;
-    title: string;
-    description: string;
-    documentType: string;
-    personType: string;
-  }>({
-    isOpen: false,
-    imageUrl: '',
-    title: '',
-    description: '',
-    documentType: '',
-    personType: ''
-  });
 
   // Estado para detectar si es mobile
   const [isMobile, setIsMobile] = useState(false);
   
+  // Estados para documentos
+  const [showDocuments, setShowDocuments] = useState(false);
+  const [activeDocumentTab, setActiveDocumentTab] = useState<'cliente' | 'aval'>('cliente');
+  const [clientDocumentsLoaded, setClientDocumentsLoaded] = useState(false);
+  const [avalDocumentsLoaded, setAvalDocumentsLoaded] = useState(false);
+  
   // Estado para el toggle de PDF detallado
   const [showDetailedPDF, setShowDetailedPDF] = useState(false);
+
+  // Estados para fusión de clientes
+  const [showMergeModal, setShowMergeModal] = useState(false);
+  const [mergeClientsList, setMergeClientsList] = useState<ClientSearchResult[]>([]);
+  const [mergeSearchTerm, setMergeSearchTerm] = useState<string>('');
+  const [mergeClientResults, setMergeClientResults] = useState<ClientSearchResult[]>([]);
+  const [showMergeAutocomplete, setShowMergeAutocomplete] = useState<boolean>(false);
+  const [selectedPrimaryId, setSelectedPrimaryId] = useState<string | null>(null);
+
+  // Estados para controlar la visualización de documentos
+  const [documentsInfo, setDocumentsInfo] = useState<any>(null); // Almacena la data de los documentos
+  const [showThumbnails, setShowThumbnails] = useState<boolean>(false); // Controla si se muestran las miniaturas
+  const [isRefreshingDocs, setIsRefreshingDocs] = useState<boolean>(false); // Estado para el loader de actualización
+
+  // Estados para modal de confirmación
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmData, setConfirmData] = useState<any>(null);
 
   // Detectar tamaño de pantalla
   useEffect(() => {
@@ -300,14 +585,128 @@ const HistorialClientePage: React.FC = () => {
   const [getClientHistory, { data: historyData, loading: historyLoading, error: historyError }] = useLazyQuery(GET_CLIENT_HISTORY);
   
   const [getClientDocuments, { data: documentsData, loading: documentsLoading }] = useLazyQuery(GET_CLIENT_DOCUMENTS);
+  const [getLastLoanDocuments, { data: lastLoanDocumentsData, loading: lastLoanDocumentsLoading }] = useLazyQuery(GET_LAST_LOAN_DOCUMENTS);
+  const [getClientDocumentsOnly, { data: clientDocumentsData, loading: clientDocumentsLoading }] = useLazyQuery(GET_CLIENT_DOCUMENTS_ONLY, {
+    fetchPolicy: 'network-only',
+    onCompleted: (data) => {
+      setDocumentsInfo((prev: any) => ({ ...prev, client: data }));
+      setIsRefreshingDocs(false);
+    }
+  });
+  const [getAvalDocumentsOnly, { data: avalDocumentsData, loading: avalDocumentsLoading }] = useLazyQuery(GET_AVAL_DOCUMENTS_ONLY, {
+    fetchPolicy: 'network-only',
+    onCompleted: (data) => {
+      setDocumentsInfo((prev: any) => ({ ...prev, aval: data }));
+      setIsRefreshingDocs(false);
+    }
+  });
+  
+  const [mergeClientsMutation, { loading: mergeLoading }] = useMutation(MERGE_CLIENTS);
 
-  // Debug: Log cuando cambian los datos de documentos
+  // Declarar historyResult aquí para que esté disponible en los efectos
+  const historyResult: ClientHistoryData | null = historyData?.getClientHistory || null;
+
+  // Debug: Log cuando cambian los datos de documentos del cliente
   useEffect(() => {
+    console.log('🔍 useEffect ejecutado para documentsData');
+    console.log('🔍 documentsData:', documentsData);
+    
     if (documentsData) {
-      console.log('📄 Documentos obtenidos:', documentsData);
+      console.log('📄 Documentos del cliente obtenidos:', documentsData);
       console.log('📊 Total documentos:', documentsData.documentPhotos?.length || 0);
+      if (documentsData.documentPhotos && documentsData.documentPhotos.length > 0) {
+        console.log('📋 Lista de documentos:', documentsData.documentPhotos.map((doc: any) => ({
+          id: doc.id,
+          title: doc.title,
+          documentType: doc.documentType,
+          personalDataId: doc.personalData?.id,
+          personalDataName: doc.personalData?.fullName,
+          loanId: doc.loan?.id,
+          borrowerName: doc.loan?.borrower?.personalData?.fullName,
+          leadName: doc.loan?.lead?.personalData?.fullName
+        })));
+      } else {
+        console.log('❌ No se encontraron documentos para el cliente');
+      }
+    } else {
+      console.log('❌ documentsData es null/undefined');
     }
   }, [documentsData]);
+
+  // Debug: Log para documentos del cliente específicos
+  useEffect(() => {
+    if (clientDocumentsData) {
+      console.log('👤 Documentos del cliente (solo titular):', clientDocumentsData);
+      console.log('📊 Total documentos del cliente:', clientDocumentsData.documentPhotos?.length || 0);
+      if (clientDocumentsData.documentPhotos && clientDocumentsData.documentPhotos.length > 0) {
+        console.log('📋 Lista de documentos del cliente:', clientDocumentsData.documentPhotos.map((doc: any) => ({
+          id: doc.id,
+          title: doc.title,
+          documentType: doc.documentType,
+          personalDataId: doc.personalData?.id,
+          personalDataName: doc.personalData?.fullName,
+          loanId: doc.loan?.id,
+          borrowerId: doc.loan?.borrower?.personalData?.id,
+          borrowerName: doc.loan?.borrower?.personalData?.fullName,
+          isCollateral: doc.loan?.collaterals?.some((c: any) => c.id === selectedClient?.id)
+        })));
+      }
+    }
+  }, [clientDocumentsData, selectedClient]);
+
+  // Debug: Log para documentos del aval específicos
+  useEffect(() => {
+    if (avalDocumentsData) {
+      console.log('🤝 Datos del préstamo para aval:', avalDocumentsData);
+      console.log('🔍 Collaterals del préstamo:', avalDocumentsData.loan?.collaterals);
+      console.log('📊 Total documentos del préstamo:', avalDocumentsData.loan?.documentPhotos?.length || 0);
+      
+      if (avalDocumentsData.loan?.documentPhotos && avalDocumentsData.loan.documentPhotos.length > 0) {
+        console.log('📋 Lista de documentos del préstamo:', avalDocumentsData.loan.documentPhotos.map((doc: any) => ({
+          id: doc.id,
+          title: doc.title,
+          documentType: doc.documentType,
+          personalDataId: doc.personalData?.id,
+          personalDataName: doc.personalData?.fullName,
+          loanId: doc.loan?.id,
+          borrowerName: doc.loan?.borrower?.personalData?.fullName,
+          collateralIds: doc.loan?.collaterals?.map((c: any) => c.id)
+        })));
+        
+        // Filtrar documentos del aval
+        const avalDocuments = avalDocumentsData.loan.documentPhotos.filter((doc: any) => {
+          const isAvalDocument = doc.loan?.collaterals?.some((collateral: any) => 
+            collateral.id === doc.personalData?.id
+          );
+          return isAvalDocument;
+        });
+        console.log('🤝 Documentos del aval filtrados:', avalDocuments);
+      } else {
+        console.log('❌ No se encontraron documentos en el préstamo');
+      }
+    }
+  }, [avalDocumentsData]);
+
+
+  // Efecto para cargar documentos automáticamente cuando se obtiene el historial
+  useEffect(() => {
+    if (historyResult && selectedClient) {
+      const lastLoanId = getLastLoanId();
+      
+      if (lastLoanId) {
+        console.log('🔄 Cargando documentos del último préstamo automáticamente:', lastLoanId);
+        
+        // Usar la nueva query que busca por loan ID
+        getLastLoanDocuments({
+          variables: {
+            loanId: lastLoanId
+          }
+        });
+      } else {
+        console.log('❌ No se encontró ningún préstamo para cargar documentos');
+      }
+    }
+  }, [historyResult, selectedClient]);
 
   // Options for selects using useMemo (como en el reporte que funciona)
   const routeOptions = useMemo(() => {
@@ -361,8 +760,8 @@ const HistorialClientePage: React.FC = () => {
         searchClients({
           variables: {
             searchTerm,
-            routeId: selectedRoute?.id,
-            locationId: selectedLocation?.id,
+            routeId: null, // No filtrar por ruta
+            locationId: null, // No filtrar por localidad
             limit: 20
           }
         });
@@ -372,40 +771,188 @@ const HistorialClientePage: React.FC = () => {
     } else {
       setClientResults([]);
     }
-  }, [searchTerm, selectedRoute, selectedLocation, searchClients, showAutocomplete]);
+  }, [searchTerm, searchClients, showAutocomplete]);
 
   useEffect(() => {
     if (searchData?.searchClients) {
       setClientResults(searchData.searchClients);
+      // Analizar duplicados cuando se obtienen resultados de búsqueda
+      analyzeDuplicates(searchData.searchClients);
     }
   }, [searchData]);
 
+  // Search clients for merge modal
+  useEffect(() => {
+    if (mergeSearchTerm.length >= 2 && showMergeAutocomplete) {
+      const debounceTimer = setTimeout(() => {
+        searchClients({
+          variables: {
+            searchTerm: mergeSearchTerm,
+            routeId: null, // No filtrar por ruta
+            locationId: null, // No filtrar por localidad
+            limit: 20
+          }
+        });
+      }, 300);
+
+      return () => clearTimeout(debounceTimer);
+    } else {
+      setMergeClientResults([]);
+    }
+  }, [mergeSearchTerm, searchClients, showMergeAutocomplete]);
+
+  useEffect(() => {
+    if (searchData?.searchClients && showMergeModal) {
+      setMergeClientResults(searchData.searchClients);
+    }
+  }, [searchData, showMergeModal]);
+
   const handleClientSelect = (client: ClientSearchResult) => {
     setSelectedClient(client);
-    setSearchTerm(client.name); // Mantener el nombre del cliente seleccionado en el input
+    setSearchTerm(client.name);
     setClientResults([]);
-    setShowAutocomplete(false); // Desactivar el autocomplete después de seleccionar
+    setShowAutocomplete(false);
+    
+    // Limpiar completamente los documentos al seleccionar un nuevo cliente
+    setDocumentsInfo(null);
+    setShowThumbnails(false);
+  };
+
+  // Función para analizar duplicados en los resultados de búsqueda
+  const analyzeDuplicates = (results: ClientSearchResult[]) => {
+    if (results.length > 1) {
+      const duplicates = findPotentialDuplicates(results);
+      setPotentialDuplicates(duplicates);
+    } else {
+      setPotentialDuplicates([]);
+    }
   };
 
   const handleGenerateReport = () => {
     if (selectedClient) {
-      getClientHistory({
-        variables: {
-          clientId: selectedClient.id,
-          routeId: selectedRoute?.id,
-          locationId: selectedLocation?.id
-        }
-      });
+      // 1. Limpiar cualquier documento o miniatura anterior
+      setDocumentsInfo(null);
+      setShowThumbnails(false);
+
+      // 2. Iniciar la carga del historial y la información de los documentos
+      getClientHistory({ variables: { clientId: selectedClient.id } });
+      getClientDocumentsOnly({ variables: { clientId: selectedClient.id } });
+
+      // 3. Mostrar la sección del historial
+      setShowClientHistory(true); 
+    } else {
+      console.warn('⚠️ No se ha seleccionado un cliente');
+    }
+  };
+
+  // Función para obtener el último préstamo del cliente
+  const getLastLoanId = () => {
+    console.log('🚀 FUNCIÓN EJECUTADA: getLastLoanId');
+    console.log('🔍 historyResult:', historyResult);
+    
+    if (!historyResult) {
+      console.log('❌ No hay historyResult');
+      return null;
+    }
+    
+    console.log('🔍 loansAsClient.length:', historyResult.loansAsClient?.length);
+    console.log('🔍 loansAsCollateral.length:', historyResult.loansAsCollateral?.length);
+    
+    // Priorizar préstamos como cliente (más recientes)
+    if (historyResult.loansAsClient.length > 0) {
+      // Ordenar por fecha de firma (más reciente primero) y tomar el primero
+      const sortedClientLoans = [...historyResult.loansAsClient].sort((a, b) => 
+        new Date(b.signDate).getTime() - new Date(a.signDate).getTime()
+      );
+      const mostRecentClientLoan = sortedClientLoans[0];
+      console.log('📋 Préstamo más reciente como cliente:', mostRecentClientLoan);
+      return mostRecentClientLoan.id;
+    }
+    
+    // Si no hay préstamos como cliente, usar el más reciente como aval
+    if (historyResult.loansAsCollateral.length > 0) {
+      // Ordenar por fecha de firma (más reciente primero) y tomar el primero
+      const sortedCollateralLoans = [...historyResult.loansAsCollateral].sort((a, b) => 
+        new Date(b.signDate).getTime() - new Date(a.signDate).getTime()
+      );
+      const mostRecentCollateralLoan = sortedCollateralLoans[0];
+      console.log('📋 Préstamo más reciente como aval:', mostRecentCollateralLoan);
+      return mostRecentCollateralLoan.id;
+    }
+    
+    console.log('❌ No se encontraron préstamos');
+    return null;
+  };
+
+  const handleRefreshDocuments = () => {
+    console.log('🚀 FUNCIÓN EJECUTADA: handleRefreshDocuments');
+    console.log('🔍 selectedClient:', selectedClient);
+    console.log('🔍 historyResult:', historyResult);
+    
+    if (selectedClient && historyResult) {
+      console.log('🔄 Refrescando documentos del cliente:', selectedClient.name);
       
-      // Obtener documentos del cliente
-      console.log('🔍 Buscando documentos para cliente:', selectedClient.id);
+      // Usar la query original que busca por personalDataId (más confiable)
       getClientDocuments({
+        variables: {
+          clientId: selectedClient.id
+        },
+        fetchPolicy: 'network-only' // Forzar network request, ignorar cache
+      });
+    } else {
+      console.log('❌ Faltan datos: selectedClient o historyResult');
+    }
+  };
+
+  const handleShowDocuments = () => {
+    setShowDocuments(true);
+    // Cargar solo documentos del cliente por defecto
+    if (selectedClient) {
+      loadClientDocuments();
+    }
+  };
+
+  const loadClientDocuments = () => {
+    if (selectedClient && !clientDocumentsLoaded) {
+      console.log('🔄 Cargando documentos del cliente:', selectedClient.name, 'ID:', selectedClient.id);
+      getClientDocumentsOnly({
         variables: {
           clientId: selectedClient.id
         }
       });
+      setClientDocumentsLoaded(true);
+    }
+  };
+
+  const loadAvalDocuments = () => {
+    if (selectedClient && !avalDocumentsLoaded) {
+      console.log('🔄 Cargando documentos del aval del último préstamo del cliente:', selectedClient.name, 'ID:', selectedClient.id);
       
-      setShowClientHistory(true);
+      // Obtener el ID del último préstamo del cliente
+      const lastLoanId = getLastLoanId();
+      console.log('🔍 ID del último préstamo:', lastLoanId);
+      
+      if (lastLoanId) {
+        getAvalDocumentsOnly({
+          variables: {
+            loanId: lastLoanId
+          }
+        });
+      } else {
+        console.log('❌ No se encontró ningún préstamo para cargar documentos del aval');
+      }
+      
+      setAvalDocumentsLoaded(true);
+    }
+  };
+
+  const handleTabChange = (tab: 'cliente' | 'aval') => {
+    setActiveDocumentTab(tab);
+    
+    if (tab === 'cliente') {
+      loadClientDocuments();
+    } else if (tab === 'aval') {
+      loadAvalDocuments();
     }
   };
 
@@ -415,6 +962,10 @@ const HistorialClientePage: React.FC = () => {
     setClientResults([]);
     setShowClientHistory(false);
     setShowAutocomplete(true); // Reactivar el autocomplete para nueva búsqueda
+    setShowDocuments(false);
+    setActiveDocumentTab('cliente');
+    setClientDocumentsLoaded(false);
+    setAvalDocumentsLoaded(false);
     // Limpiar también los datos del historial y documentos
     if (historyData) {
       // Forzar refetch limpio
@@ -430,15 +981,209 @@ const HistorialClientePage: React.FC = () => {
     }
   };
 
-  const openImageModal = (document: ClientDocument, personType: string) => {
-    setImageModal({
-      isOpen: true,
-      imageUrl: document.photoUrl,
-      title: document.title,
-      description: document.description || '',
-      documentType: document.documentType,
-      personType
+  // Handlers para fusión de clientes
+  const handleOpenMergeModal = () => {
+    if (!selectedClient) {
+      showConfirmation({
+        title: 'Error',
+        message: 'No hay cliente seleccionado para fusionar',
+        onConfirm: () => {},
+        confirmText: 'Entendido',
+        type: 'warning'
+      });
+      return;
+    }
+
+    // Convertir el cliente seleccionado al formato ClientSearchResult
+    const currentClient: ClientSearchResult = {
+      id: selectedClient.id,
+      name: selectedClient.name,
+      clientCode: selectedClient.clientCode,
+      phone: selectedClient.phone || 'N/A',
+      address: selectedClient.address || 'N/A',
+      route: selectedClient.route || 'N/A',
+      location: selectedClient.location || 'N/A',
+      municipality: selectedClient.municipality || 'N/A',
+      state: selectedClient.state || 'N/A',
+      city: selectedClient.city || 'N/A',
+      latestLoanDate: selectedClient.latestLoanDate || null,
+      hasLoans: selectedClient.hasLoans || false,
+      hasBeenCollateral: selectedClient.hasBeenCollateral || false,
+      totalLoans: selectedClient.totalLoans || 0,
+      activeLoans: selectedClient.activeLoans || 0,
+      finishedLoans: selectedClient.finishedLoans || 0,
+      collateralLoans: selectedClient.collateralLoans || 0
+    };
+
+    setShowMergeModal(true);
+    setMergeClientsList([currentClient]); // Cargar el cliente actual por defecto
+    setSelectedPrimaryId(currentClient.id); // Marcarlo como principal por defecto
+    setMergeSearchTerm('');
+    setMergeClientResults([]);
+    setShowMergeAutocomplete(false);
+  };
+
+  const handleCloseMergeModal = () => {
+    setShowMergeModal(false);
+    setMergeClientsList([]);
+    setMergeSearchTerm('');
+    setMergeClientResults([]);
+    setShowMergeAutocomplete(false);
+    setSelectedPrimaryId(null);
+  };
+
+  const handleMergeClientSelect = (client: ClientSearchResult) => {
+    // Verificar si el cliente ya está seleccionado
+    const isAlreadySelected = mergeClientsList.some(c => c.id === client.id);
+    
+    if (!isAlreadySelected && mergeClientsList.length < 2) {
+      setMergeClientsList([...mergeClientsList, client]);
+      setMergeSearchTerm('');
+    }
+    setMergeClientResults([]);
+    setShowMergeAutocomplete(false);
+  };
+
+  const handleRemoveMergeClient = (clientId: string) => {
+    setMergeClientsList(mergeClientsList.filter(c => c.id !== clientId));
+    if (selectedPrimaryId === clientId) {
+      setSelectedPrimaryId(null);
+    }
+  };
+
+  const handleSetPrimaryClient = (clientId: string) => {
+    setSelectedPrimaryId(clientId);
+  };
+
+  // Funciones para modal de confirmación
+  const showConfirmation = (data: {
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    onCancel?: () => void;
+    confirmText?: string;
+    cancelText?: string;
+    type?: 'warning' | 'danger' | 'info';
+  }) => {
+    setConfirmData(data);
+    setShowConfirmModal(true);
+  };
+
+  const handleConfirm = () => {
+    if (confirmData?.onConfirm) {
+      confirmData.onConfirm();
+    }
+    setShowConfirmModal(false);
+    setConfirmData(null);
+  };
+
+  const handleCancel = () => {
+    if (confirmData?.onCancel) {
+      confirmData.onCancel();
+    }
+    setShowConfirmModal(false);
+    setConfirmData(null);
+  };
+
+  const handleExecuteMerge = async () => {
+    if (mergeClientsList.length !== 2) {
+      showConfirmation({
+        title: 'Error de Validación',
+        message: 'Por favor selecciona exactamente 2 clientes para fusionar',
+        onConfirm: () => {},
+        confirmText: 'Entendido',
+        type: 'warning'
+      });
+      return;
+    }
+
+    if (!selectedPrimaryId) {
+      showConfirmation({
+        title: 'Error de Validación',
+        message: 'Por favor selecciona cuál cliente se mantendrá como principal',
+        onConfirm: () => {},
+        confirmText: 'Entendido',
+        type: 'warning'
+      });
+      return;
+    }
+
+    const primaryClient = mergeClientsList.find(c => c.id === selectedPrimaryId);
+    const secondaryClient = mergeClientsList.find(c => c.id !== selectedPrimaryId);
+
+    if (!primaryClient || !secondaryClient) {
+      showConfirmation({
+        title: 'Error',
+        message: 'Error al identificar los clientes para fusionar',
+        onConfirm: () => {},
+        confirmText: 'Entendido',
+        type: 'danger'
+      });
+      return;
+    }
+
+    showConfirmation({
+      title: 'Confirmar Fusión de Clientes',
+      message: `¿Estás seguro de que quieres fusionar los clientes?\n\n` +
+               `Cliente Principal (se mantiene): ${primaryClient.name} (${primaryClient.clientCode})\n` +
+               `Cliente Secundario (se elimina): ${secondaryClient.name} (${secondaryClient.clientCode})\n\n` +
+               `El cliente secundario será eliminado y todos sus datos se transferirán al cliente principal.`,
+      onConfirm: () => executeMerge(primaryClient, secondaryClient),
+      confirmText: 'Sí, Fusionar',
+      cancelText: 'Cancelar',
+      type: 'danger'
     });
+  };
+
+  const executeMerge = async (primaryClient: ClientSearchResult, secondaryClient: ClientSearchResult) => {
+
+    try {
+      const result = await mergeClientsMutation({
+        variables: {
+          primaryClientId: primaryClient.id,
+          secondaryClientId: secondaryClient.id
+        }
+      });
+
+      const message = result.data?.mergeClients;
+      if (message && !message.includes('Error')) {
+        showConfirmation({
+          title: 'Fusión Exitosa',
+          message: message,
+          onConfirm: () => {
+            handleCloseMergeModal();
+            // Refrescar la búsqueda actual si uno de los clientes fusionados está seleccionado
+            if (selectedClient && (selectedClient.id === primaryClient.id || selectedClient.id === secondaryClient.id)) {
+              handleClearSearch();
+            }
+          },
+          confirmText: 'Entendido',
+          type: 'info'
+        });
+      } else {
+        showConfirmation({
+          title: 'Error en la Fusión',
+          message: message || 'Error desconocido al fusionar clientes',
+          onConfirm: () => {},
+          confirmText: 'Entendido',
+          type: 'danger'
+        });
+      }
+    } catch (error) {
+      console.error('Error al fusionar clientes:', error);
+      showConfirmation({
+        title: 'Error en la Fusión',
+        message: 'Error al fusionar clientes. Intenta nuevamente.',
+        onConfirm: () => {},
+        confirmText: 'Entendido',
+        type: 'danger'
+      });
+    }
+  };
+
+  const openImageInNewTab = (document: ClientDocument, personType: string) => {
+    // Abrir la imagen en una nueva pestaña del navegador
+    window.open(document.photoUrl, '_blank');
   };
 
   const getPersonTypeFromDocument = (document: ClientDocument, clientId: string): 'TITULAR' | 'AVAL' => {
@@ -453,7 +1198,7 @@ const HistorialClientePage: React.FC = () => {
     }
     
     // Si está asociado a un préstamo donde el cliente es el aval
-    if (document.loan?.lead?.personalData?.id === clientId) {
+    if (document.loan?.collaterals?.some(collateral => collateral.id === clientId)) {
       return 'AVAL';
     }
     
@@ -470,7 +1215,7 @@ const HistorialClientePage: React.FC = () => {
         body: JSON.stringify({
           clientId: historyData.client.id,
           clientName: historyData.client.fullName,
-          clientDui: historyData.client.dui,
+          clientDui: historyData.client.clientCode,
           clientPhones: historyData.client.phones,
           clientAddresses: historyData.client.addresses,
           summary: historyData.summary,
@@ -500,7 +1245,47 @@ const HistorialClientePage: React.FC = () => {
     }
   };
 
-  const historyResult: ClientHistoryData | null = historyData?.getClientHistory || null;
+  // Efectos para actualizar los documentos a mostrar (se eliminan para usar onCompleted)
+  // useEffect(() => {
+  //   if (clientDocumentsData) {
+  //     setDisplayedClientDocuments(clientDocumentsData);
+  //   }
+  // }, [clientDocumentsData]);
+
+  // useEffect(() => {
+  //   if (avalDocumentsData) {
+  //     setDisplayedAvalDocuments(avalDocumentsData);
+  //   }
+  // }, [avalDocumentsData]);
+
+  // Cargar documentos automáticamente si hay un cliente seleccionado y no se han cargado
+  useEffect(() => {
+    // Se comenta esta sección para que la carga sea manual con el botón
+    // if (selectedClient && !clientDocumentsLoaded) {
+    //   console.log('🔄 Cargando documentos del cliente:', selectedClient.name, 'ID:', selectedClient.id);
+    //   getClientDocumentsOnly({
+    //     variables: {
+    //       clientId: selectedClient.id
+    //     }
+    //   });
+    //   setClientDocumentsLoaded(true);
+    // }
+  }, [selectedClient, clientDocumentsLoaded]);
+
+  const handleGenerateHistory = () => {
+    if (selectedClient) {
+      // 1. Limpiar cualquier documento o miniatura anterior
+      setDocumentsInfo(null);
+      setShowThumbnails(false);
+
+      // 2. Iniciar la carga del historial y la información de los documentos
+      getClientHistory({ variables: { clientId: selectedClient.id } });
+      getClientDocumentsOnly({ variables: { clientId: selectedClient.id } });
+      getAvalDocumentsOnly({ variables: { clientId: selectedClient.id } });
+    } else {
+      console.warn('⚠️ No se ha seleccionado un cliente');
+    }
+  };
 
   return (
     <PageContainer header="Historial de Cliente">
@@ -518,7 +1303,7 @@ const HistorialClientePage: React.FC = () => {
           📋 Historial de Cliente
         </h1>
 
-        {/* Filtros de búsqueda */}
+        {/* Búsqueda de Cliente */}
         <div style={{
           backgroundColor: '#f7fafc',
           padding: '24px',
@@ -530,62 +1315,9 @@ const HistorialClientePage: React.FC = () => {
             🔍 Búsqueda de Cliente
           </h2>
 
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))', 
-            gap: isMobile ? '12px' : '16px', 
-            marginBottom: '16px' 
-          }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '8px', color: '#4a5568' }}>
-                Ruta (Opcional)
-              </label>
-              <Select
-                value={routeOptions.find((opt: any) => opt.value === selectedRoute?.id) || null}
-                onChange={(option) => {
-                  const route = routesData?.routes?.find((r: any) => r.id === option?.value);
-                  console.log('🔍 Ruta seleccionada:', route);
-                  console.log('👥 Empleados encontrados:', route?.employees?.length);
-                  console.log('🏘️ Estructura empleados:', route?.employees);
-                  setSelectedRoute(route || null);
-                  setSelectedLocation(null); // Limpiar localidad cuando cambia la ruta
-                }}
-                options={routeOptions}
-                placeholder="Seleccionar ruta..."
-                isLoading={routesLoading}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '8px', color: '#4a5568' }}>
-                Localidad (Opcional)
-              </label>
-              <Select
-                value={locationOptions.find((opt: any) => opt.value === selectedLocation?.id) || null}
-                onChange={(option) => {
-                  // Buscar la localidad en los empleados de la ruta
-                  let foundLocation = null;
-                  selectedRoute?.employees?.forEach((employee: any) => {
-                    employee.personalData?.addresses?.forEach((address: any) => {
-                      if (address.location && address.location.id === option?.value) {
-                        foundLocation = address.location;
-                      }
-                    });
-                  });
-                  console.log('🏠 Localidad seleccionada:', foundLocation);
-                  console.log('📍 Empleados disponibles:', selectedRoute?.employees?.length);
-                  setSelectedLocation(foundLocation);
-                }}
-                options={locationOptions}
-                placeholder="Seleccionar localidad..."
-                isDisabled={!selectedRoute}
-              />
-            </div>
-          </div>
-
           <div style={{ position: 'relative', marginBottom: '16px' }}>
             <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '8px', color: '#4a5568' }}>
-              Buscar Cliente (Nombre, DUI)
+              Buscar Cliente (Nombre, Clave Única) - La información de ruta y localidad aparecerá en los resultados
             </label>
             <input
               type="text"
@@ -595,7 +1327,7 @@ const HistorialClientePage: React.FC = () => {
                 setShowAutocomplete(true); // Activar autocomplete cuando se escribe
               }}
               onFocus={() => setShowAutocomplete(true)} // Activar autocomplete al hacer focus
-              placeholder="Escriba nombre o DUI del cliente..."
+              placeholder="Escriba nombre o clave única del cliente..."
               style={{
                 width: '100%',
                 padding: '12px',
@@ -621,7 +1353,7 @@ const HistorialClientePage: React.FC = () => {
                 zIndex: 1000,
                 boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
               }}>
-                {clientResults.map((client) => (
+                {clientResults.map((client: ClientSearchResult) => (
                   <div
                     key={client.id}
                     onClick={() => handleClientSelect(client)}
@@ -633,12 +1365,15 @@ const HistorialClientePage: React.FC = () => {
                     onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
                   >
-                    <div style={{ fontWeight: '600', color: '#2d3748' }}>{client.name}</div>
-                    <div style={{ fontSize: '12px', color: '#718096' }}>
-                      📍 {client.location} | 🏘️ {client.municipality} | 🏛️ {client.state}
+                    <div style={{ fontWeight: '600', color: '#2d3748', marginBottom: '4px' }}>{client.name}</div>
+                    <div style={{ fontSize: '12px', color: '#4a5568', marginBottom: '2px' }}>
+                      🔑 <strong>Clave:</strong> {client.clientCode} | 📍 <strong>Localidad:</strong> {client.location} | 🏘️ <strong>Municipio:</strong> {client.municipality} | 🏛️ <strong>Estado:</strong> {client.state}
                     </div>
-                    <div style={{ fontSize: '11px', color: '#a0aec0' }}>
-                      📞 {client.phone} | 🏠 {client.route} | 🏙️ {client.city}
+                    <div style={{ fontSize: '12px', color: '#4a5568', marginBottom: '2px' }}>
+                      🗺️ <strong>Ruta:</strong> {client.route} | 📞 <strong>Teléfono:</strong> {client.phone}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#a0aec0', marginBottom: '2px' }}>
+                      🏠 <strong>Dirección:</strong> {client.city}
                     </div>
                     {client.latestLoanDate && (
                       <div style={{ fontSize: '11px', color: '#805ad5', marginTop: '2px' }}>
@@ -660,6 +1395,123 @@ const HistorialClientePage: React.FC = () => {
             {showAutocomplete && searchLoading && (
               <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, padding: '12px', backgroundColor: 'white', border: '1px solid #cbd5e0', borderRadius: '6px' }}>
                 <LoadingDots label="Buscando clientes..." />
+              </div>
+            )}
+
+            {/* Sección de duplicados detectados */}
+            {showDuplicates && potentialDuplicates.length > 0 && (
+              <div style={{
+                marginTop: '20px',
+                padding: '16px',
+                backgroundColor: '#fef3c7',
+                border: '1px solid #f59e0b',
+                borderRadius: '8px'
+              }}>
+                <h3 style={{
+                  margin: '0 0 12px 0',
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  color: '#92400e',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  🔍 Posibles Duplicados Detectados ({potentialDuplicates.length})
+                </h3>
+                <p style={{
+                  margin: '0 0 16px 0',
+                  fontSize: '14px',
+                  color: '#92400e'
+                }}>
+                  Se encontraron clientes con nombres muy similares. Revisa si son duplicados y considera fusionarlos.
+                </p>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {potentialDuplicates.map((duplicate, index) => (
+                    <div key={index} style={{
+                      padding: '12px',
+                      backgroundColor: 'white',
+                      border: '1px solid #f59e0b',
+                      borderRadius: '6px',
+                      display: 'flex',
+                      flexDirection: isMobile ? 'column' : 'row',
+                      gap: '12px',
+                      alignItems: isMobile ? 'stretch' : 'center'
+                    }}>
+                      {/* Cliente 1 */}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: '600', color: '#374151', marginBottom: '4px' }}>
+                          {duplicate.client1.name}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                          🔑 {duplicate.client1.clientCode} | 📍 {duplicate.client1.location}
+                        </div>
+                      </div>
+                      
+                      {/* Similitud */}
+                      <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        padding: '8px',
+                        backgroundColor: duplicate.similarity >= 95 ? '#fef2f2' : '#f0f9ff',
+                        borderRadius: '4px',
+                        minWidth: '80px'
+                      }}>
+                        <div style={{
+                          fontSize: '14px',
+                          fontWeight: '700',
+                          color: duplicate.similarity >= 95 ? '#dc2626' : '#2563eb'
+                        }}>
+                          {duplicate.similarity}%
+                        </div>
+                        <div style={{
+                          fontSize: '10px',
+                          color: '#6b7280'
+                        }}>
+                          similitud
+                        </div>
+                      </div>
+                      
+                      {/* Cliente 2 */}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: '600', color: '#374151', marginBottom: '4px' }}>
+                          {duplicate.client2.name}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                          🔑 {duplicate.client2.clientCode} | 📍 {duplicate.client2.location}
+                        </div>
+                      </div>
+                      
+                      {/* Botón de fusión rápida */}
+                      {canMergeClients && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <Button
+                            onClick={() => {
+                              // Pre-cargar ambos clientes en el modal de fusión
+                              setMergeClientsList([duplicate.client1, duplicate.client2]);
+                              setSelectedPrimaryId(duplicate.client1.id);
+                              setShowMergeModal(true);
+                              setShowDuplicates(false);
+                            }}
+                            style={{
+                              backgroundColor: '#dc2626',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              padding: '6px 12px',
+                              fontSize: '12px',
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap'
+                            }}
+                          >
+                            🔗 Fusionar
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -704,6 +1556,42 @@ const HistorialClientePage: React.FC = () => {
             >
               🗑️ Limpiar
             </Button>
+
+            {canMergeClients && (
+              <Button 
+                onClick={handleOpenMergeModal}
+                style={{
+                  backgroundColor: '#805ad5',
+                  color: 'white',
+                  padding: isMobile ? '12px 16px' : '10px 20px',
+                  border: 'none',
+                  borderRadius: '6px',
+                  width: isMobile ? '100%' : 'auto',
+                  fontSize: isMobile ? '14px' : 'inherit'
+                }}
+              >
+                🔗 Fusionar Clientes
+              </Button>
+            )}
+
+            {potentialDuplicates.length > 0 && (
+              <Button 
+                onClick={() => setShowDuplicates(!showDuplicates)}
+                style={{
+                  backgroundColor: showDuplicates ? '#f59e0b' : '#f97316',
+                  color: 'white',
+                  padding: isMobile ? '12px 16px' : '10px 20px',
+                  border: 'none',
+                  borderRadius: '6px',
+                  width: isMobile ? '100%' : 'auto',
+                  fontSize: isMobile ? '14px' : 'inherit',
+                  marginLeft: isMobile ? '0' : '8px',
+                  marginTop: isMobile ? '8px' : '0'
+                }}
+              >
+                🔍 {showDuplicates ? 'Ocultar' : 'Mostrar'} Duplicados ({potentialDuplicates.length})
+              </Button>
+            )}
 
             {showClientHistory && historyResult && (
               <div style={{
@@ -761,7 +1649,7 @@ const HistorialClientePage: React.FC = () => {
                 textAlign: isMobile ? 'center' : 'left',
                 width: '100%'
               }}>
-                Cliente seleccionado: <strong>{selectedClient.name}</strong> ({selectedClient.dui})
+                Cliente seleccionado: <strong>{selectedClient.name}</strong> ({selectedClient.clientCode})
               </div>
             )}
           </div>
@@ -786,28 +1674,122 @@ const HistorialClientePage: React.FC = () => {
             {/* Client Info Header */}
             <div style={{
               backgroundColor: '#edf2f7',
-              padding: '24px',
+              padding: isMobile ? '16px' : '24px',
               borderRadius: '8px',
               marginBottom: '24px',
               border: '1px solid #cbd5e0'
             }}>
-              <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '16px', color: '#2d3748' }}>
-                👤 {historyResult.client.fullName}
+              <h2 style={{ 
+                fontSize: isMobile ? '16px' : '18px', 
+                fontWeight: '600', 
+                marginBottom: '20px', 
+                color: '#2d3748' 
+              }}>
+                Información del Cliente y Líder Asignado
               </h2>
               
               <div style={{ 
                 display: 'grid', 
-                gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(250px, 1fr))', 
-                gap: isMobile ? '12px' : '16px' 
+                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', 
+                gap: isMobile ? '20px' : '32px' 
               }}>
-                <div>
-                  <p><strong>DUI:</strong> {historyResult.client.dui}</p>
-                  <p><strong>Teléfonos:</strong> {historyResult.client.phones.join(', ')}</p>
+                {/* Información del Cliente */}
+                <div style={{
+                  backgroundColor: 'white',
+                  padding: isMobile ? '12px' : '16px',
+                  borderRadius: '6px',
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <h3 style={{ 
+                    fontSize: isMobile ? '14px' : '16px', 
+                    fontWeight: '600', 
+                    marginBottom: '12px', 
+                    color: '#2d3748',
+                    borderBottom: '2px solid #4299e1',
+                    paddingBottom: '4px'
+                  }}>
+                    👤 Cliente
+                  </h3>
+                  
+                  <div style={{ display: 'grid', gap: '8px' }}>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>👤 Nombre:</strong> {historyResult.client.fullName}
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>🔑 Clave:</strong> {historyResult.client.clientCode}
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>📞 Teléfonos:</strong> {historyResult.client.phones.join(', ')}
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>📊 Relación:</strong> 
+                      {historyResult.summary.hasBeenClient && ' ✅ Cliente'}
+                      {historyResult.summary.hasBeenCollateral && ' 🤝 Aval'}
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>📅 Desde:</strong> {historyResult.loansAsClient.length > 0 ? 
+                        formatDate(historyResult.loansAsClient[historyResult.loansAsClient.length - 1].signDate) : 
+                        historyResult.loansAsCollateral.length > 0 ? 
+                          formatDate(historyResult.loansAsCollateral[historyResult.loansAsCollateral.length - 1].signDate) : 
+                          'N/A'
+                      }
+                    </p>
+                    
+                    {/* Dirección del cliente */}
+                    {historyResult.client.addresses.map((addr, index) => (
+                      <div key={index} style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
+                        <p style={{ margin: '0 0 4px 0', fontSize: isMobile ? '12px' : '13px' }}>
+                          <strong>📍 Localidad:</strong> {addr.location}
+                        </p>
+                        <p style={{ margin: '0 0 4px 0', fontSize: isMobile ? '12px' : '13px' }}>
+                          <strong>🗺️ Ruta:</strong> {addr.route}
+                        </p>
+                        <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                          <strong>🏠 Dirección:</strong> {addr.city}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div>
-                  {historyResult.client.addresses.map((addr, index) => (
-                    <p key={index}><strong>Dirección:</strong> {addr.city}, {addr.location} ({addr.route})</p>
-                  ))}
+
+                {/* Información del Líder */}
+                <div style={{
+                  backgroundColor: 'white',
+                  padding: isMobile ? '12px' : '16px',
+                  borderRadius: '6px',
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <h3 style={{ 
+                    fontSize: isMobile ? '14px' : '16px', 
+                    fontWeight: '600', 
+                    marginBottom: '12px', 
+                    color: '#2d3748',
+                    borderBottom: '2px solid #38a169',
+                    paddingBottom: '4px'
+                  }}>
+                    👨‍💼 Líder Asignado
+                  </h3>
+                  
+                  <div style={{ display: 'grid', gap: '8px' }}>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>👤 Nombre:</strong> {historyResult.client.leader.name}
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>🗺️ Ruta:</strong> {historyResult.client.leader.route}
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>📍 Localidad:</strong> {historyResult.client.leader.location}
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>🏘️ Municipio:</strong> {historyResult.client.leader.municipality}
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>🌍 Estado:</strong> {historyResult.client.leader.state}
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '12px' : '13px' }}>
+                      <strong>📞 Teléfono:</strong> {historyResult.client.leader.phone}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -815,87 +1797,91 @@ const HistorialClientePage: React.FC = () => {
             {/* Summary Stats */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))',
-              gap: isMobile ? '12px' : '16px',
-              marginBottom: isMobile ? '24px' : '32px'
+              gridTemplateColumns: isMobile ? '1fr' : 'repeat(5, 1fr)',
+              gap: isMobile ? '8px' : '12px',
+              marginBottom: isMobile ? '16px' : '24px'
             }}>
               <div style={{
                 backgroundColor: historyResult.summary.hasBeenClient ? '#e6fffa' : '#f7fafc',
-                padding: isMobile ? '16px' : '20px',
-                borderRadius: '8px',
-                border: `2px solid ${historyResult.summary.hasBeenClient ? '#38b2ac' : '#cbd5e0'}`,
+                padding: isMobile ? '10px' : '12px',
+                borderRadius: '6px',
+                border: `1px solid ${historyResult.summary.hasBeenClient ? '#38b2ac' : '#cbd5e0'}`,
                 textAlign: 'center'
               }}>
-                <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: '#2d3748' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '2px', color: '#2d3748', textAlign: 'center' }}>
                   👤 Como Cliente
                 </h3>
-                <p style={{ fontSize: '24px', fontWeight: 'bold', color: '#38b2ac' }}>
+                <p style={{ fontSize: '22px', fontWeight: '700', color: '#38b2ac', margin: 0, textAlign: 'center' }}>
                   {historyResult.summary.totalLoansAsClient}
                 </p>
-                <p style={{ fontSize: '12px', color: '#718096' }}>
+                <p style={{ fontSize: '10px', color: '#718096', margin: 0, textAlign: 'center', marginTop: '2px' }}>
                   Activos: {historyResult.summary.activeLoansAsClient}
                 </p>
               </div>
 
               <div style={{
                 backgroundColor: historyResult.summary.hasBeenCollateral ? '#fff5f5' : '#f7fafc',
-                padding: '20px',
-                borderRadius: '8px',
-                border: `2px solid ${historyResult.summary.hasBeenCollateral ? '#f56565' : '#cbd5e0'}`,
+                padding: '12px',
+                borderRadius: '6px',
+                border: `1px solid ${historyResult.summary.hasBeenCollateral ? '#f56565' : '#cbd5e0'}`,
                 textAlign: 'center'
               }}>
-                <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: '#2d3748' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '2px', color: '#2d3748', textAlign: 'center' }}>
                   🤝 Como Aval
                 </h3>
-                <p style={{ fontSize: '24px', fontWeight: 'bold', color: '#f56565' }}>
+                <p style={{ fontSize: '22px', fontWeight: '700', color: '#f56565', margin: 0, textAlign: 'center' }}>
                   {historyResult.summary.totalLoansAsCollateral}
                 </p>
-                <p style={{ fontSize: '12px', color: '#718096' }}>
+                <p style={{ fontSize: '10px', color: '#718096', margin: 0, textAlign: 'center', marginTop: '2px' }}>
                   Activos: {historyResult.summary.activeLoansAsCollateral}
                 </p>
               </div>
 
-              <div style={{
-                backgroundColor: '#f0fff4',
-                padding: '20px',
-                borderRadius: '8px',
-                border: '2px solid #48bb78',
-                textAlign: 'center'
-              }}>
-                <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: '#2d3748' }}>
-                  💰 Total Prestado
-                </h3>
-                <p style={{ fontSize: '20px', fontWeight: 'bold', color: '#48bb78' }}>
-                  {formatCurrency(historyResult.summary.totalAmountRequestedAsClient)}
-                </p>
-              </div>
+              {canMergeClients && (
+                <>
+                  <div style={{
+                    backgroundColor: '#f0fff4',
+                    padding: '12px',
+                    borderRadius: '6px',
+                    border: '1px solid #48bb78',
+                    textAlign: 'center'
+                  }}>
+                    <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '4px', color: '#2d3748' }}>
+                      💰 Total Prestado
+                    </h3>
+                    <p style={{ fontSize: '18px', fontWeight: '700', color: '#48bb78', margin: 0 }}>
+                      {formatCurrency(historyResult.summary.totalAmountRequestedAsClient)}
+                    </p>
+                  </div>
 
-              <div style={{
-                backgroundColor: '#fffbf0',
-                padding: '20px',
-                borderRadius: '8px',
-                border: '2px solid #ed8936',
-                textAlign: 'center'
-              }}>
-                <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: '#2d3748' }}>
-                  💳 Total Pagado
-                </h3>
-                <p style={{ fontSize: '20px', fontWeight: 'bold', color: '#ed8936' }}>
-                  {formatCurrency(historyResult.summary.totalAmountPaidAsClient)}
-                </p>
-              </div>
+                  <div style={{
+                    backgroundColor: '#fffbf0',
+                    padding: '12px',
+                    borderRadius: '6px',
+                    border: '1px solid #ed8936',
+                    textAlign: 'center'
+                  }}>
+                    <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '4px', color: '#2d3748' }}>
+                      💳 Total Pagado
+                    </h3>
+                    <p style={{ fontSize: '18px', fontWeight: '700', color: '#ed8936', margin: 0 }}>
+                      {formatCurrency(historyResult.summary.totalAmountPaidAsClient)}
+                    </p>
+                  </div>
+                </>
+              )}
 
               <div style={{
                 backgroundColor: historyResult.summary.currentPendingDebtAsClient > 0 ? '#fed7e2' : '#f0fff4',
-                padding: '20px',
-                borderRadius: '8px',
-                border: `2px solid ${historyResult.summary.currentPendingDebtAsClient > 0 ? '#f56565' : '#48bb78'}`,
+                padding: '12px',
+                borderRadius: '6px',
+                border: `1px solid ${historyResult.summary.currentPendingDebtAsClient > 0 ? '#f56565' : '#48bb78'}`,
                 textAlign: 'center'
               }}>
-                <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: '#2d3748' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '4px', color: '#2d3748' }}>
                   💰 Deuda Pendiente Total
                 </h3>
-                <p style={{ fontSize: '20px', fontWeight: 'bold', color: historyResult.summary.currentPendingDebtAsClient > 0 ? '#f56565' : '#48bb78' }}>
+                <p style={{ fontSize: '18px', fontWeight: '700', color: historyResult.summary.currentPendingDebtAsClient > 0 ? '#f56565' : '#48bb78', margin: 0 }}>
                   {formatCurrency(historyResult.summary.currentPendingDebtAsClient)}
                 </p>
               </div>
@@ -903,134 +1889,107 @@ const HistorialClientePage: React.FC = () => {
 
             {/* Documentos del Cliente */}
             <div style={{ marginBottom: '32px' }}>
-              <h3 style={{ 
-                fontSize: '20px', 
-                fontWeight: 'bold', 
-                marginBottom: '16px',
-                color: '#2d3748',
-                borderBottom: '2px solid #805ad5',
-                paddingBottom: '8px'
-              }}>
-                📷 Documentos del Cliente
-              </h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0 }}>
+                  📷 Documentos
+                </h3>
+              </div>
 
-              {/* Estado de carga */}
-              {documentsLoading && (
-                <div style={{
-                  textAlign: 'center',
-                  padding: '32px',
-                  backgroundColor: '#f8fafc',
-                  borderRadius: '8px',
-                  border: '1px solid #e2e8f0'
-                }}>
-                  <LoadingDots label="Cargando documentos..." />
-                  <p style={{ marginTop: '16px', color: '#718096', fontSize: '14px' }}>
-                    Buscando documentos asociados al cliente...
-                  </p>
+              {/* Loader mientras se busca la info de documentos por primera vez */}
+              {(clientDocumentsLoading || avalDocumentsLoading) && !documentsInfo && (
+                <div style={{ padding: '24px', textAlign: 'center' }}>
+                  <LoadingDots label="Buscando información de documentos..." />
                 </div>
               )}
 
-              {/* Documentos encontrados */}
-              {!documentsLoading && documentsData?.documentPhotos && documentsData.documentPhotos.length > 0 && (
-                <>
-                  <p style={{ 
-                    fontSize: '12px', 
-                    color: '#718096', 
-                    marginBottom: '16px',
-                    fontStyle: 'italic'
-                  }}>
-                    💡 Haz clic en cualquier documento para ver la imagen completa
-                  </p>
-
-                                  <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(200px, 1fr))',
-                  gap: isMobile ? '12px' : '16px',
-                  padding: isMobile ? '16px' : '20px',
+              {/* Mostrar conteo y botón para ver miniaturas */}
+              {documentsInfo && !showThumbnails && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '16px',
+                  padding: '16px',
                   backgroundColor: '#f8fafc',
                   borderRadius: '8px',
-                  border: '1px solid #e2e8f0'
+                  border: '1px solid #e2e8f0',
+                  justifyContent: 'space-between'
                 }}>
-                    {documentsData.documentPhotos.map((document: ClientDocument) => {
-                      const personType = getPersonTypeFromDocument(document, historyResult.client.id);
-                      return (
-                        <DocumentThumbnail
-                          key={document.id}
-                          type={document.documentType}
-                          personType={personType}
-                          imageUrl={document.photoUrl}
-                          publicId={document.publicId}
-                          onImageClick={() => openImageModal(document, personType)}
-                          onUploadClick={() => {}} // No permitir subir desde aquí
-                          size="medium"
-                        />
-                      );
-                    })}
-                  </div>
+                  <p style={{ margin: 0, fontSize: '14px', color: '#4a5568' }}>
+                    <strong>Cliente:</strong> {documentsInfo.client?.documentPhotos?.length || 0} documentos, 
+                    <strong> Aval:</strong> {(lastLoanDocumentsData?.documentPhotos?.filter((doc: any) => doc.loan?.collaterals?.some((c: any) => c.id === doc.personalData?.id)).length) 
+                      || documentsInfo.aval?.loan?.documentPhotos?.filter((doc: any) => doc.loan?.collaterals?.some((c: any) => c.id === doc.personalData?.id)).length 
+                      || 0} documentos.
+                  </p>
+                  <Button 
+                    onClick={() => setShowThumbnails(true)}
+                  >
+                    Ver Documentos
+                  </Button>
+                </div>
+              )}
+
+              {/* Mostrar miniaturas si showThumbnails es true */}
+              {showThumbnails && (
+                <>
+                  {isRefreshingDocs ? (
+                    <div style={{ padding: '24px', textAlign: 'center' }}>
+                      <LoadingDots label="Actualizando documentos..." />
+                    </div>
+                  ) : (
+                    <>
+                      {/* Documentos del cliente */}
+                      {documentsInfo?.client?.documentPhotos && documentsInfo.client.documentPhotos.length > 0 ? (
+                        <div style={{ marginBottom: '24px' }}>
+                          <h4 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '12px', color: '#4a5568' }}>
+                            Documentos como Titular ({documentsInfo.client.documentPhotos.length})
+                          </h4>
+                          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(150px, 1fr))', gap: '16px' }}>
+                            {documentsInfo.client.documentPhotos.map((document: ClientDocument) => (
+                                <DocumentThumbnail 
+                                  key={document.id}
+                                  type={document.documentType}
+                                  personType="TITULAR"
+                                  imageUrl={document.photoUrl}
+                                  publicId={document.publicId}
+                                  onImageClick={() => openImageInNewTab(document, 'TITULAR')}
+                                  readOnly={true}
+                                />
+                              ))}
+                          </div>
+                        </div>
+                      ) : <p>No hay documentos de titular para mostrar.</p>}
+
+                      {/* Documentos del aval */}
+                      {(() => {
+                        const avalSourceDocs = documentsInfo?.aval?.loan?.documentPhotos || lastLoanDocumentsData?.documentPhotos || [];
+                        const avalDocs = avalSourceDocs.filter((doc: any) => doc.loan?.collaterals?.some((c: any) => c.id === doc.personalData?.id));
+                        return avalDocs.length > 0;
+                      })() ? (
+                        <div>
+                          <h4 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '12px', color: '#4a5568' }}>
+                            Documentos como Aval ({(documentsInfo?.aval?.loan?.documentPhotos || lastLoanDocumentsData?.documentPhotos || []).filter((doc: any) => doc.loan?.collaterals?.some((c: any) => c.id === doc.personalData?.id)).length})
+                          </h4>
+                          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(150px, 1fr))', gap: '16px' }}>
+                            {(documentsInfo?.aval?.loan?.documentPhotos || lastLoanDocumentsData?.documentPhotos || [])
+                              .filter((document: ClientDocument) => document.loan?.collaterals?.some((collateral: any) => collateral.id === document.personalData?.id))
+                              .map((document: ClientDocument) => (
+                                    <DocumentThumbnail 
+                                      key={document.id}
+                                      type={document.documentType}
+                                      personType="AVAL"
+                                      imageUrl={document.photoUrl}
+                                      publicId={document.publicId}
+                                      onImageClick={() => openImageInNewTab(document, 'AVAL')}
+                                      readOnly={true}
+                                    />
+                                  ))}
+                          </div>
+                        </div>
+                      ) : <p>No hay documentos de aval para mostrar.</p>}
+                    </>
+                  )}
                 </>
               )}
-
-              {/* Sin documentos */}
-              {!documentsLoading && (!documentsData?.documentPhotos || documentsData.documentPhotos.length === 0) && (
-                <div style={{
-                  textAlign: 'center',
-                  padding: '40px',
-                  backgroundColor: '#f8fafc',
-                  borderRadius: '8px',
-                  border: '1px solid #e2e8f0'
-                }}>
-                  <div style={{
-                    fontSize: '48px',
-                    marginBottom: '16px',
-                    color: '#a0aec0'
-                  }}>
-                    📷
-                  </div>
-                  <h4 style={{ 
-                    fontSize: '16px', 
-                    fontWeight: '600', 
-                    marginBottom: '8px', 
-                    color: '#4a5568' 
-                  }}>
-                    No se encontraron documentos
-                  </h4>
-                  <p style={{ 
-                    fontSize: '14px', 
-                    color: '#718096', 
-                    marginBottom: '16px',
-                    maxWidth: '400px',
-                    margin: '0 auto'
-                  }}>
-                    Este cliente no tiene documentos asociados (INE, comprobante de domicilio, pagarés, etc.)
-                  </p>
-                  <div style={{
-                    fontSize: '12px',
-                    color: '#a0aec0',
-                    backgroundColor: '#f1f5f9',
-                    padding: '8px 16px',
-                    borderRadius: '6px',
-                    border: '1px solid #e2e8f0',
-                    display: 'inline-block'
-                  }}>
-                    💡 Los documentos se pueden agregar desde la página "Documentos Personales"
-                  </div>
-                </div>
-              )}
-
-              {/* Información adicional */}
-              <div style={{
-                fontSize: '11px',
-                color: '#718096',
-                marginTop: '12px',
-                fontStyle: 'italic',
-                textAlign: 'center'
-              }}>
-                {documentsData?.documentPhotos && documentsData.documentPhotos.length > 0 ? (
-                  `Total de documentos: ${documentsData.documentPhotos.length}`
-                ) : (
-                  'Estado: Sin documentos asociados'
-                )}
-              </div>
             </div>
 
             {/* Loans as Client */}
@@ -1065,193 +2024,290 @@ const HistorialClientePage: React.FC = () => {
                     display: 'flex',
                     gap: '12px',
                     alignItems: 'center',
-                    marginBottom: '8px',
-                    flexWrap: 'wrap'
+                    marginBottom: '16px',
+                    flexWrap: 'wrap',
+                    padding: '12px',
+                    backgroundColor: '#f8fafc',
+                    borderRadius: '8px',
+                    border: '1px solid #e2e8f0'
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ display: 'inline-block', width: 14, height: 14, backgroundColor: '#E0F2FE', border: '1px solid #bae6fd', borderRadius: 3 }} />
-                      <span style={{ fontSize: 12, color: '#334155' }}>Cubierto por sobrepago</span>
+                      <span style={{ display: 'inline-block', width: 16, height: 16, backgroundColor: '#E0F2FE', border: '1px solid #bae6fd', borderRadius: 4 }} />
+                      <span style={{ fontSize: 12, color: '#334155', fontWeight: '500' }}>Cubierto por sobrepago</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ display: 'inline-block', width: 14, height: 14, backgroundColor: '#FEF9C3', border: '1px solid #fde68a', borderRadius: 3 }} />
-                      <span style={{ fontSize: 12, color: '#334155' }}>Pago parcial</span>
+                      <span style={{ display: 'inline-block', width: 16, height: 16, backgroundColor: '#FEF9C3', border: '1px solid #fde68a', borderRadius: 4 }} />
+                      <span style={{ fontSize: 12, color: '#334155', fontWeight: '500' }}>Pago parcial</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ display: 'inline-block', width: 14, height: 14, backgroundColor: '#FEE2E2', border: '1px solid #fecaca', borderRadius: 3 }} />
-                      <span style={{ fontSize: 12, color: '#334155' }}>Falta (sin pago)</span>
+                      <span style={{ display: 'inline-block', width: 16, height: 16, backgroundColor: '#FEE2E2', border: '1px solid #fecaca', borderRadius: 4 }} />
+                      <span style={{ fontSize: 12, color: '#334155', fontWeight: '500' }}>Falta (sin pago)</span>
                     </div>
                   </div>
-                  <table style={{ 
-                    width: '100%', 
-                    borderCollapse: 'collapse', 
+                  
+                  {/* Contenedor de créditos con separación visual */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                    {historyResult.loansAsClient.map((loan, index) => (
+                      <div key={loan.id} style={{
                     backgroundColor: 'white', 
-                    borderRadius: '8px', 
+                        borderRadius: '12px',
+                        border: '2px solid #e2e8f0',
                     overflow: 'hidden', 
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                    minWidth: isMobile ? '800px' : 'auto'
-                  }}>
-                    <thead>
-                      <tr style={{ backgroundColor: '#f7fafc' }}>
-                        <th style={{ 
-                          padding: isMobile ? '8px' : '12px', 
-                          textAlign: 'left', 
-                          borderBottom: '2px solid #e2e8f0', 
-                          fontSize: isMobile ? '10px' : '12px', 
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                        position: 'relative'
+                      }}>
+                        {/* Header del crédito con color distintivo - COMPACTO */}
+                        <div style={{
+                          backgroundColor: index % 2 === 0 ? '#f0f9ff' : '#fef7ff',
+                          borderBottom: `2px solid ${index % 2 === 0 ? '#0ea5e9' : '#a855f7'}`,
+                          padding: '10px 12px',
+                          position: 'relative'
+                        }}>
+                          <div style={{
+                            position: 'absolute',
+                            top: '8px',
+                            right: '16px',
+                            backgroundColor: index % 2 === 0 ? '#0ea5e9' : '#a855f7',
+                            color: 'white',
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                            fontSize: '10px',
                           fontWeight: '600' 
-                        }}>FECHA</th>
-                        <th style={{ 
-                          padding: isMobile ? '8px' : '12px', 
-                          textAlign: 'left', 
-                          borderBottom: '2px solid #e2e8f0', 
-                          fontSize: isMobile ? '10px' : '12px', 
-                          fontWeight: '600' 
-                        }}>TIPO</th>
-                        <th style={{ 
-                          padding: isMobile ? '8px' : '12px', 
-                          textAlign: 'right', 
-                          borderBottom: '2px solid #e2e8f0', 
-                          fontSize: isMobile ? '10px' : '12px', 
-                          fontWeight: '600' 
-                        }}>PRESTADO</th>
-                        <th style={{ 
-                          padding: isMobile ? '8px' : '12px', 
-                          textAlign: 'right', 
-                          borderBottom: '2px solid #e2e8f0', 
-                          fontSize: isMobile ? '10px' : '12px', 
-                          fontWeight: '600' 
-                        }}>TOTAL A PAGAR</th>
-                        <th style={{ 
-                          padding: isMobile ? '8px' : '12px', 
-                          textAlign: 'right', 
-                          borderBottom: '2px solid #e2e8f0', 
-                          fontSize: isMobile ? '10px' : '12px', 
-                          fontWeight: '600' 
-                        }}>PAGADO</th>
-                        <th style={{ 
-                          padding: isMobile ? '8px' : '12px', 
-                          textAlign: 'right', 
-                          borderBottom: '2px solid #e2e8f0', 
-                          fontSize: isMobile ? '10px' : '12px', 
-                          fontWeight: '600' 
-                        }}>DEUDA PENDIENTE</th>
-                        <th style={{ 
-                          padding: isMobile ? '8px' : '12px', 
-                          textAlign: 'center', 
-                          borderBottom: '2px solid #e2e8f0', 
-                          fontSize: isMobile ? '10px' : '12px', 
-                          fontWeight: '600' 
-                        }}>ESTADO</th>
-                        <th style={{ 
-                          padding: isMobile ? '8px' : '12px', 
-                          textAlign: 'left', 
-                          borderBottom: '2px solid #e2e8f0', 
-                          fontSize: isMobile ? '10px' : '12px', 
-                          fontWeight: '600' 
-                        }}>LÍDER</th>
-                        <th style={{ 
-                          padding: isMobile ? '8px' : '12px', 
-                          textAlign: 'center', 
-                          borderBottom: '2px solid #e2e8f0', 
-                          fontSize: isMobile ? '10px' : '12px', 
-                          fontWeight: '600' 
-                        }}>DÍAS</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {historyResult.loansAsClient.map((loan, index) => (
-                        <React.Fragment key={loan.id}>
-                          <tr style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
-                              onClick={() => {
-                                const expandedRows = (document.querySelector(`#loan-details-${loan.id}`) as HTMLElement);
-                                if (expandedRows) {
-                                  expandedRows.style.display = expandedRows.style.display === 'none' ? 'table-row' : 'none';
-                                }
-                              }}>
-                            <td style={{ padding: '12px', fontSize: '13px' }}>
-                              <div>{loan.signDateFormatted || formatDate(loan.signDate)}</div>
-                              {loan.finishedDateFormatted && (
-                                <div style={{ fontSize: '11px', color: '#718096' }}>
-                                  Fin: {loan.finishedDateFormatted}
+                          }}>
+                            #{index + 1}
                                 </div>
-                              )}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '13px' }}>{loan.loanType}</td>
-                            <td style={{ padding: '12px', fontSize: '13px', textAlign: 'right', fontWeight: '600', color: '#2b6cb0' }}>
-                              {formatCurrency(loan.amountRequested)}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '13px', textAlign: 'right' }}>
-                              {formatCurrency(loan.totalAmountDue)}
-                              {loan.interestAmount > 0 && (
-                                <div style={{ fontSize: '10px', color: '#805ad5' }}>
-                                  +{formatCurrency(loan.interestAmount)} interés ({loan.rate}%)
+                          
+                          {/* Información principal en una sola línea */}
+                          <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '12px',
+                            marginBottom: '8px',
+                            flexWrap: 'wrap'
+                          }}>
+                            <div style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b' }}>
+                              {loan.signDateFormatted || formatDate(loan.signDate)}
                                 </div>
-                              )}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '13px', textAlign: 'right', fontWeight: '600', color: '#38a169' }}>
-                              {formatCurrency(loan.totalPaid)}
-                              {loan.paymentsCount > 0 && (
-                                <div style={{ fontSize: '10px', color: '#718096' }}>
-                                  {loan.paymentsCount} pagos
-                                </div>
-                              )}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '13px', textAlign: 'right', fontWeight: '600', color: loan.pendingDebt > 0 ? '#e53e3e' : '#38a169' }}>
-                              {formatCurrency(loan.pendingDebt)}
-                            </td>
-                            <td style={{ padding: '12px', textAlign: 'center' }}>
-                              <span style={{
-                                padding: '4px 8px',
+                            <div style={{
+                              padding: '2px 6px',
+                              backgroundColor: 'white',
                                 borderRadius: '4px',
-                                fontSize: '11px',
+                              fontSize: '9px',
+                              fontWeight: '600',
+                              color: '#475569',
+                              border: '1px solid #e2e8f0'
+                            }}>
+                              {loan.loanType}
+                            </div>
+                            <div style={{
+                              padding: '3px 8px',
+                              borderRadius: '12px',
+                              fontSize: '10px',
                                 fontWeight: '600',
                                 color: 'white',
                                 backgroundColor: getStatusColor(loan.status)
                               }}>
                                 {loan.status}
-                              </span>
+                            </div>
                               {loan.wasRenewed && (
-                                <div style={{ fontSize: '10px', color: '#805ad5', marginTop: '2px' }}>
+                              <div style={{ 
+                                fontSize: '9px', 
+                                color: '#7c3aed', 
+                                fontWeight: '500',
+                                backgroundColor: 'white',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                border: '1px solid #e2e8f0'
+                              }}>
                                   🔄 Renovado
                                 </div>
                               )}
-                              {loan.statusDescription && (
-                                <div style={{ fontSize: '10px', color: '#718096', marginTop: '2px', maxWidth: '100px', lineHeight: '1.2' }}>
-                                  {loan.statusDescription}
+                                </div>
+                          
+                          {/* Información financiera ultra compacta */}
+                          <div style={{ 
+                            display: 'flex', 
+                            flexDirection: 'column',
+                            gap: '4px',
+                            paddingBottom: '2px'
+                          }}>
+                            {/* Primera fila - Información financiera principal */}
+                            <div style={{ 
+                              display: 'grid', 
+                              gridTemplateColumns: 'repeat(2, 1fr)', 
+                              gap: '4px'
+                            }}>
+                              <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '3px',
+                                backgroundColor: 'white',
+                                padding: '4px 6px',
+                                borderRadius: '4px',
+                                border: '1px solid #e2e8f0',
+                                minHeight: '24px'
+                              }}>
+                                <span style={{ fontSize: '8px', color: '#64748b', fontWeight: '500' }}>PRESTADO:</span>
+                                <span style={{ fontSize: '10px', fontWeight: '700', color: '#0f172a' }}>
+                                  {formatCurrency(loan.amountRequested)}
+                                </span>
+                              </div>
+                              
+                              <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '3px',
+                                backgroundColor: 'white',
+                                padding: '4px 6px',
+                                borderRadius: '4px',
+                                border: '1px solid #e2e8f0',
+                                minHeight: '24px'
+                              }}>
+                                <span style={{ fontSize: '8px', color: '#64748b', fontWeight: '500' }}>TOTAL:</span>
+                                <span style={{ fontSize: '10px', fontWeight: '700', color: '#0f172a' }}>
+                                  {formatCurrency(loan.totalAmountDue)}
+                                </span>
+                              </div>
+                            </div>
+                            
+                            {/* Segunda fila - Pagos y deuda */}
+                            <div style={{ 
+                              display: 'grid', 
+                              gridTemplateColumns: 'repeat(2, 1fr)', 
+                              gap: '4px'
+                            }}>
+                              <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '3px',
+                                backgroundColor: 'white',
+                                padding: '4px 6px',
+                                borderRadius: '4px',
+                                border: '1px solid #e2e8f0',
+                                minHeight: '24px'
+                              }}>
+                                <span style={{ fontSize: '8px', color: '#64748b', fontWeight: '500' }}>PAGADO:</span>
+                                <span style={{ fontSize: '10px', fontWeight: '700', color: '#059669' }}>
+                                  {formatCurrency(loan.totalPaid)}
+                                </span>
+                              </div>
+                              
+                              <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '3px',
+                                backgroundColor: 'white',
+                                padding: '4px 6px',
+                                borderRadius: '4px',
+                                border: '1px solid #e2e8f0',
+                                minHeight: '24px'
+                              }}>
+                                <span style={{ fontSize: '8px', color: '#64748b', fontWeight: '500' }}>PENDIENTE:</span>
+                                <span style={{ 
+                                  fontSize: '10px', 
+                                  fontWeight: '700', 
+                                  color: loan.pendingDebt > 0 ? '#dc2626' : '#059669'
+                                }}>
+                                  {formatCurrency(loan.pendingDebt)}
+                                </span>
+                              </div>
+                            </div>
+                            
+                            {/* Tercera fila - Información adicional (solo AVAL) */}
+                            <div style={{ 
+                              display: 'flex', 
+                              gap: '4px'
+                            }}>
+                              {loan.avalName && (
+                                <div style={{ 
+                                  display: 'flex', 
+                                  flexDirection: 'column',
+                                  gap: '2px',
+                                  backgroundColor: '#f0f9ff',
+                                  padding: '4px 6px',
+                                  borderRadius: '4px',
+                                  border: '1px solid #0ea5e9',
+                                  cursor: 'pointer',
+                                  position: 'relative',
+                                  minHeight: '32px',
+                                  transition: 'all 0.2s ease',
+                                  flex: 1
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#e0f2fe';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#f0f9ff';
+                                }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                    <span style={{ fontSize: '8px', color: '#0ea5e9', fontWeight: '600' }}>AVAL:</span>
+                                    <span style={{ fontSize: '9px', fontWeight: '600', color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {loan.avalName}
+                                    </span>
+                                  </div>
+                                  {loan.avalPhone && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginLeft: '20px' }}>
+                                      <span style={{ fontSize: '8px', color: '#0ea5e9', fontWeight: '600' }}>📞</span>
+                                      <span style={{ fontSize: '8px', color: '#0ea5e9', fontWeight: '600' }}>{loan.avalPhone}</span>
+                                    </div>
+                                  )}
                                 </div>
                               )}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '12px', color: '#718096' }}>
-                              {loan.leadName}
-                              <div style={{ fontSize: '10px' }}>{loan.routeName}</div>
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '13px', textAlign: 'center' }}>
-                              {loan.daysSinceSign}
-                              <div style={{ fontSize: '10px', color: '#718096' }}>días</div>
-                            </td>
-                          </tr>
-                          
-                          {/* Detalles expandibles de pagos */}
-                          <tr id={`loan-details-${loan.id}`} style={{ display: 'none', backgroundColor: '#f8fafc' }}>
-                            <td colSpan={9} style={{ padding: '16px' }}>
-                              <div style={{ maxWidth: '100%' }}>
-                                <h4 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '12px', color: '#2d3748' }}>
-                                  📋 Detalle de Pagos - Préstamo #{loan.id.slice(-8)}
-                                </h4>
-                                
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Tabla de pagos expandible */}
+                        <div style={{ 
+                          cursor: 'pointer',
+                          padding: '12px 20px',
+                          backgroundColor: '#f8fafc',
+                          borderTop: '1px solid #e2e8f0',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}
+                        onClick={() => {
+                          const expandedRows = (document.querySelector(`#loan-details-${loan.id}`) as HTMLElement);
+                          const expandButton = document.querySelector(`#expand-button-${loan.id}`) as HTMLElement;
+                          if (expandedRows && expandButton) {
+                            const isExpanded = expandedRows.style.display !== 'none';
+                            expandedRows.style.display = isExpanded ? 'none' : 'block';
+                            expandButton.innerHTML = isExpanded ? '▼ Click para expandir' : '▲ Click para contraer';
+                          }
+                        }}>
+                          <span style={{ fontSize: '11px', fontWeight: '600', color: '#475569' }}>
+                            📋 Ver detalle de pagos - Préstamo #{loan.id.slice(-8)}
+                          </span>
+                          <span id={`expand-button-${loan.id}`} style={{ fontSize: '10px', color: '#64748b' }}>
+                            ▼ Click para expandir
+                          </span>
+                        </div>
+                        
+                        {/* Contenido expandible */}
+                        <div id={`loan-details-${loan.id}`} style={{ display: 'none', padding: '16px 20px', backgroundColor: '#fafbfc' }}>
                                 {(() => {
                                   const chronology = generatePaymentChronology(loan);
                                   return chronology.length > 0 ? (
                                     <div style={{ overflowX: 'auto' }}>
-                                      <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
+                                <table style={{ 
+                                  width: '100%', 
+                                  fontSize: '12px', 
+                                  borderCollapse: 'collapse',
+                                  backgroundColor: 'white',
+                                  borderRadius: '8px',
+                                  overflow: 'hidden',
+                                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                                }}>
                                         <thead>
-                                          <tr style={{ backgroundColor: '#e2e8f0' }}>
-                                            <th style={{ padding: '8px', textAlign: 'left' }}>#</th>
-                                            <th style={{ padding: '8px', textAlign: 'left' }}>Fecha</th>
-                                            <th style={{ padding: '8px', textAlign: 'left' }}>Descripción</th>
-                                            <th style={{ padding: '8px', textAlign: 'right' }}>Monto</th>
-                                            <th style={{ padding: '8px', textAlign: 'left' }}>Método</th>
-                                            <th style={{ padding: '8px', textAlign: 'right' }}>Deuda Antes</th>
-                                            <th style={{ padding: '8px', textAlign: 'right' }}>Deuda Después</th>
+                                    <tr style={{ backgroundColor: '#f1f5f9' }}>
+                                      <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>#</th>
+                                      <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Fecha</th>
+                                      <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Descripción</th>
+                                      <th style={{ padding: '10px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Monto</th>
+                                      <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Método</th>
+                                      <th style={{ padding: '10px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Deuda Antes</th>
+                                      <th style={{ padding: '10px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Deuda Después</th>
                                           </tr>
                                         </thead>
                                         <tbody>
@@ -1267,15 +2323,15 @@ const HistorialClientePage: React.FC = () => {
                                             const textColor = item.coverageType === 'MISS' && item.type === 'NO_PAYMENT' ? '#b91c1c' : '#2d3748';
                                             return (
                                             <tr key={item.id} style={{ 
-                                              borderBottom: '1px solid #e2e8f0',
+                                        borderBottom: '1px solid #f1f5f9',
                                               backgroundColor: bgColor
                                             }}>
-                                              <td style={{ padding: '6px' }}>
+                                        <td style={{ padding: '8px', fontSize: '11px', fontWeight: '500' }}>
                                                 {item.type === 'PAYMENT' ? (item.paymentNumber || index + 1) : '-'}
                                               </td>
-                                              <td style={{ padding: '6px' }}>{item.dateFormatted}</td>
+                                        <td style={{ padding: '8px', fontSize: '11px' }}>{item.dateFormatted}</td>
                                               <td style={{ 
-                                                padding: '6px',
+                                          padding: '8px',
                                                 color: textColor,
                                                 fontWeight: item.type === 'NO_PAYMENT' ? '600' : 'normal'
                                               }}>
@@ -1287,26 +2343,26 @@ const HistorialClientePage: React.FC = () => {
                                                 )}
                                               </td>
                                               <td style={{ 
-                                                padding: '6px', 
+                                          padding: '8px', 
                                                 textAlign: 'right', 
                                                 fontWeight: '600', 
-                                                color: item.type === 'PAYMENT' ? '#38a169' : '#e53e3e'
+                                          color: item.type === 'PAYMENT' ? '#059669' : '#dc2626'
                                               }}>
                                                 {item.type === 'PAYMENT' ? formatCurrency(item.amount || 0) : '-'}
                                               </td>
-                                              <td style={{ padding: '6px' }}>
+                                        <td style={{ padding: '8px', fontSize: '11px' }}>
                                                 {item.type === 'PAYMENT' ? item.paymentMethod : '-'}
                                               </td>
-                                              <td style={{ padding: '6px', textAlign: 'right' }}>
+                                        <td style={{ padding: '8px', textAlign: 'right', fontSize: '11px' }}>
                                                 {item.type === 'PAYMENT' ? formatCurrency(item.balanceBefore || 0) : '-'}
                                               </td>
                                               <td style={{ 
-                                                padding: '6px', 
+                                          padding: '8px', 
                                                 textAlign: 'right', 
                                                 fontWeight: '600', 
                                                 color: item.type === 'PAYMENT' 
-                                                  ? (item.balanceAfter === 0 ? '#38a169' : '#e53e3e')
-                                                  : '#e53e3e'
+                                            ? (item.balanceAfter === 0 ? '#059669' : '#dc2626')
+                                            : '#dc2626'
                                               }}>
                                                 {item.type === 'PAYMENT' ? formatCurrency(item.balanceAfter || 0) : '-'}
                                               </td>
@@ -1316,35 +2372,66 @@ const HistorialClientePage: React.FC = () => {
                                       </table>
                                     </div>
                                   ) : (
-                                    <p style={{ color: '#718096', fontStyle: 'italic' }}>Sin pagos registrados</p>
+                              <p style={{ color: '#64748b', fontStyle: 'italic', textAlign: 'center', padding: '20px' }}>Sin pagos registrados</p>
                                   );
                                 })()}
 
-
                                 {/* Información adicional */}
-                                <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px', fontSize: '11px', color: '#4a5568' }}>
+                          <div style={{ 
+                            marginTop: '16px', 
+                            display: 'grid', 
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                            gap: '12px', 
+                            fontSize: '11px', 
+                            color: '#475569',
+                            padding: '16px',
+                            backgroundColor: '#f8fafc',
+                            borderRadius: '8px',
+                            border: '1px solid #e2e8f0'
+                          }}>
                                   {loan.avalName && (
-                                    <div>👥 <strong>Aval:</strong> {loan.avalName}</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span>👥</span>
+                                <span><strong>Aval:</strong> {loan.avalName}</span>
+                              </div>
                                   )}
                                   {loan.renewedFrom && (
-                                    <div>🔄 <strong>Renovación de:</strong> {loan.renewedFrom}</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span>🔄</span>
+                                <span><strong>Renovación de:</strong> {loan.renewedFrom}</span>
+                              </div>
                                   )}
                                   {loan.renewedTo && (
-                                    <div>➡️ <strong>Renovado como:</strong> {loan.renewedTo}</div>
-                                  )}
-                                  <div>💰 <strong>Prestado:</strong> {formatCurrency(loan.amountRequested)}</div>
-                                  <div>💸 <strong>Total a pagar:</strong> {formatCurrency(loan.totalAmountDue)}</div>
-                                  <div>📊 <strong>Intereses:</strong> {formatCurrency(loan.interestAmount)}</div>
-                                  <div>⏱️ <strong>Duración:</strong> {loan.weekDuration} semanas</div>
-                                  <div>📈 <strong>Tasa:</strong> {loan.rate}%</div>
-                                </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span>➡️</span>
+                                <span><strong>Renovado como:</strong> {loan.renewedTo}</span>
                               </div>
-                            </td>
-                          </tr>
-                        </React.Fragment>
-                      ))}
-                    </tbody>
-                  </table>
+                            )}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>💰</span>
+                              <span><strong>Prestado:</strong> {formatCurrency(loan.amountRequested)}</span>
+                                </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>💸</span>
+                              <span><strong>Total a pagar:</strong> {formatCurrency(loan.totalAmountDue)}</span>
+                              </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>📊</span>
+                              <span><strong>Intereses:</strong> {formatCurrency(loan.interestAmount)}</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>⏱️</span>
+                              <span><strong>Duración:</strong> {loan.weekDuration} semanas</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>📈</span>
+                              <span><strong>Tasa:</strong> {loan.rate}%</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
@@ -1369,186 +2456,384 @@ const HistorialClientePage: React.FC = () => {
                   marginBottom: '16px',
                   fontStyle: 'italic'
                 }}>
-                  💡 Haz clic en cualquier fila para ver el detalle completo de pagos del préstamo donde fuiste aval
+                  💡 Haz clic en cualquier tarjeta para ver el detalle completo de pagos del préstamo donde fuiste aval
                 </p>
                 
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-                    <thead>
-                      <tr style={{ backgroundColor: '#fed7e2' }}>
-                        <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>CLIENTE</th>
-                        <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>FECHA</th>
-                        <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>TIPO</th>
-                        <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>PRESTADO</th>
-                        <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>PAGADO</th>
-                        <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>DEUDA PENDIENTE</th>
-                        <th style={{ padding: '12px', textAlign: 'center', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>ESTADO</th>
-                        <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '12px', fontWeight: '600' }}>LÍDER</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {historyResult.loansAsCollateral.map((loan) => (
-                        <React.Fragment key={loan.id}>
-                          <tr style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
-                              onClick={() => {
-                                const expandedRows = (document.querySelector(`#collateral-loan-details-${loan.id}`) as HTMLElement);
-                                if (expandedRows) {
-                                  expandedRows.style.display = expandedRows.style.display === 'none' ? 'table-row' : 'none';
-                                }
-                              }}>
-                            <td style={{ padding: '12px', fontSize: '13px', fontWeight: '600' }}>
-                              {loan.clientName}
-                              <div style={{ fontSize: '11px', color: '#718096' }}>DUI: {loan.clientDui}</div>
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '13px' }}>
-                              <div>{loan.signDateFormatted || formatDate(loan.signDate)}</div>
-                              {loan.finishedDateFormatted && (
-                                <div style={{ fontSize: '11px', color: '#718096' }}>
-                                  Fin: {loan.finishedDateFormatted}
+                <div style={{ 
+                  overflowX: 'auto',
+                  fontSize: isMobile ? '12px' : 'inherit'
+                }}>
+                  {/* Contenedor de créditos como aval con separación visual */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                    {historyResult.loansAsCollateral.map((loan, index) => (
+                      <div key={loan.id} style={{
+                        backgroundColor: 'white',
+                        borderRadius: '12px',
+                        border: '2px solid #e2e8f0',
+                        overflow: 'hidden',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                        position: 'relative'
+                      }}>
+                        {/* Header del crédito como aval con color distintivo - COMPACTO */}
+                        <div style={{
+                          backgroundColor: index % 2 === 0 ? '#fef2f2' : '#f0fdf4',
+                          borderBottom: `2px solid ${index % 2 === 0 ? '#f56565' : '#22c55e'}`,
+                          padding: '10px 12px',
+                          position: 'relative'
+                        }}>
+                          <div style={{
+                            position: 'absolute',
+                            top: '8px',
+                            right: '16px',
+                            backgroundColor: index % 2 === 0 ? '#f56565' : '#22c55e',
+                            color: 'white',
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                            fontSize: '10px',
+                            fontWeight: '600'
+                          }}>
+                            Aval #{index + 1}
                                 </div>
-                              )}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '13px' }}>{loan.loanType}</td>
-                            <td style={{ padding: '12px', fontSize: '13px', textAlign: 'right', fontWeight: '600', color: '#2b6cb0' }}>
-                              {formatCurrency(loan.amountRequested)}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '13px', textAlign: 'right', fontWeight: '600', color: '#38a169' }}>
-                              {formatCurrency(loan.totalPaid)}
-                              {loan.paymentsCount > 0 && (
-                                <div style={{ fontSize: '10px', color: '#718096' }}>
-                                  {loan.paymentsCount} pagos
+                          
+                          {/* Información principal en una sola línea */}
+                          <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '12px',
+                            marginBottom: '8px',
+                            flexWrap: 'wrap'
+                          }}>
+                            <div style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b' }}>
+                              👤 {loan.clientName}
                                 </div>
-                              )}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '13px', textAlign: 'right', fontWeight: '600', color: loan.pendingDebt > 0 ? '#e53e3e' : '#38a169' }}>
-                              {formatCurrency(loan.pendingDebt)}
-                            </td>
-                            <td style={{ padding: '12px', textAlign: 'center' }}>
-                              <span style={{
-                                padding: '4px 8px',
+                            <div style={{
+                              padding: '2px 6px',
+                              backgroundColor: 'white',
                                 borderRadius: '4px',
-                                fontSize: '11px',
+                              fontSize: '9px',
+                              fontWeight: '600',
+                              color: '#475569',
+                              border: '1px solid #e2e8f0'
+                            }}>
+                              {loan.clientDui}
+                            </div>
+                            <div style={{
+                              padding: '3px 8px',
+                              borderRadius: '12px',
+                              fontSize: '10px',
                                 fontWeight: '600',
                                 color: 'white',
                                 backgroundColor: getStatusColor(loan.status)
                               }}>
                                 {loan.status}
-                              </span>
+                            </div>
                               {loan.wasRenewed && (
-                                <div style={{ fontSize: '10px', color: '#805ad5', marginTop: '2px' }}>
+                              <div style={{ 
+                                fontSize: '9px', 
+                                color: '#7c3aed', 
+                                fontWeight: '500',
+                                backgroundColor: 'white',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                border: '1px solid #e2e8f0'
+                              }}>
                                   🔄 Renovado
                                 </div>
                               )}
-                              {loan.statusDescription && (
-                                <div style={{ fontSize: '10px', color: '#718096', marginTop: '2px', maxWidth: '100px', lineHeight: '1.2' }}>
-                                  {loan.statusDescription}
+                                </div>
+                          
+                          {/* Información financiera en múltiples filas optimizadas */}
+                          <div style={{ 
+                            display: 'flex', 
+                            flexDirection: 'column',
+                            gap: '8px',
+                            paddingBottom: '4px'
+                          }}>
+                            {/* Primera fila - Información financiera principal */}
+                            <div style={{ 
+                              display: 'grid', 
+                              gridTemplateColumns: 'repeat(2, 1fr)', 
+                              gap: '8px'
+                            }}>
+                              <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '4px',
+                                backgroundColor: 'white',
+                                padding: '8px 12px',
+                                borderRadius: '6px',
+                                border: '1px solid #e2e8f0',
+                                minHeight: '36px'
+                              }}>
+                                <span style={{ fontSize: '10px', color: '#64748b', fontWeight: '500' }}>PRESTADO:</span>
+                                <span style={{ fontSize: '12px', fontWeight: '700', color: '#0f172a' }}>
+                                  {formatCurrency(loan.amountRequested)}
+                                </span>
+                              </div>
+                              
+                              <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '4px',
+                                backgroundColor: 'white',
+                                padding: '8px 12px',
+                                borderRadius: '6px',
+                                border: '1px solid #e2e8f0',
+                                minHeight: '36px'
+                              }}>
+                                <span style={{ fontSize: '10px', color: '#64748b', fontWeight: '500' }}>PAGADO:</span>
+                                <span style={{ fontSize: '12px', fontWeight: '700', color: '#059669' }}>
+                                  {formatCurrency(loan.totalPaid)}
+                                </span>
+                              </div>
+                            </div>
+                            
+                            {/* Segunda fila - Deuda (quitamos DÍAS) */}
+                            <div style={{ 
+                              display: 'grid', 
+                              gridTemplateColumns: '1fr', 
+                              gap: '8px'
+                            }}>
+                              <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '4px',
+                                backgroundColor: 'white',
+                                padding: '8px 12px',
+                                borderRadius: '6px',
+                                border: '1px solid #e2e8f0',
+                                minHeight: '36px'
+                              }}>
+                                <span style={{ fontSize: '10px', color: '#64748b', fontWeight: '500' }}>PENDIENTE:</span>
+                                <span style={{ 
+                                  fontSize: '12px', 
+                                  fontWeight: '700', 
+                                  color: loan.pendingDebt > 0 ? '#dc2626' : '#059669'
+                                }}>
+                                  {formatCurrency(loan.pendingDebt)}
+                                </span>
+                              </div>
+                              
+                              
+                            </div>
+                            
+                            {/* Tercera fila - Información adicional (solo AVAL) */}
+                            <div style={{ 
+                              display: 'flex', 
+                              gap: '8px'
+                            }}>
+                              {loan.avalName && (
+                                <div style={{ 
+                                  display: 'flex', 
+                                  flexDirection: 'column',
+                                  gap: '3px',
+                                  backgroundColor: '#fef2f2',
+                                  padding: '6px 8px',
+                                  borderRadius: '4px',
+                                  border: '1px solid #f56565',
+                                  cursor: 'pointer',
+                                  position: 'relative',
+                                  minHeight: '40px',
+                                  transition: 'all 0.2s ease',
+                                  flex: 1
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#fee2e2';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#fef2f2';
+                                }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <span style={{ fontSize: '8px', color: '#f56565', fontWeight: '600' }}>AVAL:</span>
+                                    <span style={{ fontSize: '9px', fontWeight: '600', color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {loan.avalName}
+                                    </span>
+                                  </div>
+                                  {loan.avalPhone && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '20px' }}>
+                                      <span style={{ fontSize: '8px', color: '#f56565', fontWeight: '600' }}>📞</span>
+                                      <span style={{ fontSize: '8px', color: '#f56565', fontWeight: '600' }}>{loan.avalPhone}</span>
+                                    </div>
+                                  )}
                                 </div>
                               )}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: '12px', color: '#718096' }}>
-                              {loan.leadName}
-                              <div style={{ fontSize: '10px' }}>{loan.routeName}</div>
-                            </td>
-                          </tr>
-                          
-                          {/* Detalles expandibles de pagos para préstamos como aval */}
-                          <tr id={`collateral-loan-details-${loan.id}`} style={{ display: 'none', backgroundColor: '#f8fafc' }}>
-                            <td colSpan={8} style={{ padding: '16px' }}>
-                              <div style={{ maxWidth: '100%' }}>
-                                <h4 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '12px', color: '#2d3748' }}>
-                                  🤝 Detalle de Pagos (Como Aval) - Préstamo #{loan.id.slice(-8)}
-                                </h4>
-                                
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Tabla de pagos expandible */}
+                        <div style={{ 
+                          cursor: 'pointer',
+                          padding: '12px 20px',
+                          backgroundColor: '#f8fafc',
+                          borderTop: '1px solid #e2e8f0',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}
+                        onClick={() => {
+                          const expandedRows = (document.querySelector(`#collateral-loan-details-${loan.id}`) as HTMLElement);
+                          const expandButton = document.querySelector(`#collateral-expand-button-${loan.id}`) as HTMLElement;
+                          if (expandedRows && expandButton) {
+                            const isExpanded = expandedRows.style.display !== 'none';
+                            expandedRows.style.display = isExpanded ? 'none' : 'block';
+                            expandButton.innerHTML = isExpanded ? '▼ Click para expandir' : '▲ Click para contraer';
+                          }
+                        }}>
+                          <span style={{ fontSize: '11px', fontWeight: '600', color: '#475569' }}>
+                            🤝 Ver detalle de pagos (Como Aval) - Préstamo #{loan.id.slice(-8)}
+                          </span>
+                          <span id={`collateral-expand-button-${loan.id}`} style={{ fontSize: '10px', color: '#64748b' }}>
+                            ▼ Click para expandir
+                          </span>
+                        </div>
+                        
+                        {/* Contenido expandible */}
+                        <div id={`collateral-loan-details-${loan.id}`} style={{ display: 'none', padding: '16px 20px', backgroundColor: '#fafbfc' }}>
                                 {(() => {
                                   const chronology = generatePaymentChronology(loan);
                                   return chronology.length > 0 ? (
                                     <div style={{ overflowX: 'auto' }}>
-                                      <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
+                                <table style={{ 
+                                  width: '100%', 
+                                  fontSize: '12px', 
+                                  borderCollapse: 'collapse',
+                                  backgroundColor: 'white',
+                                  borderRadius: '8px',
+                                  overflow: 'hidden',
+                                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                                }}>
                                         <thead>
-                                          <tr style={{ backgroundColor: '#e2e8f0' }}>
-                                            <th style={{ padding: '8px', textAlign: 'left' }}>#</th>
-                                            <th style={{ padding: '8px', textAlign: 'left' }}>Fecha</th>
-                                            <th style={{ padding: '8px', textAlign: 'left' }}>Descripción</th>
-                                            <th style={{ padding: '8px', textAlign: 'right' }}>Monto</th>
-                                            <th style={{ padding: '8px', textAlign: 'left' }}>Método</th>
-                                            <th style={{ padding: '8px', textAlign: 'right' }}>Deuda Antes</th>
-                                            <th style={{ padding: '8px', textAlign: 'right' }}>Deuda Después</th>
+                                    <tr style={{ backgroundColor: '#f1f5f9' }}>
+                                      <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>#</th>
+                                      <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Fecha</th>
+                                      <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Descripción</th>
+                                      <th style={{ padding: '10px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Monto</th>
+                                      <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Método</th>
+                                      <th style={{ padding: '10px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Deuda Antes</th>
+                                      <th style={{ padding: '10px', textAlign: 'right', borderBottom: '2px solid #e2e8f0', fontSize: '11px', fontWeight: '600', color: '#374151' }}>Deuda Después</th>
                                           </tr>
                                         </thead>
                                         <tbody>
-                                          {chronology.map((item, index) => (
+                                    {chronology.map((item, index) => {
+                                      const bgColor = (() => {
+                                        if (item.coverageType === 'COVERED_BY_SURPLUS') return '#E0F2FE'; // azul claro
+                                        if (item.coverageType === 'PARTIAL') return '#FEF9C3'; // amarillo claro
+                                        if (item.coverageType === 'MISS' && item.type === 'NO_PAYMENT') return '#FEE2E2'; // rojo claro
+                                        if (item.coverageType === 'FULL') return 'white';
+                                        // fallback previo
+                                        return item.type === 'NO_PAYMENT' ? '#fed7e2' : 'white';
+                                      })();
+                                      const textColor = item.coverageType === 'MISS' && item.type === 'NO_PAYMENT' ? '#b91c1c' : '#2d3748';
+                                      return (
                                             <tr key={item.id} style={{ 
-                                              borderBottom: '1px solid #e2e8f0',
-                                              backgroundColor: item.type === 'NO_PAYMENT' ? '#fed7e2' : 'white'
+                                        borderBottom: '1px solid #f1f5f9',
+                                        backgroundColor: bgColor
                                             }}>
-                                              <td style={{ padding: '6px' }}>
+                                        <td style={{ padding: '8px', fontSize: '11px', fontWeight: '500' }}>
                                                 {item.type === 'PAYMENT' ? (item.paymentNumber || index + 1) : '-'}
                                               </td>
-                                              <td style={{ padding: '6px' }}>{item.dateFormatted}</td>
+                                        <td style={{ padding: '8px', fontSize: '11px' }}>{item.dateFormatted}</td>
                                               <td style={{ 
-                                                padding: '6px',
-                                                color: item.type === 'NO_PAYMENT' ? '#e53e3e' : '#2d3748',
+                                          padding: '8px',
+                                          color: textColor,
                                                 fontWeight: item.type === 'NO_PAYMENT' ? '600' : 'normal'
                                               }}>
-                                                {item.type === 'NO_PAYMENT' ? '⚠️ Sin pago' : item.description}
+                                          {item.type === 'NO_PAYMENT' ? (item.description || '⚠️ Sin pago') : item.description}
+                                          {item.weeklyExpected != null && (
+                                            <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                                              Esperado: {formatCurrency(item.weeklyExpected || 0)} | Pagado: {formatCurrency(item.weeklyPaid || 0)} | Excedente previo: {formatCurrency(item.surplusBefore || 0)}
+                                            </div>
+                                          )}
                                               </td>
                                               <td style={{ 
-                                                padding: '6px', 
+                                          padding: '8px', 
                                                 textAlign: 'right', 
                                                 fontWeight: '600', 
-                                                color: item.type === 'PAYMENT' ? '#38a169' : '#e53e3e'
+                                          color: item.type === 'PAYMENT' ? '#059669' : '#dc2626'
                                               }}>
                                                 {item.type === 'PAYMENT' ? formatCurrency(item.amount || 0) : '-'}
                                               </td>
-                                              <td style={{ padding: '6px' }}>
+                                        <td style={{ padding: '8px', fontSize: '11px' }}>
                                                 {item.type === 'PAYMENT' ? item.paymentMethod : '-'}
                                               </td>
-                                              <td style={{ padding: '6px', textAlign: 'right' }}>
+                                        <td style={{ padding: '8px', textAlign: 'right', fontSize: '11px' }}>
                                                 {item.type === 'PAYMENT' ? formatCurrency(item.balanceBefore || 0) : '-'}
                                               </td>
                                               <td style={{ 
-                                                padding: '6px', 
+                                          padding: '8px', 
                                                 textAlign: 'right', 
                                                 fontWeight: '600', 
                                                 color: item.type === 'PAYMENT' 
-                                                  ? (item.balanceAfter === 0 ? '#38a169' : '#e53e3e')
-                                                  : '#e53e3e'
+                                            ? (item.balanceAfter === 0 ? '#059669' : '#dc2626')
+                                            : '#dc2626'
                                               }}>
                                                 {item.type === 'PAYMENT' ? formatCurrency(item.balanceAfter || 0) : '-'}
                                               </td>
                                             </tr>
-                                          ))}
+                                    )})}
                                         </tbody>
                                       </table>
                                     </div>
                                   ) : (
-                                    <p style={{ color: '#718096', fontStyle: 'italic' }}>Sin pagos registrados</p>
+                              <p style={{ color: '#64748b', fontStyle: 'italic', textAlign: 'center', padding: '20px' }}>Sin pagos registrados</p>
                                   );
                                 })()}
 
-
                                 {/* Información adicional para préstamos como aval */}
-                                <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px', fontSize: '11px', color: '#4a5568' }}>
-                                  <div>👤 <strong>Cliente Principal:</strong> {loan.clientName}</div>
+                          <div style={{ 
+                            marginTop: '16px', 
+                            display: 'grid', 
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                            gap: '12px', 
+                            fontSize: '11px', 
+                            color: '#475569',
+                            padding: '16px',
+                            backgroundColor: '#f8fafc',
+                            borderRadius: '8px',
+                            border: '1px solid #e2e8f0'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>👤</span>
+                              <span><strong>Cliente Principal:</strong> {loan.clientName}</span>
+                            </div>
                                   {loan.renewedFrom && (
-                                    <div>🔄 <strong>Renovación de:</strong> {loan.renewedFrom}</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span>🔄</span>
+                                <span><strong>Renovación de:</strong> {loan.renewedFrom}</span>
+                              </div>
                                   )}
                                   {loan.renewedTo && (
-                                    <div>➡️ <strong>Renovado como:</strong> {loan.renewedTo}</div>
-                                  )}
-                                  <div>💰 <strong>Prestado:</strong> {formatCurrency(loan.amountRequested)}</div>
-                                  <div>💸 <strong>Total a pagar:</strong> {formatCurrency(loan.totalAmountDue)}</div>
-                                  <div>📊 <strong>Intereses:</strong> {formatCurrency(loan.interestAmount)}</div>
-                                  <div>⏱️ <strong>Duración:</strong> {loan.weekDuration} semanas</div>
-                                  <div>📈 <strong>Tasa:</strong> {loan.rate}%</div>
-                                </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span>➡️</span>
+                                <span><strong>Renovado como:</strong> {loan.renewedTo}</span>
                               </div>
-                            </td>
-                          </tr>
-                        </React.Fragment>
-                      ))}
-                    </tbody>
-                  </table>
+                            )}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>💰</span>
+                              <span><strong>Prestado:</strong> {formatCurrency(loan.amountRequested)}</span>
+                                </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>💸</span>
+                              <span><strong>Total a pagar:</strong> {formatCurrency(loan.totalAmountDue)}</span>
+                              </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>📊</span>
+                              <span><strong>Intereses:</strong> {formatCurrency(loan.interestAmount)}</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>⏱️</span>
+                              <span><strong>Duración:</strong> {loan.weekDuration} semanas</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>📈</span>
+                              <span><strong>Tasa:</strong> {loan.rate}%</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
@@ -1571,16 +2856,544 @@ const HistorialClientePage: React.FC = () => {
           </div>
         )}
 
-        {/* Modal de imagen */}
-        <ImageModal
-          isOpen={imageModal.isOpen}
-          onClose={() => setImageModal({ ...imageModal, isOpen: false })}
-          imageUrl={imageModal.imageUrl}
-          title={imageModal.title}
-          description={imageModal.description}
-          documentType={imageModal.documentType}
-          personType={imageModal.personType}
-        />
+
+        {/* Modal de fusión de clientes mejorado */}
+        {showMergeModal && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000
+          }}>
+            <div style={{
+              backgroundColor: 'white',
+              borderRadius: '8px',
+              padding: '24px',
+              minWidth: isMobile ? '90%' : '600px',
+              maxWidth: isMobile ? '95%' : '800px',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.2)'
+            }}>
+              <h2 style={{
+                margin: '0 0 20px 0',
+                fontSize: '20px',
+                fontWeight: '600',
+                color: '#1F2937',
+                textAlign: 'center'
+              }}>
+                🔗 Fusionar Clientes
+              </h2>
+
+              <p style={{
+                fontSize: '14px',
+                color: '#6B7280',
+                marginBottom: '24px',
+                textAlign: 'center'
+              }}>
+                {mergeClientsList.length === 0 
+                  ? 'Busca y selecciona 2 clientes para fusionar. Luego elige cuál se mantiene como principal.'
+                  : mergeClientsList.length === 1
+                    ? 'Cliente actual cargado. Busca otro cliente para fusionar.'
+                    : 'Selecciona cuál cliente se mantiene como principal.'
+                }
+              </p>
+
+              {/* Input de búsqueda */}
+              {mergeClientsList.length < 2 && (
+                <div style={{ marginBottom: '24px' }}>
+                  <label style={{ 
+                    display: 'block', 
+                    fontSize: '14px', 
+                    fontWeight: '600', 
+                    marginBottom: '8px', 
+                    color: '#374151' 
+                  }}>
+                    Buscar Cliente
+                  </label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type="text"
+                      value={mergeSearchTerm}
+                      onChange={(e) => {
+                        setMergeSearchTerm(e.target.value);
+                        setShowMergeAutocomplete(true);
+                      }}
+                      onFocus={() => setShowMergeAutocomplete(true)}
+                      placeholder={mergeClientsList.length === 0 
+                        ? "Escriba nombre o clave única del cliente..." 
+                        : "Buscar segundo cliente para fusionar..."
+                      }
+                      style={{
+                        width: '100%',
+                        padding: '12px',
+                        border: '1px solid #D1D5DB',
+                        borderRadius: '6px',
+                        fontSize: '14px',
+                        backgroundColor: 'white'
+                      }}
+                    />
+                    
+                    {/* Resultados de búsqueda */}
+                    {showMergeAutocomplete && mergeClientResults.length > 0 && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        backgroundColor: 'white',
+                        border: '1px solid #D1D5DB',
+                        borderRadius: '6px',
+                        maxHeight: '200px',
+                        overflowY: 'auto',
+                        zIndex: 1000,
+                        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+                      }}>
+                        {mergeClientResults
+                          .filter((client: ClientSearchResult) => !mergeClientsList.some(c => c.id === client.id))
+                          .map((client: ClientSearchResult) => (
+                          <div
+                            key={client.id}
+                            onClick={() => handleMergeClientSelect(client)}
+                            style={{
+                              padding: '12px',
+                              borderBottom: '1px solid #F3F4F6',
+                              cursor: 'pointer'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F9FAFB'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                          >
+                            <div style={{ fontWeight: '600', color: '#1F2937' }}>{client.name}</div>
+                            <div style={{ fontSize: '12px', color: '#6B7280' }}>
+                              🔑 <strong>Clave:</strong> {client.clientCode} | 📍 <strong>Localidad:</strong> {client.location} | 🏘️ <strong>Municipio:</strong> {client.municipality} | 🏛️ <strong>Estado:</strong> {client.state}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Clientes seleccionados */}
+              {mergeClientsList.length > 0 && (
+                <div style={{ marginBottom: '24px' }}>
+                  <h3 style={{
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    color: '#374151',
+                    marginBottom: '16px'
+                  }}>
+                    Clientes Seleccionados ({mergeClientsList.length}/2)
+                  </h3>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {mergeClientsList.map((client, index) => (
+                      <div
+                        key={client.id}
+                        style={{
+                          padding: '16px',
+                          border: selectedPrimaryId === client.id ? '3px solid #22C55E' : '2px solid #E5E7EB',
+                          borderRadius: '8px',
+                          backgroundColor: selectedPrimaryId === client.id ? '#F0FDF4' : '#F9FAFB',
+                          position: 'relative',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onClick={() => handleSetPrimaryClient(client.id)}
+                      >
+                        {/* Botón de eliminar */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveMergeClient(client.id);
+                          }}
+                          style={{
+                            position: 'absolute',
+                            top: '8px',
+                            right: '8px',
+                            background: '#EF4444',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '50%',
+                            width: '24px',
+                            height: '24px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '14px',
+                            fontWeight: 'bold'
+                          }}
+                        >
+                          ×
+                        </button>
+
+                        {/* Indicador de cliente principal */}
+                        {selectedPrimaryId === client.id && (
+                          <div style={{
+                            position: 'absolute',
+                            top: '8px',
+                            left: '8px',
+                            background: '#22C55E',
+                            color: 'white',
+                            padding: '4px 8px',
+                            borderRadius: '12px',
+                            fontSize: '11px',
+                            fontWeight: '600'
+                          }}>
+                            PRINCIPAL
+                          </div>
+                        )}
+
+                        {/* Indicador de cliente actual */}
+                        {index === 0 && mergeClientsList.length === 1 && (
+                          <div style={{
+                            position: 'absolute',
+                            top: '8px',
+                            left: selectedPrimaryId === client.id ? '80px' : '8px',
+                            background: '#3B82F6',
+                            color: 'white',
+                            padding: '4px 8px',
+                            borderRadius: '12px',
+                            fontSize: '11px',
+                            fontWeight: '600'
+                          }}>
+                            CLIENTE ACTUAL
+                          </div>
+                        )}
+
+                        <div style={{ 
+                          marginTop: selectedPrimaryId === client.id ? '24px' : '0',
+                          marginRight: '32px'
+                        }}>
+                          <div style={{ 
+                            fontWeight: '600', 
+                            color: selectedPrimaryId === client.id ? '#166534' : '#1F2937',
+                            fontSize: '16px',
+                            marginBottom: '8px'
+                          }}>
+                            {client.name}
+                          </div>
+                          <div style={{ 
+                            fontSize: '12px', 
+                            color: selectedPrimaryId === client.id ? '#16A34A' : '#6B7280',
+                            marginBottom: '4px'
+                          }}>
+                            🔑 <strong>Clave:</strong> {client.clientCode} | 📞 <strong>Teléfono:</strong> {client.phone}
+                          </div>
+                          <div style={{ 
+                            fontSize: '11px', 
+                            color: selectedPrimaryId === client.id ? '#16A34A' : '#9CA3AF',
+                            marginBottom: '4px'
+                          }}>
+                            📍 {client.location} | 🏘️ {client.municipality} | 🏛️ {client.state}
+                          </div>
+                          
+                          {/* Conteo de créditos */}
+                          <div style={{
+                            display: 'flex',
+                            gap: '12px',
+                            marginTop: '8px',
+                            padding: '8px',
+                            backgroundColor: selectedPrimaryId === client.id ? '#ECFDF5' : '#F3F4F6',
+                            borderRadius: '6px',
+                            border: `1px solid ${selectedPrimaryId === client.id ? '#D1FAE5' : '#E5E7EB'}`
+                          }}>
+                            {/* Créditos como Cliente */}
+                            <div style={{
+                              flex: 1,
+                              textAlign: 'center',
+                              padding: '4px',
+                              backgroundColor: selectedPrimaryId === client.id ? '#DCFCE7' : '#E5E7EB',
+                              borderRadius: '4px'
+                            }}>
+                              <div style={{
+                                fontSize: '10px',
+                                color: selectedPrimaryId === client.id ? '#166534' : '#6B7280',
+                                fontWeight: '600',
+                                marginBottom: '2px'
+                              }}>
+                                👤 Como Cliente
+                              </div>
+                              <div style={{
+                                fontSize: '14px',
+                                fontWeight: '700',
+                                color: selectedPrimaryId === client.id ? '#16A34A' : '#374151'
+                              }}>
+                                {client.totalLoans || 0}
+                              </div>
+                              <div style={{
+                                fontSize: '9px',
+                                color: selectedPrimaryId === client.id ? '#16A34A' : '#6B7280'
+                              }}>
+                                Activos: {client.activeLoans || 0}
+                              </div>
+                            </div>
+
+                            {/* Créditos como Aval */}
+                            <div style={{
+                              flex: 1,
+                              textAlign: 'center',
+                              padding: '4px',
+                              backgroundColor: selectedPrimaryId === client.id ? '#FEE2E2' : '#E5E7EB',
+                              borderRadius: '4px'
+                            }}>
+                              <div style={{
+                                fontSize: '10px',
+                                color: selectedPrimaryId === client.id ? '#DC2626' : '#6B7280',
+                                fontWeight: '600',
+                                marginBottom: '2px'
+                              }}>
+                                🤝 Como Aval
+                              </div>
+                              <div style={{
+                                fontSize: '14px',
+                                fontWeight: '700',
+                                color: selectedPrimaryId === client.id ? '#DC2626' : '#374151'
+                              }}>
+                                {client.collateralLoans || 0}
+                              </div>
+                              <div style={{
+                                fontSize: '9px',
+                                color: selectedPrimaryId === client.id ? '#DC2626' : '#6B7280'
+                              }}>
+                                Total avales
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Botón para seleccionar como principal */}
+                        {selectedPrimaryId !== client.id && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSetPrimaryClient(client.id);
+                            }}
+                            style={{
+                              marginTop: '12px',
+                              padding: '8px 16px',
+                              background: '#3B82F6',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                              fontWeight: '600'
+                            }}
+                          >
+                            Seleccionar como Principal
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Instrucciones */}
+                  {mergeClientsList.length === 2 && !selectedPrimaryId && (
+                    <div style={{
+                      padding: '12px',
+                      backgroundColor: '#FEF3C7',
+                      border: '1px solid #F59E0B',
+                      borderRadius: '6px',
+                      marginTop: '16px'
+                    }}>
+                      <p style={{
+                        margin: 0,
+                        fontSize: '14px',
+                        color: '#92400E',
+                        textAlign: 'center'
+                      }}>
+                        ⚠️ Haz clic en el cliente que quieres mantener como principal
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Botones de acción */}
+              <div style={{
+                display: 'flex',
+                gap: '12px',
+                justifyContent: 'flex-end',
+                marginTop: '24px'
+              }}>
+                <Button
+                  onClick={handleCloseMergeModal}
+                  style={{
+                    padding: '10px 20px',
+                    backgroundColor: '#6B7280',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={handleExecuteMerge}
+                  disabled={mergeClientsList.length !== 2 || !selectedPrimaryId || mergeLoading}
+                  style={{
+                    padding: '10px 20px',
+                    backgroundColor: (mergeClientsList.length !== 2 || !selectedPrimaryId || mergeLoading) ? '#9CA3AF' : '#DC2626',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: (mergeClientsList.length !== 2 || !selectedPrimaryId || mergeLoading) ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {mergeLoading ? 'Fusionando...' : 'Fusionar Clientes'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal de confirmación personalizado */}
+        {showConfirmModal && confirmData && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10001
+          }}>
+            <div style={{
+              backgroundColor: 'white',
+              borderRadius: '12px',
+              padding: '24px',
+              minWidth: isMobile ? '90%' : '400px',
+              maxWidth: isMobile ? '95%' : '500px',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: '0 20px 25px rgba(0, 0, 0, 0.3)',
+              animation: 'modalSlideIn 0.3s ease-out'
+            }}>
+              {/* Icono según el tipo */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '64px',
+                height: '64px',
+                borderRadius: '50%',
+                margin: '0 auto 16px',
+                backgroundColor: confirmData.type === 'danger' ? '#FEE2E2' : 
+                                confirmData.type === 'warning' ? '#FEF3C7' : '#EFF6FF',
+                border: `3px solid ${confirmData.type === 'danger' ? '#FECACA' : 
+                                  confirmData.type === 'warning' ? '#FDE68A' : '#BFDBFE'}`
+              }}>
+                <span style={{
+                  fontSize: '32px',
+                  color: confirmData.type === 'danger' ? '#DC2626' : 
+                         confirmData.type === 'warning' ? '#D97706' : '#2563EB'
+                }}>
+                  {confirmData.type === 'danger' ? '⚠️' : 
+                   confirmData.type === 'warning' ? '⚠️' : 'ℹ️'}
+                </span>
+              </div>
+
+              {/* Título */}
+              <h2 style={{
+                margin: '0 0 16px 0',
+                fontSize: '20px',
+                fontWeight: '600',
+                color: '#1F2937',
+                textAlign: 'center'
+              }}>
+                {confirmData.title}
+              </h2>
+
+              {/* Mensaje */}
+              <div style={{
+                fontSize: '14px',
+                color: '#6B7280',
+                lineHeight: '1.6',
+                marginBottom: '24px',
+                textAlign: 'center',
+                whiteSpace: 'pre-line'
+              }}>
+                {confirmData.message}
+              </div>
+
+              {/* Botones */}
+              <div style={{
+                display: 'flex',
+                gap: '12px',
+                justifyContent: 'center'
+              }}>
+                {confirmData.cancelText && (
+                  <Button
+                    onClick={handleCancel}
+                    style={{
+                      padding: '12px 24px',
+                      backgroundColor: '#6B7280',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#4B5563';
+                      e.currentTarget.style.transform = 'translateY(-1px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#6B7280';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                    }}
+                  >
+                    {confirmData.cancelText}
+                  </Button>
+                )}
+                <Button
+                  onClick={handleConfirm}
+                  style={{
+                    padding: '12px 24px',
+                    backgroundColor: confirmData.type === 'danger' ? '#DC2626' : 
+                                   confirmData.type === 'warning' ? '#D97706' : '#2563EB',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    const baseColor = confirmData.type === 'danger' ? '#B91C1C' : 
+                                     confirmData.type === 'warning' ? '#B45309' : '#1D4ED8';
+                    e.currentTarget.style.backgroundColor = baseColor;
+                    e.currentTarget.style.transform = 'translateY(-1px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    const baseColor = confirmData.type === 'danger' ? '#DC2626' : 
+                                     confirmData.type === 'warning' ? '#D97706' : '#2563EB';
+                    e.currentTarget.style.backgroundColor = baseColor;
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
+                >
+                  {confirmData.confirmText || 'Confirmar'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </PageContainer>
   );

@@ -19,6 +19,7 @@ interface UploadModalProps {
     documentType: 'INE' | 'DOMICILIO' | 'PAGARE';
     personalDataId: string;
     loanId: string;
+    personType?: 'TITULAR' | 'AVAL';
     isError: boolean;
     errorDescription: string;
   }) => void;
@@ -27,6 +28,8 @@ interface UploadModalProps {
   personalDataId: string;
   loanId: string;
   personName: string;
+  // Nuevos parámetros para estructura de carpetas
+  loan?: any;
 }
 
 export const UploadModal: React.FC<UploadModalProps> = ({
@@ -37,7 +40,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   personType,
   personalDataId,
   loanId,
-  personName
+  personName,
+  loan
 }) => {
   const [description, setDescription] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
@@ -68,10 +72,13 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   };
 
   const handleSubmit = async () => {
+    // Permitir subir sin imagen si está marcado como error
     if (!photoUrl || !publicId) {
-      setMessage({ text: 'Por favor sube una imagen del documento', tone: 'warning' });
-      setTimeout(() => setMessage(null), 3000);
-      return;
+      if (!isError) {
+        setMessage({ text: 'Por favor sube una imagen del documento o márcalo como error', tone: 'warning' });
+        setTimeout(() => setMessage(null), 3000);
+        return;
+      }
     }
 
     setIsUploading(true);
@@ -88,6 +95,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         documentType,
         personalDataId,
         loanId,
+        personType,
         isError,
         errorDescription: errorDescription.trim()
       });
@@ -99,9 +107,11 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       setIsError(false);
       setErrorDescription('');
       setMessage({ text: 'Documento subido exitosamente', tone: 'success' });
+      
+      // Cerrar el modal después de un breve delay para mostrar el mensaje de éxito
       setTimeout(() => {
         setMessage(null);
-        onClose();
+        onClose(); // Cerrar el modal de subir y regresar al modal de documentos
       }, 1500);
     } catch (error) {
       console.error('Error al subir documento:', error);
@@ -132,26 +142,37 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         right: 0,
         bottom: 0,
         backgroundColor: 'rgba(0, 0, 0, 0.7)',
-        zIndex: 9999,
+        zIndex: 99999,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '20px'
+        padding: '20px',
+        '@media (max-width: 768px)': {
+          padding: '10px',
+          alignItems: 'flex-start',
+          paddingTop: '20px',
+          overflowY: 'auto'
+        }
       }}
       onClick={handleClose}
     >
-      <Box
-        css={{
-          position: 'relative',
-          width: '100%',
-          maxWidth: '500px',
-          backgroundColor: 'white',
-          borderRadius: '12px',
-          overflow: 'hidden',
-          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
+        <Box
+          css={{
+            position: 'relative',
+            width: '100%',
+            maxWidth: '500px',
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            overflow: 'hidden',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+            '@media (max-width: 768px)': {
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              marginBottom: '20px'
+            }
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
         {/* Header */}
         <Box
           css={{
@@ -240,6 +261,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               currentPublicId={publicId}
               placeholder={`Subir ${getTypeLabel(documentType).toLowerCase()}`}
               disabled={isUploading}
+              loan={loan}
+              documentType={documentType}
+              personType={personType}
             />
           </Box>
 
@@ -333,7 +357,17 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             css={{
               display: 'flex',
               gap: '12px',
-              justifyContent: 'flex-end'
+              justifyContent: 'flex-end',
+              '@media (max-width: 768px)': {
+                position: 'sticky',
+                bottom: 0,
+                backgroundColor: 'white',
+                padding: '16px 0',
+                borderTop: '1px solid #e5e7eb',
+                margin: '0 -20px',
+                paddingLeft: '20px',
+                paddingRight: '20px'
+              }
             }}
           >
             <Button
@@ -364,7 +398,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             <Button
               size="medium"
               onClick={handleSubmit}
-              disabled={isUploading || !photoUrl || !publicId}
+              disabled={isUploading || (!photoUrl && !isError)}
               css={{
                 backgroundColor: '#059669',
                 color: 'white',
