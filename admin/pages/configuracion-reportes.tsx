@@ -903,41 +903,40 @@ export default function ConfiguracionReportesPage() {
         recipientsCount: config.recipients?.length || 0
       });
 
-      // Enviar a TODOS los destinatarios configurados
+      // Enviar a usuarios de Telegram configurados en la configuración
       let sentCount = 0;
       let errorCount = 0;
-      let usersWithoutTelegram = [];
-      
-      if (config.recipients && config.recipients.length > 0) {
-        console.log(`📱 Procesando ${config.recipients.length} destinatarios`);
-        
-        for (const recipient of config.recipients) {
+      let usersWithoutTelegram: string[] = [];
+
+      if (config.telegramUsers && config.telegramUsers.length > 0) {
+        console.log(`📱 Procesando ${config.telegramUsers.length} usuarios de Telegram configurados`);
+
+        for (const tUser of config.telegramUsers) {
           try {
-            // Buscar si el usuario tiene Telegram configurado
-            const telegramUser = await findTelegramUserByPlatformUserId(recipient.id);
-            
-            if (telegramUser && telegramUser.isActive) {
-              console.log(`📱 Enviando por Telegram a ${recipient.name} (${telegramUser.chatId})`);
-              
-              // Enviar reporte por Telegram
-              const sent = await sendReportToTelegram(telegramUser.chatId, config.reportType, routeIds, config, recipient);
-              
-              if (sent) {
-                sentCount++;
-                console.log(`✅ Reporte enviado exitosamente a ${recipient.name}`);
-              } else {
-                errorCount++;
-                console.log(`❌ Error enviando reporte a ${recipient.name}`);
-              }
+            const chatId = tUser.chatId;
+            const name = tUser.name || tUser.username || chatId;
+            if (!tUser.isActive) {
+              usersWithoutTelegram.push(name);
+              console.log(`⚠️ Usuario ${name} tiene Telegram inactivo`);
+              continue;
+            }
+
+            console.log(`📱 Enviando por Telegram a ${name} (${chatId})`);
+            const sent = await sendReportToTelegram(chatId, config.reportType, routeIds);
+            if (sent) {
+              sentCount++;
+              console.log(`✅ Reporte enviado exitosamente a ${name}`);
             } else {
-              usersWithoutTelegram.push(recipient.name);
-              console.log(`⚠️ Usuario ${recipient.name} no tiene Telegram configurado`);
+              errorCount++;
+              console.log(`❌ Error enviando reporte a ${name}`);
             }
           } catch (error) {
-            console.error(`❌ Error procesando usuario ${recipient.name}:`, error);
+            console.error(`❌ Error procesando usuario de Telegram:`, error);
             errorCount++;
           }
         }
+      } else {
+        console.log('ℹ️ No hay usuarios de Telegram configurados para esta configuración');
       }
 
       // Mostrar resumen
@@ -967,16 +966,9 @@ export default function ConfiguracionReportesPage() {
   };
 
   // Función simplificada para enviar reporte a Telegram
-  const sendReportToTelegram = async (chatId: string, reportType: string, routeIds: string[] = [], config: any = null, recipient: any = null) => {
+  const sendReportToTelegram = async (chatId: string, reportType: string, routeIds: string[] = []) => {
     try {
       console.log(`📱 Enviando reporte ${reportType} a ${chatId} con rutas:`, routeIds);
-      
-      // Preparar parámetros de logging
-      const reportConfigId = config?.id || 'unknown';
-      const reportConfigName = config?.name || 'Reporte Manual';
-      const recipientUserId = recipient?.id || 'unknown';
-      const recipientName = recipient?.name || 'Usuario Desconocido';
-      const recipientEmail = recipient?.email || 'unknown@example.com';
       
       // Para reporte PDF de créditos con errores
       if (reportType === 'creditos_con_errores') {
@@ -984,12 +976,7 @@ export default function ConfiguracionReportesPage() {
           variables: { 
             chatId: chatId, 
             reportType: reportType,
-            routeIds: routeIds,
-            reportConfigId,
-            reportConfigName,
-            recipientUserId,
-            recipientName,
-            recipientEmail
+            routeIds: routeIds
           }
         });
         
@@ -1001,12 +988,7 @@ export default function ConfiguracionReportesPage() {
         const result = await sendTestTelegram({
           variables: { 
             chatId, 
-            message,
-            reportConfigId,
-            reportConfigName,
-            recipientUserId,
-            recipientName,
-            recipientEmail
+            message
           }
         });
         
@@ -1018,12 +1000,7 @@ export default function ConfiguracionReportesPage() {
         const result = await sendTestTelegram({
           variables: { 
             chatId, 
-            message,
-            reportConfigId,
-            reportConfigName,
-            recipientUserId,
-            recipientName,
-            recipientEmail
+            message
           }
         });
         
@@ -1147,6 +1124,12 @@ export default function ConfiguracionReportesPage() {
     // Extraer hora y minuto del formato "HH:MM" o "HH"
     let targetHour: number;
     let targetMinute: number;
+    
+    // Blindaje cuando la hora sea null/undefined
+    if (!config.schedule?.hour) {
+      console.log('ℹ️ schedule.hour es null/undefined, evitando cálculo detallado');
+      return new Date();
+    }
     
     if (config.schedule.hour.includes(':')) {
       const [hour, minute] = config.schedule.hour.split(':');
@@ -1849,7 +1832,7 @@ export default function ConfiguracionReportesPage() {
                   </Text>
                   <CustomSelect
                     value={formData.isActive ? 'active' : 'inactive'}
-                    onChange={(option) => handleFormChange('isActive', option?.value === 'active')}
+                    onChange={(value) => handleFormChange('isActive', value === 'active')}
                     options={[
                       { value: 'active', label: 'Activo' },
                       { value: 'inactive', label: 'Inactivo' }
@@ -2092,7 +2075,7 @@ export default function ConfiguracionReportesPage() {
                   </Text>
                   <CustomSelect
                     value={formData.isActive ? 'active' : 'inactive'}
-                    onChange={(option) => handleFormChange('isActive', option?.value === 'active')}
+                    onChange={(value) => handleFormChange('isActive', value === 'active')}
                     options={[
                       { value: 'active', label: 'Activo' },
                       { value: 'inactive', label: 'Inactivo' }
