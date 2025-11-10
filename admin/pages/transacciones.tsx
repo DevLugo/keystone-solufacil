@@ -1,5 +1,6 @@
 /** @jsxRuntime classic */
 /** @jsx jsx */
+/** @jsxFrag React.Fragment */
 
 import React, { useState, useEffect } from 'react';
 import { Box, jsx } from '@keystone-ui/core';
@@ -97,6 +98,7 @@ function TransaccionesPageContent() {
   const [selectedLead, setSelectedLead] = useState<EmployeeWithTypename | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [showIncompleteAvals, setShowIncompleteAvals] = useState(false);
 
   // Usar el contexto para obtener la función de refresh
   const { triggerBalanceRefresh } = useBalanceRefresh();
@@ -124,6 +126,14 @@ function TransaccionesPageContent() {
       refetchSummary();
     }
   }, [refreshTrigger]);
+
+  // Cuando se activa "ver avales incompletos", limpiar selecciones de ruta y líder
+  useEffect(() => {
+    if (showIncompleteAvals) {
+      setSelectedRoute(null);
+      setSelectedLead(null);
+    }
+  }, [showIncompleteAvals]);
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
@@ -292,13 +302,63 @@ function TransaccionesPageContent() {
         );
       case 'payments':
         return (
-          <CreatePaymentForm
-            selectedDate={selectedDate}
-            selectedRoute={toRoute(selectedRoute)}
-            selectedLead={toEmployee(selectedLead)}
-            refreshKey={refreshKey}
-            onSaveComplete={triggerBalanceRefresh}
-          />
+          <>
+            {/* Control para ver avales incompletos */}
+            <Box marginBottom="large" style={{
+              backgroundColor: '#F9FAFB',
+              border: '1px solid #E5E7EB',
+              borderRadius: '8px',
+              padding: '16px',
+              display: 'flex',
+              gap: '16px',
+              alignItems: 'center',
+              flexWrap: 'wrap'
+            }}>
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: '500',
+                color: '#DC2626'
+              }}>
+                <input
+                  type="checkbox"
+                  checked={showIncompleteAvals}
+                  onChange={(e) => setShowIncompleteAvals(e.target.checked)}
+                  style={{
+                    width: '18px',
+                    height: '18px',
+                    cursor: 'pointer'
+                  }}
+                />
+                <span>Ver avales incompletos</span>
+              </label>
+              {showIncompleteAvals && (
+                <div style={{
+                  fontSize: '13px',
+                  color: '#6B7280',
+                  fontStyle: 'italic',
+                  padding: '4px 12px',
+                  backgroundColor: '#FFF7ED',
+                  borderRadius: '6px',
+                  border: '1px solid #F97316'
+                }}>
+                  💡 Mostrando todos los préstamos con avales incompletos. Los préstamos aparecen marcados en naranja. Haz click en ellos para editar.
+                </div>
+              )}
+            </Box>
+            <CreatePaymentForm
+              selectedDate={selectedDate}
+              selectedRoute={toRoute(selectedRoute)}
+              selectedLead={toEmployee(selectedLead)}
+              refreshKey={refreshKey}
+              onSaveComplete={triggerBalanceRefresh}
+              showAllLocalities={showIncompleteAvals}
+              showOnlyIncompleteAvals={showIncompleteAvals}
+            />
+          </>
         );
       case 'transfers':
         return (

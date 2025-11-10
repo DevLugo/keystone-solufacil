@@ -1701,6 +1701,7 @@ export const Transaction = list({
         { label: 'BANK_LOAN_PAYMENT', value: 'BANK_LOAN_PAYMENT' },
         { label: 'MONEY_INVESMENT', value: 'MONEY_INVESMENT' },
         { label: 'Compensación por Falco', value: 'FALCO_COMPENSATION' },
+        { label: 'Multa', value: 'MULTA' },
       ],
     }),
     expenseSource: select({
@@ -1723,6 +1724,9 @@ export const Transaction = list({
         { label: 'Renta', value: 'HOUSE_RENT' },
         { label: 'IMSS/INFONAVIT', value: 'IMSS_INFONAVIT' },
         { label: 'Pago de Mensualidad de Auto', value: 'CAR_PAYMENT' },
+        { label: 'Posada', value: 'POSADA' },
+        { label: 'Regalos Líderes', value: 'REGALOS_LIDERES' },
+        { label: 'Aguinaldo', value: 'AGUINALDO' },
         { label: 'Otro', value: 'OTRO' }
       ],
     }),
@@ -1756,6 +1760,16 @@ export const Transaction = list({
   },
   hooks: {
     beforeOperation: async ({ operation, resolvedData, context }) => {
+      // Para transacciones de tipo INCOME con incomeSource 'MULTA', 
+      // establecer profitAmount = amount y returnToCapital = 0
+      if (operation === 'create' && resolvedData.type === 'INCOME' && resolvedData.incomeSource === 'MULTA') {
+        const amount = parseAmount(resolvedData.amount);
+        if (amount > 0) {
+          resolvedData.profitAmount = amount.toFixed(2);
+          resolvedData.returnToCapital = '0.00';
+        }
+      }
+
       // Capturar snapshot histórico - solo en create o cuando se cambie el lead
       const shouldCaptureSnapshot = operation === 'create' || 
         (operation === 'update' && resolvedData.lead);
