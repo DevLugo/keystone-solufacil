@@ -117,9 +117,10 @@ const CREATE_INCOME_TRANSACTION = gql`
   }
 `;
 
-const GET_LOANS_BY_LEAD = gql`
-  query Loans($where: LoanWhereInput!) {
-    loans(where: $where, orderBy: [{ signDate: asc }, { id: asc }]) {
+// Query optimizada para avales incompletos - solo trae los campos necesarios
+const GET_LOANS_WITH_INCOMPLETE_AVALS = gql`
+  query LoansWithIncompleteAvals($where: LoanWhereInput!, $take: Int, $skip: Int) {
+    loans(where: $where, orderBy: [{ signDate: asc }, { id: asc }], take: $take, skip: $skip) {
       id
       weeklyPaymentAmount
       signDate
@@ -160,6 +161,56 @@ const GET_LOANS_BY_LEAD = gql`
         routes {
           id
           name
+        }
+      }
+      collaterals {
+        id
+        fullName
+        phones {
+          id
+          number
+        }
+      }
+      payments {
+        id
+        receivedAt
+        amount
+        paymentMethod
+      }
+    }
+    loansCount(where: $where)
+  }
+`;
+
+// Query optimizada para caso normal (localidad específica) - solo campos esenciales
+const GET_LOANS_BY_LEAD = gql`
+  query Loans($where: LoanWhereInput!) {
+    loans(where: $where, orderBy: [{ signDate: asc }, { id: asc }]) {
+      id
+      weeklyPaymentAmount
+      signDate
+      status
+      finishedDate
+      badDebtDate
+      amountGived
+      profitAmount
+      loantype {
+        id
+        name
+        loanPaymentComission
+      }
+      borrower {
+        personalData{
+          id
+          fullName
+          clientCode
+        }
+      }
+      lead {
+        id
+        personalData {
+          id
+          fullName
         }
       }
       collaterals {
@@ -971,33 +1022,131 @@ export const CreatePaymentForm = ({
 
   // Construir filtros WHERE dinámicamente
   const buildWhereClause = () => {
-    const baseWhere: any = {
-      finishedDate: {
-        equals: null
+    const baseFilters: any[] = [
+      {
+        finishedDate: {
+          equals: null
+        }
       },
-      pendingAmountStored: {
-        gt: "0"
+      {
+        pendingAmountStored: {
+          gt: "0"
+        }
       },
-      excludedByCleanup: null
-    };
+      {
+        excludedByCleanup: null
+      }
+    ];
 
     // Solo filtrar por lead si NO está activo "mostrar todas las localidades"
     if (!showAllLocalities && selectedLead?.id) {
-      baseWhere.lead = {
-        id: {
-          equals: selectedLead.id
+      baseFilters.push({
+        lead: {
+          id: {
+            equals: selectedLead.id
+          }
         }
-      };
+      });
     }
 
-    return baseWhere;
+    // Si está activo "mostrar solo incompletos", filtrar casos básicos en el servidor
+    // Nota: Filtramos solo los casos más simples para evitar problemas con Prisma
+    // El filtrado completo se hace en el cliente
+    if (showOnlyIncompleteAvals) {
+      // Filtrar préstamos que:
+      // 1. No tienen collaterals (caso más común)
+      // 2. Tienen collaterals pero sin phones (caso común)
+      // Los demás casos (fullName vacío, number vacío) se filtran en el cliente
+      baseFilters.push({
+        OR: [
+          // Sin collaterals
+          {
+            collaterals: {
+              none: {}
+            }
+          },
+          // Con collaterals pero sin phones
+          {
+            collaterals: {
+              some: {
+                phones: {
+                  none: {}
+                }
+              }
+            }
+          }
+        ]
+      });
+    }
+
+    // Si hay múltiples filtros, usar AND; si solo hay uno, devolverlo directamente
+    if (baseFilters.length === 1) {
+      return baseFilters[0];
+    }
+    
+    return {
+      AND: baseFilters
+    };
   };
 
+  // Estado para paginación cuando se muestran todas las localidades
+  const [paginationState, setPaginationState] = useState({
+    take: 100, // Traer 100 préstamos a la vez del servidor
+    skip: 0, // Skip para la query del servidor
+    hasMore: true,
+    totalCount: 0
+  });
+  
+  // Estado para acumular todos los préstamos cargados del servidor
+  const [accumulatedLoans, setAccumulatedLoans] = useState<Loan[]>([]);
+
+  // Query normal para cuando NO está activo "mostrar todas las localidades"
   const { data: loansData, loading: loansLoading, error: loansError, refetch: refetchLoans } = useQuery<{ loans: Loan[] }>(GET_LOANS_BY_LEAD, {
     variables: { 
       where: buildWhereClause()
     },
-    skip: !showAllLocalities && !selectedLead, // Solo skip si no está activo "mostrar todas" y no hay lead seleccionado
+    skip: showAllLocalities || !selectedLead, // Skip si está activo "mostrar todas" o no hay lead
+  });
+
+  // Ref para rastrear el skip actual de la última query
+  const currentSkipRef = React.useRef(0);
+
+  // Lazy query para cuando está activo "mostrar todas las localidades" (con paginación)
+  const [fetchAllLoans, { loading: allLoansLoading, error: allLoansError }] = useLazyQuery<{ 
+    loans: Loan[];
+    loansCount: number;
+  }>(GET_LOANS_WITH_INCOMPLETE_AVALS, {
+    fetchPolicy: 'network-only', // Siempre traer datos frescos
+    notifyOnNetworkStatusChange: true,
+    onCompleted: (data) => {
+      const newLoans = data?.loans || [];
+      const totalCount = data?.loansCount || 0;
+      const skip = currentSkipRef.current;
+      
+      setAccumulatedLoans(prev => {
+        // Si skip es 0, reemplazar (primera carga); si no, acumular
+        let finalAccumulated: Loan[];
+        if (skip === 0) {
+          finalAccumulated = newLoans;
+        } else {
+          // Evitar duplicados por ID
+          const existingIds = new Set(prev.map(l => l.id));
+          const uniqueNewLoans = newLoans.filter(l => !existingIds.has(l.id));
+          finalAccumulated = [...prev, ...uniqueNewLoans];
+        }
+        
+        console.log(`[Paginación] Skip: ${skip}, Nuevos: ${newLoans.length}, Acumulados: ${finalAccumulated.length}, Total: ${totalCount}`);
+        
+        // Actualizar hasMore basado en la cantidad real de préstamos acumulados
+        setPaginationState(prevState => ({
+          ...prevState,
+          hasMore: finalAccumulated.length < totalCount,
+          totalCount
+        }));
+        
+        return finalAccumulated;
+      });
+    }
   });
 
   // Función para detectar préstamos con avales incompletos
@@ -1011,17 +1160,80 @@ export const CreatePaymentForm = ({
     return !avalName || avalName.trim() === '' || !avalPhone || avalPhone.trim() === '';
   };
 
-  // Filtrar préstamos si está activo "mostrar solo incompletos"
+  // Ejecutar lazy query cuando se activa "mostrar todas las localidades" o cambia el filtro
+  useEffect(() => {
+    if (showAllLocalities) {
+      currentSkipRef.current = 0;
+      setPaginationState({ 
+        take: 100, 
+        skip: 0, 
+        hasMore: true, 
+        totalCount: 0
+      });
+      setAccumulatedLoans([]);
+      fetchAllLoans({
+        variables: {
+          where: buildWhereClause(),
+          take: 100,
+          skip: 0
+        }
+      });
+    } else {
+      // Limpiar cuando se desactiva
+      currentSkipRef.current = 0;
+      setAccumulatedLoans([]);
+      setPaginationState({ 
+        take: 100, 
+        skip: 0, 
+        hasMore: true, 
+        totalCount: 0
+      });
+    }
+  }, [showAllLocalities, showOnlyIncompleteAvals]); // Agregar showOnlyIncompleteAvals como dependencia
+
+  // Determinar qué datos usar según el modo
+  const activeLoansData = showAllLocalities 
+    ? { loans: accumulatedLoans } 
+    : loansData;
+  const activeLoansLoading = showAllLocalities ? allLoansLoading : loansLoading;
+  const activeLoansError = showAllLocalities ? allLoansError : loansError;
+
+  // Filtrar préstamos en el cliente cuando showOnlyIncompleteAvals está activo
+  // El servidor filtra casos básicos (sin collaterals, sin phones)
+  // El cliente filtra casos adicionales (fullName vacío, number vacío)
   const filteredLoans = useMemo(() => {
-    if (!loansData?.loans) return [];
-    let loans = loansData.loans;
+    if (!activeLoansData?.loans) return [];
+    let loans = activeLoansData.loans;
     
+    // Si está activo "mostrar solo incompletos", aplicar filtro completo en el cliente
     if (showOnlyIncompleteAvals) {
       loans = loans.filter(hasIncompleteAval);
     }
     
     return loans;
-  }, [loansData?.loans, showOnlyIncompleteAvals]);
+  }, [activeLoansData?.loans, showOnlyIncompleteAvals]);
+
+  // Función para cargar más préstamos
+  const loadMoreLoans = useCallback(async () => {
+    if (!showAllLocalities || activeLoansLoading || !paginationState.hasMore) return;
+    
+    // El nuevo skip debe ser igual a la cantidad de préstamos ya acumulados
+    const newSkip = accumulatedLoans.length;
+    currentSkipRef.current = newSkip;
+    const whereClause = buildWhereClause();
+    
+    console.log(`[Cargar más] Skip actual: ${paginationState.skip}, Acumulados: ${accumulatedLoans.length}, Nuevo skip: ${newSkip}`);
+    
+    setPaginationState(prev => ({ ...prev, skip: newSkip }));
+    
+    fetchAllLoans({
+      variables: {
+        where: whereClause,
+        take: paginationState.take,
+        skip: newSkip
+      }
+    });
+  }, [showAllLocalities, fetchAllLoans, paginationState.take, paginationState.hasMore, activeLoansLoading, accumulatedLoans.length]);
 
   const [createCustomLeadPaymentReceived, { error: customLeadPaymentError, loading: customLeadPaymentLoading }] = useMutation(CREATE_LEAD_PAYMENT_RECEIVED);
   const [updateCustomLeadPaymentReceived, { loading: updateLoading }] = useMutation(UPDATE_LEAD_PAYMENT);
@@ -1589,8 +1801,24 @@ export const CreatePaymentForm = ({
         
         // Refrescar los datos de loans para mostrar los cambios
         try {
-          await refetchLoans();
-          console.log('✅ Datos de loans refrescados después de actualizar aval');
+          if (showAllLocalities) {
+            // Si estamos en modo "mostrar todas las localidades", recargar desde el principio
+            currentSkipRef.current = 0;
+            setPaginationState(prev => ({ ...prev, skip: 0 }));
+            setAccumulatedLoans([]);
+            await fetchAllLoans({
+              variables: {
+                where: buildWhereClause(),
+                take: 100,
+                skip: 0
+              }
+            });
+            console.log('✅ Datos de loans recargados (modo mostrar todas)');
+          } else {
+            // Modo normal: usar refetch
+            await refetchLoans();
+            console.log('✅ Datos de loans refrescados (modo normal)');
+          }
         } catch (error) {
           console.error('❌ Error al refrescar datos de loans:', error);
         }
@@ -2403,8 +2631,8 @@ useEffect(() => {
 
   
 
-  if (loansLoading || paymentsLoading || migratedPaymentsLoading || falcosLoading) return <LoadingDots label="Loading data" size="large" />;
-  if (loansError) return <GraphQLErrorNotice errors={loansError?.graphQLErrors || []} networkError={loansError?.networkError} />;
+  if (activeLoansLoading || paymentsLoading || migratedPaymentsLoading || falcosLoading) return <LoadingDots label="Loading data" size="large" />;
+  if (activeLoansError) return <GraphQLErrorNotice errors={activeLoansError?.graphQLErrors || []} networkError={activeLoansError?.networkError} />;
 
   return (
     <Box paddingTop="xlarge">
@@ -3279,8 +3507,8 @@ useEffect(() => {
                 <tr 
                   key={`missing-${loan.id}`} 
                   onClick={(e) => {
-                    // Si tiene aval incompleto, abrir modal de edición de aval
-                    if (hasIncompleteAvalForMissing) {
+                    // Si tiene aval incompleto Y el checkbox está activo, abrir modal de edición de aval
+                    if (hasIncompleteAvalForMissing && showOnlyIncompleteAvals) {
                       e.stopPropagation();
                       openAvalEditModal(loan);
                     }
@@ -3290,9 +3518,9 @@ useEffect(() => {
                     borderLeft: hasIncompleteAvalForMissing ? '4px solid #F97316' : '4px solid #FCA5A5',
                     borderTop: hasIncompleteAvalForMissing ? '2px dashed #F97316' : 'none',
                     borderBottom: hasIncompleteAvalForMissing ? '2px dashed #F97316' : 'none',
-                    cursor: hasIncompleteAvalForMissing ? 'pointer' : 'default'
+                    cursor: (hasIncompleteAvalForMissing && showOnlyIncompleteAvals) ? 'pointer' : 'default'
                   }}
-                  title={hasIncompleteAvalForMissing ? '⚠️ Aval incompleto - Click para editar' : ''}
+                  title={(hasIncompleteAvalForMissing && showOnlyIncompleteAvals) ? '⚠️ Aval incompleto - Click para editar' : ''}
                 >
                   <td style={{ 
                     textAlign: 'center',
@@ -3493,8 +3721,8 @@ useEffect(() => {
                   <tr 
                     key={`existing-${payment.id}`} 
                     onClick={(e) => {
-                      // Si tiene aval incompleto y no está en modo edición, abrir modal de edición de aval
-                      if (hasIncompleteAvalForPayment && selectedLoan && !isEditing) {
+                      // Si tiene aval incompleto, el checkbox está activo y no está en modo edición, abrir modal de edición de aval
+                      if (hasIncompleteAvalForPayment && showOnlyIncompleteAvals && selectedLoan && !isEditing) {
                         e.stopPropagation();
                         openAvalEditModal(selectedLoan);
                       }
@@ -3505,11 +3733,11 @@ useEffect(() => {
                       borderLeft: hasIncompleteAvalForPayment ? '4px solid #F97316' : (isStrikethrough ? '4px solid #ef4444' : (hasZeroCommission ? '4px solid #D97706' : (isTransferPayment ? '4px solid #8B5CF6' : 'none'))),
                       borderTop: hasIncompleteAvalForPayment ? '2px dashed #F97316' : 'none',
                       borderBottom: hasIncompleteAvalForPayment ? '2px dashed #F97316' : 'none',
-                      cursor: hasIncompleteAvalForPayment && !isEditing ? 'pointer' : 'default',
+                      cursor: (hasIncompleteAvalForPayment && showOnlyIncompleteAvals && !isEditing) ? 'pointer' : 'default',
                       transition: 'all 0.2s ease',
                       position: 'relative'
                     }}
-                    title={hasIncompleteAvalForPayment && !isEditing ? '⚠️ Aval incompleto - Click para editar' : ''}
+                    title={(hasIncompleteAvalForPayment && showOnlyIncompleteAvals && !isEditing) ? '⚠️ Aval incompleto - Click para editar' : ''}
                   >
                     <td style={{ 
                       textAlign: 'center',
@@ -3994,8 +4222,8 @@ useEffect(() => {
                 <tr 
                   key={paymentKey} 
                   onClick={(e) => {
-                    // Si tiene aval incompleto, abrir modal de edición de aval
-                    if (hasIncompleteAvalForPayment && selectedLoan) {
+                    // Si tiene aval incompleto Y el checkbox está activo, abrir modal de edición de aval
+                    if (hasIncompleteAvalForPayment && showOnlyIncompleteAvals && selectedLoan) {
                       e.stopPropagation();
                       openAvalEditModal(selectedLoan);
                     } else {
@@ -4008,11 +4236,11 @@ useEffect(() => {
                     borderLeft: hasIncompleteAvalForPayment ? '4px solid #F97316' : (isDeceased ? '4px solid #6b7280' : (isStrikethrough ? '4px solid #ef4444' : (hasZeroCommission ? '4px solid #D97706' : (isTransferPayment ? '4px solid #8B5CF6' : 'none')))),
                     borderTop: hasIncompleteAvalForPayment ? '2px dashed #F97316' : 'none',
                     borderBottom: hasIncompleteAvalForPayment ? '2px dashed #F97316' : 'none',
-                    cursor: hasIncompleteAvalForPayment ? 'pointer' : 'pointer',
+                    cursor: (hasIncompleteAvalForPayment && showOnlyIncompleteAvals) ? 'pointer' : 'pointer',
                     transition: 'all 0.2s ease',
                     position: 'relative'
                   }}
-                  title={hasIncompleteAvalForPayment ? '⚠️ Aval incompleto - Click para editar' : ''}
+                  title={(hasIncompleteAvalForPayment && showOnlyIncompleteAvals) ? '⚠️ Aval incompleto - Click para editar' : ''}
                 >
                   <td style={{ 
                     textAlign: 'center',
@@ -4477,6 +4705,38 @@ useEffect(() => {
               })}
             </tbody>
           </table>
+          
+          {/* Controles de paginación cuando se muestran todas las localidades */}
+          {showAllLocalities && (
+            <Box marginTop="large" style={{ textAlign: 'center', padding: '20px' }}>
+              {/* Información de préstamos mostrados */}
+              <p style={{ marginBottom: '16px', fontSize: '14px', color: '#6B7280' }}>
+                Mostrando {filteredLoans.length} préstamos
+                {showOnlyIncompleteAvals && ` (filtrados por avales incompletos)`}
+                {!showOnlyIncompleteAvals && ` de ${accumulatedLoans.length} cargados`}
+              </p>
+              
+              {/* Botón para cargar más préstamos del servidor */}
+              {paginationState.hasMore && (
+                <Button
+                  onClick={loadMoreLoans}
+                  isLoading={activeLoansLoading}
+                  tone="active"
+                  size="large"
+                  style={{ minWidth: '200px' }}
+                >
+                  {activeLoansLoading ? 'Cargando...' : `Cargar más (${paginationState.totalCount - accumulatedLoans.length} restantes)`}
+                </Button>
+              )}
+              
+              {paginationState.totalCount > 0 && (
+                <p style={{ marginTop: '12px', fontSize: '13px', color: '#6B7280' }}>
+                  Total: {accumulatedLoans.length} de {paginationState.totalCount} préstamos cargados
+                </p>
+              )}
+            </Box>
+          )}
+          
           </div> {/* Cierre del contenedor del modo de edición */}
         </Box>
       </Box>
@@ -5297,12 +5557,18 @@ useEffect(() => {
                 Modifica los datos del aval para el préstamo de {avalEditModal.loan.borrower?.personalData?.fullName || 'Cliente'}
               </p>
               {(() => {
-                const locality = avalEditModal.loan.lead?.personalData?.addresses?.[0]?.location?.name;
-                const leadName = avalEditModal.loan.lead?.personalData?.fullName;
-                // Obtener ruta desde location.route o desde lead.routes[0]
-                const routeFromLocation = avalEditModal.loan.lead?.personalData?.addresses?.[0]?.location?.route?.name;
-                const routeFromLead = avalEditModal.loan.lead?.routes?.[0]?.name;
-                const routeName = routeFromLocation || routeFromLead;
+                // Para caso normal, usar datos del contexto (más eficiente)
+                // Para caso "mostrar todas", usar datos del loan
+                const locality = showAllLocalities 
+                  ? avalEditModal.loan.lead?.personalData?.addresses?.[0]?.location?.name
+                  : selectedLead?.personalData?.fullName; // En caso normal, mostrar el nombre del lead como "localidad"
+                const leadName = avalEditModal.loan.lead?.personalData?.fullName || selectedLead?.personalData?.fullName;
+                // Obtener ruta desde location.route o desde lead.routes[0] (solo si showAllLocalities)
+                // En caso normal, usar selectedRoute
+                const routeName = showAllLocalities
+                  ? (avalEditModal.loan.lead?.personalData?.addresses?.[0]?.location?.route?.name || 
+                     avalEditModal.loan.lead?.routes?.[0]?.name)
+                  : selectedRoute?.name;
                 
                 if (locality || leadName || routeName) {
                   return (
