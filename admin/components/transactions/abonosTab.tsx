@@ -81,6 +81,42 @@ const GET_ROUTES = gql`
   }
 `;
 
+// Query para obtener cuentas de una ruta
+const GET_ACCOUNTS = gql`
+  query GetAccounts($routeId: ID) {
+    accounts(where: { routes: { some: { id: { equals: $routeId } } } }) {
+      id
+      name
+      type
+      amount
+    }
+  }
+`;
+
+// Mutation para crear transacción de multa
+const CREATE_INCOME_TRANSACTION = gql`
+  mutation CreateTransaction($data: TransactionCreateInput!) {
+    createTransaction(data: $data) {
+      id
+      amount
+      type
+      incomeSource
+      description
+      date
+      profitAmount
+      returnToCapital
+      route {
+        id
+        name
+      }
+      destinationAccount {
+        id
+        name
+      }
+    }
+  }
+`;
+
 const GET_LOANS_BY_LEAD = gql`
   query Loans($where: LoanWhereInput!) {
     loans(where: $where, orderBy: [{ signDate: asc }, { id: asc }]) {
@@ -102,6 +138,28 @@ const GET_LOANS_BY_LEAD = gql`
           id
           fullName
           clientCode
+        }
+      }
+      lead {
+        id
+        personalData {
+          id
+          fullName
+          addresses {
+            id
+            location {
+              id
+              name
+              route {
+                id
+                name
+              }
+            }
+          }
+        }
+        routes {
+          id
+          name
         }
       }
       collaterals {
@@ -595,13 +653,17 @@ export const CreatePaymentForm = ({
   selectedRoute, 
   selectedLead,
   refreshKey,
-  onSaveComplete
+  onSaveComplete,
+  showAllLocalities = false,
+  showOnlyIncompleteAvals = false
 }: { 
   selectedDate: Date, 
   selectedRoute: Route | null, 
   selectedLead: Employee | null,
   refreshKey: number,
-  onSaveComplete?: () => void
+  onSaveComplete?: () => void,
+  showAllLocalities?: boolean,
+  showOnlyIncompleteAvals?: boolean
 }) => {
   const [state, setState] = useState<{
     payments: LoanPayment[];
@@ -610,6 +672,7 @@ export const CreatePaymentForm = ({
     isFalcoModalOpen: boolean;
     isCreateFalcoModalOpen: boolean;
     isMovePaymentsModalOpen: boolean;
+    isMultaModalOpen: boolean;
     falcoPaymentAmount: number;
     selectedFalcoId: string | null;
     createFalcoAmount: number;
@@ -644,6 +707,7 @@ export const CreatePaymentForm = ({
     isFalcoModalOpen: false,
     isCreateFalcoModalOpen: false,
     isMovePaymentsModalOpen: false,
+    isMultaModalOpen: false,
     falcoPaymentAmount: 0,
     selectedFalcoId: null,
     createFalcoAmount: 0,
@@ -662,8 +726,15 @@ export const CreatePaymentForm = ({
   // ✅ AGREGAR: Estado para comisión masiva
   const [massCommission, setMassCommission] = useState<string>('0');
 
+  // Estado para el modal de multa
+  const [multaData, setMultaData] = useState({
+    amount: '',
+    description: '',
+    destinationAccountId: null as string | null
+  });
+
   const { 
-    payments, comission, isModalOpen, isFalcoModalOpen, isCreateFalcoModalOpen, isMovePaymentsModalOpen, falcoPaymentAmount, 
+    payments, comission, isModalOpen, isFalcoModalOpen, isCreateFalcoModalOpen, isMovePaymentsModalOpen, isMultaModalOpen, falcoPaymentAmount, 
     selectedFalcoId, createFalcoAmount, loadPaymentDistribution, existingPayments, editedPayments, 
     isEditing, showSuccessMessage, groupedPayments, hasUserEditedDistribution
   } = state;
@@ -898,25 +969,59 @@ export const CreatePaymentForm = ({
     }
   }, [paymentsData, migratedPaymentsData, selectedDate, selectedLead?.id]);
 
+  // Construir filtros WHERE dinámicamente
+  const buildWhereClause = () => {
+    const baseWhere: any = {
+      finishedDate: {
+        equals: null
+      },
+      pendingAmountStored: {
+        gt: "0"
+      },
+      excludedByCleanup: null
+    };
+
+    // Solo filtrar por lead si NO está activo "mostrar todas las localidades"
+    if (!showAllLocalities && selectedLead?.id) {
+      baseWhere.lead = {
+        id: {
+          equals: selectedLead.id
+        }
+      };
+    }
+
+    return baseWhere;
+  };
+
   const { data: loansData, loading: loansLoading, error: loansError, refetch: refetchLoans } = useQuery<{ loans: Loan[] }>(GET_LOANS_BY_LEAD, {
     variables: { 
-      where: {
-        lead: {
-          id: {
-            equals: selectedLead?.id || ''
-          }
-        },
-        finishedDate: {
-          equals: null
-        },
-        pendingAmountStored: {
-          gt: "0"
-        },
-        excludedByCleanup: null
-      }
+      where: buildWhereClause()
     },
-    skip: !selectedLead,
+    skip: !showAllLocalities && !selectedLead, // Solo skip si no está activo "mostrar todas" y no hay lead seleccionado
   });
+
+  // Función para detectar préstamos con avales incompletos
+  const hasIncompleteAval = (loan: any): boolean => {
+    if (!loan.collaterals || loan.collaterals.length === 0) {
+      return true; // Sin aval
+    }
+    const firstCollateral = loan.collaterals[0];
+    const avalName = firstCollateral?.fullName || '';
+    const avalPhone = firstCollateral?.phones?.[0]?.number || '';
+    return !avalName || avalName.trim() === '' || !avalPhone || avalPhone.trim() === '';
+  };
+
+  // Filtrar préstamos si está activo "mostrar solo incompletos"
+  const filteredLoans = useMemo(() => {
+    if (!loansData?.loans) return [];
+    let loans = loansData.loans;
+    
+    if (showOnlyIncompleteAvals) {
+      loans = loans.filter(hasIncompleteAval);
+    }
+    
+    return loans;
+  }, [loansData?.loans, showOnlyIncompleteAvals]);
 
   const [createCustomLeadPaymentReceived, { error: customLeadPaymentError, loading: customLeadPaymentLoading }] = useMutation(CREATE_LEAD_PAYMENT_RECEIVED);
   const [updateCustomLeadPaymentReceived, { loading: updateLoading }] = useMutation(UPDATE_LEAD_PAYMENT);
@@ -928,6 +1033,29 @@ export const CreatePaymentForm = ({
   const [updateLoanCollaterals, { loading: updateCollateralsLoading }] = useMutation(UPDATE_LOAN_COLLATERALS);
   const [updatePhone, { loading: updatePhoneLoading }] = useMutation(UPDATE_PHONE);
   const [updateLoanWithAval, { loading: updateLoanWithAvalLoading }] = useMutation(UPDATE_LOAN_WITH_AVAL);
+  const [createIncomeTransaction, { loading: createIncomeLoading }] = useMutation(CREATE_INCOME_TRANSACTION);
+
+  // Query para obtener cuentas de la ruta
+  const { data: accountsData, loading: accountsLoading } = useQuery(GET_ACCOUNTS, {
+    variables: { routeId: selectedRoute?.id || null },
+    skip: !selectedRoute?.id,
+  });
+
+  // Efecto para establecer la cuenta de efectivo de la ruta por defecto cuando se abre el modal
+  useEffect(() => {
+    if (isMultaModalOpen && selectedRoute && accountsData?.accounts) {
+      const cashAccount = accountsData.accounts.find((account: any) => account.type === 'EMPLOYEE_CASH_FUND');
+      if (cashAccount) {
+        setMultaData(prev => {
+          // Solo establecer si no hay una cuenta ya seleccionada
+          if (!prev.destinationAccountId) {
+            return { ...prev, destinationAccountId: cashAccount.id };
+          }
+          return prev;
+        });
+      }
+    }
+  }, [isMultaModalOpen, selectedRoute, accountsData?.accounts]);
 
   // Hook para obtener datos completos del cliente
   const [getClientData, { loading: clientDataLoading }] = useLazyQuery(GET_CLIENT_DATA, {
@@ -1148,6 +1276,82 @@ export const CreatePaymentForm = ({
     } catch (error) {
       console.error('Error creating falco:', error);
       // Aquí podrías agregar un estado de error si quieres mostrar un mensaje de error específico
+    }
+  };
+
+  // Función para registrar multa
+  const handleRegisterMulta = async () => {
+    try {
+      if (!selectedRoute || !selectedDate || !multaData.amount || parseFloat(multaData.amount) <= 0) {
+        alert('Por favor completa todos los campos requeridos');
+        return;
+      }
+
+      // Si no hay cuenta seleccionada, usar la cuenta de efectivo de la ruta por defecto
+      let destinationAccountId = multaData.destinationAccountId;
+      
+      if (!destinationAccountId) {
+        // Buscar cuenta de efectivo de la ruta por defecto
+        const cashAccount = accountsData?.accounts?.find((account: any) => account.type === 'EMPLOYEE_CASH_FUND');
+        if (cashAccount) {
+          destinationAccountId = cashAccount.id;
+        } else {
+          // Si no hay cuenta de efectivo, buscar cuenta bancaria
+          const bankAccount = accountsData?.accounts?.find((account: any) => account.type === 'BANK' || account.type === 'BANK_ACCOUNT');
+          if (bankAccount) {
+            destinationAccountId = bankAccount.id;
+          } else {
+            alert('La ruta seleccionada no tiene una cuenta de efectivo ni cuenta bancaria asociada.');
+            return;
+          }
+        }
+      } else {
+        // Verificar que la cuenta seleccionada sea válida (solo ruta o banco)
+        const selectedAccount = accountsData?.accounts?.find((account: any) => account.id === destinationAccountId);
+        if (!selectedAccount || (selectedAccount.type !== 'EMPLOYEE_CASH_FUND' && selectedAccount.type !== 'BANK' && selectedAccount.type !== 'BANK_ACCOUNT')) {
+          alert('La cuenta seleccionada no es válida. Solo se permiten cuentas de la ruta o bancarias.');
+          return;
+        }
+      }
+
+      await createIncomeTransaction({
+        variables: {
+          data: {
+            amount: multaData.amount,
+            type: 'INCOME',
+            incomeSource: 'MULTA',
+            description: multaData.description || 'Multa general de localidad',
+            date: selectedDate.toISOString(),
+            destinationAccount: { connect: { id: destinationAccountId } },
+            route: { connect: { id: selectedRoute.id } },
+            snapshotRouteId: selectedRoute.id,
+            // profitAmount y returnToCapital se establecerán automáticamente en el hook beforeOperation
+          }
+        }
+      });
+
+      // Limpiar formulario y cerrar modal
+      setMultaData({ amount: '', description: '', destinationAccountId: null });
+      updateState({ isMultaModalOpen: false });
+      
+      // Mostrar mensaje de éxito
+      updateState({ 
+        showSuccessMessage: true
+      });
+      
+      // Ocultar el mensaje después de 3 segundos
+      setTimeout(() => {
+        updateState({ showSuccessMessage: false });
+      }, 3000);
+      
+      // Llamar al callback para actualizar balances
+      if (onSaveComplete) {
+        console.log('🔄 abonosTab: Llamando callback onSaveComplete para actualizar balances (multa)');
+        onSaveComplete();
+      }
+    } catch (error) {
+      console.error('Error registrando multa:', error);
+      alert('Error al registrar la multa: ' + (error as Error).message);
     }
   };
 
@@ -1859,13 +2063,14 @@ export const CreatePaymentForm = ({
   useEffect(() => {
     console.log('🔍 [DEBUG] useEffect loansData/existingPayments ejecutándose...');
     console.log('   - loansData?.loans?.length:', loansData?.loans?.length);
+    console.log('   - filteredLoans.length:', filteredLoans.length);
     console.log('   - existingPayments.length:', existingPayments.length);
     console.log('   - payments.length (actual):', payments.length);
     
     // Si no hay pagos existentes y tenemos datos de préstamos, cargar los pagos semanales
-    if (loansData?.loans && existingPayments.length === 0) {
-      console.log('✅ [DEBUG] Creando pagos automáticamente desde loansData...');
-      const newPayments = loansData.loans.map(loan => ({
+    if (filteredLoans && filteredLoans.length > 0 && existingPayments.length === 0) {
+      console.log('✅ [DEBUG] Creando pagos automáticamente desde filteredLoans...');
+      const newPayments = filteredLoans.map(loan => ({
         amount: loan.weeklyPaymentAmount,
         // ✅ MODIFICAR: Usar comisión por defecto del loanType si existe
         comission: loan.loantype?.loanPaymentComission ? Math.round(parseFloat(loan.loantype.loanPaymentComission)) : Math.round(comission),
@@ -1901,9 +2106,9 @@ export const CreatePaymentForm = ({
       console.log('   - Pagos que se van a limpiar:', payments.length);
       updateState({ payments: [] });
     } else {
-      console.log('ℹ️ [DEBUG] No se ejecuta ninguna acción - no hay loansData o existingPayments');
+      console.log('ℹ️ [DEBUG] No se ejecuta ninguna acción - no hay filteredLoans o existingPayments');
     }
-  }, [loansData, comission, existingPayments.length]);
+  }, [filteredLoans, comission, existingPayments.length]);
 
   const handleAddPayment = () => {
     updateState({
@@ -1946,8 +2151,8 @@ export const CreatePaymentForm = ({
       newPayments[index][field] = value;
       
       // ✅ AGREGAR: Cargar comisión por defecto automáticamente al seleccionar préstamo
-      if (value && loansData?.loans) {
-        const selectedLoan = loansData.loans.find(loan => loan.id === value);
+      if (value && filteredLoans) {
+        const selectedLoan = filteredLoans.find(loan => loan.id === value);
         if (selectedLoan?.loantype?.loanPaymentComission) {
           const defaultCommission = Math.round(parseFloat(selectedLoan.loantype.loanPaymentComission));
           if (defaultCommission > 0) {
@@ -2122,7 +2327,7 @@ export const CreatePaymentForm = ({
 // Calcular créditos que debían pagar pero no aparecen registrados
 const calculateMissingPayments = () => {
   // Solo mostrar si ya hay pagos registrados para esta fecha
-  if (!loansData?.loans || !selectedDate || existingPayments.length === 0) return [];
+  if (!filteredLoans || filteredLoans.length === 0 || !selectedDate || existingPayments.length === 0) return [];
   
   const selectedDateObj = new Date(selectedDate);
   
@@ -2135,7 +2340,7 @@ const calculateMissingPayments = () => {
   );
   
   // Filtrar préstamos que debían pagar en esta fecha pero no tienen pago registrado
-  const missingPayments = loansData.loans.filter((loan: any) => {
+  const missingPayments = filteredLoans.filter((loan: any) => {
     // Verificar que el préstamo está activo (no terminado)
     if (loan.finishedDate) return false;
     
@@ -2179,8 +2384,8 @@ useEffect(() => {
     refetchFalcos();
   }, [refreshKey, refetchPayments, refetchMigratedPayments, refetchFalcos]);
 
-  // Validar que se hayan seleccionado ruta y localidad
-  if (!selectedRoute || !selectedLead) {
+  // Validar que se hayan seleccionado ruta y localidad (solo si no está activo "mostrar todas")
+  if (!showAllLocalities && (!selectedRoute || !selectedLead)) {
     return (
       <SelectionMessage
         icon="👥"
@@ -2189,7 +2394,8 @@ useEffect(() => {
         requirements={[
           "Selecciona una ruta desde el selector superior",
           "Elige una localidad de la ruta seleccionada",
-          "Los abonos se cargarán automáticamente"
+          "Los abonos se cargarán automáticamente",
+          "O activa 'Mostrar todas las localidades' para ver todos los préstamos"
         ]}
       />
     );
@@ -2516,12 +2722,13 @@ useEffect(() => {
         </div>
       )}
 
+
       {/* Barra de KPIs reutilizable */}
       <KPIBar
         chips={[
           {
             label: 'Clientes',
-            value: loansData?.loans?.length || 0,
+            value: filteredLoans?.length || 0,
             color: '#111827',
             backgroundColor: '#F3F4F6',
             borderColor: '#E5E7EB'
@@ -2977,6 +3184,24 @@ useEffect(() => {
                     <FaPlus size={12} style={{ marginRight: '8px' }} />
                     Agregar Pago
                   </Button>
+                  {selectedRoute && (
+                    <Button
+                      tone="active"
+                      size="medium"
+                      weight="bold"
+                      onClick={() => updateState({ isMultaModalOpen: true })}
+                      style={{ 
+                        fontSize: FONT_SYSTEM.small, 
+                        padding: PADDING_SYSTEM.small, 
+                        height: HEIGHT_SYSTEM.small,
+                        fontWeight: '700',
+                        backgroundColor: '#10b981',
+                        color: 'white'
+                      }}
+                    >
+                      💰 Registrar Multa
+                    </Button>
+                  )}
                   {/* Botón dinámico para eliminar/desmarcar todos los pagos nuevos */}
                   {payments.length > 0 && (() => {
                     // Calcular si todos los pagos están marcados para eliminar
@@ -3048,11 +3273,27 @@ useEffect(() => {
             </thead>
             <tbody>
               {/* Créditos Sin Pago (siempre que haya pagos existentes) */}
-              {missingPayments.map((loan: any, index: number) => (
-                <tr key={`missing-${loan.id}`} style={{ 
-                  backgroundColor: '#FEF2F2',
-                  borderLeft: '4px solid #FCA5A5'
-                }}>
+              {missingPayments.map((loan: any, index: number) => {
+                const hasIncompleteAvalForMissing = hasIncompleteAval(loan);
+                return (
+                <tr 
+                  key={`missing-${loan.id}`} 
+                  onClick={(e) => {
+                    // Si tiene aval incompleto, abrir modal de edición de aval
+                    if (hasIncompleteAvalForMissing) {
+                      e.stopPropagation();
+                      openAvalEditModal(loan);
+                    }
+                  }}
+                  style={{ 
+                    backgroundColor: hasIncompleteAvalForMissing ? '#FFF7ED' : '#FEF2F2',
+                    borderLeft: hasIncompleteAvalForMissing ? '4px solid #F97316' : '4px solid #FCA5A5',
+                    borderTop: hasIncompleteAvalForMissing ? '2px dashed #F97316' : 'none',
+                    borderBottom: hasIncompleteAvalForMissing ? '2px dashed #F97316' : 'none',
+                    cursor: hasIncompleteAvalForMissing ? 'pointer' : 'default'
+                  }}
+                  title={hasIncompleteAvalForMissing ? '⚠️ Aval incompleto - Click para editar' : ''}
+                >
                   <td style={{ 
                     textAlign: 'center',
                     fontWeight: 'bold',
@@ -3062,19 +3303,36 @@ useEffect(() => {
                     {existingPayments.length + index + 1}
                   </td>
                   <td>
-                    <span style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      padding: '4px 8px',
-                      backgroundColor: '#FEE2E2',
-                      color: '#DC2626',
-                      borderRadius: '4px',
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      border: '1px solid #FCA5A5',
-                    }}>
-                      ⚠️ SIN PAGO
-                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        padding: '4px 8px',
+                        backgroundColor: '#FEE2E2',
+                        color: '#DC2626',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        border: '1px solid #FCA5A5',
+                      }}>
+                        ⚠️ SIN PAGO
+                      </span>
+                      {hasIncompleteAvalForMissing && (
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '3px 6px',
+                          backgroundColor: '#FFF7ED',
+                          color: '#F97316',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          border: '1px solid #F97316'
+                        }}>
+                          ⚠️ Aval incompleto
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td style={{
                     textAlign: 'center'
@@ -3202,7 +3460,8 @@ useEffect(() => {
                     )}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
 
               {/* Abonos Registrados */}
               {existingPayments
@@ -3222,18 +3481,35 @@ useEffect(() => {
                 const isStrikethrough = strikethroughPaymentIds.includes(payment.id);
                 const hasZeroCommission = parseFloat(editedPayment.comission || '0') === 0;
                 const isTransferPayment = editedPayment.paymentMethod === 'MONEY_TRANSFER';
-                console.log(`Pago ${payment.id}: isStrikethrough=${isStrikethrough}, hasZeroCommission=${hasZeroCommission}, strikethroughPaymentIds=`, strikethroughPaymentIds);
+                
+                // Detectar si el préstamo tiene aval incompleto
+                const paymentLoanId = payment.loanId || payment.loan?.id;
+                const selectedLoan = filteredLoans?.find(loan => loan.id === paymentLoanId);
+                const hasIncompleteAvalForPayment = selectedLoan ? hasIncompleteAval(selectedLoan) : false;
+                
+                console.log(`Pago ${payment.id}: isStrikethrough=${isStrikethrough}, hasZeroCommission=${hasZeroCommission}, hasIncompleteAval=${hasIncompleteAvalForPayment}, strikethroughPaymentIds=`, strikethroughPaymentIds);
                 
                 return (
                   <tr 
                     key={`existing-${payment.id}`} 
-                    style={{ 
-                      backgroundColor: isStrikethrough ? '#fee2e2' : (hasZeroCommission ? '#FEF3C7' : (isTransferPayment ? '#F3E8FF' : '#f8fafc')),
-                      opacity: isStrikethrough ? 0.7 : 1,
-                      borderLeft: isStrikethrough ? '4px solid #ef4444' : (hasZeroCommission ? '4px solid #D97706' : (isTransferPayment ? '4px solid #8B5CF6' : 'none')),
-                      cursor: 'default',
-                      transition: 'all 0.2s ease'
+                    onClick={(e) => {
+                      // Si tiene aval incompleto y no está en modo edición, abrir modal de edición de aval
+                      if (hasIncompleteAvalForPayment && selectedLoan && !isEditing) {
+                        e.stopPropagation();
+                        openAvalEditModal(selectedLoan);
+                      }
                     }}
+                    style={{ 
+                      backgroundColor: hasIncompleteAvalForPayment ? '#FFF7ED' : (isStrikethrough ? '#fee2e2' : (hasZeroCommission ? '#FEF3C7' : (isTransferPayment ? '#F3E8FF' : '#f8fafc'))),
+                      opacity: isStrikethrough ? 0.7 : 1,
+                      borderLeft: hasIncompleteAvalForPayment ? '4px solid #F97316' : (isStrikethrough ? '4px solid #ef4444' : (hasZeroCommission ? '4px solid #D97706' : (isTransferPayment ? '4px solid #8B5CF6' : 'none'))),
+                      borderTop: hasIncompleteAvalForPayment ? '2px dashed #F97316' : 'none',
+                      borderBottom: hasIncompleteAvalForPayment ? '2px dashed #F97316' : 'none',
+                      cursor: hasIncompleteAvalForPayment && !isEditing ? 'pointer' : 'default',
+                      transition: 'all 0.2s ease',
+                      position: 'relative'
+                    }}
+                    title={hasIncompleteAvalForPayment && !isEditing ? '⚠️ Aval incompleto - Click para editar' : ''}
                   >
                     <td style={{ 
                       textAlign: 'center',
@@ -3300,6 +3576,23 @@ useEffect(() => {
                             fontWeight: '500',
                           }}>
                             Registrado
+                          </span>
+                        )}
+                        
+                        {/* Indicador de aval incompleto */}
+                        {hasIncompleteAvalForPayment && (
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '3px 6px',
+                            backgroundColor: '#FFF7ED',
+                            color: '#F97316',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: '600',
+                            border: '1px solid #F97316'
+                          }}>
+                            ⚠️ Aval incompleto
                           </span>
                         )}
                         
@@ -3563,7 +3856,7 @@ useEffect(() => {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const loanId = (payment.loanId || payment.loan?.id || '');
+                                    const loanId = (payment.loanId || (payment as any).loan?.id || '');
                                     if (!loanId) return;
                                     handleEditClient(loanId);
                                     setShowMenuForPayment(null);
@@ -3591,7 +3884,7 @@ useEffect(() => {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const loanId = (payment.loanId || payment.loan?.id || '');
+                                    const loanId = (payment.loanId || (payment as any).loan?.id || '');
                                     if (loanId) {
                                       const selectedLoan = loansData?.loans?.find(l => l.id === loanId);
                                       if (selectedLoan) {
@@ -3692,17 +3985,34 @@ useEffect(() => {
                 const isDeceased = deceasedLoanIds.has(payment.loanId || '');
                 const isTransferPayment = payment.paymentMethod === 'MONEY_TRANSFER';
                 const paymentKey = `new-${index}`;
+                
+                // Detectar si el préstamo tiene aval incompleto
+                const selectedLoan = filteredLoans?.find(loan => loan.id === payment.loanId);
+                const hasIncompleteAvalForPayment = selectedLoan ? hasIncompleteAval(selectedLoan) : false;
+                
                 return (
                 <tr 
                   key={paymentKey} 
-                  onClick={(e) => handleRowSelection(paymentKey, e)}
-                  style={{ 
-                    backgroundColor: isDeceased ? '#f3f4f6' : (isStrikethrough ? '#fee2e2' : (hasZeroCommission ? '#FEF3C7' : (isTransferPayment ? '#F3E8FF' : '#ECFDF5'))),
-                    opacity: isDeceased ? 0.6 : (isStrikethrough ? 0.7 : 1),
-                    borderLeft: isDeceased ? '4px solid #6b7280' : (isStrikethrough ? '4px solid #ef4444' : (hasZeroCommission ? '4px solid #D97706' : (isTransferPayment ? '4px solid #8B5CF6' : 'none'))),
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease'
+                  onClick={(e) => {
+                    // Si tiene aval incompleto, abrir modal de edición de aval
+                    if (hasIncompleteAvalForPayment && selectedLoan) {
+                      e.stopPropagation();
+                      openAvalEditModal(selectedLoan);
+                    } else {
+                      handleRowSelection(paymentKey, e);
+                    }
                   }}
+                  style={{ 
+                    backgroundColor: hasIncompleteAvalForPayment ? '#FFF7ED' : (isDeceased ? '#f3f4f6' : (isStrikethrough ? '#fee2e2' : (hasZeroCommission ? '#FEF3C7' : (isTransferPayment ? '#F3E8FF' : '#ECFDF5')))),
+                    opacity: isDeceased ? 0.6 : (isStrikethrough ? 0.7 : 1),
+                    borderLeft: hasIncompleteAvalForPayment ? '4px solid #F97316' : (isDeceased ? '4px solid #6b7280' : (isStrikethrough ? '4px solid #ef4444' : (hasZeroCommission ? '4px solid #D97706' : (isTransferPayment ? '4px solid #8B5CF6' : 'none')))),
+                    borderTop: hasIncompleteAvalForPayment ? '2px dashed #F97316' : 'none',
+                    borderBottom: hasIncompleteAvalForPayment ? '2px dashed #F97316' : 'none',
+                    cursor: hasIncompleteAvalForPayment ? 'pointer' : 'pointer',
+                    transition: 'all 0.2s ease',
+                    position: 'relative'
+                  }}
+                  title={hasIncompleteAvalForPayment ? '⚠️ Aval incompleto - Click para editar' : ''}
                 >
                   <td style={{ 
                     textAlign: 'center',
@@ -3745,9 +4055,10 @@ useEffect(() => {
                         return base.slice(-6);
                       };
 
-                      const selectedLoan = loansData?.loans?.find(loan => loan.id === payment.loanId);
-                      const clientCode = selectedLoan?.borrower?.personalData?.clientCode || 
-                                       shortCodeFromId(selectedLoan?.borrower?.personalData?.id);
+                      const selectedLoan = filteredLoans?.find(loan => loan.id === payment.loanId);
+                      const personalData = selectedLoan?.borrower?.personalData as any;
+                      const clientCode = personalData?.clientCode || 
+                                       shortCodeFromId(personalData?.id);
                       
                       return (
                         <span style={{
@@ -3777,7 +4088,7 @@ useEffect(() => {
                         onClick={(e) => e.stopPropagation()}
                       >
                         <Select
-                          options={loansData?.loans
+                          options={filteredLoans
                             ?.filter(loan => loan.borrower && loan.borrower.personalData)
                             ?.map(loan => ({
                               value: loan.id,
@@ -3787,10 +4098,10 @@ useEffect(() => {
                                 day: '2-digit'
                               }) : 'Sin fecha'})`
                             })) || []}
-                          value={loansData?.loans.find(loan => loan.id === payment.loanId) ? {
+                          value={filteredLoans?.find(loan => loan.id === payment.loanId) ? {
                             value: payment.loanId,
                             label: (() => {
-                            const selectedLoan = loansData.loans.find(loan => loan.id === payment.loanId);
+                            const selectedLoan = filteredLoans?.find(loan => loan.id === payment.loanId);
                             return `${selectedLoan?.borrower?.personalData?.fullName || 'Sin nombre'} (${selectedLoan?.signDate ? new Date(selectedLoan.signDate).toLocaleDateString('es-MX', {
                               year: 'numeric',
                               month: '2-digit',
@@ -3804,7 +4115,7 @@ useEffect(() => {
                       </div>
                     ) : (
                       // Pagos existentes: mostrar solo texto
-                      loansData?.loans.find(loan => loan.id === payment.loanId)?.borrower?.personalData?.fullName || 'Sin nombre'
+                      filteredLoans?.find(loan => loan.id === payment.loanId)?.borrower?.personalData?.fullName || 'Sin nombre'
                     )}
                   </td>
                   <td style={{
@@ -3812,9 +4123,9 @@ useEffect(() => {
                     color: isStrikethrough ? '#dc2626' : 'inherit',
                     fontWeight: isStrikethrough ? '500' : 'inherit'
                   }}>
-                    {payment.loanId && loansData?.loans ? 
+                    {payment.loanId && filteredLoans ? 
                       (() => {
-                        const selectedLoan = loansData.loans.find(loan => loan.id === payment.loanId);
+                        const selectedLoan = filteredLoans.find(loan => loan.id === payment.loanId);
                         return selectedLoan?.signDate ? 
                           new Date(selectedLoan.signDate).toLocaleDateString('es-MX', {
                             year: 'numeric',
@@ -3914,7 +4225,7 @@ useEffect(() => {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const loanId = (payment.loanId || payment.loan?.id || '');
+                                    const loanId = (payment.loanId || (payment as any).loan?.id || '');
                                     console.log('🔍 Botón Editar Cliente (no fallecido) clickeado, loanId:', loanId);
                                     if (!loanId) {
                                       console.log('❌ No hay loanId, cancelando');
@@ -3946,7 +4257,7 @@ useEffect(() => {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const loanId = (payment.loanId || payment.loan?.id || '');
+                                    const loanId = (payment.loanId || (payment as any).loan?.id || '');
                                     if (loanId) {
                                       const selectedLoan = loansData?.loans?.find(l => l.id === loanId);
                                       if (selectedLoan) {
@@ -4008,10 +4319,11 @@ useEffect(() => {
                                     e.stopPropagation();
                                     const selectedLoan = loansData?.loans?.find(loan => loan.id === payment.loanId);
                                     if (selectedLoan?.borrower?.personalData) {
+                                      const personalData = selectedLoan.borrower.personalData as any;
                                       setPromoteModal({
                                         isOpen: true,
-                                        clientId: selectedLoan.borrower.personalData.id,
-                                        clientName: selectedLoan.borrower.personalData.fullName || 'Cliente',
+                                        clientId: personalData.id,
+                                        clientName: personalData.fullName || 'Cliente',
                                         currentLeadId: selectedLead?.id || ''
                                       });
                                     }
@@ -4042,7 +4354,7 @@ useEffect(() => {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const loanId = (payment.loanId || payment.loan?.id || '');
+                                    const loanId = (payment.loanId || (payment as any).loan?.id || '');
                                     if (!loanId) {
                                       console.log('❌ No hay loanId, cancelando');
                                       return;
@@ -4101,7 +4413,7 @@ useEffect(() => {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const loanId = (payment.loanId || payment.loan?.id || '');
+                                    const loanId = (payment.loanId || (payment as any).loan?.id || '');
                                     if (!loanId) return;
                                     handleUnmarkAsDeceased(loanId);
                                     setShowMenuForPayment(null);
@@ -4984,6 +5296,50 @@ useEffect(() => {
               <p style={{ margin: '8px 0 0 0', color: '#697386', fontSize: '14px' }}>
                 Modifica los datos del aval para el préstamo de {avalEditModal.loan.borrower?.personalData?.fullName || 'Cliente'}
               </p>
+              {(() => {
+                const locality = avalEditModal.loan.lead?.personalData?.addresses?.[0]?.location?.name;
+                const leadName = avalEditModal.loan.lead?.personalData?.fullName;
+                // Obtener ruta desde location.route o desde lead.routes[0]
+                const routeFromLocation = avalEditModal.loan.lead?.personalData?.addresses?.[0]?.location?.route?.name;
+                const routeFromLead = avalEditModal.loan.lead?.routes?.[0]?.name;
+                const routeName = routeFromLocation || routeFromLead;
+                
+                if (locality || leadName || routeName) {
+                  return (
+                    <div style={{
+                      marginTop: '12px',
+                      padding: '12px',
+                      backgroundColor: '#F0F9FF',
+                      border: '1px solid #BAE6FD',
+                      borderRadius: '8px',
+                      fontSize: '13px',
+                      color: '#0C4A6E'
+                    }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {routeName && (
+                          <div style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span>🛣️</span>
+                            <span>Ruta: {routeName}</span>
+                          </div>
+                        )}
+                        {locality && (
+                          <div style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span>📍</span>
+                            <span>Localidad: {locality}</span>
+                          </div>
+                        )}
+                        {leadName && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span>👤</span>
+                            <span>Líder: {leadName}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
             </div>
 
             <div style={{ marginBottom: '24px' }}>
@@ -5048,6 +5404,103 @@ useEffect(() => {
           </Box>
         </Box>
       )}
+
+      {/* Modal para registrar multa */}
+      <AlertDialog 
+        title="Registrar Multa" 
+        isOpen={isMultaModalOpen} 
+        actions={{
+          confirm: { 
+            label: 'Registrar Multa', 
+            action: handleRegisterMulta,
+            loading: createIncomeLoading
+          },
+          cancel: { 
+            label: 'Cancelar', 
+            action: () => {
+              updateState({ isMultaModalOpen: false });
+              setMultaData({ amount: '', description: '', destinationAccountId: null });
+            }
+          }
+        }}
+      >
+        <Box padding="large">
+          <Box marginBottom="large">
+            <h4>Información de la Multa</h4>
+          </Box>
+          
+          <Box marginBottom="large">
+            <div style={{ marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+              Ruta: {selectedRoute?.name}
+            </div>
+            <div style={{ marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+              Fecha: {selectedDate?.toLocaleDateString('es-MX')}
+            </div>
+          </Box>
+          
+          <Box marginBottom="large">
+            <label>Monto de la Multa *</label>
+            <TextInput
+              type="number"
+              step="0.01"
+              value={multaData.amount}
+              onChange={(e) => setMultaData(prev => ({ ...prev, amount: e.target.value }))}
+              placeholder="0.00"
+            />
+          </Box>
+          
+          <Box marginBottom="large">
+            <label>Descripción (opcional)</label>
+            <TextInput
+              value={multaData.description}
+              onChange={(e) => setMultaData(prev => ({ ...prev, description: e.target.value }))}
+              placeholder="Ej: Multa por retraso en pago"
+            />
+          </Box>
+
+          {accountsData?.accounts && accountsData.accounts.length > 0 && (
+            <Box marginBottom="large">
+              <label>Cuenta de Destino *</label>
+              <Select
+                options={accountsData.accounts
+                  .filter((account: any) => 
+                    account.type === 'EMPLOYEE_CASH_FUND' || 
+                    account.type === 'BANK' || 
+                    account.type === 'BANK_ACCOUNT'
+                  )
+                  .map((account: any) => ({
+                    value: account.id,
+                    label: `${account.name} (${account.type === 'EMPLOYEE_CASH_FUND' ? 'Cuenta de Ruta' : 'Banco'}) - $${parseFloat(account.amount || '0').toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                  }))}
+                value={accountsData.accounts.find((account: any) => account.id === multaData.destinationAccountId) ? {
+                  value: multaData.destinationAccountId!,
+                  label: accountsData.accounts.find((account: any) => account.id === multaData.destinationAccountId)?.name || ''
+                } : (accountsData.accounts.find((account: any) => account.type === 'EMPLOYEE_CASH_FUND') ? {
+                  value: accountsData.accounts.find((account: any) => account.type === 'EMPLOYEE_CASH_FUND')?.id,
+                  label: accountsData.accounts.find((account: any) => account.type === 'EMPLOYEE_CASH_FUND')?.name || ''
+                } : (accountsData.accounts.find((account: any) => account.type === 'BANK' || account.type === 'BANK_ACCOUNT') ? {
+                  value: accountsData.accounts.find((account: any) => account.type === 'BANK' || account.type === 'BANK_ACCOUNT')?.id,
+                  label: accountsData.accounts.find((account: any) => account.type === 'BANK' || account.type === 'BANK_ACCOUNT')?.name || ''
+                } : null))}
+                onChange={(option) => setMultaData(prev => ({ ...prev, destinationAccountId: (option as Option)?.value || null }))}
+                placeholder="Selecciona una cuenta"
+              />
+            </Box>
+          )}
+          
+          <div style={{
+            backgroundColor: '#E0F2FE',
+            padding: '12px',
+            borderRadius: '6px',
+            fontSize: '13px',
+            color: '#0C4A6E',
+            border: '1px solid #7DD3FC'
+          }}>
+            <strong>💡 Información:</strong> Esta multa se registrará como ingreso directo de la localidad. 
+            Todo el monto se registrará como ganancia (profitAmount) y se depositará en la cuenta seleccionada.
+          </div>
+        </Box>
+      </AlertDialog>
     </Box>
   );
 };
@@ -5057,9 +5510,18 @@ export default function CustomPage() {
   const [selectedRoute, setSelectedRoute] = useState<any | null>(null);
   const [selectedLead, setSelectedLead] = useState<Employee | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [showIncompleteAvals, setShowIncompleteAvals] = useState(false);
 
   // Usar el contexto para obtener la función de refresh
   const { triggerBalanceRefresh } = useBalanceRefresh();
+
+  // Cuando se activa "ver avales incompletos", limpiar selecciones de ruta y líder
+  useEffect(() => {
+    if (showIncompleteAvals) {
+      setSelectedRoute(null);
+      setSelectedLead(null);
+    }
+  }, [showIncompleteAvals]);
 
   return (
     <PageContainer header="Abonos">
@@ -5074,12 +5536,62 @@ export default function CustomPage() {
             onDateSelect={setSelectedDate}
           />
         </Box>
+        
+        {/* Control para ver avales incompletos */}
+        <Box marginBottom="large" style={{
+          backgroundColor: '#F9FAFB',
+          border: '1px solid #E5E7EB',
+          borderRadius: '8px',
+          padding: '16px',
+          display: 'flex',
+          gap: '16px',
+          alignItems: 'center',
+          flexWrap: 'wrap'
+        }}>
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            fontWeight: '500',
+            color: '#DC2626'
+          }}>
+            <input
+              type="checkbox"
+              checked={showIncompleteAvals}
+              onChange={(e) => setShowIncompleteAvals(e.target.checked)}
+              style={{
+                width: '18px',
+                height: '18px',
+                cursor: 'pointer'
+              }}
+            />
+            <span>Ver avales incompletos</span>
+          </label>
+          {showIncompleteAvals && (
+            <div style={{
+              fontSize: '13px',
+              color: '#6B7280',
+              fontStyle: 'italic',
+              padding: '4px 12px',
+              backgroundColor: '#FFF7ED',
+              borderRadius: '6px',
+              border: '1px solid #F97316'
+            }}>
+              💡 Mostrando todos los préstamos con avales incompletos. Los préstamos aparecen marcados en naranja. Haz click en ellos para editar.
+            </div>
+          )}
+        </Box>
+        
         <CreatePaymentForm 
           selectedDate={selectedDate}
           selectedRoute={selectedRoute}
           selectedLead={selectedLead}
           refreshKey={refreshKey}
           onSaveComplete={triggerBalanceRefresh}
+          showAllLocalities={showIncompleteAvals}
+          showOnlyIncompleteAvals={showIncompleteAvals}
         />
       </Box>
     </PageContainer>

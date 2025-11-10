@@ -143,6 +143,9 @@ const expenseTypes = [
   { label: 'Renta', value: 'HOUSE_RENT' },
   { label: 'IMSS/INFONAVIT', value: 'IMSS_INFONAVIT' },
   { label: 'Pago de Mensualidad de Auto', value: 'CAR_PAYMENT' },
+  { label: 'Posada', value: 'POSADA' },
+  { label: 'Regalos Líderes', value: 'REGALOS_LIDERES' },
+  { label: 'Aguinaldo', value: 'AGUINALDO' },
   { label: 'Otro', value: 'OTRO' }
 ];
 
