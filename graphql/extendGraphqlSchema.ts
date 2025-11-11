@@ -5966,8 +5966,19 @@ export const extendGraphqlSchema = graphql.extend(base => {
             // Track previous week's activeAtEnd for each locality
             const previousWeekActiveAtEnd: { [locality: string]: number } = {};
 
+            const now = new Date();
+            
             for (const weekKey of weekOrder) {
               const { start: weekStart, end: weekEnd } = weeks[weekKey];
+              
+              // ✅ CORRECCIÓN: Saltar semanas que aún no han terminado
+              // Solo procesar semanas completadas (weekEnd < now)
+              if (weekEnd.getTime() >= now.getTime()) {
+                // Semana aún no ha terminado, crear estructura vacía pero no calcular CV
+                reportData[weekKey] = {};
+                continue;
+              }
+              
               reportData[weekKey] = {};
 
               // 🔍 DEBUG: Log general para todas las semanas
@@ -7269,13 +7280,18 @@ export const extendGraphqlSchema = graphql.extend(base => {
               }).length;
 
               // Calcular CV mensual promedio (promedio simple de CV semanal)
-              const cvMonthlyAvg = weekOrder.length > 0
-                ? (weekOrder.reduce((acc, wk) => acc + (weeklyTotals[wk]?.cv || 0), 0) / weekOrder.length)
+              // ✅ CORRECCIÓN: Solo usar semanas completadas (weekEnd < now)
+              const completedWeeks = weekOrder.filter(wk => {
+                const weekInfo = weeks[wk];
+                return weekInfo && weekInfo.end.getTime() < now.getTime();
+              });
+              const cvMonthlyAvg = completedWeeks.length > 0
+                ? (completedWeeks.reduce((acc, wk) => acc + (weeklyTotals[wk]?.cv || 0), 0) / completedWeeks.length)
                 : 0;
 
-              // KPI auxiliares por semana
-              const weeklyCv = weekOrder.map(wk => Number(weeklyTotals[wk]?.cv || 0));
-              const weeklyPayingPct = weekOrder.map(wk => {
+              // KPI auxiliares por semana (solo semanas completadas)
+              const weeklyCv = completedWeeks.map(wk => Number(weeklyTotals[wk]?.cv || 0));
+              const weeklyPayingPct = completedWeeks.map(wk => {
                 const act = Number(weeklyTotals[wk]?.activeAtEnd || 0);
                 const cv = Number(weeklyTotals[wk]?.cv || 0);
                 return act > 0 ? (1 - (cv / act)) * 100 : 0;
@@ -7347,27 +7363,32 @@ export const extendGraphqlSchema = graphql.extend(base => {
               const renewalsAvgIncreasePercent = renewalsIncreasedCount > 0 ? (renewalsIncreasePercentSum / renewalsIncreasedCount) : 0;
 
               // Deltas inicio vs fin
+              // activeStart: primera semana del mes (inicio del mes)
               const activeStart = weekOrder.length ? Number(weeklyTotals[weekOrder[0]].activeAtStart || 0) : 0;
-              const activeEnd = weekOrder.length ? Number(weeklyTotals[weekOrder[weekOrder.length - 1]].activeAtEnd || 0) : 0;
+              // activeEnd: última semana completada (no la última del mes si aún no ha terminado)
+              const activeEnd = completedWeeks.length > 0 
+                ? Number(weeklyTotals[completedWeeks[completedWeeks.length - 1]].activeAtEnd || 0)
+                : (weekOrder.length ? Number(weeklyTotals[weekOrder[weekOrder.length - 1]].activeAtEnd || 0) : 0);
               const activeDelta = activeEnd - activeStart;
 
-              const cvStart = weekOrder.length ? weeklyCv[0] : 0;
-              const cvEnd = weekOrder.length ? weeklyCv[weeklyCv.length - 1] : 0;
+              // Deltas usando solo semanas completadas (primera vs última semana completada)
+              const cvStart = completedWeeks.length ? weeklyCv[0] : 0;
+              const cvEnd = completedWeeks.length ? weeklyCv[weeklyCv.length - 1] : 0;
               const cvDelta = cvEnd - cvStart;
 
-              const payStart = weekOrder.length ? weeklyPayingPct[0] : 0;
-              const payEnd = weekOrder.length ? weeklyPayingPct[weeklyPayingPct.length - 1] : 0;
+              const payStart = completedWeeks.length ? weeklyPayingPct[0] : 0;
+              const payEnd = completedWeeks.length ? weeklyPayingPct[weeklyPayingPct.length - 1] : 0;
               const payDelta = payEnd - payStart;
 
-              // Totales/Promedios
+              // Totales/Promedios (solo semanas completadas)
               const payingPercentMonthlyAvg = weeklyPayingPct.length ? (weeklyPayingPct.reduce((a, b) => a + b, 0) / weeklyPayingPct.length) : 0;
-              const payingClientsWeeklyAvg = weekOrder.length > 0
-                ? (weekOrder.reduce((sum, wk) => {
+              const payingClientsWeeklyAvg = completedWeeks.length > 0
+                ? (completedWeeks.reduce((sum, wk) => {
                     const wt: any = weeklyTotals[wk] || {};
                     const act = Number(wt.activeAtEnd || 0);
                     const cv = Number(wt.cv || 0);
                     return sum + Math.max(0, act - cv);
-                  }, 0) / weekOrder.length)
+                  }, 0) / completedWeeks.length)
                 : 0;
 
               // CV promedio mes anterior (usando mismas semanas activas del mes anterior aprox: promediamos por semanas del mes anterior según semana del último día)
@@ -7434,10 +7455,12 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
               } catch {}
 
-              // Clientes pagando al cierre del mes actual (activos al final - CV de la última semana)
-              const payingClientsEndOfMonth = (weekOrder.length > 0)
-                ? Math.max(0, Number(weeklyTotals[weekOrder[weekOrder.length - 1]].activeAtEnd || 0) - Number(weeklyTotals[weekOrder[weekOrder.length - 1]].cv || 0))
-                : 0;
+              // Clientes pagando al cierre del mes actual (activos al final - CV de la última semana completada)
+              const payingClientsEndOfMonth = (completedWeeks.length > 0)
+                ? Math.max(0, Number(weeklyTotals[completedWeeks[completedWeeks.length - 1]].activeAtEnd || 0) - Number(weeklyTotals[completedWeeks[completedWeeks.length - 1]].cv || 0))
+                : (weekOrder.length > 0
+                  ? Math.max(0, Number(weeklyTotals[weekOrder[weekOrder.length - 1]].activeAtEnd || 0) - Number(weeklyTotals[weekOrder[weekOrder.length - 1]].cv || 0))
+                  : 0);
 
               // Clientes pagando del mes anterior (aprox usando la última semana activa del mes anterior)
               let payingClientsPrevMonth = 0;
@@ -7604,12 +7627,18 @@ export const extendGraphqlSchema = graphql.extend(base => {
               weeklyTotals,
               summary: {
                 totalActiveAtMonthStart: weekOrder.length > 0 ? weeklyTotals[weekOrder[0]].activeAtStart : 0,
-                totalActiveAtMonthEnd: weekOrder.length > 0 ? weeklyTotals[weekOrder[weekOrder.length - 1]].activeAtEnd : 0,
+                // ✅ CORRECCIÓN: Usar última semana completada, no la última del mes si aún no ha terminado
+                totalActiveAtMonthEnd: completedWeeks.length > 0 
+                  ? weeklyTotals[completedWeeks[completedWeeks.length - 1]].activeAtEnd
+                  : (weekOrder.length > 0 ? weeklyTotals[weekOrder[weekOrder.length - 1]].activeAtEnd : 0),
                 totalGrantedInMonth: grantedInMonth,
                 totalFinishedInMonth: finishedInMonth,
                   totalFinishedByCleanupInMonth: finishedByCleanupInMonth,
                   totalFinishedByCleanupToDate: cleanupToDateCount,
-                netChangeInMonth: weekOrder.length > 0 ? weeklyTotals[weekOrder[weekOrder.length - 1]].activeAtEnd - weeklyTotals[weekOrder[0]].activeAtStart : 0,
+                // ✅ CORRECCIÓN: Calcular cambio usando última semana completada
+                netChangeInMonth: completedWeeks.length > 0
+                  ? weeklyTotals[completedWeeks[completedWeeks.length - 1]].activeAtEnd - weeklyTotals[weekOrder[0]].activeAtStart
+                  : (weekOrder.length > 0 ? weeklyTotals[weekOrder[weekOrder.length - 1]].activeAtEnd - weeklyTotals[weekOrder[0]].activeAtStart : 0),
                 cvMonthlyAvg,
                 cvMonthlyAvgPrev,
                 payingPercentMonthlyAvg,
