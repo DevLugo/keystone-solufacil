@@ -118,17 +118,17 @@ const CREATE_INCOME_TRANSACTION = gql`
 `;
 
 // Query optimizada para avales incompletos - solo trae los campos necesarios
+// Campos eliminados (no se usan en la UI):
+// - status, badDebtDate, amountGived, profitAmount (no se usan en la UI)
+// - payments (vienen de otra query GET_LEAD_PAYMENTS)
+// NOTA: lead se mantiene porque se usa en el modal de edición de aval cuando showAllLocalities está activo
 const GET_LOANS_WITH_INCOMPLETE_AVALS = gql`
   query LoansWithIncompleteAvals($where: LoanWhereInput!, $take: Int, $skip: Int) {
     loans(where: $where, orderBy: [{ signDate: asc }, { id: asc }], take: $take, skip: $skip) {
       id
       weeklyPaymentAmount
       signDate
-      status
       finishedDate
-      badDebtDate
-      amountGived
-      profitAmount
       loantype {
         id
         name
@@ -171,12 +171,6 @@ const GET_LOANS_WITH_INCOMPLETE_AVALS = gql`
           number
         }
       }
-      payments {
-        id
-        receivedAt
-        amount
-        paymentMethod
-      }
     }
     loansCount(where: $where)
   }
@@ -189,11 +183,7 @@ const GET_LOANS_BY_LEAD = gql`
       id
       weeklyPaymentAmount
       signDate
-      status
       finishedDate
-      badDebtDate
-      amountGived
-      profitAmount
       loantype {
         id
         name
@@ -206,13 +196,6 @@ const GET_LOANS_BY_LEAD = gql`
           clientCode
         }
       }
-      lead {
-        id
-        personalData {
-          id
-          fullName
-        }
-      }
       collaterals {
         id
         fullName
@@ -220,12 +203,6 @@ const GET_LOANS_BY_LEAD = gql`
           id
           number
         }
-      }
-      payments {
-        id
-        receivedAt
-        amount
-        paymentMethod
       }
     }
   }
