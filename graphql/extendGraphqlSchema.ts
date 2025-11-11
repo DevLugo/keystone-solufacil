@@ -4330,10 +4330,11 @@ export const extendGraphqlSchema = graphql.extend(base => {
           try {
             console.log(`🎂 Buscando cumpleaños para el mes: ${month}`);
             
-            // Get all employees with type ROUTE_LEAD who have birthDate
+            // Get all employees with type LEAD who have birthDate
+            // Actualizado: ahora se usa 'LEAD' en lugar de 'ROUTE_LEAD'
             const leaders = await context.prisma.employee.findMany({
               where: {
-                type: { equals: 'ROUTE_LEAD' },
+                type: { equals: 'LEAD' },
                 personalData: {
                   birthDate: { not: null }
                 }
