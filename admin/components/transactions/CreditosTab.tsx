@@ -1309,25 +1309,25 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
             });
             
             // ✅ CORREGIDO: Actualizar específicamente los campos del aval
-      const collateral = value.selectedCollateralId ? { id: value.selectedCollateralId, fullName: value.avalName, phones: [{ id: value.selectedCollateralPhoneId, number: value.avalPhone }] } : null;
-      const { selectedCollateralId, selectedCollateralPhoneId, avalAction, avalName, avalPhone, ...rest } = updatedRow;
-      const newRow = { 
-        id: updatedRow.id,
-        requestedAmount: updatedRow.requestedAmount,
-        amountGived: updatedRow.amountGived,
-        amountToPay: updatedRow.amountToPay,
-        signDate: updatedRow.signDate,
-        comissionAmount: updatedRow.comissionAmount,
-        loantype: updatedRow.loantype,
-        borrower: updatedRow.borrower,
-        previousLoan: updatedRow.previousLoan,
+      const collateral = value.selectedCollateralId
+        ? {
+            id: value.selectedCollateralId,
+            fullName: value.avalName,
+            phones: [{ id: value.selectedCollateralPhoneId, number: value.avalPhone }],
+          }
+        : null;
+
+      // Mantener el objeto de la fila y solo actualizar campos relacionados al aval,
+      // sin perder metadatos como selectedCollateralId ni previousLoanOption
+      updatedRow = {
+        ...updatedRow,
         collaterals: collateral ? [collateral] : [],
-        lead: selectedLead,
-        finishedDate: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      } as unknown as Loan;
-      updatedRow = { ...newRow, id: newRow.id, __typename: 'Loan', collaterals: newRow.collaterals } as unknown as ExtendedLoan & { id: string; selectedCollateralId?: string; selectedCollateralPhoneId?: string; avalAction?: "create" | "update" | "connect" | "clear"; avalName?: string; avalPhone?: string; avalData?: { avalName?: string; avalPhone?: string }; previousLoanOption?: any; weeklyPaymentAmount?: string; totalDebtAcquired?: string; pendingAmountStored?: string; status?: string; profitAmount?: string; renewedDate?: string; excludedByCleanup?: boolean; payments?: any[]; addresses?: any[]; phones?: any[]; personalData?: any; fullName?: string; number?: string; location?: any; name?: string };
+        selectedCollateralId: value.selectedCollateralId,
+        selectedCollateralPhoneId: value.selectedCollateralPhoneId,
+        avalAction: value.avalAction,
+        avalName: value.avalName,
+        avalPhone: value.avalPhone,
+      } as ExtendedLoan;
             
             // ✅ DEBUG: Log del row actualizado
             console.log('🔍 HANDLE ROW CHANGE - row actualizado:', {
