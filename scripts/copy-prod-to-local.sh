@@ -77,6 +77,11 @@ echo "🔧 Arreglando restricciones de clave foránea..."
 # Ejecutar el script de arreglo de claves foráneas
 ./scripts/fix-foreign-keys.sh
 
+echo "🧹 Limpiando referencias a usuarios inexistentes..."
+# Limpiar referencias a usuarios que no existen en las tablas Employee y TelegramUser
+psql "$LOCAL_DB" -c "UPDATE \"Employee\" SET \"user\" = NULL WHERE \"user\" NOT IN (SELECT id FROM \"User\");"
+psql "$LOCAL_DB" -c "UPDATE \"TelegramUser\" SET \"platformUser\" = NULL WHERE \"platformUser\" NOT IN (SELECT id FROM \"User\");"
+
 echo "🔑 Verificando usuario de acceso..."
 # Verificar que el usuario se creó correctamente
 psql "$LOCAL_DB" -c "SELECT id, name, email, role FROM \"User\" WHERE email = 'elugo.isi@gmail.com';"

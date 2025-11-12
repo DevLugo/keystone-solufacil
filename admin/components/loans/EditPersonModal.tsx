@@ -1,7 +1,7 @@
 /** @jsxRuntime classic */
 /** @jsx jsx */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { jsx } from '@keystone-ui/core';
 import { Button } from '@keystone-ui/button';
 import { TextInput } from '@keystone-ui/fields';
@@ -82,10 +82,15 @@ const EditPersonModal: React.FC<EditPersonModalProps> = ({
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const fullNameInputRef = useRef<any>(null);
+  const phoneInputRef = useRef<any>(null);
 
   const [updatePersonalDataName] = useMutation(UPDATE_PERSONAL_DATA_NAME);
   const [updatePersonalDataPhone] = useMutation(UPDATE_PERSONAL_DATA_PHONE);
   const [createPhone] = useMutation(CREATE_PHONE);
+
+  // Estado para preservar la posición del cursor
+  const [cursorPosition, setCursorPosition] = useState<{ fullName?: number; phone?: number }>({});
 
   useEffect(() => {
     if (person) {
@@ -93,6 +98,70 @@ const EditPersonModal: React.FC<EditPersonModalProps> = ({
       setPhone(person.phones?.[0]?.number || '');
     }
   }, [person]);
+
+  // Restaurar posición del cursor después de actualizar el estado
+  useEffect(() => {
+    if (cursorPosition.fullName !== undefined && fullNameInputRef.current) {
+      // Usar setTimeout para asegurar que el DOM se haya actualizado
+      setTimeout(() => {
+        const input = fullNameInputRef.current;
+        if (!input) return;
+        
+        // Buscar el input real dentro del componente TextInput
+        let actualInput: HTMLInputElement | null = null;
+        if (input instanceof HTMLInputElement) {
+          actualInput = input;
+        } else {
+          actualInput = input.querySelector('input');
+        }
+        
+        if (actualInput) {
+          actualInput.focus();
+          actualInput.setSelectionRange(cursorPosition.fullName!, cursorPosition.fullName!);
+        }
+        setCursorPosition(prev => ({ ...prev, fullName: undefined }));
+      }, 0);
+    }
+  }, [fullName, cursorPosition.fullName]);
+
+  useEffect(() => {
+    if (cursorPosition.phone !== undefined && phoneInputRef.current) {
+      setTimeout(() => {
+        const input = phoneInputRef.current;
+        if (!input) return;
+        
+        let actualInput: HTMLInputElement | null = null;
+        if (input instanceof HTMLInputElement) {
+          actualInput = input;
+        } else {
+          actualInput = input.querySelector('input');
+        }
+        
+        if (actualInput) {
+          actualInput.focus();
+          actualInput.setSelectionRange(cursorPosition.phone!, cursorPosition.phone!);
+        }
+        setCursorPosition(prev => ({ ...prev, phone: undefined }));
+      }, 0);
+    }
+  }, [phone, cursorPosition.phone]);
+
+  // Handlers que preservan la posición del cursor
+  const handleFullNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
+    const cursorPos = input.selectionStart || 0;
+    const newValue = e.target.value.toUpperCase();
+    setFullName(newValue);
+    // Guardar la posición del cursor ajustada por la transformación
+    setCursorPosition(prev => ({ ...prev, fullName: cursorPos }));
+  };
+
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
+    const cursorPos = input.selectionStart || 0;
+    setPhone(e.target.value);
+    setCursorPosition(prev => ({ ...prev, phone: cursorPos }));
+  };
 
   const handleSave = async () => {
     if (!person || !fullName.trim()) return;
@@ -210,9 +279,10 @@ const EditPersonModal: React.FC<EditPersonModalProps> = ({
 
         <div style={{ marginBottom: '16px' }}>
           <TextInput
+            ref={fullNameInputRef}
             label="Nombre completo"
             value={fullName}
-            onChange={(e) => setFullName(e.target.value.toUpperCase())}
+            onChange={handleFullNameChange}
             placeholder="Ingresa el nombre completo"
             autoFocus
           />
@@ -220,9 +290,10 @@ const EditPersonModal: React.FC<EditPersonModalProps> = ({
 
         <div style={{ marginBottom: '24px' }}>
           <TextInput
+            ref={phoneInputRef}
             label="Teléfono"
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
+            onChange={handlePhoneChange}
             placeholder="Ingresa el teléfono"
           />
         </div>
