@@ -498,18 +498,22 @@ export const CreateExpensesForm = ({
         const perRoute = Math.floor((amountNum / routes.length) * 100) / 100;
         let remainder = parseFloat((amountNum - perRoute * routes.length).toFixed(2));
 
+        // Obtener el tipo de cuenta de la cuenta seleccionada originalmente
+        const selectedAccountId = transaction.sourceAccount?.connect?.id;
+        const originalAccount = selectedRoute?.accounts?.find(a => a.id === selectedAccountId);
+        const accountType = originalAccount?.type;
+        
+        if (!accountType) continue;
+
         for (let i = 0; i < routes.length; i++) {
           const routeId = routes[i];
           const routeObj = allRoutes.find(r => r.id === routeId) as Route | undefined;
           
           if (!routeObj) continue;
           
-          // 🔧 CORRECCIÓN: Usar la cuenta específica seleccionada por el usuario
-          // En lugar de asumir automáticamente qué cuenta usar basado en el tipo de gasto
-          const selectedAccountId = transaction.sourceAccount?.connect?.id;
-          const account = selectedAccountId 
-            ? routeObj.accounts?.find(a => a.id === selectedAccountId)
-            : null;
+          // 🔧 CORRECCIÓN: Buscar cuenta por tipo en lugar de por ID
+          // Cada ruta tiene sus propias cuentas con IDs únicos, pero del mismo tipo
+          const account = routeObj.accounts?.find(a => a.type === accountType);
           
           if (!account?.id) continue;
           
@@ -737,6 +741,18 @@ export const CreateExpensesForm = ({
           const perRoute = Math.floor((amountNum / routes.length) * 100) / 100;
           let remainder = parseFloat((amountNum - perRoute * routes.length).toFixed(2));
           
+          // Obtener el tipo de cuenta de la cuenta seleccionada originalmente
+          const selectedAccountId = transaction.sourceAccount?.connect?.id;
+          const originalAccount = selectedRoute?.accounts?.find(a => a.id === selectedAccountId);
+          const accountType = originalAccount?.type;
+          
+          if (!accountType) {
+            console.error(`❌ No se pudo determinar el tipo de cuenta para la transacción distribuida`);
+            console.log(`🔍 Cuenta seleccionada ID: ${selectedAccountId}`);
+            console.log(`🔍 Cuentas disponibles en ruta original:`, selectedRoute?.accounts?.map(a => ({ id: a.id, type: a.type, name: a.name })));
+            continue;
+          }
+          
           for (let i = 0; i < routes.length; i++) {
             const routeId = routes[i];
             const routeObj = allRoutes.find(r => r.id === routeId) as Route | undefined;
@@ -748,16 +764,13 @@ export const CreateExpensesForm = ({
             
             console.log(`🔍 Ruta ${routeObj.name} tiene ${routeObj.accounts?.length || 0} cuentas:`, routeObj.accounts?.map(a => ({ id: a.id, type: a.type, name: a.name })));
             
-            // 🔧 CORRECCIÓN: Usar la cuenta específica seleccionada por el usuario
-            // En lugar de asumir automáticamente qué cuenta usar basado en el tipo de gasto
-            const selectedAccountId = transaction.sourceAccount?.connect?.id;
-            const account = selectedAccountId 
-              ? routeObj.accounts?.find(a => a.id === selectedAccountId)
-              : null;
+            // 🔧 CORRECCIÓN: Buscar cuenta por tipo en lugar de por ID
+            // Cada ruta tiene sus propias cuentas con IDs únicos, pero del mismo tipo
+            const account = routeObj.accounts?.find(a => a.type === accountType);
             
             if (!account?.id) {
-              console.error(`❌ No se encontró cuenta para la ruta ${routeId} (${routeObj.name}) en transacción distribuida`);
-              console.log(`🔍 Buscando cuenta con expenseSource: ${transaction.expenseSource}`);
+              console.error(`❌ No se encontró cuenta de tipo ${accountType} para la ruta ${routeId} (${routeObj.name}) en transacción distribuida`);
+              console.log(`🔍 Buscando cuenta con tipo: ${accountType}`);
               console.log(`🔍 Cuentas disponibles:`, routeObj.accounts?.map(a => ({ id: a.id, type: a.type, name: a.name })));
               continue;
             }
@@ -956,14 +969,26 @@ export const CreateExpensesForm = ({
       // 🔍 Validar balances antes de proceder con la edición
       console.log('🔍 Validando balances para edición de gasto distribuido...');
       
+      // Obtener el tipo de cuenta de la cuenta seleccionada originalmente
+      const originalAccount = g.sourceAccountId 
+        ? (selectedRoute?.accounts?.find(a => a.id === g.sourceAccountId) ||
+           allRoutes.flatMap(r => r.accounts || []).find(a => a.id === g.sourceAccountId))
+        : null;
+      const accountType = originalAccount?.type;
+      
+      if (!accountType) {
+        alert('❌ No se pudo determinar el tipo de cuenta para la edición');
+        setIsUpdating(null);
+        return;
+      }
+      
       // Crear transacciones temporales para validación
       const tempTransactions = g.routeIds.map(routeId => {
         const routeObj = allRoutes.find(r => r.id === routeId);
         
-        // 🔧 CORRECCIÓN: Usar la cuenta específica seleccionada por el usuario
-        const account = g.sourceAccountId 
-          ? routeObj?.accounts?.find(a => a.id === g.sourceAccountId)
-          : null;
+        // 🔧 CORRECCIÓN: Buscar cuenta por tipo en lugar de por ID
+        // Cada ruta tiene sus propias cuentas con IDs únicos, pero del mismo tipo
+        const account = routeObj?.accounts?.find(a => a.type === accountType);
         
         const perRoute = Math.floor((amountNum / g.routeIds.length) * 100) / 100;
         
@@ -1079,15 +1104,26 @@ export const CreateExpensesForm = ({
           });
         }
         
+        // Obtener el tipo de cuenta de la cuenta seleccionada originalmente
+        const originalAccount = g.sourceAccountId 
+          ? (selectedRoute?.accounts?.find(a => a.id === g.sourceAccountId) ||
+             allRoutes.flatMap(r => r.accounts || []).find(a => a.id === g.sourceAccountId))
+          : null;
+        const accountType = originalAccount?.type;
+        
+        if (!accountType) {
+          console.error('❌ No se pudo determinar el tipo de cuenta para crear nuevas transacciones');
+          setIsUpdating(null);
+          return;
+        }
+        
         // 3. Crear transacciones para rutas nuevas
         for (let i = 0; i < toCreate.length; i++) {
           const routeId = toCreate[i];
           const routeObj = allRoutes.find(r => r.id === routeId);
-          // 🔧 CORRECCIÓN: Usar la cuenta específica seleccionada por el usuario
-          // En lugar de asumir automáticamente qué cuenta usar basado en el tipo de gasto
-          const account = g.sourceAccountId 
-            ? routeObj?.accounts?.find(a => a.id === g.sourceAccountId)
-            : null;
+          // 🔧 CORRECCIÓN: Buscar cuenta por tipo en lugar de por ID
+          // Cada ruta tiene sus propias cuentas con IDs únicos, pero del mismo tipo
+          const account = routeObj?.accounts?.find(a => a.type === accountType);
           
           const thisAmount = i === toCreate.length - 1 
             ? parseFloat((perRoute + remainder).toFixed(2)) 
