@@ -184,15 +184,8 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
   // Query para buscar personas (solo en modo 'aval')
   const [searchPersons, { loading: searchPersonsLoading }] = useLazyQuery(SEARCH_POTENTIAL_COLLATERALS, {
     onCompleted: (data) => {
-      
       if (mode === 'aval') {
         let filteredResults = data.personalDatas || [];
-        
-        console.log('🔵 [AVAL] Resultados antes de filtrar:', {
-          count: filteredResults.length,
-          usedPersonIds,
-          selectedPersonId
-        });
         
         // Filtrar personas ya usadas
         if (usedPersonIds.length > 0) {
@@ -204,31 +197,24 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
           });
         }
         
-        console.log('🔵 [AVAL] Resultados después de filtrar:', {
-          count: filteredResults.length
-        });
-        
         // Convertir a formato de opciones
         const options = filteredResults.map((person: any) => {
-          
           // Priorizar localidad del líder del préstamo donde es aval
           // Si no hay, usar la localidad de la dirección de la persona
           let location = null;
           if (person.loansAsCollateral && person.loansAsCollateral.length > 0) {
             // Obtener localidad del líder del préstamo más reciente donde es aval
             location = person.loansAsCollateral[0]?.lead?.personalData?.addresses?.[0]?.location;
-            console.log('🔵 [AVAL] Localidad obtenida del líder del préstamo:', location);
           }
           
           // Fallback: usar localidad de la dirección de la persona
           if (!location && person.addresses && person.addresses.length > 0) {
             location = person.addresses[0]?.location;
-            console.log('🔵 [AVAL] Localidad obtenida de la dirección de la persona:', location);
           }
           
           const isDifferentLocation = borrowerLocationId && location?.id && location.id !== borrowerLocationId;
           
-          const option = {
+          return {
             value: person.id,
             label: `${person.fullName} - ${person.phones?.[0]?.number || 'Sin teléfono'}`,
             personData: person,
@@ -236,25 +222,6 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
             locationColor: isDifferentLocation ? '#F59E0B' : '#3B82F6',
             isDifferentLocation
           };
-          
-          console.log('🔵 [AVAL] Opción creada:', {
-            value: option.value,
-            label: option.label,
-            location: option.location,
-            locationColor: option.locationColor,
-            isDifferentLocation: option.isDifferentLocation
-          });
-          
-          return option;
-        });
-        
-        console.log('🔵 [AVAL] Opciones finales:', {
-          count: options.length,
-          options: options.map((opt: any) => ({
-            label: opt.label,
-            location: opt.location,
-            locationColor: opt.locationColor
-          }))
         });
         
         setFilteredOptions(options);
@@ -265,7 +232,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
       }
     },
     onError: (error) => {
-      console.error('🔴 [AVAL] Error searching persons:', error);
+      console.error('Error searching persons:', error);
     }
   });
   
@@ -378,8 +345,6 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
   // Restaurar focus después de re-render si estaba enfocado antes
   useEffect(() => {
     if (shouldPreserveFocusRef.current && inputRef.current && document.activeElement !== inputRef.current) {
-      console.log('🔵 Restaurando focus después de re-render');
-      // Usar requestAnimationFrame para asegurar que el DOM esté listo
       requestAnimationFrame(() => {
         if (inputRef.current) {
           inputRef.current.focus();
@@ -393,17 +358,14 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
 
   // Sincronizar searchText con currentName cuando cambia desde fuera o cuando hay préstamo previo
   useEffect(() => {
-    
     // No actualizar searchText si el usuario está escribiendo (input enfocado o escribiendo)
     // O si estamos preservando el focus (significa que el usuario estaba escribiendo)
     if (isInputFocused || isTypingRef.current || shouldPreserveFocusRef.current) {
-      console.log('⏸️ useEffect bloqueado: usuario escribiendo o preservando focus');
       return;
     }
     
     // Si el currentName es el mismo que el último sincronizado, no hacer nada
     if (currentName === lastSyncedNameRef.current) {
-      console.log('⏸️ useEffect bloqueado: ya sincronizado');
       return;
     }
     
@@ -1106,25 +1068,9 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
               );
             } else {
               // Modo aval: mostrar personas
-              console.log('🟢 [AVAL] Renderizando opción:', {
-                optionValue: option.value,
-                optionLabel: option.label,
-                optionLocation: option.location,
-                optionLocationColor: option.locationColor,
-                optionIsDifferentLocation: option.isDifferentLocation,
-                fullOption: option
-              });
-              
               const location = option.location || 'Sin localidad';
               const isDifferentLocation = option.isDifferentLocation || false;
               const locationColor = option.locationColor || '#3B82F6';
-              
-              console.log('🟢 [AVAL] Valores finales para render:', {
-                location,
-                isDifferentLocation,
-                locationColor,
-                willShowLocation: location && location !== 'Sin localidad'
-              });
               
               return (
                 <div

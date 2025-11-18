@@ -516,36 +516,23 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
   
   // Obtener la localidad del lead seleccionado
   const selectedLeadLocation = useMemo(() => {
-    console.log('📍 Calculando selectedLeadLocation:', {
-      hasLoansData: !!loansData,
-      loansCount: loansData?.loans?.length || 0,
-      selectedLead: selectedLead?.id,
-      hasLeadInfoData: !!leadInfoData,
-      leadInfoData: leadInfoData
-    });
-    
     // Primero intentar desde leadInfoData (más confiable)
     if (leadInfoData?.employee?.personalData?.addresses?.[0]?.location) {
-      const location = {
+      return {
         id: leadInfoData.employee.personalData.addresses[0].location.id,
         name: leadInfoData.employee.personalData.addresses[0].location.name
       };
-      console.log('📍 selectedLeadLocation calculado desde leadInfoData:', location);
-      return location;
     }
     
     // Fallback: intentar desde loansData
     if (loansData?.loans && loansData.loans.length > 0) {
       const firstLoan = loansData.loans[0] as any;
-      const location = {
+      return {
         id: firstLoan.lead?.personalData?.addresses?.[0]?.location?.id,
         name: firstLoan.lead?.personalData?.addresses?.[0]?.location?.name
       };
-      console.log('📍 selectedLeadLocation calculado desde loansData:', location);
-      return location;
     }
     
-    console.log('📍 selectedLeadLocation es null');
     return null;
   }, [loansData, leadInfoData, selectedLead]);
   
@@ -878,7 +865,6 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
           refetchLoans(),
           refetchRoute()
         ]).then(() => {
-          console.log('✅ Préstamo actualizado y datos refrescados');
         });
 
         triggerRefresh();
@@ -1101,13 +1087,6 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
       updatedRow.loantype = selectedType;
       updatedRow.comissionAmount = (selectedType?.loanGrantedComission ?? 0).toString();
     } else if (field === 'clientData') {
-      console.log('🟠 handleRowChange - clientData:', {
-        clientName: value.clientName,
-        clientPhone: value.clientPhone,
-        index,
-        isNewRow,
-        previousBorrowerName: updatedRow.borrower?.personalData?.fullName
-      });
       const currentPersonalData = updatedRow.borrower?.personalData;
       const currentPhoneId = currentPersonalData?.phones?.[0]?.id || '';
       updatedRow.borrower = { 
@@ -1360,19 +1339,9 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
   return (
     <div style={{ paddingTop: '24px' }}>
       {/* AlertDialog de localidad diferente */}
-      {(() => {
-        console.log('🎭 Renderizando AlertDialog de localidad:', {
-          open: locationMismatchDialogOpen.open,
-          clientLocation: locationMismatchDialogOpen.clientLocation,
-          leadLocation: locationMismatchDialogOpen.leadLocation,
-          fullState: locationMismatchDialogOpen
-        });
-        return null;
-      })()}
       <AlertDialog
         open={locationMismatchDialogOpen.open}
         onOpenChange={(open) => {
-          console.log('🔄 AlertDialog onOpenChange llamado:', { open, currentState: locationMismatchDialogOpen });
           setLocationMismatchDialogOpen({ open, clientLocation: '', leadLocation: '' });
         }}
       >
@@ -1389,7 +1358,6 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => {
-              console.log('❌ Botón Entendido clickeado');
               setLocationMismatchDialogOpen({ open: false, clientLocation: '', leadLocation: '' });
             }}>
               Entendido
@@ -1556,7 +1524,6 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
               }}>
                 <Button
                   onClick={() => {
-                    console.log('Reportar falco de créditos');
                     setShowPrimaryMenu(false);
                   }}
                   variant="ghost"
@@ -1825,12 +1792,6 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                             clientPersonalDataId={loan.borrower?.personalData?.id}
                             clientPhoneId={loan.borrower?.personalData?.phones?.[0]?.id}
                             onNameChange={(name) => {
-                              console.log('🔴 onNameChange llamado desde padre:', {
-                                name,
-                                index,
-                                isNewRow,
-                                currentLoanName: loan.borrower?.personalData?.fullName
-                              });
                               const currentPhone = loan.borrower?.personalData?.phones?.[0]?.number || '';
                               handleRowChange(index, 'clientData', { clientName: name, clientPhone: currentPhone, action: 'create' }, isNewRow);
                             }}
@@ -1851,27 +1812,11 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                             isLoading={allPreviousLoansLoading || isSearchingLoans}
                             selectedLeadLocationId={selectedLeadLocation?.id}
                             onLocationMismatch={(clientLocation, leadLocation) => {
-                              console.log('🚨 onLocationMismatch llamado en CreditosTabNew:', {
-                                clientLocation,
-                                leadLocation,
-                                selectedLeadLocation,
-                                selectedLeadLocationName: selectedLeadLocation?.name,
-                                currentDialogState: locationMismatchDialogOpen
-                              });
-                              
-                              const newState = {
+                              setLocationMismatchDialogOpen({
                                 open: true,
                                 clientLocation,
                                 leadLocation: selectedLeadLocation?.name || 'desconocida'
-                              };
-                              
-                              console.log('🚨 Actualizando locationMismatchDialogOpen a:', newState);
-                              setLocationMismatchDialogOpen(newState);
-                              
-                              // Verificar el estado después de un pequeño delay
-                              setTimeout(() => {
-                                console.log('🚨 Estado después de actualizar:', locationMismatchDialogOpen);
-                              }, 100);
+                              });
                             }}
                             onSearchTextChange={(text) => {
                               setDropdownSearchTextByRow(prev => ({
