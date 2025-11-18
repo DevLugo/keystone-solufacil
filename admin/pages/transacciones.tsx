@@ -14,6 +14,7 @@ import type { Route, Employee } from '../types/transaction';
 import type { RouteWithEmployees, EmployeeWithTypename } from '../types/components';
 import { CreateExpensesForm } from '../components/transactions/gastosTab';
 import { CreditosTab } from '../components/transactions/CreditosTab';
+import { CreditosTabNew } from '../components/transactions/CreditosTabNew';
 import { CreatePaymentForm } from '../components/transactions/abonosTab';
 import { SummaryTab } from '../components/transactions/SummaryTab';
 import TransferForm from '../components/transactions/TransferTab';
@@ -300,6 +301,14 @@ function TransaccionesPageContent() {
             selectedLead={toCreditLead(selectedLead)}
           />
         );
+      case 'creditsTabNew':
+        return (
+          <CreditosTabNew
+            selectedDate={selectedDate}
+            selectedRoute={selectedRoute?.id || null}
+            selectedLead={toCreditLead(selectedLead)}
+          />
+        );
       case 'payments':
         return (
           <>
@@ -416,6 +425,7 @@ function TransaccionesPageContent() {
               { key: 'summary', label: 'Resumen', testId: 'tab-summary' },
               { key: 'payments', label: 'Abonos', testId: 'tab-payments' },
               { key: 'credits', label: 'Créditos', testId: 'tab-credits' },
+              { key: 'creditsTabNew', label: 'Créditos (Nuevo)', testId: 'tab-credits-new' },
               { key: 'expenses', label: 'Gastos', testId: 'tab-expenses' },
               { key: 'transfers', label: 'Transferencias', testId: 'tab-transfers' }
             ].map((tab, index) => (

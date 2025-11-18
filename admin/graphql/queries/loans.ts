@@ -123,6 +123,25 @@ export const SEARCH_POTENTIAL_COLLATERALS = gql`
           name
         }
       }
+      # Obtener préstamos donde esta persona es aval (collateral)
+      # y de ahí obtener la localidad del líder
+      loansAsCollateral(take: 1, orderBy: { signDate: desc }) {
+        id
+        lead {
+          id
+          personalData {
+            id
+            fullName
+            addresses {
+              id
+              location {
+                id
+                name
+              }
+            }
+          }
+        }
+      }
     }
   }
 `;
