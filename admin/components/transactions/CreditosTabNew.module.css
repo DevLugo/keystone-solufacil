@@ -1,0 +1,637 @@
+/* Estilos modernos 2025 para CreditosTabNew */
+
+/* Barra de KPIs - Diseño limpio y profesional */
+.kpiBar {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.kpiChipsContainer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  flex: 1 1 auto;
+}
+
+.kpiChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 6px;
+  transition: all 150ms ease;
+  cursor: default;
+  border: 1px solid;
+}
+
+.kpiChip:hover {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+}
+
+.kpiIcon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.kpiLabel {
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.kpiValue {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+/* Variantes de colores para KPIs - Colores sutiles */
+.kpiChip.neutral {
+  color: #374151;
+  background: #f9fafb;
+  border-color: #e5e7eb;
+}
+
+.kpiChip.blue {
+  color: #1e40af;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.kpiChip.amber {
+  color: #92400e;
+  background: #fef3c7;
+  border-color: #fde68a;
+}
+
+.kpiChip.pink {
+  color: #be185d;
+  background: #fdf2f8;
+  border-color: #fbcfe8;
+}
+
+.kpiChip.green {
+  color: #166534;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.kpiChip.purple {
+  color: #6d28d9;
+  background: #f5f3ff;
+  border-color: #ddd6fe;
+}
+
+/* Botones modernos */
+.modernButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+}
+
+.modernButton:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+
+.modernButton:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.modernButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.modernButton.primary {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+}
+
+.modernButton.secondary {
+  background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.modernButton.danger {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+}
+
+/* Tabla moderna */
+.modernTable {
+  background: white;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e5e7eb;
+}
+
+.modernTableHeader {
+  background: linear-gradient(to bottom, #fafafa 0%, #f5f5f5 100%);
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.modernTableRow {
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.modernTableRow:hover {
+  background: #fafafa;
+}
+
+.modernTableRow:last-child {
+  border-bottom: none;
+}
+
+/* Inputs modernos */
+.modernInput {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: white;
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.modernInput:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.modernInput:hover:not(:focus) {
+  border-color: #d1d5db;
+}
+
+/* Badges y etiquetas */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid;
+}
+
+.badge.success {
+  background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+  color: #065f46;
+  border-color: #6ee7b7;
+}
+
+.badge.info {
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+  color: #1e40af;
+  border-color: #93c5fd;
+}
+
+.badge.warning {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  color: #92400e;
+  border-color: #fcd34d;
+}
+
+/* Animaciones */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.fadeIn {
+  animation: fadeIn 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Loading states */
+.loadingContainer {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  height: 400px;
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  border-radius: 16px;
+  margin: 20px;
+}
+
+.loadingSpinner {
+  width: 60px;
+  height: 60px;
+  border: 4px solid #e2e8f0;
+  border-top: 4px solid #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 20px;
+}
+
+.loadingText {
+  font-size: 18px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 8px;
+}
+
+/* Empty state */
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  height: 400px;
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  border-radius: 16px;
+  margin: 20px;
+}
+
+.emptyStateIcon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.emptyStateTitle {
+  font-size: 18px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 8px;
+}
+
+.emptyStateDescription {
+  font-size: 14px;
+  color: #6b7280;
+  text-align: center;
+  max-width: 400px;
+}
+
+/* Sección de Nuevos Préstamos */
+.newLoansSection {
+  margin-top: 24px;
+}
+
+.newLoansCard {
+  position: relative;
+  background-color: white;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+}
+
+.newLoansHeader {
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e7eb;
+  background: linear-gradient(to bottom, #fafafa 0%, #f5f5f5 100%);
+}
+
+.newLoansTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #111827;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.newLoansTableContainer {
+  padding: 12px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.newLoansTable {
+  font-size: 13px;
+  width: 100%;
+}
+
+/* Headers de tabla para nuevos préstamos */
+.tableHeaderCell {
+  background: #f0f9ff;
+  font-size: 11px;
+  font-weight: 600;
+  color: #0369a1;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 10px 12px;
+  border-bottom: 2px solid #bae6fd;
+}
+
+/* Filas de préstamos pendientes */
+.pendingLoanRow {
+  background: #f0fdf4;
+  transition: background 150ms ease;
+}
+
+.pendingLoanRow:hover {
+  background: #dcfce7;
+}
+
+.newLoanRow {
+  background: white;
+}
+
+/* Input cells */
+.inputCell {
+  padding: 8px;
+  vertical-align: top;
+}
+
+.inputWrapper {
+  padding-top: 10px;
+}
+
+/* Botón de guardar pendientes */
+.savePendingContainer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 20px;
+  padding: 20px;
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.pendingIndicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  color: #374151;
+  font-weight: 500;
+}
+
+.pendingDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #10b981;
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.actionButtons {
+  display: flex;
+  gap: 10px;
+}
+
+
+/* Contenedor principal con padding inferior */
+.creditosContainer {
+  padding-bottom: 40px;
+}
+
+/* Espaciado adicional para la sección de nuevos préstamos */
+.newLoansSection {
+  margin-bottom: 32px;
+}
+
+
+/* Diseño moderno compacto - 2 columnas: Personas | Préstamo */
+.compactLoanForm {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.compactLoanForm.pending {
+  background: white;
+  border-color: #10b981;
+  border-width: 2px;
+}
+
+/* Estado incompleto - borde rojo */
+.compactLoanForm.incomplete {
+  background: white;
+  border-color: #ef4444;
+  border-width: 2px;
+}
+
+/* Columna izquierda: Personas (Titular + Aval) */
+.personsColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-right: 16px;
+  border-right: 1px solid #e5e7eb;
+  align-items: stretch;
+}
+
+/* Columna derecha: Info del Préstamo */
+.loanInfoColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+
+/* Grid para campos del préstamo */
+.loanInfoGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  align-items: start;
+}
+
+/* Sección de persona (titular o aval) */
+.personSection {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* Header de sección alineado con botón de trash */
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 5px;
+  height: 28px;
+}
+
+.sectionHeader.titular {
+  color: #2563eb;
+}
+
+.sectionHeader.aval {
+  color: #7c3aed;
+}
+
+.sectionIcon {
+  font-size: 11px;
+  opacity: 0.9;
+  line-height: 1;
+}
+
+/* Labels elegantes */
+.compactLabel {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+  transition: color 150ms ease;
+  height: 5px;
+  line-height: 5px;
+}
+
+/* Input wrapper */
+.compactInputWrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.compactInputWrapper:focus-within .compactLabel {
+  color: #3b82f6;
+}
+
+/* Botón de acción en columna derecha con palomita */
+.loanFormActions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0px;
+}
+
+/* Indicador de validación - palomita verde */
+.validationCheck {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: #10b981;
+  color: white;
+  border-radius: 50%;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+}
+
+.compactActionButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+  transition: all 120ms cubic-bezier(0.4, 0, 0.2, 1);
+  color: #9ca3af;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.compactActionButton:hover {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #dc2626;
+  transform: scale(1.05);
+  box-shadow: 0 2px 4px rgba(220, 38, 38, 0.2);
+}
+
+.compactActionButton:active {
+  transform: scale(0.95);
+}
+
+/* Empty state para nuevo préstamo */
+.addLoanButton {
+  width: 100%;
+  padding: 20px;
+  border: 2px dashed #d1d5db;
+  border-radius: 8px;
+  background: #fafafa;
+  color: #6b7280;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 150ms ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.addLoanButton:hover {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.addLoanButton:active {
+  transform: scale(0.98);
+}

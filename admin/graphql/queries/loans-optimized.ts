@@ -26,8 +26,14 @@ export const GET_LOANS_FAST = gql`
           }
         }
       }
-      avalName
-      avalPhone
+      collaterals {
+        id
+        fullName
+        phones {
+          id
+          number
+        }
+      }
       loantype {
         id
         name
@@ -58,8 +64,14 @@ export const GET_LOANS_FOR_TRANSACTIONS = gql`
       amountGived
       signDate
       comissionAmount
-      avalName
-      avalPhone
+      collaterals {
+        id
+        fullName
+        phones {
+          id
+          number
+        }
+      }
       loantype {
         id
         name
@@ -80,8 +92,14 @@ export const GET_LOANS_FOR_TRANSACTIONS = gql`
         requestedAmount
         amountGived
         profitAmount
-        avalName
-        avalPhone
+        collaterals {
+          id
+          fullName
+          phones {
+            id
+            number
+          }
+        }
         borrower {
           id
           personalData {
@@ -122,8 +140,14 @@ export const GET_PREVIOUS_LOANS_MINIMAL = gql`
           fullName
         }
       }
-      avalName
-      avalPhone
+      collaterals {
+        id
+        fullName
+        phones {
+          id
+          number
+        }
+      }
     }
   }
 `; 

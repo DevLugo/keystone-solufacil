@@ -38,7 +38,8 @@
     "test:e2e:dev": "npm run test:setup && sleep 5 && npm run test:db:migrate && npm run test:db:seed && npm run cypress:open",
     "test:business-logic": "npx ts-node utils/__tests__/loan-business-logic.ts",
     "test:db-integration": "cross-env NODE_ENV=test dotenv -e env.test -- npx ts-node utils/__tests__/loan-database-integration.ts",
-    "test:db-integration-safe": "cross-env NODE_ENV=test DATABASE_URL=postgresql://localhost:5432/solufacil_test npx ts-node utils/__tests__/loan-database-integration.ts"
+    "test:db-integration-safe": "cross-env NODE_ENV=test DATABASE_URL=postgresql://localhost:5432/solufacil_test npx ts-node utils/__tests__/loan-database-integration.ts",
+    "merge-duplicates": "npx ts-node scripts/merge-duplicates.ts"
   },
   "dependencies": {
     "@keystone-6/auth": "^8.0.0",

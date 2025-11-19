@@ -90,3 +90,13 @@ export const UPDATE_LOAN_WITH_AVAL = gql`
     updateLoanWithAval(where: $where, data: $data)
   }
 `;
+
+export const DELETE_LOAN = gql`
+  mutation DeleteLoan($where: LoanWhereUniqueInput!) {
+    deleteLoan(where: $where) {
+      id
+      amountGived
+      comissionAmount
+    }
+  }
+`;

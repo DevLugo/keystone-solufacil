@@ -80,6 +80,166 @@ export const GET_LOAN_TYPES = gql`
       name
       rate
       weekDuration
+      loanPaymentComission
+      loanGrantedComission
+    }
+  }
+`;
+
+export const GET_PREVIOUS_LOANS = gql`
+  query GetPreviousLoansOptimized($leadId: ID!) {
+    loans(
+      where: {
+        lead: { id: { equals: $leadId } }
+      }
+      orderBy: { signDate: desc }
+      take: 100
+    ) {
+      id
+      requestedAmount
+      amountGived
+      signDate
+      finishedDate
+      renewedDate
+      status
+      pendingAmountStored
+      loantype {
+        id
+        name
+        rate
+        weekDuration
+        loanPaymentComission
+      }
+      borrower {
+        id
+        personalData {
+          id
+          fullName
+          phones {
+            id
+            number
+          }
+          addresses {
+            id
+            location {
+              id
+              name
+              municipality {
+                id
+                name
+                state {
+                  id
+                  name
+                }
+              }
+            }
+          }
+        }
+      }
+      collaterals {
+        id
+        fullName
+        phones {
+          id
+          number
+        }
+      }
+      payments {
+        amount
+      }
+    }
+  }
+`;
+
+export const GET_ALL_PREVIOUS_LOANS = gql`
+  query GetAllPreviousLoans($searchText: String, $take: Int) {
+    loans(
+      where: {
+        borrower: { 
+          personalData: { 
+            fullName: { 
+              contains: $searchText, 
+              mode: insensitive 
+            } 
+          } 
+        }
+      }
+      orderBy: { signDate: desc }
+      take: $take
+    ) {
+      id
+      requestedAmount
+      amountGived
+      signDate
+      finishedDate
+      renewedDate
+      status
+      pendingAmountStored
+      lead {
+        id
+        personalData {
+          fullName
+          addresses {
+            id
+            location {
+              id
+              name
+              municipality {
+                id
+                name
+                state {
+                  id
+                  name
+                }
+              }
+            }
+          }
+        }
+      }
+      loantype {
+        id
+        name
+        rate
+        weekDuration
+        loanPaymentComission
+      }
+      borrower {
+        id
+        personalData {
+          id
+          fullName
+          phones {
+            id
+            number
+          }
+          addresses {
+            id
+            location {
+              id
+              name
+              municipality {
+                id
+                name
+                state {
+                  id
+                  name
+                }
+              }
+            }
+          }
+        }
+      }
+      collaterals {
+        id
+        fullName
+        phones {
+          id
+          number
+        }
+      }
+      payments {
+        amount
+      }
     }
   }
 `;

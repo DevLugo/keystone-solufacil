@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useLazyQuery, gql } from '@apollo/client';
 import { Input } from '../ui/input';
-import { Button } from '../ui/button';
 import EditPersonModal from './EditPersonModal';
 import { SEARCH_POTENTIAL_COLLATERALS } from '../../graphql/queries/loans';
+import styles from './ClientLoanUnifiedInput.module.css';
 
 interface Loan {
   id: string;
@@ -16,7 +16,7 @@ interface Loan {
   loantype?: {
     id: string;
     name: string;
-    rate: number;
+    rate: string;
     weekDuration: number;
     loanPaymentComission: string;
   };
@@ -89,7 +89,7 @@ interface ClientLoanUnifiedInputProps {
     statusTextColor?: string;
     debtColor?: string;
     locationColor?: string;
-    location?: string;
+    location?: string | null;
     debtAmount?: string;
     leaderName?: string;
   }>;
@@ -312,32 +312,30 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
     
     if (mode === 'client') {
       // Modo cliente: filtrar préstamos anteriores
-      if (searchText.trim().length >= 2) {
-        // Mostrar dropdown si está cargando o si hay opciones
-        const shouldShow = isLoading || previousLoanOptions.length > 0;
-        setShowDropdown(shouldShow);
-        
+      // No mostrar dropdown si ya hay un préstamo seleccionado
+      if (searchText.trim().length >= 2 && !hasPreviousLoan && isInputFocused) {
         // Filtrar opciones localmente mientras se busca
         const filtered = previousLoanOptions.filter(option => 
           option.label.toLowerCase().includes(searchText.toLowerCase())
         );
         setFilteredOptions(filtered);
+        
+        // Solo mostrar dropdown si está cargando o si hay opciones filtradas
+        const shouldShow = isLoading || filtered.length > 0;
+        setShowDropdown(shouldShow);
       } else {
         setFilteredOptions([]);
         setShowDropdown(false);
       }
     } else if (mode === 'aval') {
       // Modo aval: buscar personas cuando el usuario escribe
-      // Solo mostrar dropdown si el input está enfocado o si hay resultados
-      if (searchText.trim().length >= 2 && (isInputFocused || filteredOptions.length > 0)) {
-        setShowDropdown(true); // Mostrar dropdown mientras busca
+      // No mostrar dropdown si ya hay una persona seleccionada
+      if (searchText.trim().length >= 2 && isInputFocused && !selectedPersonId) {
         searchPersons({ variables: { searchTerm: searchText } });
       } else {
-        // Si el input no está enfocado y no hay texto, cerrar el dropdown
-        if (!isInputFocused && searchText.trim().length < 2) {
-          setFilteredOptions([]);
-          setShowDropdown(false);
-        }
+        // Cerrar dropdown si hay selección, no hay texto, o no está enfocado
+        setFilteredOptions([]);
+        setShowDropdown(false);
       }
     }
   }, [searchText, previousLoanOptions, mode, searchPersons, isLoading, isInputFocused, filteredOptions.length]);
@@ -541,6 +539,8 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
   };
   
   const handleSelectOption = (option: any, event?: React.MouseEvent) => {
+    console.log('🎯 handleSelectOption called:', { mode, option, selectedLeadLocationId });
+    
     // Prevenir que el blur cierre el dropdown antes de procesar la selección
     if (event) {
       event.preventDefault();
@@ -553,13 +553,26 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
     if (mode === 'client') {
       // Modo cliente: seleccionar préstamo anterior
       // Verificar si la localidad del BORROWER (cliente) del préstamo anterior es diferente a la del líder seleccionado
-      // La localidad del cliente se obtiene del lead asociado al préstamo anterior
-      const previousLoanLeadLocationId = option.loanData?.lead?.personalData?.addresses?.[0]?.location?.id;
-      const previousLoanLeadLocationName = option.loanData?.lead?.personalData?.addresses?.[0]?.location?.name || 'desconocida';
+      // La localidad del cliente se obtiene de borrower.personalData.addresses[0].location
+      const clientLocationId = option.loanData?.borrower?.personalData?.addresses?.[0]?.location?.id;
+      const clientLocationName = option.loanData?.borrower?.personalData?.addresses?.[0]?.location?.name || 'desconocida';
       
-      if (selectedLeadLocationId && previousLoanLeadLocationId && previousLoanLeadLocationId !== selectedLeadLocationId && onLocationMismatch) {
-        // Llamar al callback con las localidades
-        onLocationMismatch(previousLoanLeadLocationName, '');
+      console.log('📍 Verificando localidades:', {
+        clientLocationId,
+        clientLocationName,
+        selectedLeadLocationId,
+        hasCallback: !!onLocationMismatch,
+        willShowAlert: !!(selectedLeadLocationId && clientLocationId && clientLocationId !== selectedLeadLocationId && onLocationMismatch)
+      });
+      
+      if (selectedLeadLocationId && clientLocationId && clientLocationId !== selectedLeadLocationId && onLocationMismatch) {
+        // Llamar al callback con las localidades (cliente de otra localidad vs localidad seleccionada)
+        console.log('🚨 Cliente de otra localidad detectado:', { 
+          clientLocationId, 
+          clientLocationName,
+          selectedLeadLocationId 
+        });
+        onLocationMismatch(clientLocationName, 'lead-selected');
       }
       
       onPreviousLoanSelect(option);
@@ -584,6 +597,12 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
       const person = option.personData;
       const phone = person.phones?.[0]?.number || '';
       const phoneId = person.phones?.[0]?.id;
+      
+      // Verificar si la localidad del aval es diferente a la del borrower
+      if (option.isDifferentLocation && onLocationMismatch) {
+        const avalLocation = option.location || 'desconocida';
+        onLocationMismatch(avalLocation, 'borrower');
+      }
       
       // Cerrar el dropdown ANTES de actualizar el texto para evitar que se reabra
       setShowDropdown(false);
@@ -628,12 +647,12 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
       // Solo cerrar el dropdown si el click fue fuera del componente y no es del mismo modo
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node) && 
           inputRef.current && !inputRef.current.contains(event.target as Node)) {
-        // Verificar que el elemento clickeado no sea otro input del mismo tipo
+        // Verificar que el elemento clickeado no sea de este mismo componente
         const target = event.target as HTMLElement;
-        const isOtherInput = target.closest('[data-autocomplete-mode]') && 
-                            target.closest('[data-autocomplete-mode]')?.getAttribute('data-autocomplete-mode') !== mode;
+        const clickedAutocomplete = target.closest('[data-autocomplete-id]');
+        const isThisComponent = clickedAutocomplete?.getAttribute('data-autocomplete-id') === loanId;
         
-        if (!isOtherInput) {
+        if (!isThisComponent) {
           setShowDropdown(false);
           if (mode === 'aval') {
             setFilteredOptions([]);
@@ -652,6 +671,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
     <div 
       style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', position: 'relative' }}
       data-autocomplete-mode={mode}
+      data-autocomplete-id={loanId}
     >
       {/* Input principal con autocomplete */}
       <div style={{
@@ -688,7 +708,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
               title={hasPreviousLoan ? "Use el icono de editar o la X para limpiar" : ""}
               style={{
                 border: 'none',
-                background: 'transparent',
+                backgroundColor: 'transparent',
                 fontSize: '13px',
                 padding: '0',
                 outline: 'none',
@@ -722,7 +742,8 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                 isTypingRef.current = true; // Marcar como escribiendo al enfocar
                 shouldPreserveFocusRef.current = true; // Marcar que debemos preservar el focus
                 if (onFocus) onFocus();
-                if (searchText.length >= 2) {
+                // Solo mostrar dropdown si hay resultados
+                if (searchText.length >= 2 && filteredOptions.length > 0) {
                   setShowDropdown(true);
                 }
               }}
@@ -821,7 +842,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
               placeholder={phonePlaceholder}
               style={{
                 border: 'none',
-                background: 'transparent',
+                backgroundColor: 'transparent',
                 fontSize: '13px',
                 padding: '0',
                 outline: 'none',
@@ -838,45 +859,39 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
           </div>
         </div>
         
-        {/* Botón de editar y botón de limpiar */}
-        {(currentName || currentPhone) && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+        {/* Botones de acción - Solo visibles cuando hay selección */}
+        {(hasPreviousLoan || (mode === 'aval' && selectedPersonId)) && (
+          <div className={styles.buttonGroup}>
             {/* Botón de editar */}
-            {(hasPreviousLoan || (currentName.trim() || currentPhone.trim())) && (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={handleEditClick}
-                title="Editar cliente"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                </svg>
-              </Button>
-            )}
-            
-            {/* Botón de limpiar */}
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={handleClear}
-              title="Limpiar"
+            <button
+              className={styles.editButton}
+              onClick={handleEditClick}
+              title="Editar cliente"
+              type="button"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+            </button>
+            
+            {/* Botón de limpiar */}
+            <button
+              className={styles.clearButton}
+              onClick={handleClear}
+              title="Limpiar selección"
+              type="button"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -887,81 +902,45 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
-            </Button>
+            </button>
           </div>
         )}
       </div>
       
       {/* Dropdown de autocomplete */}
       {(showDropdown || isLoading || (mode === 'aval' && searchPersonsLoading)) && (() => {
-        // Calcular posición del dropdown (arriba o abajo)
+        // Siempre mostrar dropdown abajo del input
         let dropdownTop = 0;
-        let dropdownBottom: number | undefined = undefined;
         let maxHeight = '300px';
         
         if (inputRef?.current) {
           const inputRect = inputRef.current.getBoundingClientRect();
           const spaceBelow = window.innerHeight - inputRect.bottom;
-          const spaceAbove = inputRect.top;
-          const estimatedDropdownHeight = 300; // Altura estimada del dropdown
           
-          // Si hay menos espacio abajo que arriba, mostrar hacia arriba
-          if (spaceBelow < estimatedDropdownHeight && spaceAbove > spaceBelow) {
-            // Mostrar hacia arriba
-            dropdownBottom = window.innerHeight - inputRect.top + 4;
-            maxHeight = `${Math.min(spaceAbove - 20, 300)}px`;
-          } else {
-            // Mostrar hacia abajo
-            dropdownTop = inputRect.bottom + 4;
-            maxHeight = `${Math.min(spaceBelow - 20, 300)}px`;
-          }
+          // Siempre mostrar hacia abajo
+          dropdownTop = inputRect.bottom + 4;
+          maxHeight = `${Math.min(spaceBelow - 20, 300)}px`;
         }
         
         return (
           <div
             ref={dropdownRef}
             onMouseDown={handleDropdownMouseDown}
+            className={styles.dropdown}
             style={{
               position: 'fixed',
               top: dropdownTop || undefined,
-              bottom: dropdownBottom || undefined,
               left: inputRef?.current ? inputRef.current.getBoundingClientRect().left : 0,
               width: inputRef?.current ? Math.max(inputRef.current.offsetWidth, 400) : 'auto',
-              backgroundColor: 'white',
-              border: '1px solid #D1D5DB',
-              borderRadius: '4px',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-              zIndex: 9999,
               maxHeight: maxHeight,
-              overflowY: 'auto'
+              zIndex: 9999
             }}
           >
           {/* Loader - solo mostrar uno */}
           {((mode === 'client' && isLoading) || (mode === 'aval' && searchPersonsLoading)) && (
-            <div style={{
-              padding: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              color: '#6B7280',
-              fontSize: '14px'
-            }}>
-              <div style={{
-                width: '16px',
-                height: '16px',
-                border: '2px solid #E5E7EB',
-                borderTop: '2px solid #3B82F6',
-                borderRadius: '50%',
-                animation: 'spin 0.6s linear infinite'
-              }} />
+            <div className={styles.loadingState}>
+              <span className={styles.loadingSpinner} />
               <span>Buscando...</span>
-              <style>{`
-                @keyframes spin {
-                  0% { transform: rotate(0deg); }
-                  100% { transform: rotate(360deg); }
-                }
-              `}</style>
             </div>
           )}
           
@@ -986,83 +965,48 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
               return (
                 <div
                   key={option.value}
+                  className={styles.dropdownItem}
                   onMouseDown={(e) => {
                     e.preventDefault(); // Prevenir que el input pierda focus
                     handleSelectOption(option, e);
                   }}
                   style={{
-                    padding: '8px 12px',
-                    cursor: 'pointer',
-                    borderBottom: '1px solid #f0f0f0',
-                    fontSize: '12px',
-                    backgroundColor: '#FFFFFF',
-                    color: '#374151',
                     borderLeft: isDifferentLocation ? '3px solid #F59E0B' : 'none'
                   }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget.style.backgroundColor = '#F3F4F6');
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget.style.backgroundColor = '#FFFFFF');
-                  }}
                 >
-                  {/* Una sola línea: Nombre, Deuda, Localidad, Municipio */}
-                  <div style={{ 
-                    fontWeight: '500', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '6px',
-                    flexWrap: 'wrap'
-                  }}>
-                    <span style={{ flexShrink: 0 }}>{option.label}</span>
-                    {isDifferentLocation && (
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          padding: '2px 4px',
-                          borderRadius: '4px',
-                          fontSize: '9px',
-                          fontWeight: '600',
-                          backgroundColor: '#FEF3C7',
-                          color: '#92400E',
-                          flexShrink: 0
-                        }}
-                        title="Otra localidad"
-                      >
-                        ⚠
+                  {/* Dos líneas: Nombre arriba, badges abajo */}
+                  <div className={styles.clientInfo}>
+                    <span className={styles.clientName}>{option.label}</span>
+                    <div className={styles.badgeRow}>
+                      {isDifferentLocation && (
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '2px 4px',
+                            borderRadius: '4px',
+                            fontSize: '9px',
+                            fontWeight: '600',
+                            backgroundColor: '#FEF3C7',
+                            color: '#92400E',
+                            flexShrink: 0
+                          }}
+                          title="Otra localidad"
+                        >
+                          ⚠
+                        </span>
+                      )}
+                      <span className={`${styles.badge} ${parseFloat(debtAmount) > 0 ? styles.badgeDebt : styles.badgeNoDebt}`}>
+                        Deuda: ${debtAmount}
                       </span>
-                    )}
-                    <span
-                      style={{
-                        backgroundColor: debtColor,
-                        color: 'white',
-                        padding: '2px 6px',
-                        borderRadius: '4px',
-                        fontSize: '10px',
-                        fontWeight: '600',
-                        flexShrink: 0
-                      }}
-                    >
-                      Deuda: ${debtAmount}
-                    </span>
-                    {((location && location !== 'Sin localidad') || option.municipality) && (
-                      <span
-                        style={{
-                          backgroundColor: locationColor,
-                          color: 'white',
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          fontSize: '10px',
-                          fontWeight: '600',
-                          flexShrink: 0
-                        }}
-                      >
-                        📍 {location && location !== 'Sin localidad' ? location : ''}
-                        {location && location !== 'Sin localidad' && option.municipality ? ', ' : ''}
-                        {option.municipality ? option.municipality : ''}
-                      </span>
-                    )}
+                      {((location && location !== 'Sin localidad') || option.municipality) && (
+                        <span className={`${styles.badge} ${styles.badgeLocation}`}>
+                          📍 {location && location !== 'Sin localidad' ? location : ''}
+                          {location && location !== 'Sin localidad' && option.municipality ? ', ' : ''}
+                          {option.municipality ? option.municipality : ''}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -1075,24 +1019,13 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
               return (
                 <div
                   key={option.value}
+                  className={styles.dropdownItem}
                   onMouseDown={(e) => {
                     e.preventDefault(); // Prevenir que el input pierda focus
                     handleSelectOption(option, e);
                   }}
                   style={{
-                    padding: '8px 12px',
-                    cursor: 'pointer',
-                    borderBottom: '1px solid #f0f0f0',
-                    fontSize: '12px',
-                    backgroundColor: '#FFFFFF',
-                    color: '#374151',
                     borderLeft: isDifferentLocation ? '3px solid #F59E0B' : 'none'
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget.style.backgroundColor = '#F3F4F6');
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget.style.backgroundColor = '#FFFFFF');
                   }}
                 >
                   {/* Una sola línea: Nombre, Localidad */}

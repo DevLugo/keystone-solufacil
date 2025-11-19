@@ -1,18 +1,39 @@
+// Phone type
+export type Phone = {
+  id: string;
+  number: string;
+  __typename?: string;
+};
+
+// Location type
+export type Location = {
+  id: string;
+  name: string;
+  municipality?: {
+    id: string;
+    name: string;
+    state?: {
+      id: string;
+      name: string;
+    };
+  };
+  __typename?: string;
+};
+
+// Address type
+export type Address = {
+  id: string;
+  location: Location;
+  __typename?: string;
+};
+
 // Personal Data type for collaterals
 export type PersonalData = {
   id: string;
   fullName: string;
-  phones: Array<{
-    id: string;
-    number: string;
-  }>;
-  addresses?: Array<{
-    id: string;
-    location: {
-      id: string;
-      name: string;
-    };
-  }>;
+  phones: Phone[];
+  addresses?: Address[];
+  __typename?: string;
 };
 
 // Base loan type with only database fields
@@ -22,7 +43,7 @@ export type BaseLoan = {
   amountGived: string;
   signDate: string;
   firstPaymentDate?: string;
-  finishedDate: string | null;
+  finishedDate?: string;
   createdAt: string;
   updatedAt: string;
   loantype: LoanType;
@@ -41,7 +62,6 @@ export type BaseLoan = {
       }>;
     };
   };
-  // ✅ NUEVA FUNCIONALIDAD: Campo collaterals
   collaterals?: PersonalData[];
   previousLoan?: {
     id: string;
@@ -62,9 +82,19 @@ export type Loan = BaseLoan & {
   amountToPay: string;
   totalDebtAcquired: string;
   pendingAmount: string;
+  pendingAmountStored?: string; // Para préstamos anteriores
   comissionAmount: string;
   avalName: string;
   avalPhone: string;
+  lead?: {
+    id: string;
+    personalData: {
+      fullName: string;
+      addresses?: Address[];
+    };
+  };
+  status?: string;
+  renewedDate?: string | null;
 };
 
 export type LoanType = {
@@ -135,3 +165,69 @@ export type LoanCreateInput = {
   previousLoan?: { connect: { id: string } };
   comissionAmount: string;
 };
+
+// Types específicos para CreditosTabNew
+export interface ExtendedLoanForCredits extends Partial<Loan> {
+  id: string;
+  selectedCollateralId?: string;
+  selectedCollateralPhoneId?: string;
+  avalAction?: 'create' | 'update' | 'connect' | 'clear';
+  avalName?: string;
+  avalPhone?: string;
+  avalData?: {
+    avalName?: string;
+    avalPhone?: string;
+  };
+  lead?: {
+    id: string;
+    personalData: {
+      fullName: string;
+      addresses?: Address[];
+    };
+  };
+  previousLoanOption?: PreviousLoanOption | null;
+}
+
+export interface PreviousLoanOption {
+  value: string;
+  label: string;
+  loanData: Loan;
+  hasDebt?: boolean;
+  statusColor?: string;
+  statusTextColor?: string;
+  debtColor?: string;
+  locationColor?: string;
+  location?: string | null;
+  debtAmount?: string;
+  leaderName?: string;
+}
+
+export interface InitialPayment {
+  amount: string;
+  paymentMethod: 'CASH' | 'MONEY_TRANSFER';
+  comission: string;
+}
+
+export interface LoanTypeOption {
+  label: string;
+  value: string;
+  weekDuration: number;
+  rate: string;
+  typeData: LoanType;
+}
+
+export interface LeadInfo {
+  id: string;
+  type: string;
+  personalData: {
+    fullName: string;
+    addresses?: Address[];
+    __typename?: string;
+  };
+  __typename?: string;
+}
+
+export interface LocationInfo {
+  id: string;
+  name: string;
+}

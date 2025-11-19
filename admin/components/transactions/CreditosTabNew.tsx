@@ -1,23 +1,19 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { createPortal } from 'react-dom';
 import { useQuery, useMutation } from '@apollo/client';
-import { gql } from '@apollo/client';
-import { FaEdit, FaSpinner } from 'react-icons/fa';
+import { FaEdit, FaSpinner, FaEllipsisV, FaTrash, FaExclamationTriangle } from 'react-icons/fa';
 import { calculateLoanAmounts, calculateAmountToPay } from '../../utils/loanCalculations';
 import { GET_ROUTE } from '../../graphql/queries/routes';
-import { CREATE_LOANS_BULK, UPDATE_LOAN_WITH_AVAL } from '../../graphql/mutations/loans';
+import { GET_LOANS_FOR_TRANSACTIONS } from '../../graphql/queries/loans-optimized';
+import { CREATE_LOANS_BULK, UPDATE_LOAN_WITH_AVAL, DELETE_LOAN } from '../../graphql/mutations/loans';
 import { CREATE_LEAD_PAYMENT_RECEIVED, UPDATE_LEAD_PAYMENT } from '../../graphql/mutations/payments';
 import { GET_LEAD_PAYMENTS } from '../../graphql/queries/payments';
+import { MOVE_LOANS_TO_DATE } from '../../graphql/mutations/dateMovement';
 import { useBalanceRefresh } from '../../hooks/useBalanceRefresh';
 import type { Loan, LoanType } from '../../types/loan';
-import { FaEllipsisV, FaInfoCircle, FaCalendarAlt, FaExchangeAlt, FaTimes, FaCheck, FaSave } from 'react-icons/fa';
-import { MOVE_LOANS_TO_DATE } from '../../graphql/mutations/dateMovement';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Select } from '../ui/select';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogClose } from '../ui/dialog';
-import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,378 +25,33 @@ import {
   AlertDialogTitle,
 } from '../ui/alert-dialog';
 import ClientLoanUnifiedInput from '../loans/ClientLoanUnifiedInput';
-import { FaTrash, FaExclamationTriangle } from 'react-icons/fa';
-
-// Reutilizar las mismas queries del componente original
-const GET_LOANS = gql`
-  query GetLoans($date: DateTime!, $nextDate: DateTime!, $leadId: ID!) {
-    loans(
-      where: {
-        AND: [
-          { signDate: { gte: $date } }
-          { signDate: { lt: $nextDate } }
-          { lead: { id: { equals: $leadId } } }
-          { finishedDate: { equals: null } }
-        ]
-      }
-      orderBy: { signDate: desc }
-    ) {
-      id
-      requestedAmount
-      amountGived
-      totalDebtAcquired
-      signDate
-      finishedDate
-      createdAt
-      updatedAt
-      comissionAmount
-      collaterals {
-        id
-        fullName
-        phones {
-          id
-          number
-          __typename
-        }
-        addresses {
-          id
-          location {
-            id
-            name
-            __typename
-          }
-          __typename
-        }
-        __typename
-      }
-      loantype {
-        id
-        name
-        rate
-        weekDuration
-        loanPaymentComission
-        __typename
-      }
-      lead {
-        id
-        personalData {
-          fullName
-          addresses {
-            id
-            location {
-              id
-              name
-              municipality {
-                id
-                name
-                state {
-                  id
-                  name
-                }
-              }
-            }
-          }
-          __typename
-        }
-        __typename
-      }
-      borrower {
-        id
-        personalData {
-          id
-          fullName
-          phones {
-            id
-            number
-            __typename
-          }
-          addresses {
-            id
-            location {
-              id
-              name
-              __typename
-            }
-            __typename
-          }
-          __typename
-        }
-        __typename
-      }
-      previousLoan {
-        id
-        requestedAmount
-        amountGived
-        profitAmount
-        collaterals {
-          id
-          fullName
-          phones {
-            id
-            number
-            __typename
-          }
-          __typename
-        }
-        borrower {
-          id
-          personalData {
-            fullName
-            phones {
-              number
-              __typename
-            }
-            __typename
-          }
-          __typename
-        }
-        __typename
-      }
-      __typename
-    }
-  }
-`;
-
-const GET_LOAN_TYPES = gql`
-  query GetLoanTypes {
-    loantypes {
-      id
-      name
-      rate
-      weekDuration
-      loanPaymentComission
-      loanGrantedComission
-      __typename
-    }
-  }
-`;
-
-const GET_PREVIOUS_LOANS = gql`
-  query GetPreviousLoansOptimized($leadId: ID!) {
-    loans(
-      where: {
-        lead: { id: { equals: $leadId } }
-      }
-      orderBy: { signDate: desc }
-      take: 100
-    ) {
-      id
-      requestedAmount
-      amountGived
-      signDate
-      finishedDate
-      renewedDate
-      status
-      pendingAmountStored
-      loantype {
-        id
-        name
-        rate
-        weekDuration
-        loanPaymentComission
-      }
-      borrower {
-        id
-        personalData {
-          id
-          fullName
-          phones {
-            id
-            number
-            __typename
-          }
-          addresses {
-            id
-            location {
-              id
-              name
-              municipality {
-                id
-                name
-                state {
-                  id
-                  name
-                }
-              }
-            }
-          }
-        }
-      }
-      collaterals {
-        id
-        fullName
-        phones {
-          id
-          number
-        }
-      }
-      payments {
-        amount
-      }
-      __typename
-    }
-  }
-`;
-
-const GET_ALL_PREVIOUS_LOANS = gql`
-  query GetAllPreviousLoans($searchText: String, $take: Int) {
-    loans(
-      where: {
-        # Siempre buscar en todas las localidades - sin filtro por lead o location
-        # Si searchText está vacío o es null, no se aplica el filtro (devuelve todos)
-        borrower: { 
-          personalData: { 
-            fullName: { 
-              contains: $searchText, 
-              mode: insensitive 
-            } 
-          } 
-        }
-      }
-      orderBy: { signDate: desc }
-      take: $take
-    ) {
-      id
-      requestedAmount
-      amountGived
-      signDate
-      finishedDate
-      renewedDate
-      status
-      pendingAmountStored
-      lead {
-        id
-        personalData {
-          fullName
-          addresses {
-            id
-            location {
-              id
-              name
-              municipality {
-                id
-                name
-                state {
-                  id
-                  name
-                }
-              }
-            }
-          }
-        }
-      }
-      loantype {
-        id
-        name
-        rate
-        weekDuration
-        loanPaymentComission
-      }
-      borrower {
-        id
-        personalData {
-          id
-          fullName
-          phones {
-            id
-            number
-            __typename
-          }
-          addresses {
-            id
-            location {
-              id
-              name
-              municipality {
-                id
-                name
-                state {
-                  id
-                  name
-                }
-              }
-            }
-          }
-        }
-      }
-      collaterals {
-        id
-        fullName
-        phones {
-          id
-          number
-        }
-      }
-      payments {
-        amount
-      }
-      __typename
-    }
-  }
-`;
-
-const DELETE_LOAN = gql`
-  mutation DeleteLoan($where: LoanWhereUniqueInput!) {
-    deleteLoan(where: $where) {
-      id
-      amountGived
-      comissionAmount
-    }
-  }
-`;
-
-interface ExtendedLoan extends Partial<Loan> {
-  id: string;
-  selectedCollateralId?: string;
-  selectedCollateralPhoneId?: string;
-  avalAction?: 'create' | 'update' | 'connect' | 'clear';
-  avalName?: string;
-  avalPhone?: string;
-  avalData?: {
-    avalName?: string;
-    avalPhone?: string;
-  };
-  lead?: {
-    id: string;
-    personalData: {
-      fullName: string;
-    };
-  };
-  previousLoanOption?: any;
-}
+import { PaymentConfigModal } from './PaymentConfigModal';
+import { GET_LOAN_TYPES, GET_PREVIOUS_LOANS, GET_ALL_PREVIOUS_LOANS } from '../../graphql/queries/loans';
+import type { 
+  ExtendedLoanForCredits, 
+  InitialPayment, 
+  LoanTypeOption, 
+  PreviousLoanOption,
+  LeadInfo,
+  LocationInfo
+} from '../../types/loan';
+import styles from './CreditosTabNew.module.css';
 
 interface CreditosTabNewProps {
   selectedDate: Date | null;
   selectedRoute: string | null;
-  selectedLead: {
-    id: string;
-    type: string;
-    personalData: {
-      fullName: string;
-      __typename: string;
-    };
-    __typename: string;
-  } | null;
+  selectedLead: LeadInfo | null;
   onBalanceUpdate?: (balance: number) => void;
 }
 
-// Estilos modernos tipo shadcn/ui
-const shadcnStyles = {
-  button: {
-    base: 'inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none',
-    primary: 'bg-primary text-primary-foreground hover:bg-primary/90',
-    secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
-    destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
-    outline: 'border border-input bg-background hover:bg-accent hover:text-accent-foreground',
-    ghost: 'hover:bg-accent hover:text-accent-foreground',
-    link: 'text-primary underline-offset-4 hover:underline',
-  },
-  input: 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
-  table: 'w-full border-collapse',
-  tableHeader: 'h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0',
-  tableCell: 'p-4 align-middle [&:has([role=checkbox])]:pr-0',
-  card: 'rounded-lg border bg-card text-card-foreground shadow-sm',
+
+
+// Helper para redondear montos consistentemente
+const roundAmount = (amount: string | number): number => {
+  return Math.round(parseFloat(String(amount || '0')));
 };
+
+
 
 export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({ 
   selectedDate, 
@@ -410,40 +61,56 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
 }) => {
   const { triggerRefresh } = useBalanceRefresh();
   
+  // Estado principal
   const [loans, setLoans] = useState<Loan[]>([]);
-  const [pendingLoans, setPendingLoans] = useState<ExtendedLoan[]>([]);
+  const [pendingLoans, setPendingLoans] = useState<ExtendedLoanForCredits[]>([]);
   const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
+  const [editableEmptyRow, setEditableEmptyRow] = useState<ExtendedLoanForCredits | null>(null);
+  
+  // Estados de UI
   const [isCreating, setIsCreating] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [newLoanId, setNewLoanId] = useState<string | null>(null);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState<{ open: boolean; loanId: string | null }>({ open: false, loanId: null });
-  const [deletePendingLoanDialogOpen, setDeletePendingLoanDialogOpen] = useState<{ open: boolean; loanIndex: number | null }>({ open: false, loanIndex: null });
+  const [isSearchingLoansByRow, setIsSearchingLoansByRow] = useState<Record<string, boolean>>({});
+  
+  // Estados de diálogos
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState<{ open: boolean; loanId: string | null }>({ 
+    open: false, 
+    loanId: null 
+  });
+  const [deletePendingLoanDialogOpen, setDeletePendingLoanDialogOpen] = useState<{ 
+    open: boolean; 
+    loanIndex: number | null 
+  }>({ 
+    open: false, 
+    loanIndex: null 
+  });
   const [locationMismatchDialogOpen, setLocationMismatchDialogOpen] = useState<{
     open: boolean;
     clientLocation: string;
     leadLocation: string;
-  }>({ open: false, clientLocation: '', leadLocation: '' });
+  }>({ 
+    open: false, 
+    clientLocation: '', 
+    leadLocation: '' 
+  });
   
-  const menuRef = useRef<HTMLDivElement>(null);
-  const buttonRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
-  const existingLoansTableRef = useRef<HTMLDivElement>(null);
-  
-  interface InitialPayment {
-    amount: string;
-    paymentMethod: 'CASH' | 'MONEY_TRANSFER';
-    comission: string;
-  }
+  // Estados de pagos
   const [initialPayments, setInitialPayments] = useState<Record<string, InitialPayment>>({});
   const [selectedPaymentLoan, setSelectedPaymentLoan] = useState<Loan | null>(null);
   const [isSavingPayment, setIsSavingPayment] = useState(false);
   const [massCommission, setMassCommission] = useState<string>('0');
   
-  const [searchAllLeadersByRow, setSearchAllLeadersByRow] = useState<{ [key: string]: boolean }>({});
-  const [dropdownSearchTextByRow, setDropdownSearchTextByRow] = useState<{ [key: string]: string }>({});
-  const [debouncedDropdownSearchTextByRow, setDebouncedDropdownSearchTextByRow] = useState<{ [key: string]: string }>({});
-  const [editableEmptyRow, setEditableEmptyRow] = useState<ExtendedLoan | null>(null);
+  // Estados de búsqueda
+  const [dropdownSearchTextByRow, setDropdownSearchTextByRow] = useState<Record<string, string>>({});
+  const [debouncedDropdownSearchTextByRow, setDebouncedDropdownSearchTextByRow] = useState<Record<string, string>>({});
+  
+  // Referencias
+  const menuRef = useRef<HTMLDivElement>(null);
+  const buttonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const existingLoansTableRef = useRef<HTMLDivElement>(null);
   
   const [createMultipleLoans] = useMutation(CREATE_LOANS_BULK);
   const [updateLoanWithAval] = useMutation(UPDATE_LOAN_WITH_AVAL);
@@ -451,26 +118,26 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
   const [createLeadPaymentReceived] = useMutation(CREATE_LEAD_PAYMENT_RECEIVED);
   const [updateLeadPayment] = useMutation(UPDATE_LEAD_PAYMENT);
   
-  const { data: routeData, refetch: refetchRoute } = useQuery<{ route: any }>(GET_ROUTE, {
+  const { refetch: refetchRoute } = useQuery<{ route: any }>(GET_ROUTE, {
     variables: { where: { id: selectedRoute } },
     skip: !selectedRoute,
   });
 
-  const { data: loansData, loading: loansLoading, error: loansError, refetch: refetchLoans } = useQuery<{ loans: Loan[] }>(GET_LOANS, {
+  const { data: loansData, loading: loansLoading, error: loansError, refetch: refetchLoans } = useQuery<{ loans: Loan[] }>(GET_LOANS_FOR_TRANSACTIONS, {
     variables: {
       date: selectedDate ? new Date(new Date(selectedDate).setHours(0, 0, 0, 0)).toISOString() : '',
       nextDate: selectedDate ? new Date(new Date(selectedDate).setHours(24, 0, 0, 0)).toISOString() : '',
-      leadId: selectedLead?.id || null
+      leadId: selectedLead?.id || ''
     },
     skip: !selectedDate || !selectedLead?.id,
   });
 
-  const { data: previousLoansData, loading: previousLoansLoading, refetch: refetchPreviousLoans } = useQuery(GET_PREVIOUS_LOANS, {
+  const { refetch: refetchPreviousLoans } = useQuery(GET_PREVIOUS_LOANS, {
     variables: { leadId: selectedLead?.id || '' },
     skip: !selectedLead,
   });
 
-  const { data: paymentsData, loading: paymentsLoading, refetch: refetchPayments } = useQuery(GET_LEAD_PAYMENTS, {
+  const { data: paymentsData, refetch: refetchPayments } = useQuery(GET_LEAD_PAYMENTS, {
     variables: {
       date: selectedDate ? new Date(new Date(selectedDate).setHours(0, 0, 0, 0)).toISOString() : new Date().toISOString(),
       nextDate: selectedDate ? new Date(new Date(selectedDate).setHours(23, 59, 59, 999)).toISOString() : new Date().toISOString(),
@@ -478,65 +145,36 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
     },
     skip: !selectedDate || !selectedLead,
   });
-
-  const [isSearchingLoans, setIsSearchingLoans] = useState(false);
-  
-  // Query para obtener la información completa del lead (incluyendo localidad)
-  const GET_LEAD_INFO = gql`
-    query GetLeadInfo($id: ID!) {
-      employee(where: { id: $id }) {
-        id
-        personalData {
-          id
-          fullName
-          addresses {
-            id
-            location {
-              id
-              name
-              municipality {
-                id
-                name
-                state {
-                  id
-                  name
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  `;
-  
-  const { data: leadInfoData } = useQuery(GET_LEAD_INFO, {
-    variables: { id: selectedLead?.id || '' },
-    skip: !selectedLead?.id,
-  });
   
   // Obtener la localidad del lead seleccionado
-  const selectedLeadLocation = useMemo(() => {
-    // Primero intentar desde leadInfoData (más confiable)
-    if (leadInfoData?.employee?.personalData?.addresses?.[0]?.location) {
-      return {
-        id: leadInfoData.employee.personalData.addresses[0].location.id,
-        name: leadInfoData.employee.personalData.addresses[0].location.name
-      };
+  const selectedLeadLocation = useMemo((): LocationInfo | null => {
+    // Obtener directamente del selectedLead
+    if (selectedLead?.personalData?.addresses && selectedLead.personalData.addresses.length > 0) {
+      const location = selectedLead.personalData.addresses[0].location;
+      if (location) {
+        return {
+          id: location.id,
+          name: location.name
+        };
+      }
     }
     
-    // Fallback: intentar desde loansData
+    // Fallback: intentar desde loansData si no está en selectedLead
     if (loansData?.loans && loansData.loans.length > 0) {
-      const firstLoan = loansData.loans[0] as any;
-      return {
-        id: firstLoan.lead?.personalData?.addresses?.[0]?.location?.id,
-        name: firstLoan.lead?.personalData?.addresses?.[0]?.location?.name
-      };
+      const firstLoan = loansData.loans[0];
+      const location = firstLoan.lead?.personalData?.addresses?.[0]?.location;
+      if (location) {
+        return {
+          id: location.id,
+          name: location.name
+        };
+      }
     }
     
     return null;
-  }, [loansData, leadInfoData, selectedLead]);
+  }, [selectedLead, loansData]);
   
-  const { data: allPreviousLoansData, loading: allPreviousLoansLoading, refetch: refetchAllPreviousLoans } = useQuery(GET_ALL_PREVIOUS_LOANS, {
+  const { data: allPreviousLoansData, refetch: refetchAllPreviousLoans } = useQuery(GET_ALL_PREVIOUS_LOANS, {
     variables: { 
       searchText: '', 
       take: 50 // Aumentar el límite inicial
@@ -568,20 +206,26 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
 
   // Refetch cuando cambie el texto de búsqueda debounced - siempre buscar en todas las localidades
   useEffect(() => {
-    // Obtener el último texto de búsqueda de cualquier fila
-    const allSearchTexts = Object.values(debouncedDropdownSearchTextByRow);
-    const lastSearchText = allSearchTexts[allSearchTexts.length - 1] || '';
-    
-    // Solo hacer refetch si hay texto de búsqueda (al menos 2 caracteres)
-    if (lastSearchText.trim().length >= 2) {
-      setIsSearchingLoans(true);
-      refetchAllPreviousLoans({
-        searchText: lastSearchText,
-        take: 50 // Aumentar el límite para obtener más resultados
-      }).finally(() => {
-        setIsSearchingLoans(false);
-      });
-    }
+    // Procesar cada fila independientemente
+    Object.entries(debouncedDropdownSearchTextByRow).forEach(([rowId, searchText]) => {
+      // Solo hacer refetch si hay texto de búsqueda (al menos 2 caracteres)
+      if (searchText.trim().length >= 2) {
+        setIsSearchingLoansByRow(prev => ({ ...prev, [rowId]: true }));
+        refetchAllPreviousLoans({
+          searchText: searchText,
+          take: 50 // Aumentar el límite para obtener más resultados
+        }).finally(() => {
+          setIsSearchingLoansByRow(prev => ({ ...prev, [rowId]: false }));
+        });
+      } else {
+        // Limpiar el loading si no hay texto suficiente
+        setIsSearchingLoansByRow(prev => {
+          const newState = { ...prev };
+          delete newState[rowId];
+          return newState;
+        });
+      }
+    });
   }, [debouncedDropdownSearchTextByRow, refetchAllPreviousLoans]);
 
   useEffect(() => { 
@@ -596,22 +240,38 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
     }
   }, [selectedDate, selectedLead, refetchLoans, refetchRoute, refetchPreviousLoans]);
 
-  const hasPaymentForToday = (loanId: string) => {
+  const hasPaymentForToday = useCallback((loanId: string): boolean => {
     if (!paymentsData?.loanPayments) return false;
-    return paymentsData.loanPayments.some((payment: any) => 
+    
+    interface LoanPayment {
+      loan?: { id: string };
+      leadPaymentReceived?: { lead?: { id: string } };
+    }
+    
+    const payments = paymentsData.loanPayments as LoanPayment[];
+    return payments.some((payment) => 
       payment.loan?.id === loanId && 
       payment.leadPaymentReceived?.lead?.id === selectedLead?.id
     );
-  };
+  }, [paymentsData, selectedLead]);
 
-  const getRegisteredPaymentAmount = (loanId: string) => {
+  const getRegisteredPaymentAmount = useCallback((loanId: string): string => {
     if (!paymentsData?.loanPayments) return '0';
-    const payment = paymentsData.loanPayments.find((p: any) => 
+    
+    interface LoanPayment {
+      amount?: string;
+      loan?: { id: string };
+      leadPaymentReceived?: { lead?: { id: string } };
+    }
+    
+    const payments = paymentsData.loanPayments as LoanPayment[];
+    const payment = payments.find((p) => 
       p.loan?.id === loanId && 
       p.leadPaymentReceived?.lead?.id === selectedLead?.id
     );
-    return payment ? Math.round(parseFloat(payment.amount || '0')).toString() : '0';
-  };
+    
+    return payment ? roundAmount(payment.amount || '0').toString() : '0';
+  }, [paymentsData, selectedLead]);
 
   const handleToggleInitialPayment = (loanId: string) => {
     if (initialPayments[loanId]) {
@@ -636,8 +296,24 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
       const comission = parseFloat(payment.comission);
       const paymentDate = selectedDate?.toISOString() || new Date().toISOString();
       
-      const existingPayments = paymentsData?.loanPayments || [];
-      const existingLeadPayment = existingPayments.find((p: any) => p.leadPaymentReceived?.lead?.id === selectedLead?.id);
+      interface LoanPayment {
+        amount: string;
+        comission: string;
+        loanId: string;
+        type: string;
+        paymentMethod: string;
+        loan?: { id: string };
+        leadPaymentReceived?: {
+          id: string;
+          lead?: { id: string };
+          cashPaidAmount: string;
+          bankPaidAmount: string;
+          falcoAmount: string;
+        };
+      }
+      
+      const existingPayments = (paymentsData?.loanPayments || []) as LoanPayment[];
+      const existingLeadPayment = existingPayments.find((p) => p.leadPaymentReceived?.lead?.id === selectedLead?.id);
       
       const newPayment = {
         amount: weeklyAmount,
@@ -645,33 +321,35 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
         loanId: selectedPaymentLoan.id,
         type: 'PAYMENT',
         paymentMethod: payment.paymentMethod
-      } as any;
+      };
       
-      if (existingLeadPayment) {
-        const existingPaymentsForToday = paymentsData?.loanPayments?.filter((p: any) => 
+      if (existingLeadPayment?.leadPaymentReceived) {
+        const existingPaymentsForToday = existingPayments.filter((p) => 
           p.leadPaymentReceived?.lead?.id === selectedLead?.id
-        ) || [];
+        );
         
-        const existingPaymentsList = existingPaymentsForToday.map((payment: any) => ({
-          amount: parseFloat(payment.amount || '0'),
-          comission: parseFloat(payment.comission || '0'),
-          loanId: payment.loan?.id || '',
-          type: payment.type || 'PAYMENT',
-          paymentMethod: payment.paymentMethod || 'CASH'
+        const existingPaymentsList = existingPaymentsForToday.map((p) => ({
+          amount: parseFloat(p.amount || '0'),
+          comission: parseFloat(p.comission || '0'),
+          loanId: p.loan?.id || '',
+          type: p.type || 'PAYMENT',
+          paymentMethod: p.paymentMethod || 'CASH'
         }));
         
         const allPayments = [...existingPaymentsList, newPayment];
-        const totalExpectedAmount = allPayments.reduce((sum: number, p: any) => sum + parseFloat(p.amount || '0'), 0);
+        const totalExpectedAmount = allPayments.reduce((sum, p) => sum + parseFloat(String(p.amount || '0')), 0);
+        
+        const leadPaymentReceived = existingLeadPayment.leadPaymentReceived;
         
         if (payment.paymentMethod === 'CASH') {
-          const existingCashAmount = parseFloat(existingLeadPayment.leadPaymentReceived.cashPaidAmount || '0');
+          const existingCashAmount = parseFloat(leadPaymentReceived.cashPaidAmount || '0');
           const totalCashAmount = existingCashAmount + weeklyAmount;
-          const existingBankAmount = parseFloat(existingLeadPayment.leadPaymentReceived.bankPaidAmount || '0');
-          const existingFalcoAmount = parseFloat(existingLeadPayment.leadPaymentReceived.falcoAmount || '0');
+          const existingBankAmount = parseFloat(leadPaymentReceived.bankPaidAmount || '0');
+          const existingFalcoAmount = parseFloat(leadPaymentReceived.falcoAmount || '0');
           
           await updateLeadPayment({
             variables: {
-              id: existingLeadPayment.leadPaymentReceived.id,
+              id: leadPaymentReceived.id,
               expectedAmount: totalExpectedAmount,
               cashPaidAmount: totalCashAmount,
               bankPaidAmount: existingBankAmount,
@@ -683,11 +361,11 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
         } else {
           await updateLeadPayment({
             variables: {
-              id: existingLeadPayment.leadPaymentReceived.id,
+              id: leadPaymentReceived.id,
               expectedAmount: totalExpectedAmount,
-              cashPaidAmount: parseFloat(existingLeadPayment.leadPaymentReceived.cashPaidAmount || '0'),
-              bankPaidAmount: parseFloat(existingLeadPayment.leadPaymentReceived.bankPaidAmount || '0'),
-              falcoAmount: parseFloat(existingLeadPayment.leadPaymentReceived.falcoAmount || '0'),
+              cashPaidAmount: parseFloat(leadPaymentReceived.cashPaidAmount || '0'),
+              bankPaidAmount: parseFloat(leadPaymentReceived.bankPaidAmount || '0'),
+              falcoAmount: parseFloat(leadPaymentReceived.falcoAmount || '0'),
               paymentDate: paymentDate,
               payments: allPayments
             }
@@ -738,14 +416,37 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
         return;
       }
 
-      const loansData = validLoans.map(loan => {
-        let phoneNumber = '';
+      // Validar clientes duplicados (solo para clientes nuevos, no para seleccionados del autocomplete o renovaciones)
+      for (const loan of validLoans) {
+        // Si el cliente fue seleccionado del autocomplete o es una renovación, no validar duplicados
+        const isSelectedFromAutocomplete = !!(loan as any).borrower?.personalData?.id;
+        const isRenewal = !!loan.previousLoan;
         
-        if (loan.borrower?.personalData?.phones?.[0]?.number) {
-          phoneNumber = loan.borrower.personalData.phones[0].number;
-        } else if ((loan as any).clientData?.clientPhone) {
-          phoneNumber = (loan as any).clientData.clientPhone;
+        if (isSelectedFromAutocomplete || isRenewal) {
+          continue; // Skip validation for selected or renewal loans
         }
+        
+        const cleanName = (loan.borrower?.personalData?.fullName || '').trim().replace(/\s+/g, ' ');
+        const cleanPhone = (loan.borrower?.personalData?.phones?.[0]?.number || '').trim().replace(/\s+/g, ' ');
+        
+        if (cleanName && cleanPhone) {
+          const existingClient = allPreviousLoansData?.loans?.find((existingLoan: Loan) => {
+            const existingName = (existingLoan.borrower?.personalData?.fullName || '').trim().replace(/\s+/g, ' ');
+            const existingPhone = (existingLoan.borrower?.personalData?.phones?.[0]?.number || '').trim().replace(/\s+/g, ' ');
+            return existingName.toLowerCase() === cleanName.toLowerCase() && 
+                   existingPhone === cleanPhone;
+          });
+
+          if (existingClient) {
+            alert(`El cliente "${cleanName}" ya ha tenido créditos anteriormente, usa la opción de renovación`);
+            setIsCreating(false);
+            return;
+          }
+        }
+      }
+
+      const loansData = validLoans.map(loan => {
+        const phoneNumber = loan.borrower?.personalData?.phones?.[0]?.number || '';
         
         return {
           requestedAmount: (loan.requestedAmount || '0').toString(),
@@ -771,23 +472,33 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
       const { data } = await createMultipleLoans({ variables: { loans: loansData } });
 
       if (data?.createMultipleLoans) {
-        const errorResponse = data.createMultipleLoans.find((loan: any) => !loan.success);
+        // Verificar errores en la respuesta
+        const responses = data.createMultipleLoans as Array<{ success: boolean; message?: string; loan?: Loan }>;
+        const errorResponse = responses.find((response) => !response.success);
+        
         if (errorResponse) {
           alert(errorResponse.message || 'Error desconocido al crear el préstamo');
           return;
         }
 
+        // Limpiar estado y refrescar datos
         setPendingLoans([]);
+        setEditableEmptyRow(null);
         await Promise.all([refetchRoute(), refetchLoans()]);
+        
+        // Actualizar balance
         if (onBalanceUpdate) {
-          const totalAmount = data.createMultipleLoans.reduce((sum: number, loan: any) => sum + parseFloat(loan.loan?.amountGived || '0'), 0);
+          const totalAmount = responses.reduce((sum, response) => 
+            sum + parseFloat(response.loan?.amountGived || '0'), 0
+          );
           onBalanceUpdate(-totalAmount);
         }
+        
         triggerRefresh();
       }
     } catch (error) {
-      console.error('Error al crear los préstamos en bulk:', error);
-      alert('Error al crear los préstamos.');
+      console.error('❌ Error al crear los préstamos en bulk:', error);
+      alert('Error al crear los préstamos. Por favor, intenta de nuevo.');
     } finally {
       setIsCreating(false);
     }
@@ -815,7 +526,13 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
       selectedCollateralId,
       selectedCollateralPhoneId,
       avalAction: selectedCollateralId ? 'connect' : 'create'
-    } as any);
+    } as Loan & { 
+      avalName: string; 
+      avalPhone: string; 
+      selectedCollateralId?: string; 
+      selectedCollateralPhoneId?: string; 
+      avalAction: 'create' | 'connect' 
+    });
   };
 
   const handleUpdateLoan = async () => {
@@ -944,7 +661,7 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
   const generateLoanId = useCallback(() => `temp-loan-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, []);
 
   // Crear fila vacía
-  const emptyLoanRow = React.useMemo<ExtendedLoan>(() => ({
+  const emptyLoanRow = React.useMemo<ExtendedLoanForCredits>(() => ({
     id: generateLoanId(),
     requestedAmount: '',
     amountGived: '',
@@ -972,27 +689,25 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
   }), [selectedDate, generateLoanId]);
 
   // Opciones de préstamos anteriores
-  const getPreviousLoanOptions = useCallback((rowId: string) => {
-    const searchText = dropdownSearchTextByRow[rowId] || '';
-    // Siempre buscar en todas las localidades (no filtrar por lead)
-    const loans = allPreviousLoansData?.loans || [];
+  const getPreviousLoanOptions = useCallback((rowId: string): PreviousLoanOption[] => {
+    const loans = (allPreviousLoansData?.loans || []) as Loan[];
 
     if (!loans || loans.length === 0) {
       return [];
     }
 
     // IDs de clientes que ya tienen renovaciones en la fecha actual
-    const renewedTodayBorrowerIds = new Set<string>([
-      ...(loans.filter((l: any) => l.previousLoan).map((l: any) => l.borrower?.id).filter(Boolean) || []),
-      ...(pendingLoans.filter(l => l.previousLoan).map(l => l.borrower?.id).filter(Boolean) || []),
-    ]);
+    const renewedTodayBorrowerIds = new Set<string>(
+      [
+        ...loans.filter((l: Loan) => l.previousLoan).map((l: Loan) => l.borrower?.id),
+        ...pendingLoans.filter(l => l.previousLoan).map(l => l.borrower?.id),
+      ].filter((id): id is string => Boolean(id))
+    );
 
     // Obtener el ÚLTIMO crédito de cada cliente (activo o terminado)
-    // Esto evita duplicados y solo muestra el préstamo más reciente por cliente
-    const latestBorrowerLoans = loans.reduce((acc: { [key: string]: any }, loan: any) => {
+    const latestBorrowerLoans = loans.reduce<Record<string, Loan>>((acc, loan) => {
       const borrowerId = loan.borrower?.id;
       if (borrowerId && !renewedTodayBorrowerIds.has(borrowerId)) {
-        // Si no existe en el acumulador o este préstamo es más reciente, actualizar
         if (!acc[borrowerId] || new Date(loan.signDate) > new Date(acc[borrowerId].signDate)) {
           acc[borrowerId] = loan;
         }
@@ -1001,64 +716,64 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
     }, {});
 
     // Convertir a array y ordenar por fecha de firma (más reciente primero)
-    return Object.values(latestBorrowerLoans)
-      .sort((a: any, b: any) => new Date(b.signDate).getTime() - new Date(a.signDate).getTime())
-      .map((loan: any) => {
-        // Acceder a la localidad del líder asociado al préstamo: Loan->Lead->PersonalData->Address->Location->Municipality
+    const options: PreviousLoanOption[] = Object.values(latestBorrowerLoans)
+      .sort((a: Loan, b: Loan) => new Date(b.signDate).getTime() - new Date(a.signDate).getTime())
+      .map((loan: Loan) => {
         const leadAddress = loan.lead?.personalData?.addresses?.[0];
         const leadLocation = leadAddress?.location;
         const location = leadLocation?.name || 'Sin localidad';
-        const municipality = leadLocation?.municipality?.name || null;
-        const state = leadLocation?.municipality?.state?.name || null;
         const leaderName = loan.lead?.personalData?.fullName || 'Sin líder';
-        const pendingAmount = parseFloat(loan.pendingAmountStored || '0');
+        const pendingAmount = parseFloat(loan.pendingAmountStored || loan.pendingAmount || '0');
         const hasDebt = pendingAmount > 0;
-
-        // Construir el label solo con el nombre (la localidad se muestra como badge separado)
-        const label = `${loan.borrower?.personalData?.fullName || 'Sin nombre'}`;
 
         return {
           value: loan.id,
-          label: label,
+          label: loan.borrower?.personalData?.fullName || 'Sin nombre',
           loanData: loan,
           hasDebt,
           statusColor: hasDebt ? '#FEF3C7' : '#D1FAE5',
           statusTextColor: hasDebt ? '#92400E' : '#065F46',
           debtColor: hasDebt ? '#DC2626' : '#059669',
           locationColor: '#3B82F6',
-          location,
-          municipality,
-          state,
-          debtAmount: Math.round(parseFloat(String(pendingAmount || '0'))).toString(),
+          location: location || null,
+          debtAmount: roundAmount(pendingAmount).toString(),
           leaderName,
         };
       });
-  }, [allPreviousLoansData, pendingLoans, dropdownSearchTextByRow]);
+    
+    return options;
+  }, [allPreviousLoansData, pendingLoans]);
 
   // Manejar cambios en la fila
-  const handleRowChange = useCallback((index: number, field: string, value: any, isNewRow: boolean) => {
+  const handleRowChange = useCallback((
+    index: number, 
+    field: string, 
+    value: PreviousLoanOption | LoanTypeOption | { clientName: string; clientPhone: string; action?: string } | { avalName: string; avalPhone: string; selectedCollateralId?: string; selectedCollateralPhoneId?: string; avalAction: 'create' | 'update' | 'connect' | 'clear' } | string | null, 
+    isNewRow: boolean
+  ) => {
     const sourceRow = isNewRow 
       ? (editableEmptyRow || { ...emptyLoanRow, id: generateLoanId() }) 
       : pendingLoans[index];
 
-    let updatedRow = { ...sourceRow };
+    let updatedRow: ExtendedLoanForCredits = { ...sourceRow };
 
     if (field === 'previousLoan') {
-      if (value?.value) {
-        const selectedLoan = value.loanData;
-        const pendingAmount = Math.round(parseFloat(selectedLoan.pendingAmountStored || '0')).toString();
-        const selectedType = loanTypesData?.loantypes?.find((type: any) => type.id === selectedLoan.loantype?.id);
+      const previousLoanValue = value as PreviousLoanOption | null | undefined;
+      if (previousLoanValue?.value) {
+        const selectedLoan = previousLoanValue.loanData;
+        const pendingAmount = roundAmount(selectedLoan.pendingAmountStored || selectedLoan.pendingAmount || '0').toString();
+        const selectedType = loanTypesData?.loantypes?.find((type: LoanType) => type.id === selectedLoan.loantype?.id);
         
         updatedRow = {
           ...updatedRow,
-          previousLoanOption: value,
+          previousLoanOption: previousLoanValue,
           previousLoan: { ...selectedLoan, pendingAmount },
-          borrower: selectedLoan.borrower as any,
+          borrower: selectedLoan.borrower,
           avalName: selectedLoan.collaterals?.[0]?.fullName || '',
           avalPhone: selectedLoan.collaterals?.[0]?.phones?.[0]?.number || '',
           selectedCollateralId: selectedLoan.collaterals?.[0]?.id,
           selectedCollateralPhoneId: selectedLoan.collaterals?.[0]?.phones?.[0]?.id,
-          avalAction: selectedLoan.collaterals?.length > 0 ? 'connect' as const : 'clear' as const,
+          avalAction: selectedLoan.collaterals && selectedLoan.collaterals.length > 0 ? 'connect' : 'clear',
           loantype: selectedLoan.loantype,
           requestedAmount: selectedLoan.requestedAmount,
           comissionAmount: (selectedType?.loanGrantedComission ?? 0).toString(),
@@ -1068,12 +783,12 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
           ...updatedRow, 
           previousLoanOption: null, 
           previousLoan: undefined, 
-          borrower: emptyLoanRow.borrower as any,
+          borrower: emptyLoanRow.borrower,
           avalName: '',
           avalPhone: '',
           selectedCollateralId: undefined,
           selectedCollateralPhoneId: undefined,
-          avalAction: 'clear' as const,
+          avalAction: 'clear',
           collaterals: [],
           loantype: undefined,
           requestedAmount: '',
@@ -1083,40 +798,45 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
         };
       }
     } else if (field === 'loantype') {
-      const selectedType = loanTypesData?.loantypes?.find((t: any) => t.id === value.value);
-      updatedRow.loantype = selectedType;
-      updatedRow.comissionAmount = (selectedType?.loanGrantedComission ?? 0).toString();
+      const loanTypeValue = value as LoanTypeOption;
+      const selectedType = loanTypesData?.loantypes?.find((t: LoanType) => t.id === loanTypeValue.value);
+      if (selectedType) {
+        updatedRow.loantype = selectedType;
+        updatedRow.comissionAmount = (selectedType.loanGrantedComission ?? 0).toString();
+      }
     } else if (field === 'clientData') {
+      const clientDataValue = value as { clientName: string; clientPhone: string; action?: string };
       const currentPersonalData = updatedRow.borrower?.personalData;
       const currentPhoneId = currentPersonalData?.phones?.[0]?.id || '';
       updatedRow.borrower = { 
-        ...updatedRow.borrower, 
+        id: updatedRow.borrower?.id || '',
         personalData: { 
-          ...currentPersonalData, 
-          fullName: value.clientName, 
-          phones: [{ id: currentPhoneId, number: value.clientPhone }] 
+          id: currentPersonalData?.id || '',
+          fullName: clientDataValue.clientName, 
+          phones: [{ id: currentPhoneId, number: clientDataValue.clientPhone }] 
         } 
-      } as any;
+      };
     } else if (field === 'avalData') {
-      const collateral = value.selectedCollateralId
+      const avalDataValue = value as { avalName: string; avalPhone: string; selectedCollateralId?: string; selectedCollateralPhoneId?: string; avalAction: 'create' | 'update' | 'connect' | 'clear' };
+      const collateral = avalDataValue.selectedCollateralId
         ? {
-            id: value.selectedCollateralId,
-            fullName: value.avalName,
-            phones: [{ id: value.selectedCollateralPhoneId, number: value.avalPhone }],
+            id: avalDataValue.selectedCollateralId,
+            fullName: avalDataValue.avalName,
+            phones: [{ id: avalDataValue.selectedCollateralPhoneId || '', number: avalDataValue.avalPhone }],
           }
         : null;
 
       updatedRow = {
         ...updatedRow,
         collaterals: collateral ? [collateral] : [],
-        selectedCollateralId: value.selectedCollateralId,
-        selectedCollateralPhoneId: value.selectedCollateralPhoneId,
-        avalAction: value.avalAction,
-        avalName: value.avalName,
-        avalPhone: value.avalPhone,
-      } as ExtendedLoan;
+        selectedCollateralId: avalDataValue.selectedCollateralId,
+        selectedCollateralPhoneId: avalDataValue.selectedCollateralPhoneId,
+        avalAction: avalDataValue.avalAction,
+        avalName: avalDataValue.avalName,
+        avalPhone: avalDataValue.avalPhone,
+      };
     } else {
-      updatedRow = { ...updatedRow, [field]: value };
+      updatedRow = { ...updatedRow, [field]: value as string };
     }
 
     // Calcular montos si cambian campos relevantes
@@ -1176,25 +896,38 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
     return Array.from(usedIds);
   }, [selectedDate, loansData?.loans, pendingLoans]);
 
-  const existingTotals = React.useMemo(() => loans.reduce((acc, loan) => ({
-    count: acc.count + 1,
-    amountGived: acc.amountGived + parseFloat(loan.amountGived || '0'),
-    amountToPay: acc.amountToPay + parseFloat(loan.totalDebtAcquired || '0'),
-    totalComission: acc.totalComission + parseFloat(loan.comissionAmount || '0'),
-    newLoans: acc.newLoans + (loan.previousLoan ? 0 : 1),
-    renewals: acc.renewals + (loan.previousLoan ? 1 : 0),
-  }), { count: 0, amountGived: 0, amountToPay: 0, totalComission: 0, newLoans: 0, renewals: 0 }), [loans]);
+  interface LoanTotals {
+    count: number;
+    amountGived: number;
+    amountToPay: number;
+    totalComission: number;
+    newLoans: number;
+    renewals: number;
+  }
 
-  const pendingTotals = React.useMemo(() => pendingLoans.reduce((acc, loan) => ({
-    count: acc.count + 1,
-    amountGived: acc.amountGived + parseFloat(loan.amountGived || '0'),
-    amountToPay: acc.amountToPay + parseFloat(loan.totalDebtAcquired || '0'),
-    totalComission: acc.totalComission + parseFloat(loan.comissionAmount || '0'),
-    newLoans: acc.newLoans + (loan.previousLoan ? 0 : 1),
-    renewals: acc.renewals + (loan.previousLoan ? 1 : 0),
-  }), { count: 0, amountGived: 0, amountToPay: 0, totalComission: 0, newLoans: 0, renewals: 0 }), [pendingLoans]);
+  const existingTotals = useMemo((): LoanTotals => 
+    loans.reduce((acc, loan) => ({
+      count: acc.count + 1,
+      amountGived: acc.amountGived + parseFloat(loan.amountGived || '0'),
+      amountToPay: acc.amountToPay + parseFloat(loan.totalDebtAcquired || '0'),
+      totalComission: acc.totalComission + parseFloat(loan.comissionAmount || '0'),
+      newLoans: acc.newLoans + (loan.previousLoan ? 0 : 1),
+      renewals: acc.renewals + (loan.previousLoan ? 1 : 0),
+    }), { count: 0, amountGived: 0, amountToPay: 0, totalComission: 0, newLoans: 0, renewals: 0 }), 
+  [loans]);
 
-  const totals = React.useMemo(() => ({
+  const pendingTotals = useMemo((): LoanTotals => 
+    pendingLoans.reduce((acc, loan) => ({
+      count: acc.count + 1,
+      amountGived: acc.amountGived + parseFloat(loan.amountGived || '0'),
+      amountToPay: acc.amountToPay + parseFloat(loan.totalDebtAcquired || '0'),
+      totalComission: acc.totalComission + parseFloat(loan.comissionAmount || '0'),
+      newLoans: acc.newLoans + (loan.previousLoan ? 0 : 1),
+      renewals: acc.renewals + (loan.previousLoan ? 1 : 0),
+    }), { count: 0, amountGived: 0, amountToPay: 0, totalComission: 0, newLoans: 0, renewals: 0 }), 
+  [pendingLoans]);
+
+  const totals = useMemo((): LoanTotals => ({
     count: existingTotals.count + pendingTotals.count,
     amountGived: existingTotals.amountGived + pendingTotals.amountGived,
     amountToPay: existingTotals.amountToPay + pendingTotals.amountToPay,
@@ -1203,15 +936,17 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
     renewals: existingTotals.renewals + pendingTotals.renewals,
   }), [existingTotals, pendingTotals]);
 
-  const loanTypeOptions = React.useMemo(() => 
-    loanTypesData?.loantypes?.map((type: any) => ({
+  const loanTypeOptions = useMemo((): LoanTypeOption[] => {
+    if (!loanTypesData?.loantypes) return [];
+    
+    return loanTypesData.loantypes.map((type: LoanType): LoanTypeOption => ({
       label: type.name,
       value: type.id,
       weekDuration: type.weekDuration,
       rate: type.rate,
       typeData: type
-    })) || [],
-  [loanTypesData]);
+    }));
+  }, [loanTypesData]);
 
   // Estado para el modal de mover fecha - MOVIDO AQUÍ ANTES DE RETURNS CONDICIONALES
   const [isDateMoverOpen, setIsDateMoverOpen] = useState(false);
@@ -1220,41 +955,13 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
   const [showPrimaryMenu, setShowPrimaryMenu] = useState(false);
   const [moveDate] = useMutation(MOVE_LOANS_TO_DATE);
 
-  if (loansLoading || loanTypesLoading || previousLoansLoading) {
+  if (loansLoading || loanTypesLoading) {
     return (
-      <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '400px',
-        background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)',
-        borderRadius: '12px',
-        margin: '20px',
-      }}>
-        <div style={{
-          width: '60px',
-          height: '60px',
-          border: '4px solid #e2e8f0',
-          borderTop: '4px solid #3b82f6',
-          borderRadius: '50%',
-          animation: 'spin 1s linear infinite',
-          marginBottom: '20px',
-        }} />
-        <div style={{
-          fontSize: '18px',
-          fontWeight: '600',
-          color: '#374151',
-          marginBottom: '8px',
-        }}>
+      <div className={styles.loadingContainer}>
+        <div className={styles.loadingSpinner} />
+        <div className={styles.loadingText}>
           Cargando créditos...
         </div>
-        <style>{`
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-        `}</style>
       </div>
     );
   }
@@ -1277,31 +984,12 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
 
   if (!selectedDate || !selectedRoute || !selectedLead) {
     return (
-      <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '400px',
-        background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)',
-        borderRadius: '12px',
-        margin: '20px',
-      }}>
-        <div style={{ fontSize: '48px', marginBottom: '16px' }}>💰</div>
-        <div style={{
-          fontSize: '18px',
-          fontWeight: '600',
-          color: '#374151',
-          marginBottom: '8px',
-        }}>
+      <div className={styles.emptyState}>
+        <div className={styles.emptyStateIcon}>💰</div>
+        <div className={styles.emptyStateTitle}>
           Selecciona Ruta y Localidad
         </div>
-        <div style={{
-          fontSize: '14px',
-          color: '#6b7280',
-          textAlign: 'center',
-          maxWidth: '400px',
-        }}>
+        <div className={styles.emptyStateDescription}>
           Para gestionar los créditos, necesitas seleccionar una ruta y una localidad específica.
         </div>
       </div>
@@ -1366,92 +1054,41 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
         </AlertDialogContent>
       </AlertDialog>
       
-      {/* Barra de KPIs - Versión HTML nativa tipo shadcn/ui */}
-      <div style={{
-        position: 'sticky',
-        top: 0,
-        zIndex: 1000,
-        background: 'white',
-        border: '1px solid #E5E7EB',
-        borderRadius: '8px',
-        padding: '16px 20px',
-        marginBottom: '16px',
-        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '16px',
-        flexWrap: 'wrap'
-      }}>
+      {/* Barra de KPIs - Diseño moderno 2025 */}
+      <div className={styles.kpiBar}>
         {/* Chips de KPIs */}
-        <div style={{ 
-          display: 'flex', 
-          flexWrap: 'wrap', 
-          gap: '8px', 
-          alignItems: 'center',
-          flex: '1 1 auto',
-        }}>
+        <div className={styles.kpiChipsContainer}>
           {[
-            { label: 'Créditos', value: totals.count, color: '#374151', bg: '#F3F4F6', border: '#E5E7EB' },
-            { label: 'Nuevos', value: totals.newLoans, color: '#1E40AF', bg: '#EFF6FF', border: '#BFDBFE' },
-            { label: 'Renovaciones', value: totals.renewals, color: '#92400E', bg: '#FEF3C7', border: '#FDE68A' },
-            { label: 'Otorgado', value: `$${totals.amountGived.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, color: '#BE185D', bg: '#FDF2F8', border: '#FBCFE8' },
-            { label: 'A Pagar', value: `$${totals.amountToPay.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, color: '#166534', bg: '#F0FDF4', border: '#BBF7D0' },
-            { label: 'Comisiones', value: `$${totals.totalComission.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, color: '#6D28D9', bg: '#EDE9FE', border: '#DDD6FE' },
+            { label: 'Créditos', value: totals.count, variant: 'neutral' },
+            { label: 'Nuevos', value: totals.newLoans, variant: 'blue' },
+            { label: 'Renovaciones', value: totals.renewals, variant: 'amber' },
+            { label: 'Otorgado', value: `$${totals.amountGived.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, variant: 'pink' },
+            { label: 'A Pagar', value: `$${totals.amountToPay.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, variant: 'green' },
+            { label: 'Comisiones', value: `$${totals.totalComission.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, variant: 'purple' },
           ].map((chip, index) => (
-            <span key={index} style={{ 
-              fontSize: '12px', 
-              color: chip.color, 
-              background: chip.bg, 
-              border: `1px solid ${chip.border}`, 
-              padding: '6px 12px', 
-              borderRadius: '999px', 
-              fontWeight: '500' 
-            }}>
-              {chip.label}: {chip.value}
-            </span>
+            <div key={index} className={`${styles.kpiChip} ${styles[chip.variant]}`}>
+              {/* <span className={styles.kpiIcon}>{chip.icon}</span> */}
+              <span className={styles.kpiLabel}>{chip.label}:</span>
+              <span className={styles.kpiValue}>{chip.value}</span>
+            </div>
           ))}
           
           {/* Comisión Masiva */}
           {pendingLoans.length > 0 && (
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '6px', 
-              fontSize: '11px', 
-              color: '#6B7280', 
-              background: '#F8FAFC', 
-              border: '1px solid #E2E8F0', 
-              padding: '6px 10px', 
-              borderRadius: '999px',
-              fontWeight: '500'
-            }}>
-              <span>Comisión:</span>
-              <input
+            <div className={styles.kpiChip} style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+              <span style={{ fontSize: '12px', color: '#6b7280' }}>Comisión:</span>
+              <Input
                 type="number"
                 value={massCommission}
                 onChange={(e) => setMassCommission(e.target.value)}
-                style={{
-                  width: '60px',
-                  height: '32px',
-                  padding: '6px 12px',
-                  border: '1px solid #D1D5DB',
-                  borderRadius: '4px',
-                  fontSize: '11px',
-                  textAlign: 'center'
-                }}
+                style={{ width: '60px', height: '32px', fontSize: '11px', textAlign: 'center' }}
                 placeholder="0"
               />
               <Button
                 onClick={handleApplyMassCommission}
                 size="sm"
-                variant="default"
-                style={{
-                  backgroundColor: '#16a34a',
-                  color: 'white',
-                  fontSize: '11px',
-                  height: '32px',
-                  minWidth: 'auto',
-                }}
+                className={`${styles.modernButton} ${styles.primary}`}
+                style={{ fontSize: '11px', height: '32px', minWidth: 'auto', padding: '0 12px' }}
               >
                 Aplicar
               </Button>
@@ -1717,52 +1354,18 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
         </div>
       </div>
 
-      {/* Sección de Agregar Nuevos Préstamos - Versión HTML nativa */}
-      <div style={{ marginTop: '24px' }}>
-        <div style={{ 
-          position: 'relative',
-          backgroundColor: '#FFFFFF',
-          borderRadius: '8px',
-          border: '1px solid #E5E7EB',
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-        }}>
-          <div style={{ 
-            padding: '16px',
-            borderBottom: '1px solid #E5E7EB',
-            backgroundColor: '#F9FAFB'
-          }}>
-            <h3 style={{ 
-              margin: 0, 
-              fontSize: '16px', 
-              fontWeight: '600', 
-              color: '#1F2937',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px'
-            }}>
+      {/* Sección de Agregar Nuevos Préstamos */}
+      <div className={styles.newLoansSection}>
+        <div className={styles.newLoansCard}>
+          <div className={styles.newLoansHeader}>
+            <h3 className={styles.newLoansTitle}>
               <span>➕</span>
               <span>{pendingLoans.length > 0 ? `Préstamos Pendientes (${pendingLoans.length})` : 'Agregar Nuevos Préstamos'}</span>
             </h3>
           </div>
-          <div style={{ 
-            padding: '12px', 
-            overflowX: 'auto',
-            WebkitOverflowScrolling: 'touch',
-          }}>
-            <Table style={{ fontSize: '13px' }}>
-              <TableHeader>
-                <TableRow>
-                  <TableHead style={{ minWidth: '320px', backgroundColor: '#E0F2FE' }}>Cliente / Renovación</TableHead>
-                  <TableHead style={{ minWidth: '150px', backgroundColor: '#E0F2FE' }}>Tipo</TableHead>
-                  <TableHead style={{ minWidth: '120px', backgroundColor: '#E0F2FE' }}>M. Solicitado</TableHead>
-                  <TableHead style={{ minWidth: '140px', backgroundColor: '#E0F2FE' }}>M. Entregado</TableHead>
-                  <TableHead style={{ minWidth: '70px', width: '70px', backgroundColor: '#E0F2FE' }}>Comisión</TableHead>
-                  <TableHead style={{ minWidth: '220px', backgroundColor: '#E0F2FE' }}>Aval</TableHead>
-                  <TableHead style={{ width: '100px', backgroundColor: '#E0F2FE' }}></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {[...pendingLoans, editableEmptyRow || emptyLoanRow].map((loan, index) => {
+          <div style={{ padding: '12px' }}>
+            {/* Diseño compacto tipo card */}
+            {[...pendingLoans, editableEmptyRow || emptyLoanRow].map((loan, index) => {
                   const isNewRow = index === pendingLoans.length;
                   const loanId = loan.id || `temp-${index}`;
                   const previousLoanOptions = getPreviousLoanOptions(loanId);
@@ -1774,16 +1377,21 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                   })) || [];
 
                   return (
-                    <TableRow 
+                    <div 
                       key={loanId} 
-                      style={{ 
-                        backgroundColor: isNewRow ? '#FFFFFF' : '#F0FDF4',
-                      }}
+                      className={`${styles.compactLoanForm} ${!isNewRow ? styles.pending : ''}`}
                     >
-                      {/* Cliente / Renovación */}
-                      <TableCell style={{ minWidth: '320px' }}>
-                        <div style={{ paddingTop: '10px' }}>
-                          <ClientLoanUnifiedInput
+                      {/* COLUMNA IZQUIERDA: PERSONAS */}
+                      <div className={styles.personsColumn}>
+                        {/* Titular */}
+                        <div className={styles.personSection}>
+                          <div className={`${styles.sectionHeader} ${styles.titular}`}>
+                            <span className={styles.sectionIcon}>👤</span>
+                            <span>Titular</span>
+                          </div>
+                          <div className={styles.compactInputWrapper}>
+                            <label className={styles.compactLabel}>Cliente / Renovación</label>
+                            <ClientLoanUnifiedInput
                             loanId={loanId}
                             currentName={loan.borrower?.personalData?.fullName || ''}
                             currentPhone={loan.borrower?.personalData?.phones?.[0]?.number || ''}
@@ -1809,9 +1417,10 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                               handleRowChange(index, 'clientData', data, isNewRow);
                             }}
                             previousLoanOptions={previousLoanOptions}
-                            isLoading={allPreviousLoansLoading || isSearchingLoans}
+                            isLoading={isSearchingLoansByRow[loanId] || false}
                             selectedLeadLocationId={selectedLeadLocation?.id}
                             onLocationMismatch={(clientLocation, leadLocation) => {
+                              console.log('🔍 Location mismatch detected:', { clientLocation, leadLocation, selectedLeadLocation: selectedLeadLocation?.name });
                               setLocationMismatchDialogOpen({
                                 open: true,
                                 clientLocation,
@@ -1825,18 +1434,111 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                               }));
                             }}
                           />
+                          </div>
                         </div>
-                      </TableCell>
 
-                      {/* Tipo */}
-                      <TableCell style={{ minWidth: '150px' }}>
-                        <div style={{ paddingTop: '10px' }}>
+                        {/* Aval */}
+                        <div className={styles.personSection}>
+                          <div className={`${styles.sectionHeader} ${styles.aval}`}>
+                            <span className={styles.sectionIcon}>🤝</span>
+                            <span>Aval</span>
+                          </div>
+                          <div className={styles.compactInputWrapper}>
+                            <label className={styles.compactLabel}>Nombre y Teléfono</label>
+                            <ClientLoanUnifiedInput
+                              loanId={`${loanId}-aval`}
+                              currentName={loan.avalName || ''}
+                              currentPhone={loan.avalPhone || ''}
+                              previousLoanOption={undefined}
+                              previousLoan={undefined}
+                              clientPersonalDataId={loan.selectedCollateralId}
+                              clientPhoneId={loan.selectedCollateralPhoneId}
+                              onNameChange={(name) => {
+                                const currentPhone = loan.avalPhone || '';
+                                handleRowChange(index, 'avalData', {
+                                  avalName: name,
+                                  avalPhone: currentPhone,
+                                  selectedCollateralId: undefined,
+                                  selectedCollateralPhoneId: undefined,
+                                  avalAction: 'create'
+                                }, isNewRow);
+                              }}
+                              onPhoneChange={(phone) => {
+                                const currentName = loan.avalName || '';
+                                handleRowChange(index, 'avalData', {
+                                  avalName: currentName,
+                                  avalPhone: phone,
+                                  selectedCollateralId: undefined,
+                                  selectedCollateralPhoneId: undefined,
+                                  avalAction: 'create'
+                                }, isNewRow);
+                              }}
+                              onPreviousLoanSelect={() => {}}
+                              onPreviousLoanClear={() => {
+                                handleRowChange(index, 'avalData', {
+                                  avalName: '',
+                                  avalPhone: '',
+                                  selectedCollateralId: undefined,
+                                  selectedCollateralPhoneId: undefined,
+                                  avalAction: 'clear'
+                                }, isNewRow);
+                              }}
+                              onClientDataChange={(data) => {
+                                handleRowChange(index, 'avalData', {
+                                  avalName: data.clientName,
+                                  avalPhone: data.clientPhone,
+                                  selectedCollateralId: data.selectedPersonId,
+                                  selectedCollateralPhoneId: data.selectedPersonPhoneId,
+                                  avalAction: data.action
+                                }, isNewRow);
+                              }}
+                              previousLoanOptions={[]}
+                              mode="aval"
+                              usedPersonIds={usedAvalIds}
+                              borrowerLocationId={loan.borrower?.personalData?.addresses?.[0]?.location?.id}
+                              selectedPersonId={loan.selectedCollateralId}
+                              onLocationMismatch={(avalLocation, _) => {
+                                setLocationMismatchDialogOpen({
+                                  open: true,
+                                  clientLocation: avalLocation,
+                                  leadLocation: selectedLeadLocation?.name || 'desconocida'
+                                });
+                              }}
+                              namePlaceholder="Buscar o escribir nombre del aval..."
+                              phonePlaceholder="Teléfono..."
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* COLUMNA DERECHA: INFO DEL PRÉSTAMO */}
+                      <div className={styles.loanInfoColumn}>
+                        {/* Botón de eliminar con indicador de validación */}
+                        {!isNewRow && (
+                          <div className={styles.loanFormActions}>
+                            <div className={styles.validationCheck}>✓</div>
+                            <button
+                              className={styles.compactActionButton}
+                              onClick={() => {
+                                setDeletePendingLoanDialogOpen({ open: true, loanIndex: index });
+                              }}
+                              title="Eliminar préstamo"
+                              type="button"
+                            >
+                              <FaTrash size={12} />
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Tipo */}
+                        <div className={styles.compactInputWrapper}>
+                          <label className={styles.compactLabel}>Tipo de Préstamo</label>
                           <Select
-                            value={loanTypeOptions.find((opt: any) => opt.value === loan.loantype?.id)?.value || ''}
+                            value={loanTypeOptions.find((opt: LoanTypeOption) => opt.value === loan.loantype?.id)?.value || ''}
                             onChange={(e) => {
-                              const selectedOption = loanTypeOptions.find((opt: any) => opt.value === e.target.value);
+                              const selectedOption = loanTypeOptions.find((opt: LoanTypeOption) => opt.value === e.target.value);
                               if (selectedOption) {
-                                handleRowChange(index, 'loantype', { value: selectedOption.value }, isNewRow);
+                                handleRowChange(index, 'loantype', selectedOption, isNewRow);
                               }
                             }}
                             style={{ 
@@ -1847,17 +1549,18 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                             }}
                           >
                             <option value="">Tipo...</option>
-                            {loanTypeOptions.map((opt: any) => (
+                            {loanTypeOptions.map((opt: LoanTypeOption) => (
                               <option key={opt.value} value={opt.value}>{opt.label}</option>
                             ))}
                           </Select>
                         </div>
-                      </TableCell>
 
-                      {/* Monto Solicitado */}
-                      <TableCell style={{ minWidth: '120px' }}>
-                        <div style={{ paddingTop: '10px' }}>
-                          <Input
+                        {/* Grid para montos */}
+                        <div className={styles.loanInfoGrid}>
+                          {/* Monto Solicitado */}
+                          <div className={styles.compactInputWrapper}>
+                            <label className={styles.compactLabel}>Solicitado</label>
+                            <Input
                             placeholder="0"
                             type="number"
                             value={loan.requestedAmount || ''}
@@ -1876,33 +1579,16 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                               padding: '0 8px'
                             }}
                           />
-                        </div>
-                      </TableCell>
+                          </div>
 
-                      {/* Monto Entregado */}
-                      <TableCell style={{ minWidth: '140px' }}>
-                        <div style={{ paddingTop: '10px' }}>
-                          <Input
+                          {/* Comisión */}
+                          <div className={styles.compactInputWrapper}>
+                            <label className={styles.compactLabel}>Comisión</label>
+                            <Input
                             placeholder="0"
-                            type="number"
-                            value={loan.amountGived || ''}
-                            readOnly
-                            disabled
-                            style={{ 
-                              height: '28px', 
-                              fontSize: '12px',
-                              padding: '0 8px'
-                            }}
-                          />
-                        </div>
-                      </TableCell>
-
-                      {/* Comisión */}
-                      <TableCell style={{ minWidth: '70px', width: '70px' }}>
-                        <div style={{ paddingTop: '10px' }}>
-                          <Input
-                            placeholder="0"
-                            type="number"
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
                             value={loan.comissionAmount || ''}
                             onChange={(e) => {
                               const value = e.target.value;
@@ -1916,96 +1602,32 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                             style={{ 
                               height: '28px', 
                               fontSize: '12px',
-                              padding: '0 6px',
-                              maxWidth: '70px'
+                              padding: '0 8px'
+                            }}
+                          />
+                          </div>
+                        </div>
+
+                        {/* Monto Entregado (solo lectura) */}
+                        <div className={styles.compactInputWrapper}>
+                          <label className={styles.compactLabel}>Monto Entregado</label>
+                          <Input
+                            placeholder="0"
+                            type="number"
+                            value={loan.amountGived || ''}
+                            readOnly
+                            disabled
+                            style={{ 
+                              height: '28px', 
+                              fontSize: '12px',
+                              padding: '0 8px'
                             }}
                           />
                         </div>
-                      </TableCell>
-
-                      {/* Aval */}
-                      <TableCell style={{ minWidth: '220px' }}>
-                        <div style={{ paddingTop: '10px' }}>
-                          <ClientLoanUnifiedInput
-                            loanId={`${loanId}-aval`}
-                            currentName={loan.avalName || ''}
-                            currentPhone={loan.avalPhone || ''}
-                            previousLoanOption={undefined}
-                            previousLoan={undefined}
-                            clientPersonalDataId={loan.selectedCollateralId}
-                            clientPhoneId={loan.selectedCollateralPhoneId}
-                            onNameChange={(name) => {
-                              const currentPhone = loan.avalPhone || '';
-                              handleRowChange(index, 'avalData', {
-                                avalName: name,
-                                avalPhone: currentPhone,
-                                selectedCollateralId: undefined,
-                                selectedCollateralPhoneId: undefined,
-                                avalAction: 'create'
-                              }, isNewRow);
-                            }}
-                            onPhoneChange={(phone) => {
-                              const currentName = loan.avalName || '';
-                              handleRowChange(index, 'avalData', {
-                                avalName: currentName,
-                                avalPhone: phone,
-                                selectedCollateralId: undefined,
-                                selectedCollateralPhoneId: undefined,
-                                avalAction: 'create'
-                              }, isNewRow);
-                            }}
-                            onPreviousLoanSelect={() => {}}
-                            onPreviousLoanClear={() => {
-                              handleRowChange(index, 'avalData', {
-                                avalName: '',
-                                avalPhone: '',
-                                selectedCollateralId: undefined,
-                                selectedCollateralPhoneId: undefined,
-                                avalAction: 'clear'
-                              }, isNewRow);
-                            }}
-                            onClientDataChange={(data) => {
-                              handleRowChange(index, 'avalData', {
-                                avalName: data.clientName,
-                                avalPhone: data.clientPhone,
-                                selectedCollateralId: data.selectedPersonId,
-                                selectedCollateralPhoneId: data.selectedPersonPhoneId,
-                                avalAction: data.action
-                              }, isNewRow);
-                            }}
-                            previousLoanOptions={[]}
-                            mode="aval"
-                            usedPersonIds={usedAvalIds}
-                            borrowerLocationId={loan.borrower?.personalData?.addresses?.[0]?.location?.id}
-                            selectedPersonId={loan.selectedCollateralId}
-                            namePlaceholder="Buscar o escribir nombre del aval..."
-                            phonePlaceholder="Teléfono..."
-                          />
-                        </div>
-                      </TableCell>
-
-                      {/* Acciones */}
-                      <TableCell style={{ width: '100px' }}>
-                        <div style={{ paddingTop: '10px', display: 'flex', gap: '4px' }}>
-                          {!isNewRow && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setDeletePendingLoanDialogOpen({ open: true, loanIndex: index });
-                              }}
-                              style={{ padding: '4px 8px' }}
-                            >
-                              <FaTrash size={12} />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
+                      </div>
+                    </div>
                   );
                 })}
-              </TableBody>
-            </Table>
           </div>
         </div>
         {pendingLoans.length > 0 && (
@@ -2217,7 +1839,7 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                 <select
                   value={editingLoan.loantype?.id || ''}
                   onChange={(e) => {
-                    const selectedType = loanTypesData?.loantypes?.find((type: any) => type.id === e.target.value);
+                    const selectedType = loanTypesData?.loantypes?.find((type: LoanType) => type.id === e.target.value);
                     if (selectedType) {
                       const { amountGived, amountToPay, totalDebtAcquired } = calculateLoanAmounts({
                         requestedAmount: editingLoan.requestedAmount,
@@ -2253,9 +1875,9 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                     backgroundColor: 'white',
                   }}
                 >
-                  {loanTypeOptions.map((option: any) => (
+                  {loanTypeOptions.map((option: LoanTypeOption) => (
                     <option key={option.value} value={option.value}>
-                      {option.label} ({option.weekDuration} sem, {option.rate}%)
+                      {option.label}
                     </option>
                   ))}
                 </select>
@@ -2436,162 +2058,14 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
         </div>
       )}
 
-      {/* Modal de configuración de pago - Versión HTML nativa tipo shadcn/ui */}
-      {selectedPaymentLoan && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}
-          onClick={() => setSelectedPaymentLoan(null)}
-        >
-          <div
-            style={{
-              backgroundColor: 'white',
-              padding: '24px',
-              borderRadius: '12px',
-              width: '500px',
-              maxWidth: '90%',
-              maxHeight: '90vh',
-              overflow: 'auto',
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: '600', color: '#1a1f36' }}>
-              Configurar Primer Pago
-            </h2>
-            <p style={{ margin: '0 0 20px 0', color: '#697386', fontSize: '14px' }}>
-              Cliente: {selectedPaymentLoan.borrower?.personalData?.fullName}
-            </p>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
-                  Método de Pago
-                </label>
-                <select
-                  value={initialPayments[selectedPaymentLoan.id]?.paymentMethod || 'CASH'}
-                  onChange={(e) => {
-                    const currentPayment = initialPayments[selectedPaymentLoan.id] || { amount: '0', paymentMethod: 'CASH', comission: '8' };
-                    setInitialPayments({
-                      ...initialPayments,
-                      [selectedPaymentLoan.id]: {
-                        ...currentPayment,
-                        paymentMethod: e.target.value as 'CASH' | 'MONEY_TRANSFER'
-                      }
-                    });
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '10px 16px',
-                    fontSize: '14px',
-                    border: '1px solid #E5E7EB',
-                    borderRadius: '8px',
-                    backgroundColor: 'white',
-                  }}
-                >
-                  <option value="CASH">Efectivo</option>
-                  <option value="MONEY_TRANSFER">Transferencia</option>
-                </select>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
-                  Monto del Pago
-                </label>
-                <input
-                  type="number"
-                  placeholder="0"
-                  value={initialPayments[selectedPaymentLoan.id]?.amount || '0'}
-                  onChange={(e) => {
-                    const currentPayment = initialPayments[selectedPaymentLoan.id] || { amount: '0', paymentMethod: 'CASH', comission: '8' };
-                    setInitialPayments({
-                      ...initialPayments,
-                      [selectedPaymentLoan.id]: {
-                        ...currentPayment,
-                        amount: e.target.value
-                      }
-                    });
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '10px 16px',
-                    fontSize: '14px',
-                    border: '1px solid #E5E7EB',
-                    borderRadius: '8px',
-                    backgroundColor: 'white',
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
-                  Comisión por Pago ($)
-                </label>
-                <input
-                  type="number"
-                  placeholder="0"
-                  value={initialPayments[selectedPaymentLoan.id]?.comission || '8'}
-                  onChange={(e) => {
-                    const currentPayment = initialPayments[selectedPaymentLoan.id] || { amount: '0', paymentMethod: 'CASH', comission: '8' };
-                    setInitialPayments({
-                      ...initialPayments,
-                      [selectedPaymentLoan.id]: {
-                        ...currentPayment,
-                        comission: e.target.value
-                      }
-                    });
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '10px 16px',
-                    fontSize: '14px',
-                    border: '1px solid #E5E7EB',
-                    borderRadius: '8px',
-                    backgroundColor: 'white',
-                  }}
-                />
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px' }}>
-              <Button
-                onClick={() => setSelectedPaymentLoan(null)}
-                variant="outline"
-                size="default"
-              >
-                Cancelar
-              </Button>
-              <Button
-                onClick={() => {
-                  const payment = initialPayments[selectedPaymentLoan.id];
-                  if (payment) {
-                    handleSavePaymentConfig(payment);
-                  }
-                }}
-                disabled={isSavingPayment}
-                variant="default"
-                size="default"
-                style={{
-                  backgroundColor: isSavingPayment ? '#9CA3AF' : '#16a34a',
-                  color: 'white',
-                }}
-              >
-                {isSavingPayment ? 'Guardando...' : 'Guardar'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Modal de configuración de pago */}
+      <PaymentConfigModal
+        loan={selectedPaymentLoan}
+        isOpen={selectedPaymentLoan !== null}
+        isSaving={isSavingPayment}
+        onClose={() => setSelectedPaymentLoan(null)}
+        onSave={handleSavePaymentConfig}
+      />
 
       {/* Modal de mover fecha - Versión HTML nativa */}
       {isDateMoverOpen && (
