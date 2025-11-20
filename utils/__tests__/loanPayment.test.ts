@@ -1,5 +1,4 @@
 import { calculatePaymentProfitAmount } from "../loanPayment";
-import '@testing-library/jest-dom';
 
 describe('LoanPayment Tests', () => {
     const testCases = [

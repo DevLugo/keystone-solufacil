@@ -1,0 +1,86 @@
+/* Base button styles */
+.button {
+  padding: 11px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: inherit;
+}
+
+.button:focus {
+  outline: none;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Primary variant */
+.buttonPrimary {
+  background: #2563eb;
+  color: white;
+}
+
+.buttonPrimary:hover:not(:disabled) {
+  background: #1d4ed8;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+.buttonPrimary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.buttonPrimary:disabled {
+  background: #9ca3af;
+  transform: none;
+}
+
+/* Secondary variant */
+.buttonSecondary {
+  background: white;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.buttonSecondary:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+/* Ghost variant (dashed border for "add another") */
+.buttonGhost {
+  width: 100%;
+  padding: 12px;
+  background: transparent;
+  color: #6b7280;
+  border: 2px dashed #d1d5db;
+  font-weight: 500;
+}
+
+.buttonGhost:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #9ca3af;
+  color: #374151;
+}
+
+/* Size variants */
+.buttonSm {
+  padding: 8px 16px;
+  font-size: 12px;
+  height: 32px;
+}
+
+.buttonIcon {
+  padding: 8px;
+  width: 32px;
+  height: 32px;
+}

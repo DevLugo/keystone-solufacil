@@ -1,0 +1,339 @@
+import React, { useMemo, useState } from 'react'
+import { X, Plus, Trash2 } from 'lucide-react'
+import { Button } from './ui/Button'
+import { Input } from './ui/Input'
+import { Select } from './ui/Select'
+import { Autocomplete } from './ui/Autocomplete'
+import { NewCreditEntry, Person } from '../types/credit'
+interface AddCreditModalProps {
+  isOpen: boolean
+  onClose: () => void
+  onSave: (entries: NewCreditEntry[]) => void
+  route: string
+  location: string
+  date: string
+  clientSuggestions: Person[]
+  avalSuggestions: Person[]
+}
+const loanTypes = [
+  {
+    value: '',
+    label: 'Seleccionar tipo',
+  },
+  {
+    value: '14 semanas/40%',
+    label: '14 semanas/40% (14 sem, 0.40%)',
+  },
+  {
+    value: '10 semanas/30%',
+    label: '10 semanas/30% (10 sem, 0.30%)',
+  },
+  {
+    value: '8 semanas/25%',
+    label: '8 semanas/25% (8 sem, 0.25%)',
+  },
+]
+export function AddCreditModal({
+  isOpen,
+  onClose,
+  onSave,
+  route,
+  location,
+  date,
+  clientSuggestions,
+  avalSuggestions,
+}: AddCreditModalProps) {
+  const [entries, setEntries] = useState<NewCreditEntry[]>([
+    {
+      clientName: '',
+      phone: '',
+      avalName: '',
+      avalPhone: '',
+      amount: '',
+      commission: '',
+      loanType: '',
+    },
+  ])
+  if (!isOpen) return null
+  const addEntry = () => {
+    setEntries([
+      ...entries,
+      {
+        clientName: '',
+        phone: '',
+        avalName: '',
+        avalPhone: '',
+        amount: '',
+        commission: '',
+        loanType: '',
+      },
+    ])
+  }
+  const removeEntry = (index: number) => {
+    if (entries.length > 1) {
+      setEntries(entries.filter((_, i) => i !== index))
+    }
+  }
+  const updateEntry = (
+    index: number,
+    field: keyof NewCreditEntry,
+    value: string,
+  ) => {
+    const updated = [...entries]
+    updated[index] = {
+      ...updated[index],
+      [field]: value,
+    }
+    setEntries(updated)
+  }
+  const handleClientSelect = (index: number, name: string, phone: string) => {
+    const updated = [...entries]
+    updated[index] = {
+      ...updated[index],
+      clientName: name,
+      phone: phone,
+    }
+    setEntries(updated)
+  }
+  const handleAvalSelect = (index: number, name: string, phone: string) => {
+    const updated = [...entries]
+    updated[index] = {
+      ...updated[index],
+      avalName: name,
+      avalPhone: phone,
+    }
+    setEntries(updated)
+  }
+  const calculateDeliveredAmount = (
+    amount: string,
+    commission: string,
+  ): number => {
+    const amountNum = parseFloat(amount) || 0
+    const commissionNum = parseFloat(commission) || 0
+    return amountNum - commissionNum
+  }
+  const handleSave = () => {
+    const validEntries = entries.filter(
+      (entry) =>
+        entry.clientName &&
+        entry.phone &&
+        entry.avalName &&
+        entry.avalPhone &&
+        entry.amount &&
+        entry.commission &&
+        entry.loanType,
+    )
+    if (validEntries.length > 0) {
+      onSave(validEntries)
+      setEntries([
+        {
+          clientName: '',
+          phone: '',
+          avalName: '',
+          avalPhone: '',
+          amount: '',
+          commission: '',
+          loanType: '',
+        },
+      ])
+      onClose()
+    }
+  }
+  const calculateTotal = () => {
+    return entries.reduce((sum, entry) => {
+      const amount = parseFloat(entry.amount) || 0
+      return sum + amount
+    }, 0)
+  }
+  const calculateTotalDelivered = () => {
+    return entries.reduce((sum, entry) => {
+      return sum + calculateDeliveredAmount(entry.amount, entry.commission)
+    }, 0)
+  }
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('es-MX', {
+      style: 'currency',
+      currency: 'MXN',
+    }).format(amount)
+  }
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">
+              Agregar Nuevos Créditos
+            </h2>
+            <p className="text-sm text-gray-500 mt-1">
+              {route && location
+                ? `${route} - ${location}`
+                : 'Selecciona ruta y localidad'}{' '}
+              • {date || 'Sin fecha'}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="space-y-6">
+            {entries.map((entry, index) => {
+              const deliveredAmount = calculateDeliveredAmount(
+                entry.amount,
+                entry.commission,
+              )
+              return (
+                <div
+                  key={index}
+                  className="p-5 border border-gray-200 rounded-lg bg-gray-50"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-medium text-gray-700">
+                      Crédito #{index + 1}
+                    </h3>
+                    {entries.length > 1 && (
+                      <button
+                        onClick={() => removeEntry(index)}
+                        className="p-1.5 hover:bg-red-100 rounded-lg transition-colors text-red-600"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="space-y-4">
+                    {/* Cliente Section */}
+                    <div className="grid grid-cols-1 gap-4">
+                      <Autocomplete
+                        label="Cliente / Renovación"
+                        placeholder="Buscar o escribir nombre del cliente..."
+                        suggestions={clientSuggestions}
+                        selectedName={entry.clientName}
+                        selectedPhone={entry.phone}
+                        onSelect={(name, phone) =>
+                          handleClientSelect(index, name, phone)
+                        }
+                        onNameChange={(name) =>
+                          updateEntry(index, 'clientName', name)
+                        }
+                        onPhoneChange={(phone) =>
+                          updateEntry(index, 'phone', phone)
+                        }
+                      />
+                    </div>
+
+                    {/* Aval Section */}
+                    <div className="grid grid-cols-1 gap-4 pt-4 border-t border-gray-200">
+                      <Autocomplete
+                        label="Aval"
+                        placeholder="Buscar o escribir nombre del aval..."
+                        suggestions={avalSuggestions}
+                        selectedName={entry.avalName}
+                        selectedPhone={entry.avalPhone}
+                        onSelect={(name, phone) =>
+                          handleAvalSelect(index, name, phone)
+                        }
+                        onNameChange={(name) =>
+                          updateEntry(index, 'avalName', name)
+                        }
+                        onPhoneChange={(phone) =>
+                          updateEntry(index, 'avalPhone', phone)
+                        }
+                      />
+                    </div>
+
+                    {/* Loan Details */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-4 border-t border-gray-200">
+                      <Select
+                        label="Tipo de Préstamo"
+                        options={loanTypes}
+                        value={entry.loanType}
+                        onChange={(e) =>
+                          updateEntry(index, 'loanType', e.target.value)
+                        }
+                      />
+                      <Input
+                        label="Monto Solicitado"
+                        type="number"
+                        placeholder="0.00"
+                        value={entry.amount}
+                        onChange={(e) =>
+                          updateEntry(index, 'amount', e.target.value)
+                        }
+                      />
+                      <Input
+                        label="Comisión"
+                        type="number"
+                        placeholder="0.00"
+                        value={entry.commission}
+                        onChange={(e) =>
+                          updateEntry(index, 'commission', e.target.value)
+                        }
+                      />
+                      <div className="w-full">
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                          Monto Entregado
+                        </label>
+                        <div className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 text-gray-700 font-medium">
+                          {formatCurrency(deliveredAmount)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <Button
+            variant="ghost"
+            onClick={addEntry}
+            className="mt-4 w-full gap-2 border border-dashed border-gray-300"
+          >
+            <Plus className="w-4 h-4" />
+            Agregar Otro Crédito
+          </Button>
+        </div>
+
+        {/* Footer */}
+        <div className="p-6 border-t border-gray-200 bg-gray-50">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex gap-8">
+              <div>
+                <p className="text-xs text-gray-600 mb-1">Total Solicitado</p>
+                <p className="text-xl font-semibold text-gray-900">
+                  {formatCurrency(calculateTotal())}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-600 mb-1">Total a Entregar</p>
+                <p className="text-xl font-semibold text-emerald-600">
+                  {formatCurrency(calculateTotalDelivered())}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button variant="secondary" onClick={onClose}>
+                Cancelar
+              </Button>
+              <Button onClick={handleSave}>Guardar Cambios</Button>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500">
+            {
+              entries.filter((e) => e.clientName && e.avalName && e.amount)
+                .length
+            }{' '}
+            de {entries.length} créditos completados
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}

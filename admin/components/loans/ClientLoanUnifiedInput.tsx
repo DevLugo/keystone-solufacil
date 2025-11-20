@@ -128,9 +128,12 @@ interface ClientLoanUnifiedInputProps {
   // Placeholders
   namePlaceholder?: string;
   phonePlaceholder?: string;
+  
+  // Modo de visualización: 'inline' (default) o 'modal' (para mostrar cards)
+  displayMode?: 'inline' | 'modal';
 }
 
-type ClientState = 'new' | 'edited' | 'renewed';
+type ClientState = 'new' | 'edited' | 'renewed' | 'newClient';
 
 const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
   loanId,
@@ -163,15 +166,18 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
   leaderName,
   showLocationTag = false,
   namePlaceholder = "Buscar cliente o escribir nombre...",
-  phonePlaceholder = "Teléfono..."
+  phonePlaceholder = "Teléfono...",
+  displayMode = 'inline'
 }) => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isEditingInline, setIsEditingInline] = useState(false);
   const [editingPerson, setEditingPerson] = useState<any>(null);
   const [clientState, setClientState] = useState<ClientState>('new');
   const [searchText, setSearchText] = useState('');
   const [filteredOptions, setFilteredOptions] = useState<any[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const phoneInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const isTypingRef = useRef(false);
@@ -297,11 +303,22 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
         setClientState('renewed');
       }
     } else if (currentName.trim() || currentPhone.trim()) {
-      setClientState('new');
+      // Check if user is typing a new client (no autocomplete match)
+      // New client state: user has typed at least 2 characters AND no autocomplete results match
+      const isTypingNewClient = searchText.trim().length >= 2 && 
+                                filteredOptions.length === 0 && 
+                                !isLoading && 
+                                !(mode === 'aval' && searchPersonsLoading);
+      
+      if (isTypingNewClient) {
+        setClientState('newClient');
+      } else {
+        setClientState('new');
+      }
     } else {
       setClientState('new');
     }
-  }, [previousLoan, currentName, currentPhone]);
+  }, [previousLoan, currentName, currentPhone, searchText, filteredOptions.length, isLoading, mode, searchPersonsLoading]);
   
   // Filtrar opciones basado en el texto de búsqueda
   useEffect(() => {
@@ -409,6 +426,14 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
     }
     
     switch (state) {
+      case 'newClient':
+        // Blue design for new client creation (no autocomplete match)
+        return {
+          border: '1px solid #3B82F6',
+          backgroundColor: '#EFF6FF',
+          textColor: '#1E40AF',
+          boxShadow: isInputFocused ? '0 0 0 3px rgba(59, 130, 246, 0.15)' : 'none'
+        };
       case 'new':
         // Solo mostrar verde si hay datos, sino usar estilo neutral
         if (hasData) {
@@ -539,8 +564,6 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
   };
   
   const handleSelectOption = (option: any, event?: React.MouseEvent) => {
-    console.log('🎯 handleSelectOption called:', { mode, option, selectedLeadLocationId });
-    
     // Prevenir que el blur cierre el dropdown antes de procesar la selección
     if (event) {
       event.preventDefault();
@@ -557,21 +580,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
       const clientLocationId = option.loanData?.borrower?.personalData?.addresses?.[0]?.location?.id;
       const clientLocationName = option.loanData?.borrower?.personalData?.addresses?.[0]?.location?.name || 'desconocida';
       
-      console.log('📍 Verificando localidades:', {
-        clientLocationId,
-        clientLocationName,
-        selectedLeadLocationId,
-        hasCallback: !!onLocationMismatch,
-        willShowAlert: !!(selectedLeadLocationId && clientLocationId && clientLocationId !== selectedLeadLocationId && onLocationMismatch)
-      });
-      
       if (selectedLeadLocationId && clientLocationId && clientLocationId !== selectedLeadLocationId && onLocationMismatch) {
-        // Llamar al callback con las localidades (cliente de otra localidad vs localidad seleccionada)
-        console.log('🚨 Cliente de otra localidad detectado:', { 
-          clientLocationId, 
-          clientLocationName,
-          selectedLeadLocationId 
-        });
         onLocationMismatch(clientLocationName, 'lead-selected');
       }
       
@@ -669,59 +678,86 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
   
   return (
     <div 
-      style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', position: 'relative' }}
+      style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}
       data-autocomplete-mode={mode}
       data-autocomplete-id={loanId}
     >
-      {/* Input principal con autocomplete */}
+      {/* Input principal con autocomplete - DOS INPUTS SEPARADOS */}
       <div style={{
         display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
+        flexDirection: 'column',
+        gap: '6px',
         position: 'relative',
-        height: '28px'
+        width: '100%'
       }}>
+        {/* PRIMER INPUT: Nombre (con autocomplete) */}
         <div style={{
-          flex: 1,
-          position: 'relative',
-          border: stateColors.border,
-          borderRadius: '4px',
-          backgroundColor: stateColors.backgroundColor,
-          transition: 'border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out, background-color 0.15s ease-in-out',
           display: 'flex',
-          alignItems: 'center',
-          gap: '4px',
-          minWidth: '400px',
-          height: '28px',
-          padding: '0 10px',
-          boxSizing: 'border-box',
-          boxShadow: stateColors.boxShadow || 'none'
+          flexDirection: 'column',
+          gap: '0',
+          position: 'relative',
+          width: '100%'
         }}>
-          {/* Input de nombre */}
-          <div style={{ flex: 2, position: 'relative', minWidth: '150px', height: '24px', display: 'flex', alignItems: 'center' }}>
-            <Input
-              ref={inputRef}
-              type="text"
-              value={searchText}
-              onChange={(e) => handleNameChange(e.target.value)}
-              readOnly={hasPreviousLoan && mode === 'client'}
-              title={hasPreviousLoan ? "Use el icono de editar o la X para limpiar" : ""}
-              style={{
-                border: 'none',
-                backgroundColor: 'transparent',
-                fontSize: '13px',
-                padding: '0',
-                outline: 'none',
-                color: stateColors.textColor,
-                height: '24px',
-                width: '100%',
-                lineHeight: '18px',
-                boxSizing: 'border-box',
-                boxShadow: 'none',
-                transition: 'none',
-                cursor: hasPreviousLoan && mode === 'client' ? 'pointer' : 'text',
-                userSelect: hasPreviousLoan && mode === 'client' ? 'none' : 'auto'
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <div 
+              onClick={() => {
+                // Hacer que todo el contenedor sea clickable - enfocar el input
+                if (inputRef.current) {
+                  inputRef.current.focus();
+                }
               }}
+              style={{
+                flex: 1,
+                position: 'relative',
+                border: stateColors.border,
+                borderRadius: '8px',
+                backgroundColor: stateColors.backgroundColor,
+                transition: 'border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out, background-color 0.15s ease-in-out',
+                display: 'flex',
+                alignItems: 'center',
+                minWidth: '400px',
+                height: '40px',
+                padding: '0 14px',
+                boxSizing: 'border-box',
+                boxShadow: stateColors.boxShadow || 'none',
+                cursor: 'text'
+              }}>
+            {/* Nombre del cliente */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              width: '100%',
+              height: '100%'
+            }}>
+              <Input
+                ref={inputRef}
+                type="text"
+                value={searchText}
+                onChange={(e) => handleNameChange(e.target.value)}
+                readOnly={hasPreviousLoan && mode === 'client'}
+                title={hasPreviousLoan ? "Use el icono de editar o la X para limpiar" : ""}
+                style={{
+                  border: 'none',
+                  backgroundColor: 'transparent',
+                  fontSize: '13px',
+                  padding: '0',
+                  outline: 'none',
+                  color: stateColors.textColor,
+                  height: '100%',
+                  flex: currentPhone ? '0 1 auto' : '1',
+                  lineHeight: '20px',
+                  boxSizing: 'border-box',
+                  boxShadow: 'none',
+                  transition: 'none',
+                  cursor: hasPreviousLoan && mode === 'client' ? 'pointer' : 'text',
+                  userSelect: hasPreviousLoan && mode === 'client' ? 'none' : 'auto',
+                  pointerEvents: 'auto'
+                }}
               onKeyDown={(e) => {
                 // Si hay préstamo previo y el usuario intenta escribir, prevenir y limpiar
                 if (hasPreviousLoan && mode === 'client' && !e.ctrlKey && !e.metaKey) {
@@ -778,35 +814,44 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                 
                 if (onBlur) onBlur();
               }}
-              placeholder={namePlaceholder}
-            />
-            
-            {/* Badge de localidad (solo en modo aval) */}
-            {mode === 'aval' && selectedPersonLocation && (
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  fontSize: '10px',
-                  fontWeight: '600',
-                  backgroundColor: borrowerLocationId && selectedPersonLocation.id === borrowerLocationId ? '#D1FAE5' : '#FEF3C7',
-                  color: borrowerLocationId && selectedPersonLocation.id === borrowerLocationId ? '#065F46' : '#92400E',
-                  marginLeft: '4px',
-                  flexShrink: 0
-                }}
-                title={borrowerLocationId && selectedPersonLocation.id === borrowerLocationId ? 'Misma localidad' : 'Otra localidad'}
-              >
-                {borrowerLocationId && selectedPersonLocation.id === borrowerLocationId ? '✓' : '⚠'} {selectedPersonLocation.name}
-              </span>
-            )}
+                placeholder={namePlaceholder}
+              />
+              
+              {/* Teléfono al lado del nombre cuando hay selección */}
+              {currentPhone && (hasPreviousLoan || (mode === 'aval' && selectedPersonId)) && (
+                <span style={{
+                  fontSize: '12px',
+                  color: '#6B7280',
+                  whiteSpace: 'nowrap',
+                  paddingLeft: '8px',
+                  borderLeft: '1px solid #E5E7EB',
+                  marginLeft: '8px'
+                }}>
+                  {currentPhone}
+                </span>
+              )}
+              
+              {/* Texto "Sin teléfono" cuando no hay teléfono */}
+              {!currentPhone && (hasPreviousLoan || (mode === 'aval' && selectedPersonId)) && (
+                <span style={{
+                  fontSize: '11px',
+                  color: '#9CA3AF',
+                  fontStyle: 'italic',
+                  whiteSpace: 'nowrap',
+                  paddingLeft: '8px',
+                  borderLeft: '1px solid #E5E7EB',
+                  marginLeft: '8px'
+                }}>
+                  Sin teléfono
+                </span>
+              )}
+            </div>
             
             {/* Indicador de dropdown */}
             {filteredOptions.length > 0 && (
               <div style={{
                 position: 'absolute',
-                right: mode === 'aval' && selectedPersonLocation ? '80px' : '8px',
+                right: '14px',
                 top: '50%',
                 transform: 'translateY(-50%)',
                 pointerEvents: 'none',
@@ -816,20 +861,224 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                 ▼
               </div>
             )}
+            </div>
           </div>
           
-          {/* Separador visual */}
+          {/* Dropdown de autocomplete - JUSTO DESPUÉS DEL INPUT DE NOMBRE */}
+          {((showDropdown && searchText.trim().length >= 2) || isLoading || (mode === 'aval' && searchPersonsLoading)) && (
+            <div
+              ref={dropdownRef}
+              onMouseDown={handleDropdownMouseDown}
+              className={styles.dropdown}
+            >
+              {/* Loader - solo mostrar uno */}
+              {((mode === 'client' && isLoading) || (mode === 'aval' && searchPersonsLoading)) && (
+                <div className={styles.loadingState}>
+                  <span className={styles.loadingSpinner} />
+                  <span>Buscando...</span>
+                </div>
+              )}
+              
+              {/* Estado vacío - No se encontraron resultados */}
+              {((mode === 'client' && !isLoading) || (mode === 'aval' && !searchPersonsLoading)) && filteredOptions.length === 0 && searchText.trim().length >= 2 && (
+                <div className={styles.emptyState}>
+                  No se encontraron resultados
+                </div>
+              )}
+              
+              {/* Opciones */}
+              {((mode === 'client' && !isLoading) || (mode === 'aval' && !searchPersonsLoading)) && filteredOptions.length > 0 && (
+                <>
+                  {filteredOptions.map((option) => {
+                    if (mode === 'client') {
+                      // Modo cliente: mostrar préstamos anteriores
+                      const debtAmount = option.debtAmount || '0';
+                      const location = option.location || null;
+                      const debtColor = option.debtColor || '#6B7280';
+                      
+                      // Determinar si es de otra localidad comparando la localidad del borrower con la del lead del préstamo
+                      const borrowerLocationId = option.loanData?.borrower?.personalData?.addresses?.[0]?.location?.id;
+                      const leadLocationId = option.loanData?.lead?.personalData?.addresses?.[0]?.location?.id;
+                      const isDifferentLocation = borrowerLocationId && leadLocationId && borrowerLocationId !== leadLocationId;
+                      
+                      // Color del badge de localidad: amarillo si es de otra localidad, azul si es de la misma
+                      const locationColor = isDifferentLocation ? '#F59E0B' : '#3B82F6';
+                      
+                      // Extract name and phone from label
+                      const clientName = option.loanData?.borrower?.personalData?.fullName || '';
+                      const clientPhone = option.loanData?.borrower?.personalData?.phones?.[0]?.number || '';
+                      
+                      return (
+                        <div
+                          key={option.value}
+                          className={styles.dropdownItem}
+                          onMouseDown={(e) => {
+                            e.preventDefault(); // Prevenir que el input pierda focus
+                            handleSelectOption(option, e);
+                          }}
+                          style={{
+                            borderLeft: isDifferentLocation ? '3px solid #F59E0B' : 'none'
+                          }}
+                        >
+                          {/* Content left, badges right */}
+                          <div className={styles.dropdownItemContent}>
+                            <span className={styles.dropdownItemName}>{clientName}</span>
+                            {clientPhone && (
+                              <span className={styles.dropdownItemPhone}>{clientPhone}</span>
+                            )}
+                          </div>
+                          <div className={styles.dropdownItemBadges}>
+                            {isDifferentLocation && (
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  padding: '2px 4px',
+                                  borderRadius: '4px',
+                                  fontSize: '9px',
+                                  fontWeight: '600',
+                                  backgroundColor: '#FEF3C7',
+                                  color: '#92400E',
+                                  flexShrink: 0
+                                }}
+                                title="Otra localidad"
+                              >
+                                ⚠
+                              </span>
+                            )}
+                            <span className={`${styles.badge} ${parseFloat(debtAmount) > 0 ? styles.badgeDebt : styles.badgeNoDebt}`}>
+                              Deuda: ${debtAmount}
+                            </span>
+                            {((location && location !== 'Sin localidad') || option.municipality) && (
+                              <span className={`${styles.badge} ${styles.badgeLocation}`}>
+                                📍 {location && location !== 'Sin localidad' ? location : ''}
+                                {location && location !== 'Sin localidad' && option.municipality ? ', ' : ''}
+                                {option.municipality ? option.municipality : ''}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    } else {
+                      // Modo aval: mostrar personas
+                      const location = option.location || 'Sin localidad';
+                      const isDifferentLocation = option.isDifferentLocation || false;
+                      const locationColor = option.locationColor || '#3B82F6';
+                      
+                      // Extract name and phone from personData
+                      const personName = option.personData?.fullName || '';
+                      const personPhone = option.personData?.phones?.[0]?.number || '';
+                      
+                      return (
+                        <div
+                          key={option.value}
+                          className={styles.dropdownItem}
+                          onMouseDown={(e) => {
+                            e.preventDefault(); // Prevenir que el input pierda focus
+                            handleSelectOption(option, e);
+                          }}
+                          style={{
+                            borderLeft: isDifferentLocation ? '3px solid #F59E0B' : 'none'
+                          }}
+                        >
+                          {/* Content left, badges right */}
+                          <div className={styles.dropdownItemContent}>
+                            <span className={styles.dropdownItemName}>{personName}</span>
+                            {personPhone && (
+                              <span className={styles.dropdownItemPhone}>{personPhone}</span>
+                            )}
+                          </div>
+                          <div className={styles.dropdownItemBadges}>
+                            {isDifferentLocation && (
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  padding: '2px 4px',
+                                  borderRadius: '4px',
+                                  fontSize: '9px',
+                                  fontWeight: '600',
+                                  backgroundColor: '#FEF3C7',
+                                  color: '#92400E',
+                                  flexShrink: 0
+                                }}
+                                title="Otra localidad"
+                              >
+                                ⚠
+                              </span>
+                            )}
+                            {location && location !== 'Sin localidad' && (
+                              <span className={`${styles.badge} ${styles.badgeLocation}`}>
+                                📍 {location}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+                  })}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+        
+        {/* Badge de Nuevo Cliente - ENTRE nombre y teléfono */}
+        {clientState === 'newClient' && (
           <div style={{
-            width: '1px',
-            height: '20px',
-            backgroundColor: '#D1D5DB',
-            opacity: 0.5,
-            flexShrink: 0
-          }} />
-          
-          {/* Input de teléfono - Editable si no hay préstamo previo seleccionado */}
-          <div style={{ flex: 1, position: 'relative', minWidth: '130px', maxWidth: '180px', height: '24px', display: 'flex', alignItems: 'center' }}>
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '8px 12px',
+            backgroundColor: '#EFF6FF',
+            border: '1px solid #BFDBFE',
+            borderRadius: '6px',
+            fontSize: '12px',
+            fontWeight: '500',
+            color: '#1E40AF',
+            width: 'fit-content'
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <line x1="19" y1="8" x2="19" y2="14" />
+              <line x1="22" y1="11" x2="16" y2="11" />
+            </svg>
+            <span>Nuevo Cliente - Se creará un registro nuevo</span>
+          </div>
+        )}
+        
+        {/* SEGUNDO INPUT: Teléfono y badge de localidad */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          position: 'relative'
+        }}>
+          <div 
+            onClick={() => {
+              // Hacer que todo el contenedor sea clickable - enfocar el input
+              if (phoneInputRef.current && !(hasPreviousLoan && mode === 'client')) {
+                phoneInputRef.current.focus();
+              }
+            }}
+            style={{
+              flex: 1,
+              position: 'relative',
+              border: clientState === 'newClient' ? stateColors.border : '1px solid #D1D5DB',
+              borderRadius: '8px',
+              backgroundColor: clientState === 'newClient' ? stateColors.backgroundColor : '#FFFFFF',
+              transition: 'border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out, background-color 0.15s ease-in-out',
+              display: 'flex',
+              alignItems: 'center',
+              minWidth: '400px',
+              height: '40px',
+              padding: '0 14px',
+              boxSizing: 'border-box',
+              cursor: hasPreviousLoan && mode === 'client' ? 'default' : 'text'
+            }}>
             <Input
+              ref={phoneInputRef}
               type="text"
               value={currentPhone}
               readOnly={hasPreviousLoan && mode === 'client'}
@@ -846,240 +1095,88 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                 fontSize: '13px',
                 padding: '0',
                 outline: 'none',
-                color: stateColors.textColor,
-                height: '24px',
+                color: clientState === 'newClient' ? stateColors.textColor : '#6b7280',
+                height: '100%',
                 width: '100%',
-                lineHeight: '18px',
+                lineHeight: '20px',
                 boxSizing: 'border-box',
                 cursor: hasPreviousLoan && mode === 'client' ? 'default' : 'text',
                 boxShadow: 'none',
-                transition: 'none'
+                transition: 'color 0.15s ease-in-out',
+                pointerEvents: 'auto'
               }}
             />
+            
+            {/* Badge de localidad (solo en modo aval) - DENTRO del input de teléfono */}
+            {mode === 'aval' && selectedPersonLocation && (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  fontSize: '10px',
+                  fontWeight: '600',
+                  backgroundColor: borrowerLocationId && selectedPersonLocation.id === borrowerLocationId ? '#D1FAE5' : '#FEF3C7',
+                  color: borrowerLocationId && selectedPersonLocation.id === borrowerLocationId ? '#065F46' : '#92400E',
+                  flexShrink: 0,
+                  marginLeft: '8px'
+                }}
+                title={borrowerLocationId && selectedPersonLocation.id === borrowerLocationId ? 'Misma localidad' : 'Otra localidad'}
+              >
+                {borrowerLocationId && selectedPersonLocation.id === borrowerLocationId ? '✓' : '⚠'} {selectedPersonLocation.name}
+              </span>
+            )}
           </div>
         </div>
-        
-        {/* Botones de acción - Solo visibles cuando hay selección */}
-        {(hasPreviousLoan || (mode === 'aval' && selectedPersonId)) && (
-          <div className={styles.buttonGroup}>
-            {/* Botón de editar */}
-            <button
-              className={styles.editButton}
-              onClick={handleEditClick}
-              title="Editar cliente"
-              type="button"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-              </svg>
-            </button>
-            
-            {/* Botón de limpiar */}
-            <button
-              className={styles.clearButton}
-              onClick={handleClear}
-              title="Limpiar selección"
-              type="button"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          </div>
-        )}
       </div>
       
-      {/* Dropdown de autocomplete */}
-      {(showDropdown || isLoading || (mode === 'aval' && searchPersonsLoading)) && (() => {
-        // Siempre mostrar dropdown abajo del input
-        let dropdownTop = 0;
-        let maxHeight = '300px';
-        
-        if (inputRef?.current) {
-          const inputRect = inputRef.current.getBoundingClientRect();
-          const spaceBelow = window.innerHeight - inputRect.bottom;
-          
-          // Siempre mostrar hacia abajo
-          dropdownTop = inputRect.bottom + 4;
-          maxHeight = `${Math.min(spaceBelow - 20, 300)}px`;
-        }
-        
-        return (
-          <div
-            ref={dropdownRef}
-            onMouseDown={handleDropdownMouseDown}
-            className={styles.dropdown}
-            style={{
-              position: 'fixed',
-              top: dropdownTop || undefined,
-              left: inputRef?.current ? inputRef.current.getBoundingClientRect().left : 0,
-              width: inputRef?.current ? Math.max(inputRef.current.offsetWidth, 400) : 'auto',
-              maxHeight: maxHeight,
-              zIndex: 9999
-            }}
+      {/* Botones de acción - Solo visibles cuando hay selección - FUERA del contenedor de inputs */}
+      {(hasPreviousLoan || (mode === 'aval' && selectedPersonId)) && (
+        <div className={styles.buttonGroup} style={{ marginTop: '-46px', marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+          {/* Botón de editar */}
+          <button
+            className={styles.editButton}
+            onClick={handleEditClick}
+            title="Editar cliente"
+            type="button"
           >
-          {/* Loader - solo mostrar uno */}
-          {((mode === 'client' && isLoading) || (mode === 'aval' && searchPersonsLoading)) && (
-            <div className={styles.loadingState}>
-              <span className={styles.loadingSpinner} />
-              <span>Buscando...</span>
-            </div>
-          )}
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+            </svg>
+          </button>
           
-          {/* Opciones */}
-          {((mode === 'client' && !isLoading) || (mode === 'aval' && !searchPersonsLoading)) && filteredOptions.length > 0 && (
-            <>
-              {filteredOptions.map((option) => {
-            if (mode === 'client') {
-              // Modo cliente: mostrar préstamos anteriores
-              const debtAmount = option.debtAmount || '0';
-              const location = option.location || null;
-              const debtColor = option.debtColor || '#6B7280';
-              
-              // Determinar si es de otra localidad comparando la localidad del borrower con la del lead del préstamo
-              const borrowerLocationId = option.loanData?.borrower?.personalData?.addresses?.[0]?.location?.id;
-              const leadLocationId = option.loanData?.lead?.personalData?.addresses?.[0]?.location?.id;
-              const isDifferentLocation = borrowerLocationId && leadLocationId && borrowerLocationId !== leadLocationId;
-              
-              // Color del badge de localidad: amarillo si es de otra localidad, azul si es de la misma
-              const locationColor = isDifferentLocation ? '#F59E0B' : '#3B82F6';
-              
-              return (
-                <div
-                  key={option.value}
-                  className={styles.dropdownItem}
-                  onMouseDown={(e) => {
-                    e.preventDefault(); // Prevenir que el input pierda focus
-                    handleSelectOption(option, e);
-                  }}
-                  style={{
-                    borderLeft: isDifferentLocation ? '3px solid #F59E0B' : 'none'
-                  }}
-                >
-                  {/* Dos líneas: Nombre arriba, badges abajo */}
-                  <div className={styles.clientInfo}>
-                    <span className={styles.clientName}>{option.label}</span>
-                    <div className={styles.badgeRow}>
-                      {isDifferentLocation && (
-                        <span
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            padding: '2px 4px',
-                            borderRadius: '4px',
-                            fontSize: '9px',
-                            fontWeight: '600',
-                            backgroundColor: '#FEF3C7',
-                            color: '#92400E',
-                            flexShrink: 0
-                          }}
-                          title="Otra localidad"
-                        >
-                          ⚠
-                        </span>
-                      )}
-                      <span className={`${styles.badge} ${parseFloat(debtAmount) > 0 ? styles.badgeDebt : styles.badgeNoDebt}`}>
-                        Deuda: ${debtAmount}
-                      </span>
-                      {((location && location !== 'Sin localidad') || option.municipality) && (
-                        <span className={`${styles.badge} ${styles.badgeLocation}`}>
-                          📍 {location && location !== 'Sin localidad' ? location : ''}
-                          {location && location !== 'Sin localidad' && option.municipality ? ', ' : ''}
-                          {option.municipality ? option.municipality : ''}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            } else {
-              // Modo aval: mostrar personas
-              const location = option.location || 'Sin localidad';
-              const isDifferentLocation = option.isDifferentLocation || false;
-              const locationColor = option.locationColor || '#3B82F6';
-              
-              return (
-                <div
-                  key={option.value}
-                  className={styles.dropdownItem}
-                  onMouseDown={(e) => {
-                    e.preventDefault(); // Prevenir que el input pierda focus
-                    handleSelectOption(option, e);
-                  }}
-                  style={{
-                    borderLeft: isDifferentLocation ? '3px solid #F59E0B' : 'none'
-                  }}
-                >
-                  {/* Una sola línea: Nombre, Localidad */}
-                  <div style={{ 
-                    fontWeight: '500', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '6px',
-                    flexWrap: 'wrap'
-                  }}>
-                    <span style={{ flexShrink: 0 }}>{option.label}</span>
-                    {isDifferentLocation && (
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          padding: '2px 4px',
-                          borderRadius: '4px',
-                          fontSize: '9px',
-                          fontWeight: '600',
-                          backgroundColor: '#FEF3C7',
-                          color: '#92400E',
-                          flexShrink: 0
-                        }}
-                        title="Otra localidad"
-                      >
-                        ⚠
-                      </span>
-                    )}
-                    {location && location !== 'Sin localidad' && (
-                      <span
-                        style={{
-                          backgroundColor: locationColor,
-                          color: 'white',
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          fontSize: '10px',
-                          fontWeight: '600',
-                          flexShrink: 0
-                        }}
-                      >
-                        📍 {location}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            }
-              })}
-            </>
-          )}
-          </div>
-        );
-      })()}
+          {/* Botón de limpiar */}
+          <button
+            className={styles.clearButton}
+            onClick={handleClear}
+            title="Limpiar selección"
+            type="button"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+      )}
       
       {/* Modal de edición */}
       {isEditModalOpen && editingPerson && (

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Select } from '../ui/select';
 import type { Loan } from '../../types/loan';
 
 interface InitialPayment {
@@ -80,7 +79,8 @@ export const PaymentConfigModal: React.FC<PaymentConfigModalProps> = ({
             <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
               Método de Pago
             </label>
-            <Select
+            <select
+              className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               value={paymentMethod}
               onChange={(e) => setPaymentMethod(e.target.value as 'CASH' | 'MONEY_TRANSFER')}
               style={{
@@ -94,7 +94,7 @@ export const PaymentConfigModal: React.FC<PaymentConfigModalProps> = ({
             >
               <option value="CASH">Efectivo</option>
               <option value="MONEY_TRANSFER">Transferencia</option>
-            </Select>
+            </select>
           </div>
 
           <div>

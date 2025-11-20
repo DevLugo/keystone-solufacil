@@ -9,10 +9,10 @@ import { CREATE_LEAD_PAYMENT_RECEIVED, UPDATE_LEAD_PAYMENT } from '../../graphql
 import { GET_LEAD_PAYMENTS } from '../../graphql/queries/payments';
 import { MOVE_LOANS_TO_DATE } from '../../graphql/mutations/dateMovement';
 import { useBalanceRefresh } from '../../hooks/useBalanceRefresh';
+import { useToast } from '../ui/toast';
 import type { Loan, LoanType } from '../../types/loan';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Select } from '../ui/select';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../ui/table';
 import {
   AlertDialog,
@@ -26,6 +26,7 @@ import {
 } from '../ui/alert-dialog';
 import ClientLoanUnifiedInput from '../loans/ClientLoanUnifiedInput';
 import { PaymentConfigModal } from './PaymentConfigModal';
+import { CreateCreditModal } from './CreateCreditModal';
 import { GET_LOAN_TYPES, GET_PREVIOUS_LOANS, GET_ALL_PREVIOUS_LOANS } from '../../graphql/queries/loans';
 import type { 
   ExtendedLoanForCredits, 
@@ -60,6 +61,7 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
   onBalanceUpdate 
 }) => {
   const { triggerRefresh } = useBalanceRefresh();
+  const { showToast } = useToast();
   
   // Estado principal
   const [loans, setLoans] = useState<Loan[]>([]);
@@ -173,6 +175,8 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
     
     return null;
   }, [selectedLead, loansData]);
+  
+
   
   const { data: allPreviousLoansData, refetch: refetchAllPreviousLoans } = useQuery(GET_ALL_PREVIOUS_LOANS, {
     variables: { 
@@ -411,7 +415,7 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
       );
 
       if (validLoans.length === 0) {
-        alert('No hay préstamos válidos para guardar.');
+        showToast('warning', 'No hay préstamos válidos para guardar');
         setIsCreating(false);
         return;
       }
@@ -438,7 +442,7 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
           });
 
           if (existingClient) {
-            alert(`El cliente "${cleanName}" ya ha tenido créditos anteriormente, usa la opción de renovación`);
+            showToast('error', `El cliente "${cleanName}" ya ha tenido créditos anteriormente, usa la opción de renovación`);
             setIsCreating(false);
             return;
           }
@@ -477,7 +481,7 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
         const errorResponse = responses.find((response) => !response.success);
         
         if (errorResponse) {
-          alert(errorResponse.message || 'Error desconocido al crear el préstamo');
+          showToast('error', errorResponse.message || 'Error desconocido al crear el préstamo');
           return;
         }
 
@@ -494,11 +498,15 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
           onBalanceUpdate(-totalAmount);
         }
         
+        // Show success toast with count
+        showToast('success', `${validLoans.length} crédito(s) guardado(s) exitosamente`);
+        
         triggerRefresh();
       }
     } catch (error) {
       console.error('❌ Error al crear los préstamos en bulk:', error);
-      alert('Error al crear los préstamos. Por favor, intenta de nuevo.');
+      const errorMessage = error instanceof Error ? error.message : 'Error al crear los préstamos. Por favor, intenta de nuevo.';
+      showToast('error', errorMessage);
     } finally {
       setIsCreating(false);
     }
@@ -616,10 +624,13 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
             onBalanceUpdate(0);
           }
         });
+        showToast('success', 'Crédito eliminado exitosamente');
         triggerRefresh();
       }
     } catch (error) {
       console.error('Error al eliminar el préstamo:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Error al eliminar el crédito. Intenta de nuevo';
+      showToast('error', errorMessage);
       await refetchLoans();
     } finally {
       setIsDeleting(null);
@@ -695,6 +706,7 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
     if (!loans || loans.length === 0) {
       return [];
     }
+
 
     // IDs de clientes que ya tienen renovaciones en la fecha actual
     const renewedTodayBorrowerIds = new Set<string>(
@@ -954,6 +966,13 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
   const [isMovingDate, setIsMovingDate] = useState(false);
   const [showPrimaryMenu, setShowPrimaryMenu] = useState(false);
   const [moveDate] = useMutation(MOVE_LOANS_TO_DATE);
+  
+  // Estado para el modal de crear crédito
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [modalLoan, setModalLoan] = useState<ExtendedLoanForCredits | null>(null);
+  
+  // Referencia para hacer scroll a la sección de nuevos préstamos
+  const newLoansSectionRef = useRef<HTMLDivElement>(null);
 
   if (loansLoading || loanTypesLoading) {
     return (
@@ -1067,7 +1086,6 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
             { label: 'Comisiones', value: `$${totals.totalComission.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, variant: 'purple' },
           ].map((chip, index) => (
             <div key={index} className={`${styles.kpiChip} ${styles[chip.variant]}`}>
-              {/* <span className={styles.kpiIcon}>{chip.icon}</span> */}
               <span className={styles.kpiLabel}>{chip.label}:</span>
               <span className={styles.kpiValue}>{chip.value}</span>
             </div>
@@ -1355,7 +1373,7 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
       </div>
 
       {/* Sección de Agregar Nuevos Préstamos */}
-      <div className={styles.newLoansSection}>
+      <div ref={newLoansSectionRef} className={styles.newLoansSection}>
         <div className={styles.newLoansCard}>
           <div className={styles.newLoansHeader}>
             <h3 className={styles.newLoansTitle}>
@@ -1420,7 +1438,6 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                             isLoading={isSearchingLoansByRow[loanId] || false}
                             selectedLeadLocationId={selectedLeadLocation?.id}
                             onLocationMismatch={(clientLocation, leadLocation) => {
-                              console.log('🔍 Location mismatch detected:', { clientLocation, leadLocation, selectedLeadLocation: selectedLeadLocation?.name });
                               setLocationMismatchDialogOpen({
                                 open: true,
                                 clientLocation,
@@ -1513,27 +1530,29 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
 
                       {/* COLUMNA DERECHA: INFO DEL PRÉSTAMO */}
                       <div className={styles.loanInfoColumn}>
-                        {/* Botón de eliminar con indicador de validación */}
-                        {!isNewRow && (
-                          <div className={styles.loanFormActions}>
-                            <div className={styles.validationCheck}>✓</div>
-                            <button
-                              className={styles.compactActionButton}
-                              onClick={() => {
+                        {/* Botón de eliminar con indicador de validación - Siempre reservar espacio */}
+                        <div className={styles.loanFormActions} style={{ visibility: isNewRow ? 'hidden' : 'visible' }}>
+                          <div className={styles.validationCheck}>✓</div>
+                          <button
+                            className={styles.compactActionButton}
+                            onClick={() => {
+                              if (!isNewRow) {
                                 setDeletePendingLoanDialogOpen({ open: true, loanIndex: index });
-                              }}
-                              title="Eliminar préstamo"
-                              type="button"
-                            >
-                              <FaTrash size={12} />
-                            </button>
-                          </div>
-                        )}
+                              }
+                            }}
+                            title="Eliminar préstamo"
+                            type="button"
+                            disabled={isNewRow}
+                          >
+                            <FaTrash size={12} />
+                          </button>
+                        </div>
 
                         {/* Tipo */}
                         <div className={styles.compactInputWrapper}>
                           <label className={styles.compactLabel}>Tipo de Préstamo</label>
-                          <Select
+                          <select
+                            className="w-full px-2 py-1 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                             value={loanTypeOptions.find((opt: LoanTypeOption) => opt.value === loan.loantype?.id)?.value || ''}
                             onChange={(e) => {
                               const selectedOption = loanTypeOptions.find((opt: LoanTypeOption) => opt.value === e.target.value);
@@ -1552,7 +1571,7 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                             {loanTypeOptions.map((opt: LoanTypeOption) => (
                               <option key={opt.value} value={opt.value}>{opt.label}</option>
                             ))}
-                          </Select>
+                          </select>
                         </div>
 
                         {/* Grid para montos */}
@@ -2208,6 +2227,59 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Modal de crear créditos */}
+      <CreateCreditModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSave={(loans) => {
+          setPendingLoans(prev => [...prev, ...loans]);
+          setIsCreateModalOpen(false);
+        }}
+        selectedDate={selectedDate}
+        selectedLead={selectedLead}
+        selectedLeadLocation={selectedLeadLocation}
+        loanTypeOptions={loanTypeOptions}
+        getPreviousLoanOptions={getPreviousLoanOptions}
+        usedAvalIds={usedAvalIds}
+        isSearchingLoansByRow={isSearchingLoansByRow}
+        onSearchTextChange={(loanId, text) => {
+          setDropdownSearchTextByRow(prev => ({
+            ...prev,
+            [loanId]: text
+          }));
+        }}
+        onLocationMismatch={(clientLocation, leadLocation) => {
+          setLocationMismatchDialogOpen({
+            open: true,
+            clientLocation,
+            leadLocation
+          });
+        }}
+        calculateLoanAmounts={calculateLoanAmounts}
+      />
+
+      {/* Botón flotante para crear crédito */}
+      <button
+        onClick={() => setIsCreateModalOpen(true)}
+        className={styles.floatingCreateButton}
+        title="Crear nuevo crédito"
+      >
+        <svg 
+          width="24" 
+          height="24" 
+          viewBox="0 0 24 24" 
+          fill="none" 
+          stroke="currentColor" 
+          strokeWidth="2" 
+          strokeLinecap="round" 
+          strokeLinejoin="round"
+        >
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        <span className={styles.floatingButtonText}>Crear Crédito</span>
+      </button>
 
       <style>{`
         @keyframes spin {
