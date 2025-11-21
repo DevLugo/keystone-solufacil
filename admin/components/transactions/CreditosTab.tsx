@@ -4,22 +4,24 @@
 
 import React, { useState, useEffect, useRef, ReactNode, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Box, jsx, Stack, Text } from '@keystone-ui/core';
+import { Box, jsx, Stack } from '@keystone-ui/core';
 import { Button } from '@keystone-ui/button';
 import { TextInput, Select } from '@keystone-ui/fields';
 import { LoadingDots } from '@keystone-ui/loading';
 import { GraphQLErrorNotice } from '@keystone-6/core/admin-ui/components';
-import { FaTrash, FaEdit, FaSearch, FaEllipsisV, FaCheck, FaTimes } from 'react-icons/fa';
+import { FaTrash, FaEdit } from 'react-icons/fa';
 import { useQuery, useMutation } from '@apollo/client';
 import { gql } from '@apollo/client';
-import { calculateLoanAmounts, calculateWeeklyPaymentAmount } from '../../utils/loanCalculations';
+import { calculateLoanAmounts } from '../../utils/loanCalculations';
 import { GET_ROUTE } from '../../graphql/queries/routes';
 import { CREATE_LOANS_BULK, UPDATE_LOAN_WITH_AVAL } from '../../graphql/mutations/loans';
 import { CREATE_LEAD_PAYMENT_RECEIVED, UPDATE_LEAD_PAYMENT } from '../../graphql/mutations/payments';
 import { GET_LEAD_PAYMENTS } from '../../graphql/queries/payments';
 import PersonInputWithAutocomplete from '../loans/PersonInputWithAutocomplete';
 import AvalInputWithAutocomplete from '../loans/AvalInputWithAutocomplete';
+import ClientLoanUnifiedInput from '../loans/ClientLoanUnifiedInput';
 import { PaymentConfigModal } from './PaymentConfigModal';
+import { AddNewLoansSection } from './AddNewLoansSection';
 
 // Import types
 import type { Loan, LoanType, PersonalData } from '../../types/loan';
@@ -28,7 +30,7 @@ interface Option {
   label: string;
   value: string;
 }
-import { calculateAmountToPay, calculatePendingAmountSimple, processLoansWithCalculations } from '../../utils/loanCalculations';
+import { calculateAmountToPay } from '../../utils/loanCalculations';
 import KPIBar from './KPIBar';
 import { useBalanceRefresh } from '../../hooks/useBalanceRefresh';
 
@@ -123,8 +125,9 @@ const UNIFIED_SELECT_STYLES = {
 const UNIFIED_CONTAINER_STYLES = {
   height: '40px',
   display: 'flex',
-  alignItems: 'flex-end',
-  transition: 'all 0.3s ease'
+  alignItems: 'flex-start',
+  transition: 'all 0.3s ease',
+  paddingTop: '8px'
 };
 
 // Interfaz extendida para incluir información de collateral
@@ -1852,7 +1855,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   };
   
   return (
-    <>
+    <React.Fragment>
       <Box paddingTop="medium">
         {/* Barra de KPIs reutilizable */}
         <KPIBar
@@ -2317,581 +2320,22 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
         </Box>
       </Box>
 
-      {/* Tabla tipo Excel */}
-      <Box style={{ backgroundColor: '#F0F9FF', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)', marginTop: '16px', position: 'relative' }}>
-        <div style={{ padding: '16px', borderBottom: '1px solid #E0F2FE' }}>
-            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#0277BD', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span>➕</span> {pendingLoans.length > 0 ? `Préstamos Pendientes (${pendingLoans.length})` : 'Agregar Nuevos Préstamos'}
-            </h3>
-        </div>
-        {/* Indicador de scroll horizontal */}
-        <div style={{
-          position: 'absolute',
-          top: '50%',
-          right: '8px',
-          transform: 'translateY(-50%)',
-          background: 'rgba(0, 0, 0, 0.1)',
-          borderRadius: '4px',
-          padding: '4px 8px',
-          fontSize: '12px',
-          color: '#666',
-          zIndex: 10,
-          pointerEvents: 'none',
-          opacity: 0.7
-        }}>
-        </div>
-        <div ref={pendingLoansTableRef} style={{ 
-          padding: '12px', 
-          overflowX: 'auto',
-          WebkitOverflowScrolling: 'touch',
-          overscrollBehaviorX: 'contain',
-          scrollBehavior: 'smooth'
-        }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-            <thead>
-              <tr style={{ backgroundColor: '#E0F2FE', borderBottom: '1px solid #B3E5FC' }}>
-                <th style={tableHeaderStyle}>Préstamo Previo</th>
-                <th style={tableHeaderStyle}>Tipo</th>
-                <th style={tableHeaderStyle}>M. Solicitado</th>
-                <th style={tableHeaderStyle}>M. Entregado</th>
-                <th style={tableHeaderStyle}>Comisión</th>
-                <th style={{ ...tableHeaderStyle, minWidth: '200px', maxWidth: 'none', flex: '1' }}>Cliente</th>
-                <th style={{ ...tableHeaderStyle, minWidth: '200px', maxWidth: 'none', flex: '1' }}>Aval</th>
-                <th style={{ ...tableHeaderStyle, width: '80px' }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...pendingLoans, editableEmptyRow || emptyLoanRow].map((loan, index) => {
-                const isNewRow = index === pendingLoans.length;
-                const loanId = loan.id || `temp-${index}`;
-                return (
-                  <tr key={loanId} style={{ backgroundColor: isNewRow ? 'white' : '#ECFDF5', padding: '8px 0px' }}>
-                    <td style={tableCellStyle}>
-                        <div style={{ flexDirection: 'column', gap: '6px', height: '69px', justifyContent: 'flex-end' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#6B7280', fontWeight: '500' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={searchAllLeadersByRow[loanId] || false}
-                                    onChange={(e) => {
-                                        const newValue = e.target.checked;
-                                        setSearchAllLeadersByRow(prev => ({
-                                            ...prev,
-                                            [loanId]: newValue
-                                        }));
-                                        
-                                        // Si se activa, hacer refetch de la query con el texto de búsqueda actual
-                                        if (newValue) {
-                                            const currentSearchText = dropdownSearchTextByRow[loanId] || '';
-                                            refetchAllPreviousLoans({
-                                                searchText: currentSearchText,
-                                                take: 10
-                                            });
-                                        }
-                                    }}
-                                    disabled={allPreviousLoansLoading}
-                                    style={{ margin: 0 }}
-                                />
-                                Buscar en todas las localidades
-                                {allPreviousLoansLoading && <span style={{ fontSize: '10px', color: '#059669' }}>⏳ Cargando...</span>}
-                            </label>
-                            <div style={{
-                                minWidth: isPreviousLoanFocused[loanId] ? '250px' : '150px',
-                                maxWidth: isPreviousLoanFocused[loanId] ? '350px' : '250px',
-                                height: '40px',
-                                display: 'flex',
-                                alignItems: 'flex-end',
-                                transition: 'all 0.3s ease'
-                            }}>
-                        <Select
-                                    placeholder={(searchAllLeadersByRow[loanId] || false) ? "Escribe para buscar en todas las localidades..." : "Renovación..."}
-                                    options={getPreviousLoanOptions(loanId)}
-                            onChange={(option) => handleRowChange(index, 'previousLoan', option, isNewRow)}
-                                    value={loan.previousLoanOption}
-                                    isClearable={true}
-                                    onInputChange={(inputValue) => {
-                                        if (searchAllLeadersByRow[loanId]) {
-                                            setDropdownSearchTextByRow(prev => ({
-                                                ...prev,
-                                                [loanId]: inputValue
-                                            }));
-                                        }
-                                    }}
-                                    onFocus={() => {
-                                        setIsPreviousLoanFocused(prev => ({
-                                            ...prev,
-                                            [loanId]: true
-                                        }));
-                                    }}
-                                    onBlur={() => {
-                                        setIsPreviousLoanFocused(prev => ({
-                                            ...prev,
-                                            [loanId]: false
-                                        }));
-                                    }}
-                                    filterOption={(searchAllLeadersByRow[loanId] || false) ? null : undefined}
-                                    menuPosition="fixed" 
-                                    menuPortalTarget={document.body}
-                                    components={{
-                                        Option: ({ children, ...props }: any) => {
-                                            const option = props.data;
-                                            const hasDebt = option?.hasDebt;
-                                            const statusColor = option?.statusColor || '#F3F4F6';
-                                            const statusTextColor = option?.statusTextColor || '#374151';
-                                            const debtColor = option?.debtColor || '#6B7280';
-                                            const locationColor = option?.locationColor || '#3B82F6';
-                                            const debtAmount = option?.debtAmount || '0';
-                                            const location = option?.location || null;
-                                            const leaderName = option?.leaderName || '';
-                                            
-                                            return (
-                                                <div
-                                                    {...props.innerProps}
-                                                    style={{
-                                                        ...props.innerProps.style,
-                                                        backgroundColor: statusColor,
-                                                        color: statusTextColor,
-                                                        padding: '8px 12px',
-                                                        fontSize: '12px',
-                                                        cursor: 'pointer',
-                                                        borderBottom: '1px solid #E5E7EB',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: '8px',
-                                                        minHeight: '40px'
-                                                    }}
-                                                >
-                                                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                        <span style={{ fontWeight: '500' }}>{children}</span>
-                                                        <span
-                                                            style={{
-                                                                backgroundColor: debtColor,
-                                                                color: 'white',
-                                                                padding: '2px 6px',
-                                                                borderRadius: '4px',
-                                                                fontSize: '10px',
-                                                                fontWeight: '600'
-                                                            }}
-                                                        >
-                                                            ${debtAmount}
-                                                        </span>
-                                                        {location && location !== 'Sin localidad' && (
-                                                            <span
-                                                                style={{
-                                                                    backgroundColor: locationColor,
-                                                                    color: 'white',
-                                                                    padding: '2px 6px',
-                                                                    borderRadius: '4px',
-                                                                    fontSize: '10px',
-                                                                    fontWeight: '600'
-                                                                }}
-                                                            >
-                                                                {location}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            );
-                                        }
-                                    }}
-                                    styles={{ 
-                                        ...UNIFIED_SELECT_STYLES,
-                                        menu: (base) => ({ ...base, minWidth: '400px', maxWidth: '500px' })
-                                    }}
-                                />
-                            </div>
-                        </div>
-                    </td>
-                    <td>
-                        <div style={{
-                            minWidth: isLoanTypeFocused[loanId] ? '250px' : '150px',
-                            maxWidth: isLoanTypeFocused[loanId] ? '350px' : '250px',
-                            height: '40px',
-                            display: 'flex',
-                            alignItems: 'flex-end',
-                            transition: 'all 0.3s ease'
-                        }}>
-                        <Select
-                            placeholder="Tipo..."
-                            options={loanTypeOptions}
-                            onChange={(option) => handleRowChange(index, 'loantype', option, isNewRow)}
-                            value={loanTypeOptions.find((opt: any) => opt.value === loan.loantype?.id) || null}
-                                onFocus={() => {
-                                    setIsLoanTypeFocused(prev => ({
-                                        ...prev,
-                                        [loanId]: true
-                                    }));
-                                }}
-                                onBlur={() => {
-                                    setIsLoanTypeFocused(prev => ({
-                                        ...prev,
-                                        [loanId]: false
-                                    }));
-                                }}
-                            menuPosition="fixed" menuPortalTarget={document.body}
-                                components={{
-                                    Option: ({ children, ...props }: any) => {
-                                        const option = props.data;
-                                        const weekDuration = option?.weekDuration || 0;
-                                        const rate = option?.rate || 0;
-                                        
-                                        return (
-                                            <div
-                                                {...props.innerProps}
-                                                style={{
-                                                    ...props.innerProps.style,
-                                                    backgroundColor: '#F8FAFC',
-                                                    color: '#1F2937',
-                                                    padding: '8px 12px',
-                                                    fontSize: '12px',
-                                                    cursor: 'pointer',
-                                                    borderBottom: '1px solid #E5E7EB',
-                                                    
-                                                    alignItems: 'center',
-                                                    gap: '8px',
-                                                    minHeight: '40px'
-                                                }}
-                                            >
-                                                <div style={{ flex: 1, alignItems: 'center', gap: '8px' }}>
-                                                    <span style={{ fontWeight: '500' }}>{children}</span>
-                                                    <span
-                                                        style={{
-                                                            backgroundColor: '#3B82F6',
-                                                            color: 'white',
-                                                            padding: '2px 6px',
-                                                            borderRadius: '4px',
-                                                            fontSize: '10px',
-                                                            fontWeight: '600'
-                                                        }}
-                                                    >
-                                                        {weekDuration} sem
-                                                    </span>
-                                                    <span
-                                                        style={{
-                                                            backgroundColor: '#059669',
-                                                            color: 'white',
-                                                            padding: '2px 6px',
-                                                            borderRadius: '4px',
-                                                            fontSize: '10px',
-                                                            fontWeight: '600'
-                                                        }}
-                                                    >
-                                                        {rate}%
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        );
-                                    }
-                                }}
-                                styles={{ 
-                                    ...UNIFIED_SELECT_STYLES,
-                                    menu: (base) => ({ ...base, minWidth: '300px', maxWidth: '400px' })
-                                }}
-                            />
-                        </div>
-                    </td>
-                    <td>
-                        <div style={{
-                            minWidth: isRequestedAmountFocused[loanId] ? '120px' : '100px',
-                            maxWidth: isRequestedAmountFocused[loanId] ? '180px' : '150px',
-                            height: '40px',
-                            display: 'flex',
-                            alignItems: 'flex-end',
-                            transition: 'all 0.3s ease'
-                        }}>
-                        <TextInput
-                            placeholder="0.00" value={loan.requestedAmount || ''}
-                            onChange={(e) => {
-                                const value = e.target.value;
-                                // Si el valor actual es "0" y el usuario empieza a escribir, eliminar el "0"
-                                const newValue = (loan.requestedAmount === '0' && value.length > 1) ? value.substring(1) : value;
-                                handleRowChange(index, 'requestedAmount', newValue, isNewRow);
-                            }}
-                                onFocus={() => {
-                                    setIsRequestedAmountFocused(prev => ({
-                                        ...prev,
-                                        [loanId]: true
-                                    }));
-                                }}
-                                onBlur={() => {
-                                    setIsRequestedAmountFocused(prev => ({
-                                        ...prev,
-                                        [loanId]: false
-                                    }));
-                                }}
-                                style={UNIFIED_INPUT_STYLES} 
-                                type="text"
-                            />
-                        </div>
-                    </td>
-                     <td>
-                        <div style={{
-                            minWidth: '120px',
-                            maxWidth: '180px',
-                            height: '40px',
-                            display: 'flex',
-                            alignItems: 'flex-end',
-                            transition: 'all 0.3s ease',
-                            position: 'relative'
-                        }}>
-                        <TextInput
-                            placeholder="0.00" value={loan.amountGived || ''} readOnly
-                                style={{ 
-                                    ...UNIFIED_INPUT_STYLES,
-                                    padding: '6px 30px 6px 8px',
-                                    backgroundColor: '#F3F4F6', 
-                                    cursor: 'not-allowed',
-                                    color: '#6B7280'
-                                }} 
-                                type="text"
-                            />
-                            <div 
-                                style={{
-                                    position: 'absolute',
-                                    right: '6px',
-                                    top: '50%',
-                                    transform: 'translateY(-50%)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    width: '18px',
-                                    height: '18px',
-                                    backgroundColor: '#3B82F6',
-                                    color: 'white',
-                                    borderRadius: '50%',
-                                    fontSize: '10px',
-                                    fontWeight: 'bold',
-                                    cursor: 'default',
-                                    zIndex: 10
-                                }}
-                                onMouseEnter={() => setShowTooltip(prev => ({ ...prev, [loanId]: true }))}
-                                onMouseLeave={() => setShowTooltip(prev => ({ ...prev, [loanId]: false }))}
-                            >
-                                i
-                                {showTooltip[loanId] && (
-                                    <div style={{
-                                        position: 'absolute',
-                                        bottom: '100%',
-                                        left: '50%',
-                                        transform: 'translateX(-50%)',
-                                        backgroundColor: '#1F2937',
-                                        color: 'white',
-                                        padding: '4px 8px',
-                                        borderRadius: '4px',
-                                        fontSize: '11px',
-                                        whiteSpace: 'nowrap',
-                                        zIndex: 20,
-                                        marginBottom: '4px',
-                                        boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
-                                    }}>
-                                        Deuda Previa: ${loan.previousLoan?.pendingAmount || '0'}
-                                        <div style={{
-                                            position: 'absolute',
-                                            top: '100%',
-                                            left: '50%',
-                                            transform: 'translateX(-50%)',
-                                            width: 0,
-                                            height: 0,
-                                            borderLeft: '4px solid transparent',
-                                            borderRight: '4px solid transparent',
-                                            borderTop: '4px solid #1F2937'
-                                        }}></div>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </td>
-                     <td>
-                        <div style={{
-                            minWidth: isCommissionFocused[loanId] ? '120px' : '100px',
-                            maxWidth: isCommissionFocused[loanId] ? '180px' : '150px',
-                            height: '40px',
-                            display: 'flex',
-                            alignItems: 'flex-end',
-                            transition: 'all 0.3s ease'
-                        }}>
-                        <TextInput
-                            placeholder="0.00" value={loan.comissionAmount || ''}
-                            onChange={(e) => {
-                                const value = e.target.value;
-                                // Si el valor actual es "0" y el usuario empieza a escribir, eliminar el "0"
-                                const newValue = (loan.comissionAmount === '0' && value.length > 1) ? value.substring(1) : value;
-                                handleRowChange(index, 'comissionAmount', newValue, isNewRow);
-                            }}
-                                onFocus={() => {
-                                    setIsCommissionFocused(prev => ({
-                                        ...prev,
-                                        [loanId]: true
-                                    }));
-                                }}
-                                onBlur={() => {
-                                    setIsCommissionFocused(prev => ({
-                                        ...prev,
-                                        [loanId]: false
-                                    }));
-                                }}
-                                style={UNIFIED_INPUT_STYLES} 
-                                type="text"
-                            />
-                        </div>
-                    </td>
-                    {/* Celda Cliente */}
-                    <td style={{...tableCellStyle, minWidth: '200px', maxWidth: 'none', height: '40px', padding: '0px 8px 0px 0px', flex: '1'}}>
-                        <div style={{
-                            minWidth: '200px',
-                            maxWidth: 'none',
-                            ...UNIFIED_CONTAINER_STYLES
-                        }}>
-                            {(() => {
-                                console.log('CreditosTab - loan data:', {
-                                    loanId,
-                                    borrower: loan.borrower,
-                                    personalData: loan.borrower?.personalData,
-                                    personalDataId: loan.borrower?.personalData?.id,
-                                    phoneId: loan.borrower?.personalData?.phones?.[0]?.id,
-                                    isFromPrevious: !!loan.previousLoan
-                                });
-                                
-                                // Verificar específicamente si es un préstamo previo
-                                if (!!loan.previousLoan) {
-                                    console.log('🔍 PREVIOUS LOAN DETECTED:', {
-                                        hasBorrower: !!loan.borrower,
-                                        hasPersonalData: !!loan.borrower?.personalData,
-                                        personalDataId: loan.borrower?.personalData?.id,
-                                        personalDataKeys: loan.borrower?.personalData ? Object.keys(loan.borrower.personalData) : 'NO PERSONAL DATA'
-                                    });
-                                }
-                                
-                                return null;
-                            })()}
-                            <PersonInputWithAutocomplete
-                                key={`${loanId}-client`} 
-                                loanId={loanId}
-                                currentName={loan.borrower?.personalData?.fullName || ''}
-                                currentPhone={loan.borrower?.personalData?.phones?.[0]?.number || ''}
-                                onNameChange={(name) => {
-                                    const currentPhone = loan.borrower?.personalData?.phones?.[0]?.number || '';
-                                    handleRowChange(index, 'clientData', { clientName: name, clientPhone: currentPhone, action: 'create' }, isNewRow);
-                                }}
-                                onPhoneChange={(phone) => {
-                                    const currentName = loan.borrower?.personalData?.fullName || '';
-                                    handleRowChange(index, 'clientData', { clientName: currentName, clientPhone: phone, action: 'create' }, isNewRow);
-                                }}
-                                onClear={() => handleRowChange(index, 'clientData', { clientName: '', clientPhone: '', action: 'clear' }, isNewRow)}
-                                onActionChange={(action) => {
-                                    const currentName = loan.borrower?.personalData?.fullName || '';
-                                    const currentPhone = loan.borrower?.personalData?.phones?.[0]?.number || '';
-                                    handleRowChange(index, 'clientData', { clientName: currentName, clientPhone: currentPhone, action }, isNewRow);
-                                }}
-                                onPersonUpdated={async (updatedPerson) => {
-                                    // ✅ SOLUCION: Actualizar el estado local con los datos reales de la base de datos
-                                    const updatedBorrower = {
-                                        ...loan.borrower,
-                                        personalData: {
-                                            ...loan.borrower?.personalData,
-                                            id: updatedPerson.id,
-                                            fullName: updatedPerson.fullName,
-                                            phones: updatedPerson.phones
-                                        }
-                                    };
-                                    
-                                    handleRowChange(index, 'borrower', updatedBorrower, isNewRow);
-                                    
-                                    // También refrescar los datos del servidor
-                                    try {
-                                        await refetchLoans();
-                                        console.log('✅ Datos del préstamo actualizados después de editar cliente');
-                                    } catch (error) {
-                                        console.error('❌ Error al refrescar datos del préstamo:', error);
-                                    }
-                                }}
-                                enableAutocomplete={false}
-                                isFromPrevious={!!loan.previousLoan}
-                                originalData={{ name: loan.borrower?.personalData?.fullName || '', phone: loan.borrower?.personalData?.phones?.[0]?.number || '' }}
-                                clientPersonalDataId={loan.borrower?.personalData?.id}
-                                clientPhoneId={loan.borrower?.personalData?.phones?.[0]?.id}
-                                leaderLocation={(loan as any).lead?.personalData?.addresses?.[0]?.location?.name || ''}
-                                leaderName={(loan as any).lead?.personalData?.fullName || ''}
-                                showLocationTag={searchAllLeadersByRow[loanId] || false}
-                                namePlaceholder="Nombre del cliente..."
-                                phonePlaceholder="Teléfono..."
-                                actionType="client"
-                                containerStyle={{ width: '100%' }}
-                            />
-                        </div>
-                    </td>
-                    {/* Celda Aval */}
-                    <td style={{...tableCellStyle, minWidth: '200px', maxWidth: 'none', height: '40px', padding: '0px 0px 0px 8px', flex: '1'}}>
-                        <div style={{
-                            minWidth: '200px',
-                            maxWidth: 'none',
-                            ...UNIFIED_CONTAINER_STYLES
-                        }}>
-                            <AvalInputWithAutocomplete
-                                key={`${loanId}-aval`} 
-                                loanId={loanId}
-                                currentName={loan.avalName || ''}
-                                currentPhone={loan.avalPhone || ''}
-                                selectedCollateralId={loan.selectedCollateralId}
-                                selectedCollateralPhoneId={loan.selectedCollateralPhoneId}
-                                onAvalChange={(avalData) => {
-                                    handleRowChange(index, 'avalData', avalData, isNewRow);
-                                }}
-                                usedPersonIds={usedAvalIds}
-                                borrowerLocationId={undefined}
-                                includeAllLocations={false}
-                                readonly={false}
-                                isFromPrevious={!!loan.previousLoan} // ✅ NUEVO: Indicar si es renovación
-                                onAvalUpdated={async (updatedPerson) => {
-                                    // ✅ NUEVO: Callback para actualizar aval después de edición
-                                    try {
-                                        await refetchLoans();
-                                        console.log('✅ Datos del préstamo actualizados después de editar aval');
-                                    } catch (error) {
-                                        console.error('❌ Error al refrescar datos del préstamo:', error);
-                                    }
-                                }}
-                            />
-                        </div>
-                    </td>
-                    <td>
-                      {!isNewRow && (
-                        <Button
-                          tone="negative" size="small"
-                          onClick={() => setPendingLoans(prev => prev.filter((_, i) => i !== index))}
-                          style={{ padding: '4px 8px', height: '28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginLeft: '16px', fontSize: '11px' }}
-                          title="Eliminar préstamo de la lista"
-                        >
-                          <FaTrash size={12} style={{ marginRight: '4px' }} />
-                          Eliminar
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Box>
-      
-      {pendingLoans.length > 0 && (
-        <Box style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '24px', padding: '16px', backgroundColor: '#f0f9ff', borderRadius: '8px', border: '1px solid #e0f2fe', boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', backgroundColor: '#e0f2fe', borderRadius: '6px', color: '#0052CC', fontSize: '14px', fontWeight: '500' }}>
-                <span>📋</span>
-                <span>{pendingLoans.length} préstamo{pendingLoans.length !== 1 && 's'} listo{pendingLoans.length !== 1 && 's'} para guardar</span>
-            </div>
-            <div style={{ display: 'flex', gap: '12px' }}>
-                <Button tone="negative" weight="bold" onClick={() => setPendingLoans([])} style={{ padding: '4px 8px', height: '28px', fontSize: '11px' }}>
-                    Cancelar Todo
-                </Button>
-                <Button tone="active" weight="bold" onClick={handleSaveAllNewLoans} disabled={isCreating} style={{ padding: '4px 8px', height: '28px', fontSize: '11px', backgroundColor: '#0052CC', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {isCreating ? <><LoadingDots label="Guardando..." /><span>Guardando...</span></> : <><span role="img" aria-label="Save">💾</span><span>Crear {pendingLoans.length} Préstamo{pendingLoans.length !== 1 && 's'}</span></>}
-                </Button>
-            </div>
-        </Box>
-      )}
+      {/* Sección de Agregar Nuevos Préstamos */}
+      <AddNewLoansSection
+        selectedDate={selectedDate}
+        selectedLead={selectedLead}
+        onSaveLoans={async (loans) => {
+          // Adaptar los préstamos del nuevo componente al formato esperado por handleSaveAllNewLoans
+          setPendingLoans(loans as ExtendedLoan[]);
+          await handleSaveAllNewLoans();
+        }}
+        isSaving={isCreating}
+        usedAvalIds={usedAvalIds}
+      />
 
-      {/* ... (DropdownPortal y Edit Modal se mantienen igual) ... */}
+      {/* Código antiguo removido - ahora se usa AddNewLoansSection */}
+
+      {/* DropdownPortal y Edit Modal */}
        <DropdownPortal isOpen={activeMenu !== null}>
         {loans.map((loan) => (
           activeMenu === loan.id && (
@@ -3218,7 +2662,7 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
               isSaving={isSavingPayment}
             />
 
-    </>
+    </React.Fragment>
   );
 };
 

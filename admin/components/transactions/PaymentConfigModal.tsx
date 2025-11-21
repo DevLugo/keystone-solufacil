@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
-import { Box, Text } from '@keystone-ui/core';
-import { TextInput, Select } from '@keystone-ui/fields';
-import { AlertDialog } from '@keystone-ui/modals';
-import { calculateWeeklyPaymentAmount } from '../../utils/loanCalculations';
+import React, { useState, useEffect } from 'react';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { calculateWeeklyPaymentAmount, calculateAmountToPay } from '../../utils/loanCalculations';
 import type { Loan } from '../../types/loan';
 
 interface InitialPayment {
@@ -12,167 +11,191 @@ interface InitialPayment {
 }
 
 interface PaymentConfigModalProps {
+  loan: Loan | null;
   isOpen: boolean;
-  selectedLoan: Loan | null;
-  initialPayments: Record<string, InitialPayment>;
-  onClose: () => void;
-  onSave: (payment: InitialPayment) => void;
   isSaving: boolean;
+  onClose: () => void;
+  onSave: (payment: InitialPayment) => Promise<void>;
 }
 
-const paymentMethods = [
-  { label: 'Efectivo', value: 'CASH' },
-  { label: 'Transferencia', value: 'MONEY_TRANSFER' },
-];
-
 export const PaymentConfigModal: React.FC<PaymentConfigModalProps> = ({
+  loan,
   isOpen,
-  selectedLoan,
-  initialPayments,
+  isSaving,
   onClose,
   onSave,
-  isSaving
 }) => {
-  const [localPayment, setLocalPayment] = useState<InitialPayment>(() => {
-    if (!selectedLoan) return { amount: '0', paymentMethod: 'CASH', comission: '8' };
-    
-    // Verificar si ya existe un pago configurado para este préstamo
-    const existingPayment = initialPayments[selectedLoan.id];
-    if (existingPayment) {
-      return existingPayment;
-    }
-    
-    // Si no existe, calcular valores por defecto
-    const weeklyAmount = calculateWeeklyPaymentAmount(
-      selectedLoan.requestedAmount?.toString() || '0',
-      selectedLoan.loantype?.rate?.toString() || '0',
-      selectedLoan.loantype?.weekDuration || 0
-    );
-    
-    const comission = Math.round(parseFloat((selectedLoan.loantype as any)?.loanPaymentComission || '0')) || 8;
-    
-    return {
-      amount: weeklyAmount,
-      paymentMethod: 'CASH',
-      comission: comission.toString()
-    };
-  });
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'MONEY_TRANSFER'>('CASH');
+  const [amount, setAmount] = useState<string>('0');
+  const [comission, setComission] = useState<string>('8');
 
-  // Actualizar el estado local cuando cambie el préstamo seleccionado
-  React.useEffect(() => {
-    if (selectedLoan) {
-      const existingPayment = initialPayments[selectedLoan.id];
-      if (existingPayment) {
-        setLocalPayment(existingPayment);
-      } else {
-        const weeklyAmount = calculateWeeklyPaymentAmount(
-          selectedLoan.requestedAmount?.toString() || '0',
-          selectedLoan.loantype?.rate?.toString() || '0',
-          selectedLoan.loantype?.weekDuration || 0
+  // Calcular y precargar el monto del pago semanal cuando se abre el modal
+  useEffect(() => {
+    if (isOpen && loan) {
+      // Calcular el monto total a pagar
+      const amountToPay = loan.amountToPay || 
+        calculateAmountToPay(
+          loan.requestedAmount?.toString() || '0',
+          loan.loantype?.rate?.toString() || '0'
         );
-        
-        const comission = Math.round(parseFloat((selectedLoan.loantype as any)?.loanPaymentComission || '0')) || 8;
-        
-        setLocalPayment({
-          amount: weeklyAmount,
-          paymentMethod: 'CASH',
-          comission: comission.toString()
-        });
+      
+      // Calcular el monto del pago semanal
+      const weekDuration = loan.loantype?.weekDuration || 0;
+      const requestedAmount = loan.requestedAmount?.toString() || '0';
+      const rate = loan.loantype?.rate?.toString() || '0';
+      
+      let weeklyAmount = '0';
+      if (weekDuration > 0) {
+        weeklyAmount = calculateWeeklyPaymentAmount(requestedAmount, rate, weekDuration);
+      } else if (parseFloat(amountToPay) > 0) {
+        // Fallback: si no hay weekDuration, usar el amountToPay directamente
+        weeklyAmount = parseFloat(amountToPay).toFixed(2);
+      }
+      
+      // Precargar el monto calculado
+      setAmount(weeklyAmount);
+      
+      // Precargar la comisión del tipo de préstamo si existe
+      const loanPaymentComission = loan.loantype?.loanPaymentComission;
+      if (loanPaymentComission && parseFloat(loanPaymentComission.toString()) > 0) {
+        setComission(loanPaymentComission.toString());
       }
     }
-  }, [selectedLoan, initialPayments]);
+  }, [isOpen, loan]);
 
-  const handleSave = () => {
-    onSave(localPayment);
+  if (!isOpen || !loan) return null;
+
+  const handleSave = async () => {
+    await onSave({
+      amount,
+      paymentMethod,
+      comission,
+    });
   };
-
-  const handlePaymentMethodChange = (option: any) => {
-    setLocalPayment(prev => ({
-      ...prev,
-      paymentMethod: option.value
-    }));
-  };
-
-  if (!selectedLoan) return null;
 
   return (
-    <AlertDialog
-      title="Configurar Primer Pago"
-      isOpen={isOpen}
-      actions={{
-        confirm: {
-          label: isSaving ? 'Guardando...' : 'Guardar',
-          action: handleSave,
-          loading: isSaving
-        },
-        cancel: {
-          label: 'Cancelar',
-          action: onClose
-        }
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
       }}
+      onClick={onClose}
     >
-      <Box padding="large">
-        <div style={{ marginBottom: '16px' }}>
-          <Text weight="medium" style={{ marginBottom: '8px', display: 'block' }}>
-            Cliente: {selectedLoan.borrower?.personalData?.fullName}
-          </Text>
-          <Text style={{ fontSize: '14px', color: '#6B7280', marginBottom: '16px' }}>
-            Monto semanal: ${calculateWeeklyPaymentAmount(
-              selectedLoan.requestedAmount?.toString() || '0',
-              selectedLoan.loantype?.rate?.toString() || '0',
-              selectedLoan.loantype?.weekDuration || 0
-            )}
-          </Text>
+      <div
+        style={{
+          backgroundColor: 'white',
+          padding: '24px',
+          borderRadius: '12px',
+          width: '500px',
+          maxWidth: '90%',
+          maxHeight: '90vh',
+          overflow: 'auto',
+          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: '600', color: '#1a1f36' }}>
+          Configurar Primer Pago
+        </h2>
+        <p style={{ margin: '0 0 20px 0', color: '#697386', fontSize: '14px' }}>
+          Cliente: {loan.borrower?.personalData?.fullName}
+        </p>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div>
+            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+              Método de Pago
+            </label>
+            <select
+              className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              value={paymentMethod}
+              onChange={(e) => setPaymentMethod(e.target.value as 'CASH' | 'MONEY_TRANSFER')}
+              style={{
+                width: '100%',
+                padding: '10px 16px',
+                fontSize: '14px',
+                border: '1px solid #E5E7EB',
+                borderRadius: '8px',
+                backgroundColor: 'white',
+              }}
+            >
+              <option value="CASH">Efectivo</option>
+              <option value="MONEY_TRANSFER">Transferencia</option>
+            </select>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+              Monto del Pago
+            </label>
+            <Input
+              type="number"
+              placeholder="0"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '10px 16px',
+                fontSize: '14px',
+                border: '1px solid #E5E7EB',
+                borderRadius: '8px',
+                backgroundColor: 'white',
+              }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+              Comisión por Pago ($)
+            </label>
+            <Input
+              type="number"
+              placeholder="0"
+              value={comission}
+              onChange={(e) => setComission(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '10px 16px',
+                fontSize: '14px',
+                border: '1px solid #E5E7EB',
+                borderRadius: '8px',
+                backgroundColor: 'white',
+              }}
+            />
+          </div>
         </div>
-        
-        <div style={{ marginBottom: '16px' }}>
-          <Text weight="medium" style={{ marginBottom: '8px', display: 'block' }}>
-            Método de Pago
-          </Text>
-          <Select
-            value={paymentMethods.find(m => m.value === localPayment.paymentMethod) || null}
-            options={paymentMethods}
-            onChange={handlePaymentMethodChange}
-            placeholder="Selecciona método de pago"
-          />
-        </div>
-        
-        <div style={{ marginBottom: '16px' }}>
-          <Text weight="medium" style={{ marginBottom: '8px', display: 'block' }}>
-            Monto del Pago
-          </Text>
-          <TextInput
-            type="number"
-            placeholder="0.00"
-            value={localPayment.amount}
-            onChange={(e) => {
-              setLocalPayment(prev => ({
-                ...prev,
-                amount: e.target.value
-              }));
+
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px' }}>
+          <Button
+            onClick={onClose}
+            variant="outline"
+            size="default"
+            disabled={isSaving}
+          >
+            Cancelar
+          </Button>
+          <Button
+            onClick={handleSave}
+            disabled={isSaving}
+            variant="default"
+            size="default"
+            style={{
+              backgroundColor: isSaving ? '#9CA3AF' : '#16a34a',
+              color: 'white',
             }}
-            style={{ width: '100%' }}
-          />
+          >
+            {isSaving ? 'Guardando...' : 'Guardar'}
+          </Button>
         </div>
-        
-        <div>
-          <Text weight="medium" style={{ marginBottom: '8px', display: 'block' }}>
-            Comisión por Pago ($)
-          </Text>
-          <TextInput
-            type="number"
-            placeholder="0.00"
-            value={localPayment.comission}
-            onChange={(e) => {
-              setLocalPayment(prev => ({
-                ...prev,
-                comission: e.target.value
-              }));
-            }}
-            style={{ width: '100%' }}
-          />
-        </div>
-      </Box>
-    </AlertDialog>
+      </div>
+    </div>
   );
 };

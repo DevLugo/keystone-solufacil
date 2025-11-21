@@ -1,0 +1,241 @@
+/* Contenedor de la tabla con scroll horizontal */
+.tableContainer {
+  width: 100%;
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background-color: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* Tabla base */
+.table {
+  font-size: 13px;
+  width: 100%;
+  min-width: 1200px;
+}
+
+/* Fila de encabezado */
+.headerRow {
+  background-color: #f9fafb;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+/* Celdas de encabezado */
+.headerCell {
+  font-weight: 600;
+  color: #374151;
+  padding: 12px 16px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.headerCellRight {
+  composes: headerCell;
+  text-align: right;
+}
+
+/* Filas de datos */
+.dataRow {
+  position: relative;
+  border-bottom: 1px solid #e5e7eb;
+  transition: background-color 0.15s ease;
+}
+
+.dataRow:hover {
+  background-color: #f9fafb;
+}
+
+.dataRowHighlight {
+  composes: dataRow;
+  background-color: #f0f9ff;
+}
+
+.dataRowHighlight:hover {
+  background-color: #e0f2fe;
+}
+
+/* Indicador de nuevo préstamo */
+.newLoanIndicator {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 3px;
+  height: 100%;
+  background-color: #0052cc;
+}
+
+/* Celdas de datos */
+.dataCell {
+  font-size: 12px;
+  padding: 12px 16px;
+  color: #374151;
+}
+
+.dataCellRight {
+  composes: dataCell;
+  text-align: right;
+}
+
+.dataCellMuted {
+  composes: dataCell;
+  color: #6b7280;
+}
+
+.dataCellBold {
+  composes: dataCell;
+  font-weight: 500;
+}
+
+.dataCellDanger {
+  composes: dataCellRight;
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.dataCellSuccess {
+  composes: dataCellRight;
+  color: #059669;
+  font-weight: 600;
+}
+
+.dataCellPurple {
+  composes: dataCellRight;
+  color: #7c3aed;
+  font-weight: 600;
+}
+
+/* Badges */
+.badgeContainer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+  white-space: nowrap;
+}
+
+.badgeRenewal {
+  composes: badge;
+  background-color: #dbeafe;
+  color: #1e40af;
+}
+
+.badgeNew {
+  composes: badge;
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+.badgePaid {
+  composes: badge;
+  background-color: #f3f4f6;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+  padding: 6px 12px;
+  height: 32px;
+  gap: 6px;
+}
+
+/* Botón de registrar pago */
+.paymentButton {
+  font-size: 11px;
+  height: 32px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.paymentButtonRegister {
+  composes: paymentButton;
+  background-color: #10b981;
+  color: white;
+}
+
+.paymentButtonRegister:hover {
+  background-color: #059669;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.paymentButtonConfigured {
+  composes: paymentButton;
+  background-color: #3b82f6;
+  color: white;
+}
+
+.paymentButtonConfigured:hover {
+  background-color: #2563eb;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* Botón de opciones - estilos shadcn */
+.optionsButton {
+  min-width: 32px;
+  width: 32px;
+  height: 32px;
+  color: #6b7280;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.optionsButton:hover:not(:disabled) {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.optionsButton:active:not(:disabled) {
+  background: #e5e7eb;
+}
+
+.optionsButton:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
+}
+
+/* Spinner de carga */
+.spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 32px;
+}
+
+.spinnerIcon {
+  animation: spin 1s linear infinite;
+  color: #6b7280;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

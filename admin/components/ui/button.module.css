@@ -1,0 +1,133 @@
+/* Base button styles */
+.button {
+  padding: 11px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: inherit;
+}
+
+.button:focus {
+  outline: none;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Primary variant */
+.buttonPrimary {
+  background: #2563eb;
+  color: white;
+}
+
+.buttonPrimary:hover:not(:disabled) {
+  background: #1d4ed8;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+.buttonPrimary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.buttonPrimary:disabled {
+  background: #9ca3af;
+  transform: none;
+}
+
+/* Destructive variant */
+.buttonDestructive {
+  background: #ef4444;
+  color: white;
+}
+
+.buttonDestructive:hover:not(:disabled) {
+  background: #dc2626;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+}
+
+.buttonDestructive:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.buttonDestructive:disabled {
+  background: #9ca3af;
+  transform: none;
+}
+
+/* Secondary variant */
+.buttonSecondary {
+  background: white;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.buttonSecondary:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+/* Ghost variant - estilo shadcn para botones de icono */
+.buttonGhost {
+  background: transparent;
+  color: #6b7280;
+  border: none;
+  font-weight: 500;
+}
+
+.buttonGhost:hover:not(:disabled) {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.buttonGhost:active:not(:disabled) {
+  background: #e5e7eb;
+}
+
+/* Ghost variant con borde dashed (para "add another") */
+.buttonGhostDashed {
+  width: 100%;
+  padding: 12px;
+  background: transparent;
+  color: #6b7280;
+  border: 2px dashed #d1d5db;
+  font-weight: 500;
+}
+
+.buttonGhostDashed:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #9ca3af;
+  color: #374151;
+}
+
+/* Size variants */
+.buttonSm {
+  padding: 8px 16px;
+  font-size: 12px;
+  height: 32px;
+}
+
+.buttonIcon {
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+}
+
+.buttonIcon:hover:not(:disabled) {
+  background: #f3f4f6;
+}

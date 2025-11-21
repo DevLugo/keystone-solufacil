@@ -13,11 +13,12 @@ import RouteLeadSelector from '../components/routes/RouteLeadSelector';
 import type { Route, Employee } from '../types/transaction';
 import type { RouteWithEmployees, EmployeeWithTypename } from '../types/components';
 import { CreateExpensesForm } from '../components/transactions/gastosTab';
-import { CreditosTab } from '../components/transactions/CreditosTab';
+import { CreditosTabNew } from '../components/transactions/CreditosTabNew';
 import { CreatePaymentForm } from '../components/transactions/abonosTab';
 import { SummaryTab } from '../components/transactions/SummaryTab';
 import TransferForm from '../components/transactions/TransferTab';
 import { BalanceRefreshProvider, useBalanceRefresh } from '../contexts/BalanceRefreshContext';
+import { ToastProvider } from '../components/ui/toast';
 
 const GET_TRANSACTIONS_SUMMARY = gql`
   query GetTransactionsSummary($date: DateTime!, $nextDate: DateTime!) {
@@ -81,6 +82,7 @@ function toCreditLead(lead: EmployeeWithTypename | null): any {
     type: lead.type,
     personalData: {
       fullName: lead.personalData.fullName,
+      addresses: lead.personalData.addresses,
       __typename: lead.personalData.__typename
     },
     __typename: lead.__typename
@@ -178,6 +180,7 @@ function TransaccionesPageContent() {
         __typename: 'Employee',
         personalData: {
           ...lead.personalData,
+          addresses: lead.personalData.addresses, // Preservar addresses
           __typename: 'PersonalData'
         }
       });
@@ -294,11 +297,11 @@ function TransaccionesPageContent() {
         );
       case 'credits':
         return (
-          <CreditosTab
-            selectedDate={selectedDate}
-            selectedRoute={selectedRoute?.id || null}
-            selectedLead={toCreditLead(selectedLead)}
-          />
+          <CreditosTabNew
+          selectedDate={selectedDate}
+          selectedRoute={selectedRoute?.id || null}
+          selectedLead={toCreditLead(selectedLead)}
+        />
         );
       case 'payments':
         return (
@@ -470,7 +473,9 @@ function TransaccionesPageContent() {
 export default function TransaccionesPage() {
   return (
     <BalanceRefreshProvider>
-      <TransaccionesPageContent />
+      <ToastProvider>
+        <TransaccionesPageContent />
+      </ToastProvider>
     </BalanceRefreshProvider>
   );
 }
