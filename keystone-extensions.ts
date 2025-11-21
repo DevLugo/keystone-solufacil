@@ -1390,140 +1390,42 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         const weeksElapsedSinceBoundary = Math.max(0, Math.floor((getMonday(weekEnd).getTime() - getMonday(boundaryForCalc).getTime()) / msPerWeek));
         const nSemanaValue = weeksElapsedSinceBoundary + 1;
         
-        // ✅ LÓGICA CORREGIDA PARA VDO BASADA EN HISTORIAL-CLIENTE.TSX:
-        // Usar la misma lógica que detecta faltas en el historial de cliente
+        // ✅ USAR FUNCIÓN CORREGIDA: Importar y usar calculateVDOForLoan
+        const { calculateVDOForLoan } = require('./utils/listadoCalc.js');
         
-        let arrearsAmount = 0;
-        
-        // Función para obtener el lunes de la semana (igual que en historial-cliente.tsx)
-        const getMondayOfWeek = (date: Date): Date => {
-          const monday = new Date(date);
-          const dayOfWeek = monday.getDay();
-          const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-          monday.setDate(monday.getDate() + diff);
-          return monday;
+        // Convertir loan a formato compatible
+        const loanForCalc = {
+          signDate: loan.signDate,
+          expectedWeeklyPayment: expectedWeeklyPayment,
+          requestedAmount: loan.requestedAmount,
+          loantype: loan.loantype,
+          payments: loan.payments || []
         };
         
-        // Función para obtener el domingo de la semana (igual que en historial-cliente.tsx)
-        const getSundayOfWeek = (date: Date): Date => {
-          const sunday = new Date(date);
-          const dayOfWeek = sunday.getDay();
-          const diff = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
-          sunday.setDate(sunday.getDate() + diff);
-          return sunday;
-        };
-        
-        // Calcular hasta qué fecha evaluar (igual que en historial-cliente.tsx)
-        const isNextWeek = weekMode === 'next';
-        const endOfLastWeek = isNextWeek ? weekEnd : new Date(weekStart.getTime() - 1);
-        
-        // Generar todas las semanas desde la segunda semana después de la firma (igual que historial-cliente.tsx)
-        const signDate = new Date(loan.signDate);
-        const weeks: { monday: Date, sunday: Date }[] = [];
-        let currentMonday = getMondayOfWeek(signDate);
-        currentMonday.setDate(currentMonday.getDate() + 7); // Primera semana no se espera pago
-        
-        while (currentMonday <= endOfLastWeek) {
-          const sunday = getSundayOfWeek(currentMonday);
-          weeks.push({ 
-            monday: new Date(currentMonday), 
-            sunday: new Date(sunday) 
-          });
-          currentMonday.setDate(currentMonday.getDate() + 7);
-        }
-        
-        // Obtener fechas de pago (igual que en historial-cliente.tsx)
-        const paymentDates = (loan.payments || [])
-          .filter(payment => payment.amount > 0)
-          .map(payment => new Date(payment.receivedAt || payment.createdAt))
-          .sort((a, b) => a.getTime() - b.getTime());
-        
-        let weeksWithoutPayment = 0;
-        let surplusAccumulated = 0; // Sobrepago acumulado
-        
-        for (let weekIndex = 0; weekIndex < weeks.length; weekIndex++) {
-          const week = weeks[weekIndex];
-          
-          const now = new Date();
-          if (week.sunday > now) {
-            break; // No evaluar semanas futuras
-          }
-          
-          // Calcular pagado antes de esta semana
-          const paidBeforeWeek = (loan.payments || []).reduce((sum: number, p: any) => {
-            const paymentDate = new Date(p.receivedAt || p.createdAt);
-            return paymentDate < week.monday ? sum + parseFloat((p.amount || 0).toString()) : sum;
-          }, 0);
-          
-          const expectedBefore = weekIndex * expectedWeeklyPayment;
-          
-          // Calcular sobrepago acumulado antes de esta semana
-          surplusAccumulated = paidBeforeWeek - expectedBefore;
-          
-          // Buscar pagos en esta semana específica
-          const paymentsInWeek = (loan.payments || []).filter((p: any) => {
-            const paymentDate = new Date(p.receivedAt || p.createdAt);
-            return paymentDate >= week.monday && paymentDate <= week.sunday;
-          });
-          
-          const weeklyPaid = paymentsInWeek.reduce((sum: number, p: any) => 
-            sum + parseFloat((p.amount || 0).toString()), 0
-          );
-          
-          // Verificar si la semana está cubierta (pago directo + sobrepago)
-          const isWeekCovered = (surplusAccumulated + weeklyPaid) >= expectedWeeklyPayment && expectedWeeklyPayment > 0;
-          
-          // Solo contar como falta si NO está cubierta
-          if (!isWeekCovered) {
-            weeksWithoutPayment++;
-          }
-          
-          // Actualizar sobrepago para la siguiente semana
-          surplusAccumulated = surplusAccumulated + weeklyPaid - expectedWeeklyPayment;
-        }
-        
-        // Calcular PAGO VDO = semanas sin pago × pago semanal esperado
-        arrearsAmount = Math.max(0, Math.min(
-          weeksWithoutPayment * expectedWeeklyPayment,
-          pendingAmountStored
-        ));
+        // Calcular VDO usando la función corregida
+        const vdoResult = calculateVDOForLoan(loanForCalc, new Date(), weekMode);
+        const arrearsAmount = vdoResult.arrearsAmount;
+        const abonoParcialAmount = vdoResult.partialPayment; // ✅ USAR ABONO PARCIAL DE LA FUNCIÓN
         
         // Debug específico para casos problemáticos
-        if (loan.borrower?.personalData?.fullName?.includes('JUANA SANTIAGO LOPEZ') || arrearsAmount > 0) {
+        if (loan.borrower?.personalData?.fullName?.includes('JUANA SANTIAGO LOPEZ') || 
+            loan.borrower?.personalData?.fullName?.includes('LIZBETH ADRIANA AGUILAR CUXIN') || 
+            loan.borrower?.personalData?.fullName?.includes('ABIGAIL DIAZ CRUZ') ||
+            arrearsAmount > 0 || abonoParcialAmount > 0) {
           console.log(`🔍 VDO Debug - ${loan.borrower?.personalData?.fullName}:`);
-          console.log(`   - Pago semanal esperado: ${expectedWeeklyPayment}`);
-          console.log(`   - Total de semanas evaluadas: ${weeks.length}`);
-          console.log(`   - Semanas sin pago: ${weeksWithoutPayment}`);
+          console.log(`   - Modo de semana: ${weekMode}`);
+          console.log(`   - Pago semanal esperado: ${vdoResult.expectedWeeklyPayment}`);
+          console.log(`   - Semanas sin pago: ${vdoResult.weeksWithoutPayment}`);
           console.log(`   - PAGO VDO calculado: ${arrearsAmount}`);
+          console.log(`   - Abono parcial calculado: ${abonoParcialAmount}`);
           console.log(`   - Monto pendiente almacenado: ${pendingAmountStored}`);
           console.log(`   - Rango de semana: ${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}`);
-          console.log(`   - Fechas de pago: ${paymentDates.map(d => d.toLocaleDateString()).join(', ')}`);
-          console.log(`   - Sobrepago final acumulado: ${surplusAccumulated}`);
           console.log(`   - Fecha actual: ${new Date().toLocaleDateString()}`);
+          console.log(`   - loanForCalc:`, JSON.stringify(loanForCalc, null, 2));
         }
         
 
-        // Para abono parcial, calcular solo pagos de la semana actual
-        const totalPaidInCurrentWeek = (loan.payments || []).reduce((sum: number, p: any) => {
-          const d = new Date(p.receivedAt || p.createdAt);
-          if (d >= weekStart && d <= weekEnd) { // Solo semana actual
-            return sum + parseFloat((p.amount || 0).toString());
-          }
-          return sum;
-        }, 0);
-
-        // Abono parcial = sobrepago en la semana actual
-        // Si pagó más del pago semanal esperado, la diferencia es el abono parcial
-        const abonoParcialAmount = Math.max(0, totalPaidInCurrentWeek - expectedWeeklyPayment);
-        
-        // Debug para verificar cálculos de abono parcial
-        if (loan.borrower?.personalData?.fullName?.includes('Test') || abonoParcialAmount > 0) {
-          console.log(`💰 Abono Parcial Debug - ${loan.borrower?.personalData?.fullName}:`);
-          console.log(`   - Pago semanal esperado: ${expectedWeeklyPayment}`);
-          console.log(`   - Pagado en semana actual: ${totalPaidInCurrentWeek}`);
-          console.log(`   - Abono parcial (sobrepago): ${abonoParcialAmount}`);
-          console.log(`   - Rango de semana: ${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}`);
-        }
+        // ✅ ABONO PARCIAL YA CALCULADO POR calculateVDOForLoan
 
         // Pago VDO (monto total no pagado hasta la semana actual)
 
