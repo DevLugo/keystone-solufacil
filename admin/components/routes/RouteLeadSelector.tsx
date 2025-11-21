@@ -441,7 +441,8 @@ const RouteLeadSelectorComponent: React.FC<RouteLeadSelectorProps> = ({
         id: option.data.id,
         type: option.data.type,
         personalData: {
-          fullName: option.data.personalData.fullName
+          fullName: option.data.personalData.fullName,
+          addresses: option.data.personalData.addresses || []
         },
         routes: {
           accounts: [] // Proporcionar estructura mínima requerida

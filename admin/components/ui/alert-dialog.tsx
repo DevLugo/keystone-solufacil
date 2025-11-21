@@ -38,6 +38,8 @@ export interface AlertDialogCancelProps extends React.ButtonHTMLAttributes<HTMLB
 }
 
 export const AlertDialog: React.FC<AlertDialogProps> = ({ open, onOpenChange, children }) => {
+  console.log('🎯 AlertDialog renderizando:', { open, childrenCount: React.Children.count(children) });
+  
   // Agregar listener para la tecla Escape
   React.useEffect(() => {
     if (!open) return;
@@ -56,9 +58,11 @@ export const AlertDialog: React.FC<AlertDialogProps> = ({ open, onOpenChange, ch
   }, [open, onOpenChange]);
   
   if (!open) {
+    console.log('🎯 AlertDialog no renderizado porque open=false');
     return null;
   }
 
+  console.log('🎯 AlertDialog creando portal');
   return createPortal(
     <div
       style={{

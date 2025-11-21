@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useQuery, useMutation } from '@apollo/client';
-import { FaEdit, FaSpinner, FaEllipsisV, FaTrash, FaExclamationTriangle } from 'react-icons/fa';
+import { FaExclamationTriangle, FaEllipsisV } from 'react-icons/fa';
 import { calculateLoanAmounts, calculateAmountToPay } from '../../utils/loanCalculations';
 import { GET_ROUTE } from '../../graphql/queries/routes';
 import { GET_LOANS_FOR_TRANSACTIONS } from '../../graphql/queries/loans-optimized';
@@ -27,6 +27,7 @@ import {
 import ClientLoanUnifiedInput from '../loans/ClientLoanUnifiedInput';
 import { PaymentConfigModal } from './PaymentConfigModal';
 import { CreateCreditModal } from './CreateCreditModal';
+import { CreditsTable } from './CreditsTable';
 import { GET_LOAN_TYPES, GET_PREVIOUS_LOANS, GET_ALL_PREVIOUS_LOANS } from '../../graphql/queries/loans';
 import type { 
   ExtendedLoanForCredits, 
@@ -67,13 +68,11 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
   const [loans, setLoans] = useState<Loan[]>([]);
   const [pendingLoans, setPendingLoans] = useState<ExtendedLoanForCredits[]>([]);
   const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
-  const [editableEmptyRow, setEditableEmptyRow] = useState<ExtendedLoanForCredits | null>(null);
   
   // Estados de UI
   const [isCreating, setIsCreating] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
-  const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [newLoanId, setNewLoanId] = useState<string | null>(null);
   const [isSearchingLoansByRow, setIsSearchingLoansByRow] = useState<Record<string, boolean>>({});
   
@@ -110,8 +109,6 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
   const [debouncedDropdownSearchTextByRow, setDebouncedDropdownSearchTextByRow] = useState<Record<string, string>>({});
   
   // Referencias
-  const menuRef = useRef<HTMLDivElement>(null);
-  const buttonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const existingLoansTableRef = useRef<HTMLDivElement>(null);
   
   const [createMultipleLoans] = useMutation(CREATE_LOANS_BULK);
@@ -487,7 +484,6 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
 
         // Limpiar estado y refrescar datos
         setPendingLoans([]);
-        setEditableEmptyRow(null);
         await Promise.all([refetchRoute(), refetchLoans()]);
         
         // Actualizar balance
@@ -637,18 +633,6 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
     }
   };
 
-  const getDropdownPosition = (loanId: string) => {
-    const buttonElement = buttonRefs.current[loanId];
-    if (!buttonElement) {
-      return { top: 0, left: 0 };
-    }
-    
-    const rect = buttonElement.getBoundingClientRect();
-    return {
-      top: rect.top - 10,
-      left: rect.left - 140,
-    };
-  };
 
   const handleApplyMassCommission = () => {
     const commission = parseFloat(massCommission);
@@ -668,36 +652,9 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
     setPendingLoans(updatedPendingLoans);
   };
 
-  // Generar ID único para préstamos temporales
-  const generateLoanId = useCallback(() => `temp-loan-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, []);
 
-  // Crear fila vacía
-  const emptyLoanRow = React.useMemo<ExtendedLoanForCredits>(() => ({
-    id: generateLoanId(),
-    requestedAmount: '',
-    amountGived: '',
-    amountToPay: '',
-    pendingAmount: '0',
-    signDate: selectedDate?.toISOString() || '',
-    comissionAmount: '0',
-    avalName: '',
-    avalPhone: '',
-    selectedCollateralId: undefined,
-    selectedCollateralPhoneId: undefined,
-    avalAction: 'clear' as const,
-    collaterals: [],
-    loantype: undefined,
-    borrower: { 
-      id: '', 
-      personalData: { 
-        id: '', 
-        fullName: '', 
-        phones: [{ id: '', number: '' }] 
-      } 
-    },
-    previousLoan: undefined,
-    previousLoanOption: null,
-  }), [selectedDate, generateLoanId]);
+
+
 
   // Opciones de préstamos anteriores
   const getPreviousLoanOptions = useCallback((rowId: string): PreviousLoanOption[] => {
@@ -756,136 +713,9 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
     return options;
   }, [allPreviousLoansData, pendingLoans]);
 
-  // Manejar cambios en la fila
-  const handleRowChange = useCallback((
-    index: number, 
-    field: string, 
-    value: PreviousLoanOption | LoanTypeOption | { clientName: string; clientPhone: string; action?: string } | { avalName: string; avalPhone: string; selectedCollateralId?: string; selectedCollateralPhoneId?: string; avalAction: 'create' | 'update' | 'connect' | 'clear' } | string | null, 
-    isNewRow: boolean
-  ) => {
-    const sourceRow = isNewRow 
-      ? (editableEmptyRow || { ...emptyLoanRow, id: generateLoanId() }) 
-      : pendingLoans[index];
 
-    let updatedRow: ExtendedLoanForCredits = { ...sourceRow };
 
-    if (field === 'previousLoan') {
-      const previousLoanValue = value as PreviousLoanOption | null | undefined;
-      if (previousLoanValue?.value) {
-        const selectedLoan = previousLoanValue.loanData;
-        const pendingAmount = roundAmount(selectedLoan.pendingAmountStored || selectedLoan.pendingAmount || '0').toString();
-        const selectedType = loanTypesData?.loantypes?.find((type: LoanType) => type.id === selectedLoan.loantype?.id);
-        
-        updatedRow = {
-          ...updatedRow,
-          previousLoanOption: previousLoanValue,
-          previousLoan: { ...selectedLoan, pendingAmount },
-          borrower: selectedLoan.borrower,
-          avalName: selectedLoan.collaterals?.[0]?.fullName || '',
-          avalPhone: selectedLoan.collaterals?.[0]?.phones?.[0]?.number || '',
-          selectedCollateralId: selectedLoan.collaterals?.[0]?.id,
-          selectedCollateralPhoneId: selectedLoan.collaterals?.[0]?.phones?.[0]?.id,
-          avalAction: selectedLoan.collaterals && selectedLoan.collaterals.length > 0 ? 'connect' : 'clear',
-          loantype: selectedLoan.loantype,
-          requestedAmount: selectedLoan.requestedAmount,
-          comissionAmount: (selectedType?.loanGrantedComission ?? 0).toString(),
-        };
-      } else {
-        updatedRow = { 
-          ...updatedRow, 
-          previousLoanOption: null, 
-          previousLoan: undefined, 
-          borrower: emptyLoanRow.borrower,
-          avalName: '',
-          avalPhone: '',
-          selectedCollateralId: undefined,
-          selectedCollateralPhoneId: undefined,
-          avalAction: 'clear',
-          collaterals: [],
-          loantype: undefined,
-          requestedAmount: '',
-          comissionAmount: '0',
-          amountGived: '',
-          amountToPay: ''
-        };
-      }
-    } else if (field === 'loantype') {
-      const loanTypeValue = value as LoanTypeOption;
-      const selectedType = loanTypesData?.loantypes?.find((t: LoanType) => t.id === loanTypeValue.value);
-      if (selectedType) {
-        updatedRow.loantype = selectedType;
-        updatedRow.comissionAmount = (selectedType.loanGrantedComission ?? 0).toString();
-      }
-    } else if (field === 'clientData') {
-      const clientDataValue = value as { clientName: string; clientPhone: string; action?: string };
-      const currentPersonalData = updatedRow.borrower?.personalData;
-      const currentPhoneId = currentPersonalData?.phones?.[0]?.id || '';
-      updatedRow.borrower = { 
-        id: updatedRow.borrower?.id || '',
-        personalData: { 
-          id: currentPersonalData?.id || '',
-          fullName: clientDataValue.clientName, 
-          phones: [{ id: currentPhoneId, number: clientDataValue.clientPhone }] 
-        } 
-      };
-    } else if (field === 'avalData') {
-      const avalDataValue = value as { avalName: string; avalPhone: string; selectedCollateralId?: string; selectedCollateralPhoneId?: string; avalAction: 'create' | 'update' | 'connect' | 'clear' };
-      const collateral = avalDataValue.selectedCollateralId
-        ? {
-            id: avalDataValue.selectedCollateralId,
-            fullName: avalDataValue.avalName,
-            phones: [{ id: avalDataValue.selectedCollateralPhoneId || '', number: avalDataValue.avalPhone }],
-          }
-        : null;
 
-      updatedRow = {
-        ...updatedRow,
-        collaterals: collateral ? [collateral] : [],
-        selectedCollateralId: avalDataValue.selectedCollateralId,
-        selectedCollateralPhoneId: avalDataValue.selectedCollateralPhoneId,
-        avalAction: avalDataValue.avalAction,
-        avalName: avalDataValue.avalName,
-        avalPhone: avalDataValue.avalPhone,
-      };
-    } else {
-      updatedRow = { ...updatedRow, [field]: value as string };
-    }
-
-    // Calcular montos si cambian campos relevantes
-    if (['requestedAmount', 'loantype', 'previousLoan'].includes(field)) {
-      const { amountGived, amountToPay, totalDebtAcquired } = calculateLoanAmounts({
-        requestedAmount: updatedRow.requestedAmount || '0',
-        pendingAmount: updatedRow.previousLoan?.pendingAmount || '0',
-        rate: updatedRow.loantype?.rate || '0',
-      });
-      updatedRow.amountGived = amountGived;
-      updatedRow.amountToPay = amountToPay;
-      updatedRow.totalDebtAcquired = totalDebtAcquired;
-    }
-
-    if (isNewRow) {
-      setEditableEmptyRow(updatedRow);
-    } else {
-      setPendingLoans(prev => prev.map((loan, i) => i === index ? updatedRow : loan));
-    }
-  }, [editableEmptyRow, pendingLoans, emptyLoanRow, loanTypesData, generateLoanId]);
-
-  // Auto-agregar a pendientes cuando tiene datos requeridos
-  React.useEffect(() => {
-    if (!editableEmptyRow) return;
-    const hasRequiredInfo = editableEmptyRow.borrower?.personalData?.fullName?.trim() &&
-                            editableEmptyRow.loantype?.id &&
-                            editableEmptyRow.requestedAmount?.trim() &&
-                            parseFloat(editableEmptyRow.requestedAmount) > 0;
-
-    if (hasRequiredInfo) {
-      const isAlreadyPending = pendingLoans.some(p => p.id === editableEmptyRow.id);
-      if (!isAlreadyPending) {
-        setPendingLoans(prev => [...prev, editableEmptyRow]);
-        setEditableEmptyRow(null);
-      }
-    }
-  }, [editableEmptyRow, pendingLoans]);
 
   const handleDateMoveSuccess = React.useCallback(() => {
     Promise.all([refetchLoans(), refetchRoute(), refetchPreviousLoans()]).then(() => {
@@ -970,9 +800,34 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
   // Estado para el modal de crear crédito
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [modalLoan, setModalLoan] = useState<ExtendedLoanForCredits | null>(null);
-  
-  // Referencia para hacer scroll a la sección de nuevos préstamos
-  const newLoansSectionRef = useRef<HTMLDivElement>(null);
+
+  const handleMoveDate = async () => {
+    if (!targetDate || !selectedDate || !selectedLead) return;
+    
+    setIsMovingDate(true);
+    try {
+      const { data } = await moveDate({
+        variables: {
+          sourceDate: selectedDate.toISOString(),
+          targetDate: new Date(targetDate).toISOString(),
+          leadId: selectedLead.id
+        }
+      });
+
+      if (data?.moveLoansToDate?.success) {
+        setIsDateMoverOpen(false);
+        setTargetDate('');
+        handleDateMoveSuccess();
+      } else {
+        alert(data?.moveLoansToDate?.message || 'Error al mover préstamos');
+      }
+    } catch (error) {
+      console.error('Error al mover préstamos:', error);
+      alert('Error al mover préstamos');
+    } finally {
+      setIsMovingDate(false);
+    }
+  };
 
   if (loansLoading || loanTypesLoading) {
     return (
@@ -1014,34 +869,6 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
       </div>
     );
   }
-
-  const handleMoveDate = async () => {
-    if (!targetDate || !selectedDate || !selectedLead) return;
-    
-    setIsMovingDate(true);
-    try {
-      const { data } = await moveDate({
-        variables: {
-          sourceDate: selectedDate.toISOString(),
-          targetDate: new Date(targetDate).toISOString(),
-          leadId: selectedLead.id
-        }
-      });
-
-      if (data?.moveLoansToDate?.success) {
-        setIsDateMoverOpen(false);
-        setTargetDate('');
-        handleDateMoveSuccess();
-      } else {
-        alert(data?.moveLoansToDate?.message || 'Error al mover préstamos');
-      }
-    } catch (error) {
-      console.error('Error al mover préstamos:', error);
-      alert('Error al mover préstamos');
-    } finally {
-      setIsMovingDate(false);
-    }
-  };
 
   return (
     <div style={{ paddingTop: '24px' }}>
@@ -1121,99 +948,150 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
           gap: '8px',
           position: 'relative'
         }}>
-          {/* Botón principal con menú */}
-          <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'stretch' }}>
-            <div style={{
-              display: 'inline-flex',
-              borderRadius: '6px',
-              overflow: 'hidden',
-              border: '1px solid #15803d'
-            }}>
-              <Button
-                onClick={handleSaveAllNewLoans}
-                disabled={pendingLoans.length === 0 || isCreating}
-                size="sm"
-                variant="default"
-                style={{
-                  backgroundColor: isCreating ? '#9CA3AF' : '#16a34a',
-                  color: 'white',
-                  fontSize: '12px',
-                  height: '32px',
-                  fontWeight: '700',
-                  borderRight: '1px solid rgba(255,255,255,0.25)',
-                  borderRadius: 0,
-                }}
-              >
-                {isCreating ? 'Guardando...' : 'Guardar cambios'}
-              </Button>
-              <Button
-                onClick={(e) => { e.stopPropagation(); setShowPrimaryMenu(!showPrimaryMenu); }}
-                disabled={pendingLoans.length === 0}
-                size="icon"
-                variant="default"
-                style={{
-                  backgroundColor: '#16a34a',
-                  color: 'white',
-                  fontSize: '12px',
-                  height: '32px',
-                  width: '32px',
-                  padding: '0',
-                  borderRadius: 0,
-                }}
-                title="Más opciones"
-              >
-                <FaEllipsisV size={12} />
-              </Button>
-            </div>
-            {showPrimaryMenu && (
+          {/* New button to open CreateCreditModal (replaces inline forms) */}
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            style={{
+              padding: '9px 20px',
+              fontSize: '13px',
+              fontWeight: '600',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+              border: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontFamily: 'inherit',
+              letterSpacing: '-0.01em',
+              height: '38px',
+              background: '#059669',
+              color: 'white',
+              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+              gap: '6px',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#047857';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(5, 150, 105, 0.3)';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = '#059669';
+              e.currentTarget.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }}
+          >
+            <svg 
+              width="16" 
+              height="16" 
+              viewBox="0 0 24 24" 
+              fill="none" 
+              stroke="currentColor" 
+              strokeWidth="2.5" 
+              strokeLinecap="round" 
+              strokeLinejoin="round"
+            >
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Agregar Crédito
+          </button>
+          
+          {/* Botón Guardar cambios - solo visible si hay préstamos pendientes */}
+          {pendingLoans.length > 0 && (
+            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'stretch' }}>
               <div style={{
-                position: 'absolute',
-                right: 0,
-                top: 'calc(100% + 6px)',
-                background: 'white',
-                border: '1px solid #E5E7EB',
+                display: 'inline-flex',
                 borderRadius: '6px',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                minWidth: '180px',
-                zIndex: 1000
+                overflow: 'hidden',
+                border: '1px solid #15803d'
               }}>
                 <Button
-                  onClick={() => {
-                    setShowPrimaryMenu(false);
-                  }}
-                  variant="ghost"
+                  onClick={handleSaveAllNewLoans}
+                  disabled={pendingLoans.length === 0 || isCreating}
+                  size="sm"
+                  variant="default"
                   style={{
-                    width: '100%',
-                    justifyContent: 'flex-start',
-                    padding: '8px 12px',
-                    fontSize: '13px',
-                  }}
-                >
-                  Reportar Falco
-                </Button>
-                <Button
-                  onClick={() => {
-                    if (loans.length > 0) {
-                      setIsDateMoverOpen(true);
-                    }
-                    setShowPrimaryMenu(false);
-                  }}
-                  disabled={loans.length === 0}
-                  variant="ghost"
-                  style={{
-                    width: '100%',
-                    justifyContent: 'flex-start',
-                    padding: '8px 12px',
-                    fontSize: '13px',
-                    borderTop: '1px solid #E5E7EB',
+                    backgroundColor: isCreating ? '#9CA3AF' : '#16a34a',
+                    color: 'white',
+                    fontSize: '12px',
+                    height: '32px',
+                    fontWeight: '700',
+                    borderRight: '1px solid rgba(255,255,255,0.25)',
                     borderRadius: 0,
                   }}
                 >
-                  Mover Créditos
+                  {isCreating ? 'Guardando...' : 'Guardar cambios'}
+                </Button>
+                <Button
+                  onClick={(e) => { e.stopPropagation(); setShowPrimaryMenu(!showPrimaryMenu); }}
+                  disabled={pendingLoans.length === 0}
+                  size="icon"
+                  variant="default"
+                  style={{
+                    backgroundColor: '#16a34a',
+                    color: 'white',
+                    fontSize: '12px',
+                    height: '32px',
+                    width: '32px',
+                    padding: '0',
+                    borderRadius: 0,
+                  }}
+                  title="Más opciones"
+                >
+                  <FaEllipsisV size={12} />
                 </Button>
               </div>
-            )}
-          </div>
+              {showPrimaryMenu && (
+                <div style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: 'calc(100% + 6px)',
+                  background: 'white',
+                  border: '1px solid #E5E7EB',
+                  borderRadius: '6px',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  minWidth: '180px',
+                  zIndex: 1000
+                }}>
+                  <Button
+                    onClick={() => {
+                      setShowPrimaryMenu(false);
+                    }}
+                    variant="ghost"
+                    style={{
+                      width: '100%',
+                      justifyContent: 'flex-start',
+                      padding: '8px 12px',
+                      fontSize: '13px',
+                    }}
+                  >
+                    Reportar Falco
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      if (loans.length > 0) {
+                        setIsDateMoverOpen(true);
+                      }
+                      setShowPrimaryMenu(false);
+                    }}
+                    disabled={loans.length === 0}
+                    variant="ghost"
+                    style={{
+                      width: '100%',
+                      justifyContent: 'flex-start',
+                      padding: '8px 12px',
+                      fontSize: '13px',
+                      borderTop: '1px solid #E5E7EB',
+                      borderRadius: 0,
+                    }}
+                  >
+                    Mover Créditos
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1229,569 +1107,121 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
           overflowX: 'auto',
           WebkitOverflowScrolling: 'touch',
         }}>
-          <Table style={{ fontSize: '13px' }}>
-            <TableHeader>
-              <TableRow>
-                <TableHead style={{ minWidth: '80px' }}>Préstamo Previo</TableHead>
-                <TableHead style={{ minWidth: '80px' }}>Tipo</TableHead>
-                <TableHead style={{ minWidth: '80px' }}>Nombre</TableHead>
-                <TableHead style={{ minWidth: '80px' }}>Teléfono</TableHead>
-                <TableHead style={{ minWidth: '80px' }}>M. Solicitado</TableHead>
-                <TableHead style={{ minWidth: '80px' }}>Deuda Pendiente</TableHead>
-                <TableHead style={{ minWidth: '80px' }}>M. Entregado</TableHead>
-                <TableHead style={{ minWidth: '80px' }}>M. a Pagar</TableHead>
-                <TableHead style={{ minWidth: '80px' }}>Comisión</TableHead>
-                <TableHead style={{ minWidth: '80px' }}>Aval</TableHead>
-                <TableHead style={{ minWidth: '80px' }}>Tel. Aval</TableHead>
-                <TableHead style={{ width: '40px', minWidth: '40px' }}></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loans.map((loan) => (
-                <TableRow 
-                  key={loan.id} 
-                  style={{ 
-                    backgroundColor: loan.id === newLoanId ? '#F0F9FF' : 'white',
-                    position: 'relative' 
-                  }}
-                >
-                  {loan.id === newLoanId && (
-                    <td colSpan={12} style={{ 
-                      position: 'absolute', 
-                      left: 0, 
-                      top: 0, 
-                      width: '3px', 
-                      height: '100%', 
-                      backgroundColor: '#0052CC' 
-                    }} />
-                  )}
-                  <TableCell style={{ fontSize: '11px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {loan.previousLoan ? 
-                        <span style={{ 
-                          display: 'inline-flex', 
-                          alignItems: 'center', 
-                          padding: '4px 8px', 
-                          backgroundColor: '#F0F9FF', 
-                          color: '#0052CC', 
-                          borderRadius: '4px', 
-                          fontSize: '12px', 
-                          fontWeight: '500' 
-                        }}>Renovado</span> 
-                        : 
-                        <span style={{ 
-                          display: 'inline-flex', 
-                          alignItems: 'center', 
-                          padding: '4px 8px', 
-                          backgroundColor: '#F0FDF4', 
-                          color: '#059669', 
-                          borderRadius: '4px', 
-                          fontSize: '12px', 
-                          fontWeight: '500' 
-                        }}>Nuevo</span>
-                      }
-                      {hasPaymentForToday(loan.id) ? (
-                        <div style={{ 
-                          fontSize: '11px', 
-                          padding: '8px 12px',
-                          height: '32px',
-                          backgroundColor: '#F3F4F6',
-                          color: '#6B7280',
-                          border: '1px solid #D1D5DB',
-                          borderRadius: '8px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          fontWeight: '500',
-                        }}>
-                          <span>✓</span>
-                          Pagado ${getRegisteredPaymentAmount(loan.id)}
-                        </div>
-                      ) : (
-                        <Button
-                          onClick={() => handleToggleInitialPayment(loan.id)}
-                          size="sm"
-                          variant={initialPayments[loan.id] ? 'default' : 'secondary'}
-                          style={{ 
-                            fontSize: '11px', 
-                            height: '32px',
-                            backgroundColor: initialPayments[loan.id] ? '#3B82F6' : '#10B981',
-                            color: 'white',
-                          }}
-                        >
-                          {initialPayments[loan.id] ? (
-                            <>
-                              <span>✓</span>
-                              Pago configurado
-                            </>
-                          ) : (
-                            <>
-                              <span>💰</span>
-                              Registrar pago
-                            </>
-                          )}
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell style={{ fontSize: '11px' }}>{loan.loantype.name}</TableCell>
-                  <TableCell style={{ fontSize: '11px' }}>{loan.borrower?.personalData?.fullName || 'Sin nombre'}</TableCell>
-                  <TableCell style={{ fontSize: '11px' }}>{loan.borrower?.personalData?.phones?.[0]?.number || '-'}</TableCell>
-                  <TableCell style={{ fontSize: '11px' }}>${Math.round(parseFloat(loan.requestedAmount || '0')).toLocaleString('es-MX')}</TableCell>
-                  <TableCell style={{ fontSize: '11px' }}>${Math.round(parseFloat(loan.previousLoan?.pendingAmount || '0')).toLocaleString('es-MX')}</TableCell>
-                  <TableCell style={{ fontSize: '11px' }}>${Math.round(parseFloat(loan.amountGived || '0')).toLocaleString('es-MX')}</TableCell>
-                  <TableCell style={{ fontSize: '11px' }}>{loan.totalDebtAcquired ? `$${Math.round(parseFloat(loan.totalDebtAcquired || '0')).toLocaleString('es-MX')}` : 'N/A'}</TableCell>
-                  <TableCell style={{ fontSize: '11px' }}>${Math.round(parseFloat(loan.comissionAmount || '0')).toLocaleString('es-MX')}</TableCell>
-                  <TableCell style={{ fontSize: '11px' }}>{loan.collaterals?.[0]?.fullName || (loan as any).avalName || '-'}</TableCell>
-                  <TableCell style={{ fontSize: '11px' }}>{loan.collaterals?.[0]?.phones?.[0]?.number || (loan as any).avalPhone || '-'}</TableCell>
-                  <TableCell style={{ width: '40px', position: 'relative' }}>
-                    {isDeleting === loan.id ? (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '32px' }}>
-                        <FaSpinner style={{ animation: 'spin 1s linear infinite' }} />
-                      </div>
-                    ) : (
-                      <Button
-                        ref={el => { buttonRefs.current[loan.id] = el; }}
-                        onClick={() => setActiveMenu(activeMenu === loan.id ? null : loan.id)}
-                        variant="ghost"
-                        size="icon"
-                        style={{
-                          minWidth: '40px',
-                          height: '32px',
-                        }}
-                        title="Opciones del préstamo"
-                      >
-                        ⋮
-                      </Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
-
-      {/* Sección de Agregar Nuevos Préstamos */}
-      <div ref={newLoansSectionRef} className={styles.newLoansSection}>
-        <div className={styles.newLoansCard}>
-          <div className={styles.newLoansHeader}>
-            <h3 className={styles.newLoansTitle}>
-              <span>➕</span>
-              <span>{pendingLoans.length > 0 ? `Préstamos Pendientes (${pendingLoans.length})` : 'Agregar Nuevos Préstamos'}</span>
-            </h3>
-          </div>
-          <div style={{ padding: '12px' }}>
-            {/* Diseño compacto tipo card */}
-            {[...pendingLoans, editableEmptyRow || emptyLoanRow].map((loan, index) => {
-                  const isNewRow = index === pendingLoans.length;
-                  const loanId = loan.id || `temp-${index}`;
-                  const previousLoanOptions = getPreviousLoanOptions(loanId);
-                  const loanTypeOptions = loanTypesData?.loantypes?.map((type: any) => ({
-                    value: type.id,
-                    label: `${type.name} (${type.weekDuration} sem, ${type.rate}%)`,
-                    weekDuration: type.weekDuration,
-                    rate: type.rate,
-                  })) || [];
-
-                  return (
-                    <div 
-                      key={loanId} 
-                      className={`${styles.compactLoanForm} ${!isNewRow ? styles.pending : ''}`}
-                    >
-                      {/* COLUMNA IZQUIERDA: PERSONAS */}
-                      <div className={styles.personsColumn}>
-                        {/* Titular */}
-                        <div className={styles.personSection}>
-                          <div className={`${styles.sectionHeader} ${styles.titular}`}>
-                            <span className={styles.sectionIcon}>👤</span>
-                            <span>Titular</span>
-                          </div>
-                          <div className={styles.compactInputWrapper}>
-                            <label className={styles.compactLabel}>Cliente / Renovación</label>
-                            <ClientLoanUnifiedInput
-                            loanId={loanId}
-                            currentName={loan.borrower?.personalData?.fullName || ''}
-                            currentPhone={loan.borrower?.personalData?.phones?.[0]?.number || ''}
-                            previousLoanOption={loan.previousLoanOption}
-                            previousLoan={loan.previousLoan}
-                            clientPersonalDataId={loan.borrower?.personalData?.id}
-                            clientPhoneId={loan.borrower?.personalData?.phones?.[0]?.id}
-                            onNameChange={(name) => {
-                              const currentPhone = loan.borrower?.personalData?.phones?.[0]?.number || '';
-                              handleRowChange(index, 'clientData', { clientName: name, clientPhone: currentPhone, action: 'create' }, isNewRow);
-                            }}
-                            onPhoneChange={(phone) => {
-                              const currentName = loan.borrower?.personalData?.fullName || '';
-                              handleRowChange(index, 'clientData', { clientName: currentName, clientPhone: phone, action: 'create' }, isNewRow);
-                            }}
-                            onPreviousLoanSelect={(option) => {
-                              handleRowChange(index, 'previousLoan', option, isNewRow);
-                            }}
-                            onPreviousLoanClear={() => {
-                              handleRowChange(index, 'previousLoan', null, isNewRow);
-                            }}
-                            onClientDataChange={(data) => {
-                              handleRowChange(index, 'clientData', data, isNewRow);
-                            }}
-                            previousLoanOptions={previousLoanOptions}
-                            isLoading={isSearchingLoansByRow[loanId] || false}
-                            selectedLeadLocationId={selectedLeadLocation?.id}
-                            onLocationMismatch={(clientLocation, leadLocation) => {
-                              setLocationMismatchDialogOpen({
-                                open: true,
-                                clientLocation,
-                                leadLocation: selectedLeadLocation?.name || 'desconocida'
-                              });
-                            }}
-                            onSearchTextChange={(text) => {
-                              setDropdownSearchTextByRow(prev => ({
-                                ...prev,
-                                [loanId]: text
-                              }));
-                            }}
-                          />
-                          </div>
-                        </div>
-
-                        {/* Aval */}
-                        <div className={styles.personSection}>
-                          <div className={`${styles.sectionHeader} ${styles.aval}`}>
-                            <span className={styles.sectionIcon}>🤝</span>
-                            <span>Aval</span>
-                          </div>
-                          <div className={styles.compactInputWrapper}>
-                            <label className={styles.compactLabel}>Nombre y Teléfono</label>
-                            <ClientLoanUnifiedInput
-                              loanId={`${loanId}-aval`}
-                              currentName={loan.avalName || ''}
-                              currentPhone={loan.avalPhone || ''}
-                              previousLoanOption={undefined}
-                              previousLoan={undefined}
-                              clientPersonalDataId={loan.selectedCollateralId}
-                              clientPhoneId={loan.selectedCollateralPhoneId}
-                              onNameChange={(name) => {
-                                const currentPhone = loan.avalPhone || '';
-                                handleRowChange(index, 'avalData', {
-                                  avalName: name,
-                                  avalPhone: currentPhone,
-                                  selectedCollateralId: undefined,
-                                  selectedCollateralPhoneId: undefined,
-                                  avalAction: 'create'
-                                }, isNewRow);
-                              }}
-                              onPhoneChange={(phone) => {
-                                const currentName = loan.avalName || '';
-                                handleRowChange(index, 'avalData', {
-                                  avalName: currentName,
-                                  avalPhone: phone,
-                                  selectedCollateralId: undefined,
-                                  selectedCollateralPhoneId: undefined,
-                                  avalAction: 'create'
-                                }, isNewRow);
-                              }}
-                              onPreviousLoanSelect={() => {}}
-                              onPreviousLoanClear={() => {
-                                handleRowChange(index, 'avalData', {
-                                  avalName: '',
-                                  avalPhone: '',
-                                  selectedCollateralId: undefined,
-                                  selectedCollateralPhoneId: undefined,
-                                  avalAction: 'clear'
-                                }, isNewRow);
-                              }}
-                              onClientDataChange={(data) => {
-                                handleRowChange(index, 'avalData', {
-                                  avalName: data.clientName,
-                                  avalPhone: data.clientPhone,
-                                  selectedCollateralId: data.selectedPersonId,
-                                  selectedCollateralPhoneId: data.selectedPersonPhoneId,
-                                  avalAction: data.action
-                                }, isNewRow);
-                              }}
-                              previousLoanOptions={[]}
-                              mode="aval"
-                              usedPersonIds={usedAvalIds}
-                              borrowerLocationId={loan.borrower?.personalData?.addresses?.[0]?.location?.id}
-                              selectedPersonId={loan.selectedCollateralId}
-                              onLocationMismatch={(avalLocation, _) => {
-                                setLocationMismatchDialogOpen({
-                                  open: true,
-                                  clientLocation: avalLocation,
-                                  leadLocation: selectedLeadLocation?.name || 'desconocida'
-                                });
-                              }}
-                              namePlaceholder="Buscar o escribir nombre del aval..."
-                              phonePlaceholder="Teléfono..."
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* COLUMNA DERECHA: INFO DEL PRÉSTAMO */}
-                      <div className={styles.loanInfoColumn}>
-                        {/* Botón de eliminar con indicador de validación - Siempre reservar espacio */}
-                        <div className={styles.loanFormActions} style={{ visibility: isNewRow ? 'hidden' : 'visible' }}>
-                          <div className={styles.validationCheck}>✓</div>
-                          <button
-                            className={styles.compactActionButton}
-                            onClick={() => {
-                              if (!isNewRow) {
-                                setDeletePendingLoanDialogOpen({ open: true, loanIndex: index });
-                              }
-                            }}
-                            title="Eliminar préstamo"
-                            type="button"
-                            disabled={isNewRow}
-                          >
-                            <FaTrash size={12} />
-                          </button>
-                        </div>
-
-                        {/* Tipo */}
-                        <div className={styles.compactInputWrapper}>
-                          <label className={styles.compactLabel}>Tipo de Préstamo</label>
-                          <select
-                            className="w-full px-2 py-1 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            value={loanTypeOptions.find((opt: LoanTypeOption) => opt.value === loan.loantype?.id)?.value || ''}
-                            onChange={(e) => {
-                              const selectedOption = loanTypeOptions.find((opt: LoanTypeOption) => opt.value === e.target.value);
-                              if (selectedOption) {
-                                handleRowChange(index, 'loantype', selectedOption, isNewRow);
-                              }
-                            }}
-                            style={{ 
-                              height: '28px',
-                              fontSize: '12px',
-                              padding: '0 8px',
-                              paddingRight: '28px'
-                            }}
-                          >
-                            <option value="">Tipo...</option>
-                            {loanTypeOptions.map((opt: LoanTypeOption) => (
-                              <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Grid para montos */}
-                        <div className={styles.loanInfoGrid}>
-                          {/* Monto Solicitado */}
-                          <div className={styles.compactInputWrapper}>
-                            <label className={styles.compactLabel}>Solicitado</label>
-                            <Input
-                            placeholder="0"
-                            type="number"
-                            value={loan.requestedAmount || ''}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              // Solo permitir números enteros (sin decimales)
-                              const numericValue = value.replace(/[^0-9]/g, '');
-                              const newValue = (loan.requestedAmount === '0' && numericValue.length > 1) 
-                                ? numericValue.substring(1) 
-                                : numericValue;
-                              handleRowChange(index, 'requestedAmount', newValue, isNewRow);
-                            }}
-                            style={{ 
-                              height: '28px', 
-                              fontSize: '12px',
-                              padding: '0 8px'
-                            }}
-                          />
-                          </div>
-
-                          {/* Comisión */}
-                          <div className={styles.compactInputWrapper}>
-                            <label className={styles.compactLabel}>Comisión</label>
-                            <Input
-                            placeholder="0"
-                            type="text"
-                            inputMode="numeric"
-                            pattern="[0-9]*"
-                            value={loan.comissionAmount || ''}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              // Solo permitir números enteros (sin decimales)
-                              const numericValue = value.replace(/[^0-9]/g, '');
-                              const newValue = (loan.comissionAmount === '0' && numericValue.length > 1) 
-                                ? numericValue.substring(1) 
-                                : numericValue;
-                              handleRowChange(index, 'comissionAmount', newValue, isNewRow);
-                            }}
-                            style={{ 
-                              height: '28px', 
-                              fontSize: '12px',
-                              padding: '0 8px'
-                            }}
-                          />
-                          </div>
-                        </div>
-
-                        {/* Monto Entregado (solo lectura) */}
-                        <div className={styles.compactInputWrapper}>
-                          <label className={styles.compactLabel}>Monto Entregado</label>
-                          <Input
-                            placeholder="0"
-                            type="number"
-                            value={loan.amountGived || ''}
-                            readOnly
-                            disabled
-                            style={{ 
-                              height: '28px', 
-                              fontSize: '12px',
-                              padding: '0 8px'
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-          </div>
-        </div>
-        {pendingLoans.length > 0 && (
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginTop: '20px',
-            padding: '20px',
-            backgroundColor: '#FFFFFF',
-            borderRadius: '12px',
-            border: '1px solid #E5E7EB',
-            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-          }}>
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '12px',
-              fontSize: '14px', 
-              color: '#374151', 
-              fontWeight: '500' 
+          {loans.length === 0 ? (
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '48px 24px',
+              textAlign: 'center',
             }}>
               <div style={{
-                width: '8px',
-                height: '8px',
+                width: '64px',
+                height: '64px',
                 borderRadius: '50%',
-                backgroundColor: '#10B981',
-                animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
-              }} />
-              <span>
-                {pendingLoans.length} préstamo{pendingLoans.length > 1 ? 's' : ''} pendiente{pendingLoans.length > 1 ? 's' : ''} de guardar
-              </span>
-              <style>{`
-                @keyframes pulse {
-                  0%, 100% { opacity: 1; }
-                  50% { opacity: 0.5; }
-                }
-              `}</style>
-            </div>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <Button
-                variant="outline"
-                size="default"
-                onClick={() => setPendingLoans([])}
-                disabled={isCreating}
-              >
-                Cancelar
-              </Button>
-              <Button
-                variant="default"
-                size="default"
-                onClick={handleSaveAllNewLoans}
-                disabled={isCreating || pendingLoans.length === 0}
+                backgroundColor: '#f3f4f6',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: '16px',
+              }}>
+                <svg 
+                  width="32" 
+                  height="32" 
+                  viewBox="0 0 24 24" 
+                  fill="none" 
+                  stroke="#9ca3af" 
+                  strokeWidth="2" 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round"
+                >
+                  <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+                  <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+                </svg>
+              </div>
+              <h3 style={{
+                fontSize: '16px',
+                fontWeight: '600',
+                color: '#111827',
+                marginBottom: '8px',
+              }}>
+                No hay créditos registrados
+              </h3>
+              <p style={{
+                fontSize: '14px',
+                color: '#6b7280',
+                marginBottom: '24px',
+                maxWidth: '400px',
+              }}>
+                No se encontraron créditos para la fecha seleccionada. Haz clic en "Agregar Crédito" para crear uno nuevo.
+              </p>
+              <button
+                onClick={() => setIsCreateModalOpen(true)}
                 style={{
-                  backgroundColor: isCreating ? '#9CA3AF' : '#10B981',
-                  color: '#FFFFFF',
+                  padding: '9px 20px',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  border: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontFamily: 'inherit',
+                  letterSpacing: '-0.01em',
+                  height: '38px',
+                  background: '#059669',
+                  color: 'white',
+                  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+                  gap: '6px',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#047857';
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(5, 150, 105, 0.3)';
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#059669';
+                  e.currentTarget.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
+                  e.currentTarget.style.transform = 'translateY(0)';
                 }}
               >
-                {isCreating ? (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{
-                      width: '14px',
-                      height: '14px',
-                      border: '2px solid rgba(255, 255, 255, 0.3)',
-                      borderTop: '2px solid #FFFFFF',
-                      borderRadius: '50%',
-                      animation: 'spin 0.6s linear infinite'
-                    }} />
-                    Guardando...
-                    <style>{`
-                      @keyframes spin {
-                        0% { transform: rotate(0deg); }
-                        100% { transform: rotate(360deg); }
-                      }
-                    `}</style>
-                  </span>
-                ) : (
-                  'Guardar'
-                )}
-              </Button>
+                <svg 
+                  width="16" 
+                  height="16" 
+                  viewBox="0 0 24 24" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  strokeWidth="2.5" 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                Agregar Crédito
+              </button>
             </div>
-          </div>
-        )}
+          ) : (
+            <CreditsTable
+              loans={loans}
+              newLoanId={newLoanId}
+              isDeleting={isDeleting}
+              initialPayments={initialPayments}
+              hasPaymentForToday={hasPaymentForToday}
+              getRegisteredPaymentAmount={getRegisteredPaymentAmount}
+              handleToggleInitialPayment={handleToggleInitialPayment}
+              handleEditLoan={handleEditLoan}
+              handleDeleteClick={(loanId) => setDeleteDialogOpen({ open: true, loanId })}
+            />
+          )}
+        </div>
       </div>
 
-      {/* Dropdown de opciones */}
-      {activeMenu !== null && (
-        <div
-          ref={menuRef}
-          style={{
-            position: 'fixed',
-            ...getDropdownPosition(activeMenu),
-            backgroundColor: 'white',
-            borderRadius: '8px',
-            boxShadow: '0 -4px 6px -1px rgba(0, 0, 0, 0.1), 0 -2px 4px -1px rgba(0, 0, 0, 0.06)',
-            pointerEvents: 'auto',
-            minWidth: '160px',
-            zIndex: 10000,
-            transform: 'translateY(-100%)',
-          }}
-        >
-          {loans.map((loan) => (
-            activeMenu === loan.id && (
-              <React.Fragment key={`dropdown-${loan.id}`}>
-                <Button
-                  onClick={() => {
-                    handleEditLoan(loan);
-                    setActiveMenu(null);
-                  }}
-                  variant="ghost"
-                  style={{
-                    width: '100%',
-                    justifyContent: 'flex-start',
-                    padding: '8px 16px',
-                    fontSize: '14px',
-                  }}
-                >
-                  <FaEdit size={14} style={{ marginRight: '8px' }} />
-                  Editar
-                </Button>
-                <Button
-                  onClick={() => {
-                    setDeleteDialogOpen({ open: true, loanId: loan.id });
-                    setActiveMenu(null);
-                  }}
-                  variant="ghost"
-                  disabled={isDeleting === loan.id}
-                  style={{
-                    width: '100%',
-                    justifyContent: 'flex-start',
-                    padding: '8px 16px',
-                    fontSize: '14px',
-                    color: '#DC2626',
-                    borderTop: '1px solid #E5E7EB',
-                    borderRadius: 0,
-                  }}
-                >
-                  <FaTrash size={14} style={{ marginRight: '8px' }} />
-                  <span>Eliminar</span>
-                </Button>
-              </React.Fragment>
-            )
-          ))}
-        </div>
-      )}
+      {/* Removed: inline credit creation section (now handled by modal) */}
+
 
       {/* Modal de edición */}
       {editingLoan && (
@@ -2257,29 +1687,14 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
           });
         }}
         calculateLoanAmounts={calculateLoanAmounts}
+        allPreviousLoansData={allPreviousLoansData}
+        onBalanceUpdate={onBalanceUpdate}
+        refetchRoute={refetchRoute}
+        refetchLoans={refetchLoans}
+        triggerRefresh={triggerRefresh}
       />
 
-      {/* Botón flotante para crear crédito */}
-      <button
-        onClick={() => setIsCreateModalOpen(true)}
-        className={styles.floatingCreateButton}
-        title="Crear nuevo crédito"
-      >
-        <svg 
-          width="24" 
-          height="24" 
-          viewBox="0 0 24 24" 
-          fill="none" 
-          stroke="currentColor" 
-          strokeWidth="2" 
-          strokeLinecap="round" 
-          strokeLinejoin="round"
-        >
-          <line x1="12" y1="5" x2="12" y2="19"></line>
-          <line x1="5" y1="12" x2="19" y2="12"></line>
-        </svg>
-        <span className={styles.floatingButtonText}>Crear Crédito</span>
-      </button>
+
 
       <style>{`
         @keyframes spin {

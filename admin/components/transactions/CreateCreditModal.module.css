@@ -581,7 +581,8 @@
 }
 
 .editingClientCancelBtn,
-.editingClientSelectBtn {
+.editingClientSelectBtn,
+.editingClientSaveBtn {
   padding: 8px 16px;
   font-size: 13px;
   font-weight: 600;
@@ -614,6 +615,25 @@
 .editingClientSelectBtn:hover {
   background: #fee2e2;
   border-color: #f87171;
+}
+
+.editingClientSaveBtn {
+  background: #3B82F6;
+  color: white;
+  border: 1px solid #2563EB;
+}
+
+.editingClientSaveBtn:hover:not(:disabled) {
+  background: #2563EB;
+  border-color: #1D4ED8;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.editingClientSaveBtn:disabled {
+  background: #9CA3AF;
+  border-color: #6B7280;
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 /* Validation Summary */

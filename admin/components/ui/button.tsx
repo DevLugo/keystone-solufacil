@@ -1,30 +1,41 @@
 import React from 'react';
+import { cn } from '../../lib/utils';
+import styles from './button.module.css';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'ghost';
+  variant?: 'default' | 'destructive' | 'outline' | 'secondary' | 'ghost' | 'primary';
+  size?: 'default' | 'sm' | 'lg' | 'icon';
   children: React.ReactNode;
 }
 
-export function Button({ 
-  variant = 'primary', 
-  children, 
-  className = '', 
-  ...props 
-}: ButtonProps) {
-  const baseStyles = 'px-4 py-2 text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
-  
-  const variantStyles = {
-    primary: 'text-white bg-blue-600 hover:bg-blue-700 focus:ring-blue-500',
-    secondary: 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 focus:ring-blue-500',
-    ghost: 'bg-transparent hover:bg-gray-50 text-gray-600 hover:text-gray-700',
-  };
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ variant = 'default', size = 'default', children, className = '', ...props }, ref) => {
+    const variantClass = {
+      default: styles.buttonPrimary,
+      destructive: styles.buttonDestructive || styles.buttonPrimary,
+      outline: styles.buttonSecondary,
+      secondary: styles.buttonSecondary,
+      ghost: styles.buttonGhost,
+      primary: styles.buttonPrimary,
+    }[variant] || styles.buttonPrimary;
 
-  return (
-    <button
-      className={`${baseStyles} ${variantStyles[variant]} ${className}`}
-      {...props}
-    >
-      {children}
-    </button>
-  );
-}
+    const sizeClass = {
+      default: '',
+      sm: styles.buttonSm,
+      lg: '',
+      icon: styles.buttonIcon,
+    }[size] || '';
+
+    return (
+      <button
+        ref={ref}
+        className={cn(styles.button, variantClass, sizeClass, className)}
+        {...props}
+      >
+        {children}
+      </button>
+    );
+  }
+);
+
+Button.displayName = 'Button';

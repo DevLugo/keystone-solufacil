@@ -146,20 +146,28 @@ export const combineValidations = (...validations: ValidationResult[]): Validati
 /**
  * Validates a loan object for credit creation
  * @param loan - The loan object to validate
+ * @param options - Optional validation options
  * @returns ValidationResult with all validation errors
  */
-export const validateLoanData = (loan: {
-  borrower?: {
-    personalData?: {
-      fullName?: string;
-      phones?: Array<{ number?: string }>;
+export const validateLoanData = (
+  loan: {
+    borrower?: {
+      personalData?: {
+        fullName?: string;
+        phones?: Array<{ number?: string }>;
+      };
     };
-  };
-  avalName?: string;
-  avalPhone?: string;
-  loantype?: { id?: string };
-  requestedAmount?: string;
-}): ValidationResult => {
+    avalName?: string;
+    avalPhone?: string;
+    selectedCollateralId?: string;
+    loantype?: { id?: string };
+    requestedAmount?: string;
+  },
+  options?: {
+    hasNoClientPhone?: boolean;
+    hasNoAvalPhone?: boolean;
+  }
+): ValidationResult => {
   const validations: ValidationResult[] = [];
   
   // Validate client name
@@ -170,29 +178,39 @@ export const validateLoanData = (loan: {
     )
   );
   
-  // Validate client phone
-  validations.push(
-    validatePhone(
-      loan.borrower?.personalData?.phones?.[0]?.number,
-      'Teléfono del cliente'
-    )
-  );
+  // Validate client phone - solo si no está marcado como "sin teléfono"
+  if (!options?.hasNoClientPhone) {
+    validations.push(
+      validatePhone(
+        loan.borrower?.personalData?.phones?.[0]?.number,
+        'Teléfono del cliente'
+      )
+    );
+  }
   
-  // Validate aval name
-  validations.push(
-    validateRequired(
-      loan.avalName,
-      'Nombre del aval'
-    )
-  );
+  // Validate aval - solo si no hay un aval seleccionado del autocomplete
+  // Si hay selectedCollateralId, significa que el aval fue seleccionado del autocomplete y no necesita validación
+  const hasSelectedAval = (loan as any).selectedCollateralId;
   
-  // Validate aval phone
-  validations.push(
-    validatePhone(
-      loan.avalPhone,
-      'Teléfono del aval'
-    )
-  );
+  if (!hasSelectedAval) {
+    // Solo validar si se está creando un aval nuevo
+    validations.push(
+      validateRequired(
+        loan.avalName,
+        'Nombre del aval'
+      )
+    );
+    
+    // Validar teléfono del aval - solo si no está marcado como "sin teléfono"
+    if (!options?.hasNoAvalPhone) {
+      validations.push(
+        validatePhone(
+          loan.avalPhone,
+          'Teléfono del aval'
+        )
+      );
+    }
+  }
   
   // Validate loan type
   validations.push(

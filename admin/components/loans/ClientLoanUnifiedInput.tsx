@@ -131,6 +131,13 @@ interface ClientLoanUnifiedInputProps {
   
   // Modo de visualización: 'inline' (default) o 'modal' (para mostrar cards)
   displayMode?: 'inline' | 'modal';
+  
+  // Errores de validación
+  nameError?: string;
+  phoneError?: string;
+  
+  // Callback para notificar cuando se marca como "sin teléfono"
+  onNoPhoneChange?: (hasNoPhone: boolean) => void;
 }
 
 type ClientState = 'new' | 'edited' | 'renewed' | 'newClient';
@@ -167,7 +174,10 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
   showLocationTag = false,
   namePlaceholder = "Buscar cliente o escribir nombre...",
   phonePlaceholder = "Teléfono...",
-  displayMode = 'inline'
+  displayMode = 'inline',
+  nameError,
+  phoneError,
+  onNoPhoneChange
 }) => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isEditingInline, setIsEditingInline] = useState(false);
@@ -175,6 +185,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
   const [clientState, setClientState] = useState<ClientState>('new');
   const [searchText, setSearchText] = useState('');
   const [filteredOptions, setFilteredOptions] = useState<any[]>([]);
+  const [hasNoPhone, setHasNoPhone] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const phoneInputRef = useRef<HTMLInputElement>(null);
@@ -287,7 +298,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
       setSelectedPersonLocation(null);
     }
   }, [selectedPersonId, mode, getPersonInfo]);
-  
+
   // Determinar el estado del cliente
   useEffect(() => {
     if (previousLoan && previousLoan.borrower?.personalData) {
@@ -575,13 +586,17 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
     
     if (mode === 'client') {
       // Modo cliente: seleccionar préstamo anterior
-      // Verificar si la localidad del BORROWER (cliente) del préstamo anterior es diferente a la del líder seleccionado
-      // La localidad del cliente se obtiene de borrower.personalData.addresses[0].location
-      const clientLocationId = option.loanData?.borrower?.personalData?.addresses?.[0]?.location?.id;
-      const clientLocationName = option.loanData?.borrower?.personalData?.addresses?.[0]?.location?.name || 'desconocida';
+      // Verificar si la localidad del LEAD del préstamo anterior es diferente a la del líder seleccionado actualmente
+      // Comparamos: lead del préstamo anterior vs lead seleccionado actualmente
+      const previousLoanLeadLocationId = option.loanData?.lead?.personalData?.addresses?.[0]?.location?.id;
+      const previousLoanLeadLocationName = option.loanData?.lead?.personalData?.addresses?.[0]?.location?.name || 'desconocida';
       
-      if (selectedLeadLocationId && clientLocationId && clientLocationId !== selectedLeadLocationId && onLocationMismatch) {
-        onLocationMismatch(clientLocationName, 'lead-selected');
+      // Get the currently selected lead location name
+      const currentLeadLocationName = leaderLocation || 'desconocida';
+      
+      if (selectedLeadLocationId && previousLoanLeadLocationId && previousLoanLeadLocationId !== selectedLeadLocationId && onLocationMismatch) {
+        // Pass both location names to the callback
+        onLocationMismatch(previousLoanLeadLocationName, currentLeadLocationName);
       }
       
       onPreviousLoanSelect(option);
@@ -607,10 +622,18 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
       const phone = person.phones?.[0]?.number || '';
       const phoneId = person.phones?.[0]?.id;
       
+      // Get aval location from the person's addresses
+      const avalLocationId = person.addresses?.[0]?.location?.id;
+      const avalLocationName = person.addresses?.[0]?.location?.name || option.location || 'desconocida';
+      
+      // Get borrower location name (we need to fetch this from the parent or pass it as a prop)
+      // For now, we'll use a placeholder - the parent should provide this
+      const borrowerLocationName = leaderLocation || 'desconocida';
+      
       // Verificar si la localidad del aval es diferente a la del borrower
-      if (option.isDifferentLocation && onLocationMismatch) {
-        const avalLocation = option.location || 'desconocida';
-        onLocationMismatch(avalLocation, 'borrower');
+      if (borrowerLocationId && avalLocationId && borrowerLocationId !== avalLocationId && onLocationMismatch) {
+        // Pass both location names to the callback
+        onLocationMismatch(avalLocationName, borrowerLocationName);
       }
       
       // Cerrar el dropdown ANTES de actualizar el texto para evitar que se reabra
@@ -649,6 +672,20 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
   };
   
   const hasPreviousLoan = previousLoan && previousLoan.borrower?.personalData;
+  
+  // Sincronizar hasNoPhone con el estado del teléfono
+  useEffect(() => {
+    if (!currentPhone || currentPhone.trim() === '') {
+      // Si el teléfono está vacío y no hay préstamo previo, mantener hasNoPhone
+      if (!hasPreviousLoan || mode !== 'client') {
+        // No resetear hasNoPhone automáticamente
+      }
+    } else {
+      // Si hay teléfono, resetear el estado de "sin teléfono"
+      setHasNoPhone(false);
+      onNoPhoneChange?.(false);
+    }
+  }, [currentPhone, hasPreviousLoan, mode, onNoPhoneChange]);
   
   // Cerrar dropdown cuando se hace clic fuera
   useEffect(() => {
@@ -690,6 +727,29 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
         position: 'relative',
         width: '100%'
       }}>
+        {clientState === 'newClient' && (
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '8px 12px',
+            backgroundColor: '#EFF6FF',
+            border: '1px solid #BFDBFE',
+            borderRadius: '6px',
+            fontSize: '12px',
+            fontWeight: '500',
+            color: '#1E40AF',
+            width: 'fit-content'
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <line x1="19" y1="8" x2="19" y2="14" />
+              <line x1="22" y1="11" x2="16" y2="11" />
+            </svg>
+            <span>Nuevo Cliente - Se creará un registro nuevo</span>
+          </div>
+        )}
         {/* PRIMER INPUT: Nombre (con autocomplete) */}
         <div style={{
           display: 'flex',
@@ -713,9 +773,9 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
               style={{
                 flex: 1,
                 position: 'relative',
-                border: stateColors.border,
+                border: nameError ? '1px solid #DC2626' : stateColors.border,
                 borderRadius: '8px',
-                backgroundColor: stateColors.backgroundColor,
+                backgroundColor: nameError ? '#FEF2F2' : stateColors.backgroundColor,
                 transition: 'border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out, background-color 0.15s ease-in-out',
                 display: 'flex',
                 alignItems: 'center',
@@ -723,7 +783,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                 height: '40px',
                 padding: '0 14px',
                 boxSizing: 'border-box',
-                boxShadow: stateColors.boxShadow || 'none',
+                boxShadow: nameError ? '0 0 0 3px rgba(220, 38, 38, 0.1)' : (stateColors.boxShadow || 'none'),
                 cursor: 'text'
               }}>
             {/* Nombre del cliente */}
@@ -830,6 +890,37 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                   {currentPhone}
                 </span>
               )}
+              {/* Badge de deuda pendiente cuando hay préstamo previo */}
+              {hasPreviousLoan && previousLoan?.pendingAmount && parseFloat(previousLoan.pendingAmount) > 0 && (
+                <span style={{
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  color: '#DC2626',
+                  backgroundColor: '#FEE2E2',
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  whiteSpace: 'nowrap',
+                  marginLeft: '8px'
+                }}>
+                  Deuda: ${parseFloat(previousLoan.pendingAmount).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              )}
+              
+              {/* Badge de sin deuda cuando hay préstamo previo sin deuda */}
+              {hasPreviousLoan && previousLoan?.pendingAmount && parseFloat(previousLoan.pendingAmount) === 0 && (
+                <span style={{
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  color: '#059669',
+                  backgroundColor: '#D1FAE5',
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  whiteSpace: 'nowrap',
+                  marginLeft: '8px'
+                }}>
+                  Sin deuda
+                </span>
+              )}
               
               {/* Texto "Sin teléfono" cuando no hay teléfono */}
               {!currentPhone && (hasPreviousLoan || (mode === 'aval' && selectedPersonId)) && (
@@ -863,6 +954,29 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
             )}
             </div>
           </div>
+          
+          {/* Mensaje de error para el nombre */}
+          {nameError && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              marginTop: '4px',
+              padding: '6px 10px',
+              backgroundColor: '#FEF2F2',
+              border: '1px solid #FECACA',
+              borderRadius: '6px',
+              fontSize: '12px',
+              color: '#DC2626'
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              <span>{nameError}</span>
+            </div>
+          )}
           
           {/* Dropdown de autocomplete - JUSTO DESPUÉS DEL INPUT DE NOMBRE */}
           {((showDropdown && searchText.trim().length >= 2) || isLoading || (mode === 'aval' && searchPersonsLoading)) && (
@@ -1024,29 +1138,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
         </div>
         
         {/* Badge de Nuevo Cliente - ENTRE nombre y teléfono */}
-        {clientState === 'newClient' && (
-          <div style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '8px 12px',
-            backgroundColor: '#EFF6FF',
-            border: '1px solid #BFDBFE',
-            borderRadius: '6px',
-            fontSize: '12px',
-            fontWeight: '500',
-            color: '#1E40AF',
-            width: 'fit-content'
-          }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-              <circle cx="9" cy="7" r="4" />
-              <line x1="19" y1="8" x2="19" y2="14" />
-              <line x1="22" y1="11" x2="16" y2="11" />
-            </svg>
-            <span>Nuevo Cliente - Se creará un registro nuevo</span>
-          </div>
-        )}
+        
         
         {/* SEGUNDO INPUT: Teléfono y badge de localidad */}
         <div style={{
@@ -1065,70 +1157,182 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
             style={{
               flex: 1,
               position: 'relative',
-              border: clientState === 'newClient' ? stateColors.border : '1px solid #D1D5DB',
+              border: phoneError && !hasNoPhone ? '1px solid #DC2626' : (hasNoPhone ? '1px solid #9CA3AF' : (clientState === 'newClient' ? stateColors.border : '1px solid #D1D5DB')),
               borderRadius: '8px',
-              backgroundColor: clientState === 'newClient' ? stateColors.backgroundColor : '#FFFFFF',
+              backgroundColor: phoneError && !hasNoPhone ? '#FEF2F2' : (hasNoPhone ? '#F3F4F6' : (clientState === 'newClient' ? stateColors.backgroundColor : '#FFFFFF')),
               transition: 'border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out, background-color 0.15s ease-in-out',
               display: 'flex',
               alignItems: 'center',
               minWidth: '400px',
               height: '40px',
-              padding: '0 14px',
+              padding: '0 40px 0 14px',
               boxSizing: 'border-box',
-              cursor: hasPreviousLoan && mode === 'client' ? 'default' : 'text'
+              cursor: hasPreviousLoan && mode === 'client' ? 'default' : (hasNoPhone ? 'default' : 'text'),
+              boxShadow: phoneError && !hasNoPhone ? '0 0 0 3px rgba(220, 38, 38, 0.1)' : 'none'
             }}>
-            <Input
-              ref={phoneInputRef}
-              type="text"
-              value={currentPhone}
-              readOnly={hasPreviousLoan && mode === 'client'}
-              disabled={hasPreviousLoan && mode === 'client'}
-              onChange={(e) => {
-                if (!hasPreviousLoan || mode !== 'client') {
-                  onPhoneChange(e.target.value);
+            {hasNoPhone ? (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '13px',
+                color: '#6B7280',
+                fontStyle: 'italic',
+                width: '100%'
+              }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="1" y1="1" x2="23" y2="23" />
+                  <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55M19 12.55a10 10 0 1 1-2.44-2.44M19 12.55l-3.27-3.27" />
+                  <path d="M22 2L2 22" />
+                </svg>
+                <span>Sin teléfono</span>
+              </div>
+            ) : (
+              <>
+                <Input
+                  ref={phoneInputRef}
+                  type="text"
+                  value={currentPhone}
+                  readOnly={(hasPreviousLoan && mode === 'client') || hasNoPhone}
+                  disabled={(hasPreviousLoan && mode === 'client') || hasNoPhone}
+                  onChange={(e) => {
+                    if (!hasPreviousLoan || mode !== 'client') {
+                      onPhoneChange(e.target.value);
+                      if (e.target.value.trim() !== '') {
+                        setHasNoPhone(false);
+                        onNoPhoneChange?.(false);
+                      }
+                    }
+                  }}
+                  placeholder={phonePlaceholder}
+                  style={{
+                    border: 'none',
+                    backgroundColor: 'transparent',
+                    fontSize: '13px',
+                    padding: '0',
+                    outline: 'none',
+                    color: clientState === 'newClient' ? stateColors.textColor : '#6b7280',
+                    height: '100%',
+                    width: '100%',
+                    lineHeight: '20px',
+                    boxSizing: 'border-box',
+                    cursor: hasPreviousLoan && mode === 'client' ? 'default' : (hasNoPhone ? 'default' : 'text'),
+                    boxShadow: 'none',
+                    transition: 'color 0.15s ease-in-out',
+                    pointerEvents: 'auto'
+                  }}
+                />
+                
+                {/* Badge de localidad (solo en modo aval) - DENTRO del input de teléfono */}
+                {mode === 'aval' && selectedPersonLocation && (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      fontSize: '10px',
+                      fontWeight: '600',
+                      backgroundColor: borrowerLocationId && selectedPersonLocation.id === borrowerLocationId ? '#D1FAE5' : '#FEF3C7',
+                      color: borrowerLocationId && selectedPersonLocation.id === borrowerLocationId ? '#065F46' : '#92400E',
+                      flexShrink: 0,
+                      marginLeft: '8px'
+                    }}
+                    title={borrowerLocationId && selectedPersonLocation.id === borrowerLocationId ? 'Misma localidad' : 'Otra localidad'}
+                  >
+                    {borrowerLocationId && selectedPersonLocation.id === borrowerLocationId ? '✓' : '⚠'} {selectedPersonLocation.name}
+                  </span>
+                )}
+              </>
+            )}
+            
+            {/* Botón "Sin teléfono" - Dentro del input, esquina derecha */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (hasNoPhone) {
+                  // Si ya está marcado como sin teléfono, desmarcar y enfocar el input
+                  setHasNoPhone(false);
+                  onNoPhoneChange?.(false);
+                  setTimeout(() => {
+                    phoneInputRef.current?.focus();
+                  }, 0);
+                } else {
+                  // Marcar como sin teléfono y limpiar el teléfono
+                  setHasNoPhone(true);
+                  onPhoneChange('');
+                  onNoPhoneChange?.(true);
                 }
               }}
-              placeholder={phonePlaceholder}
               style={{
-                border: 'none',
-                backgroundColor: 'transparent',
-                fontSize: '13px',
+                position: 'absolute',
+                right: '6px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '28px',
+                height: '28px',
                 padding: '0',
-                outline: 'none',
-                color: clientState === 'newClient' ? stateColors.textColor : '#6b7280',
-                height: '100%',
-                width: '100%',
-                lineHeight: '20px',
-                boxSizing: 'border-box',
-                cursor: hasPreviousLoan && mode === 'client' ? 'default' : 'text',
-                boxShadow: 'none',
-                transition: 'color 0.15s ease-in-out',
-                pointerEvents: 'auto'
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: hasNoPhone ? '#DC2626' : 'transparent',
+                color: hasNoPhone ? '#FFFFFF' : '#6B7280',
+                cursor: 'pointer',
+                transition: 'all 150ms cubic-bezier(0.4, 0, 0.2, 1)',
+                flexShrink: 0,
+                zIndex: 1
               }}
-            />
-            
-            {/* Badge de localidad (solo en modo aval) - DENTRO del input de teléfono */}
-            {mode === 'aval' && selectedPersonLocation && (
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  fontSize: '10px',
-                  fontWeight: '600',
-                  backgroundColor: borrowerLocationId && selectedPersonLocation.id === borrowerLocationId ? '#D1FAE5' : '#FEF3C7',
-                  color: borrowerLocationId && selectedPersonLocation.id === borrowerLocationId ? '#065F46' : '#92400E',
-                  flexShrink: 0,
-                  marginLeft: '8px'
-                }}
-                title={borrowerLocationId && selectedPersonLocation.id === borrowerLocationId ? 'Misma localidad' : 'Otra localidad'}
-              >
-                {borrowerLocationId && selectedPersonLocation.id === borrowerLocationId ? '✓' : '⚠'} {selectedPersonLocation.name}
-              </span>
-            )}
+              onMouseEnter={(e) => {
+                if (!hasNoPhone) {
+                  e.currentTarget.style.backgroundColor = '#F3F4F6';
+                  e.currentTarget.style.color = '#374151';
+                } else {
+                  e.currentTarget.style.backgroundColor = '#B91C1C';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!hasNoPhone) {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.color = '#6B7280';
+                } else {
+                  e.currentTarget.style.backgroundColor = '#DC2626';
+                }
+              }}
+              title={hasNoPhone ? 'Hacer clic para agregar teléfono' : 'Marcar como sin teléfono'}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                <line x1="1" y1="1" x2="23" y2="23" />
+              </svg>
+            </button>
           </div>
         </div>
+        
+        {/* Mensaje de error para el teléfono */}
+        {phoneError && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            marginTop: '4px',
+            padding: '6px 10px',
+            backgroundColor: '#FEF2F2',
+            border: '1px solid #FECACA',
+            borderRadius: '6px',
+            fontSize: '12px',
+            color: '#DC2626'
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <span>{phoneError}</span>
+          </div>
+        )}
       </div>
       
       {/* Botones de acción - Solo visibles cuando hay selección - FUERA del contenedor de inputs */}

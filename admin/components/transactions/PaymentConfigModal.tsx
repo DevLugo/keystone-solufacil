@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { calculateWeeklyPaymentAmount, calculateAmountToPay } from '../../utils/loanCalculations';
 import type { Loan } from '../../types/loan';
 
 interface InitialPayment {
@@ -27,6 +28,40 @@ export const PaymentConfigModal: React.FC<PaymentConfigModalProps> = ({
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'MONEY_TRANSFER'>('CASH');
   const [amount, setAmount] = useState<string>('0');
   const [comission, setComission] = useState<string>('8');
+
+  // Calcular y precargar el monto del pago semanal cuando se abre el modal
+  useEffect(() => {
+    if (isOpen && loan) {
+      // Calcular el monto total a pagar
+      const amountToPay = loan.amountToPay || 
+        calculateAmountToPay(
+          loan.requestedAmount?.toString() || '0',
+          loan.loantype?.rate?.toString() || '0'
+        );
+      
+      // Calcular el monto del pago semanal
+      const weekDuration = loan.loantype?.weekDuration || 0;
+      const requestedAmount = loan.requestedAmount?.toString() || '0';
+      const rate = loan.loantype?.rate?.toString() || '0';
+      
+      let weeklyAmount = '0';
+      if (weekDuration > 0) {
+        weeklyAmount = calculateWeeklyPaymentAmount(requestedAmount, rate, weekDuration);
+      } else if (parseFloat(amountToPay) > 0) {
+        // Fallback: si no hay weekDuration, usar el amountToPay directamente
+        weeklyAmount = parseFloat(amountToPay).toFixed(2);
+      }
+      
+      // Precargar el monto calculado
+      setAmount(weeklyAmount);
+      
+      // Precargar la comisión del tipo de préstamo si existe
+      const loanPaymentComission = loan.loantype?.loanPaymentComission;
+      if (loanPaymentComission && parseFloat(loanPaymentComission.toString()) > 0) {
+        setComission(loanPaymentComission.toString());
+      }
+    }
+  }, [isOpen, loan]);
 
   if (!isOpen || !loan) return null;
 

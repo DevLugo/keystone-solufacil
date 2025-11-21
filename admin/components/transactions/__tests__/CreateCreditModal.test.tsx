@@ -18,15 +18,12 @@ describe('CreateCreditModal - Real-time Amount Calculations', () => {
   ): number => {
     const requestedAmountNum = parseFloat(requestedAmount) || 0;
     const pendingAmountNum = parseFloat(pendingAmount) || 0;
-    const commissionNum = parseFloat(commission) || 0;
     
-    // First calculate amountGived from calculateLoanAmounts
+    // ✅ CORREGIDO: amountGived = requestedAmount - pendingAmount (sin restar comisión)
+    // La comisión es un cargo adicional, no se resta del monto entregado
     const amountGived = requestedAmountNum - pendingAmountNum;
     
-    // Then subtract commission
-    const deliveredAmount = amountGived - commissionNum;
-    
-    return parseFloat(deliveredAmount.toFixed(2));
+    return parseFloat(amountGived.toFixed(2));
   };
 
   const formatCurrency = (amount: number): string => {
@@ -44,7 +41,8 @@ describe('CreateCreditModal - Real-time Amount Calculations', () => {
       
       const result = calculateDeliveredAmount(requestedAmount, pendingAmount, commission);
       
-      expect(result).toBe(950);
+      // ✅ CORREGIDO: 1000 - 0 = 1000 (sin restar comisión)
+      expect(result).toBe(1000);
     });
 
     it('should calculate delivered amount correctly for renewal', () => {
@@ -54,7 +52,8 @@ describe('CreateCreditModal - Real-time Amount Calculations', () => {
       
       const result = calculateDeliveredAmount(requestedAmount, pendingAmount, commission);
       
-      expect(result).toBe(1400);
+      // ✅ CORREGIDO: 2000 - 500 = 1500 (sin restar comisión)
+      expect(result).toBe(1500);
     });
 
     it('should handle zero requested amount', () => {
@@ -76,9 +75,11 @@ describe('CreateCreditModal - Real-time Amount Calculations', () => {
       const withLowCommission = calculateDeliveredAmount(requestedAmount, pendingAmount, '50');
       const withHighCommission = calculateDeliveredAmount(requestedAmount, pendingAmount, '100');
       
-      expect(withLowCommission).toBe(950);
-      expect(withHighCommission).toBe(900);
-      expect(withHighCommission).toBeLessThan(withLowCommission);
+      // ✅ CORREGIDO: La comisión NO afecta el monto entregado
+      // amountGived = requestedAmount - pendingAmount (sin restar comisión)
+      expect(withLowCommission).toBe(1000);
+      expect(withHighCommission).toBe(1000);
+      expect(withHighCommission).toBe(withLowCommission);
     });
 
     it('should handle zero commission', () => {
@@ -117,9 +118,9 @@ describe('CreateCreditModal - Real-time Amount Calculations', () => {
   describe('Requirement 10.5: Update footer totals on any change', () => {
     it('should calculate total requested correctly', () => {
       const loans = [
-        { requestedAmount: '1000', amountGived: '950' },
-        { requestedAmount: '2000', amountGived: '1900' },
-        { requestedAmount: '1500', amountGived: '1450' },
+        { requestedAmount: '1000', amountGived: '1000' },
+        { requestedAmount: '2000', amountGived: '2000' },
+        { requestedAmount: '1500', amountGived: '1500' },
       ];
 
       const totals = loans.reduce((acc, loan) => ({
@@ -128,7 +129,8 @@ describe('CreateCreditModal - Real-time Amount Calculations', () => {
       }), { requested: 0, delivered: 0 });
 
       expect(totals.requested).toBe(4500);
-      expect(totals.delivered).toBe(4300);
+      // ✅ CORREGIDO: Sin restar comisión, delivered = requested cuando no hay deuda pendiente
+      expect(totals.delivered).toBe(4500);
     });
 
     it('should handle empty loan list', () => {
@@ -145,7 +147,7 @@ describe('CreateCreditModal - Real-time Amount Calculations', () => {
 
     it('should update totals when loan amounts change', () => {
       const loans = [
-        { requestedAmount: '1000', amountGived: '950' },
+        { requestedAmount: '1000', amountGived: '1000' },
       ];
 
       const initialTotals = loans.reduce((acc, loan) => ({
@@ -155,7 +157,8 @@ describe('CreateCreditModal - Real-time Amount Calculations', () => {
 
       // Simulate changing the requested amount
       loans[0].requestedAmount = '2000';
-      loans[0].amountGived = '1950';
+      // ✅ CORREGIDO: Sin restar comisión
+      loans[0].amountGived = '2000';
 
       const updatedTotals = loans.reduce((acc, loan) => ({
         requested: acc.requested + parseFloat(loan.requestedAmount || '0'),
@@ -175,7 +178,8 @@ describe('CreateCreditModal - Real-time Amount Calculations', () => {
       
       const result = calculateDeliveredAmount(requestedAmount, pendingAmount, commission);
       
-      expect(result).toBe(1050);
+      // ✅ CORREGIDO: La comisión NO afecta el cálculo
+      expect(result).toBe(1000);
     });
 
     it('should handle very large amounts', () => {
@@ -185,7 +189,8 @@ describe('CreateCreditModal - Real-time Amount Calculations', () => {
       
       const result = calculateDeliveredAmount(requestedAmount, pendingAmount, commission);
       
-      expect(result).toBe(995000);
+      // ✅ CORREGIDO: Sin restar comisión
+      expect(result).toBe(1000000);
     });
 
     it('should handle decimal amounts', () => {
@@ -195,7 +200,8 @@ describe('CreateCreditModal - Real-time Amount Calculations', () => {
       
       const result = calculateDeliveredAmount(requestedAmount, pendingAmount, commission);
       
-      expect(result).toBe(850.15);
+      // ✅ CORREGIDO: 1000.50 - 100.25 = 900.25 (sin restar comisión)
+      expect(result).toBe(900.25);
     });
   });
 });

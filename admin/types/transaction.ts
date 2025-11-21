@@ -1,5 +1,12 @@
 export interface PersonalData {
   fullName: string;
+  addresses?: Array<{
+    id: string;
+    location: {
+      id: string;
+      name: string;
+    };
+  }>;
 }
 
 export interface Account {

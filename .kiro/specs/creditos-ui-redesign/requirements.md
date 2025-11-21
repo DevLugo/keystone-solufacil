@@ -6,13 +6,14 @@ This specification defines the requirements for redesigning the CreditosTabNew c
 
 ## Glossary
 
-- **CreditosTabNew**: The main component that displays the list of granted credits and provides functionality to add new credits
-- **CreateCreditModal**: The modal dialog used to add one or multiple new credits in bulk
-- **ClientLoanUnifiedInput**: The autocomplete component used for searching and selecting clients and guarantors
+- **CreditosTabNew Component**: The main component that displays the list of granted credits and provides functionality to add new credits
+- **CreateCreditModal Component**: The modal dialog used to add one or multiple new credits in bulk
+- **ClientLoanUnifiedInput Component**: The autocomplete component used for searching and selecting clients and guarantors
 - **Toast Notification**: A temporary message that appears on screen to provide feedback about user actions
 - **Mockup**: The reference design images stored in `.kiro/specs/mockups/` that define the exact visual appearance
 - **Credit Entry**: A single loan record containing client, guarantor, loan type, amounts, and commission information
-- **Autocomplete**: A search input component that suggests matching results as the user types
+- **Autocomplete Dropdown**: A search input component that suggests matching results as the user types
+- **System**: The CreditosTabNew UI redesign implementation
 
 ## Requirements
 
@@ -22,11 +23,11 @@ This specification defines the requirements for redesigning the CreditosTabNew c
 
 #### Acceptance Criteria
 
-1. WHEN the credits list is displayed THEN the system SHALL render all spacing, padding, font sizes, and colors exactly as shown in the mockup screenshots
-2. WHEN viewing the credits table THEN the system SHALL use the exact column widths, row heights, and border styles from the mockup
-3. WHEN the page loads THEN the system SHALL apply the correct typography (font family, size, weight) matching the mockup specifications
-4. WHEN displaying monetary values THEN the system SHALL format them with proper currency symbols and decimal places as shown in the mockup
-5. WHEN rendering action buttons THEN the system SHALL use the exact button styles, sizes, and hover states from the mockup
+1. WHEN the CreditosTabNew Component displays the credits list THEN the System SHALL render all spacing, padding, font sizes, and colors exactly as shown in the mockup screenshots
+2. WHEN the CreditosTabNew Component displays the credits table THEN the System SHALL use the exact column widths, row heights, and border styles from the mockup
+3. WHEN the CreditosTabNew Component loads THEN the System SHALL apply the correct typography matching the mockup specifications
+4. WHEN the CreditosTabNew Component displays monetary values THEN the System SHALL format them with proper currency symbols and two decimal places
+5. WHEN the CreditosTabNew Component renders action buttons THEN the System SHALL use the exact button styles, sizes, and hover states from the mockup
 
 ### Requirement 2
 
@@ -34,11 +35,11 @@ This specification defines the requirements for redesigning the CreditosTabNew c
 
 #### Acceptance Criteria
 
-1. WHEN the add credit modal opens THEN the system SHALL display the modal with exact dimensions, border radius, and shadow as shown in the mockup
-2. WHEN viewing the modal header THEN the system SHALL render the title, subtitle, and close button with exact spacing and typography from the mockup
-3. WHEN viewing credit entry cards THEN the system SHALL display them with the exact padding, margins, background color, and border styling from the mockup
-4. WHEN viewing the modal footer THEN the system SHALL show totals and action buttons with exact layout and styling from the mockup
-5. WHEN multiple credit entries are added THEN the system SHALL maintain consistent spacing between cards as shown in the mockup
+1. WHEN the CreateCreditModal Component opens THEN the System SHALL display the modal with exact dimensions, border radius, and shadow as shown in the mockup
+2. WHEN the CreateCreditModal Component displays the modal header THEN the System SHALL render the title, subtitle, and close button with exact spacing and typography from the mockup
+3. WHEN the CreateCreditModal Component displays credit entry cards THEN the System SHALL render them with the exact padding, margins, background color, and border styling from the mockup
+4. WHEN the CreateCreditModal Component displays the modal footer THEN the System SHALL show totals and action buttons with exact layout and styling from the mockup
+5. WHEN the CreateCreditModal Component contains multiple credit entries THEN the System SHALL maintain consistent spacing between cards as shown in the mockup
 
 ### Requirement 3
 
@@ -46,11 +47,11 @@ This specification defines the requirements for redesigning the CreditosTabNew c
 
 #### Acceptance Criteria
 
-1. WHEN the autocomplete dropdown appears THEN the system SHALL render it with border radius, shadow, and padding matching the modal's design language
-2. WHEN viewing autocomplete suggestions THEN the system SHALL display each item with the exact font size, weight, and spacing from the mockup
-3. WHEN hovering over autocomplete items THEN the system SHALL apply hover effects consistent with the mockup design
-4. WHEN a client or aval is selected THEN the system SHALL display the selected state with styling matching the mockup
-5. WHEN the autocomplete shows badges THEN the system SHALL render them with colors, sizes, and spacing matching the mockup design
+1. WHEN the Autocomplete Dropdown appears THEN the System SHALL render it with border radius, shadow, and padding matching the modal design language
+2. WHEN the Autocomplete Dropdown displays suggestions THEN the System SHALL render each item with the exact font size, weight, and spacing from the mockup
+3. WHEN a user hovers over Autocomplete Dropdown items THEN the System SHALL apply hover effects consistent with the mockup design
+4. WHEN a user selects a client or aval from the Autocomplete Dropdown THEN the System SHALL display the selected state with styling matching the mockup
+5. WHEN the Autocomplete Dropdown displays badges THEN the System SHALL render them with colors, sizes, and spacing matching the mockup design
 
 ### Requirement 4
 
@@ -58,11 +59,11 @@ This specification defines the requirements for redesigning the CreditosTabNew c
 
 #### Acceptance Criteria
 
-1. WHEN a user successfully adds new credits THEN the system SHALL display a success toast notification with the count of credits added
-2. WHEN a user deletes a credit THEN the system SHALL display a success toast notification confirming the deletion
-3. WHEN an error occurs during credit creation THEN the system SHALL display an error toast notification with a descriptive message
-4. WHEN an error occurs during credit deletion THEN the system SHALL display an error toast notification with a descriptive message
-5. WHEN a toast notification appears THEN the system SHALL auto-dismiss it after 4 seconds and allow manual dismissal
+1. WHEN a user successfully adds new credits THEN the System SHALL display a success Toast Notification with the count of credits added
+2. WHEN a user deletes a Credit Entry THEN the System SHALL display a success Toast Notification confirming the deletion
+3. IF an error occurs during credit creation THEN the System SHALL display an error Toast Notification with a descriptive message
+4. IF an error occurs during credit deletion THEN the System SHALL display an error Toast Notification with a descriptive message
+5. WHEN a Toast Notification appears THEN the System SHALL auto-dismiss it after 4 seconds and allow manual dismissal
 
 ### Requirement 5
 
@@ -70,11 +71,11 @@ This specification defines the requirements for redesigning the CreditosTabNew c
 
 #### Acceptance Criteria
 
-1. WHEN a required field is empty and the user attempts to save THEN the system SHALL highlight the empty field with a red border and show an error message
-2. WHEN a phone number is invalid THEN the system SHALL display a validation error below the phone input field
-3. WHEN a monetary amount is zero or negative THEN the system SHALL prevent saving and show a validation error
-4. WHEN all required fields are valid THEN the system SHALL enable the save button and remove all error indicators
-5. WHEN validation errors exist THEN the system SHALL display a summary message at the top of the modal indicating the number of incomplete entries
+1. WHEN a user attempts to save with empty required fields THEN the System SHALL highlight the empty fields with a red border and display error messages
+2. WHEN a user enters an invalid phone number THEN the System SHALL display a validation error below the phone input field
+3. WHEN a user enters a monetary amount of zero or negative value THEN the System SHALL prevent saving and display a validation error
+4. WHEN all required fields contain valid data THEN the System SHALL enable the save button and remove all error indicators
+5. WHEN validation errors exist in the CreateCreditModal Component THEN the System SHALL display a summary message at the top indicating the number of incomplete entries
 
 ### Requirement 6
 

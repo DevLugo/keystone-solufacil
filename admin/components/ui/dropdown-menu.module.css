@@ -1,0 +1,92 @@
+/* Dropdown Menu Container */
+.dropdownMenu {
+  position: relative;
+  display: inline-block;
+}
+
+/* Dropdown Content */
+.dropdownContent {
+  position: fixed;
+  z-index: 10000;
+  min-width: 160px;
+  overflow: hidden;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 
+    0 10px 15px -3px rgba(0, 0, 0, 0.1),
+    0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  padding: 4px;
+  animation: dropdownFadeIn 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes dropdownFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Dropdown Menu Item */
+.dropdownMenuItem {
+  position: relative;
+  display: flex;
+  width: 100%;
+  cursor: pointer;
+  user-select: none;
+  align-items: center;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: #111827;
+  outline: none;
+  border: none;
+  background: transparent;
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: inherit;
+}
+
+.dropdownMenuItem:hover:not(:disabled) {
+  background: #f9fafb;
+}
+
+.dropdownMenuItem:focus:not(:disabled) {
+  background: #f3f4f6;
+}
+
+.dropdownMenuItem:disabled {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* Destructive variant (for delete actions) */
+.dropdownMenuItemDestructive {
+  composes: dropdownMenuItem;
+  color: #dc2626;
+}
+
+.dropdownMenuItemDestructive:hover:not(:disabled) {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+/* Dropdown Menu Separator */
+.dropdownMenuSeparator {
+  height: 1px;
+  background: #e5e7eb;
+  margin: 4px 0;
+  border: none;
+}
+
+/* Icon spacing in menu items */
+.dropdownMenuItemIcon {
+  margin-right: 8px;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+

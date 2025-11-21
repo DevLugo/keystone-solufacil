@@ -357,3 +357,15 @@
 - [ ]* 30.3 Write property test for state transitions
   - **Property 28: State transition consistency**
   - **Validates: Requirements 11.5**
+
+- [x] 31. Implement location validation for client and guarantor selection
+  - Fix undefined location being passed from CreditosTabNew to CreateCreditModalNew
+  - Pass the leader's location correctly to the modal
+  - When a client is selected from autocomplete, fetch the client's leader information
+  - Compare the selected client's leader location with the current leader's location
+  - When an aval is selected from autocomplete, fetch the aval's leader information
+  - Compare the selected aval's leader location with the current leader's location
+  - If locations differ, display a small confirmation modal warning about the location discrepancy
+  - Allow user to proceed or cancel the selection after seeing the warning
+  - Ensure the warning is informational, not blocking (user can still proceed)
+  - _Requirements: Data validation and user feedback_
