@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useLazyQuery, gql } from '@apollo/client';
-import { Input } from '../ui/input';
 import EditPersonModal from './EditPersonModal';
 import { SEARCH_POTENTIAL_COLLATERALS } from '../../graphql/queries/loans';
 import styles from './ClientLoanUnifiedInput.module.css';
@@ -70,7 +69,7 @@ interface ClientLoanUnifiedInputProps {
   previousLoan?: Loan | any;
   clientPersonalDataId?: string;
   clientPhoneId?: string;
-  
+
   // Callbacks
   onNameChange: (name: string) => void;
   onPhoneChange: (phone: string) => void;
@@ -78,7 +77,7 @@ interface ClientLoanUnifiedInputProps {
   onPreviousLoanClear: () => void;
   onClientDataChange: (data: { clientName: string; clientPhone: string; action: 'create' | 'update' | 'connect' | 'clear'; selectedPersonId?: string; selectedPersonPhoneId?: string }) => void;
   onPersonUpdated?: (updatedPerson: any) => void;
-  
+
   // Opciones de préstamos anteriores (solo si mode === 'client')
   previousLoanOptions?: Array<{
     value: string;
@@ -93,28 +92,28 @@ interface ClientLoanUnifiedInputProps {
     debtAmount?: string;
     leaderName?: string;
   }>;
-  
+
   // Modo de uso: 'client' para préstamos anteriores, 'aval' para buscar personas/avales
   mode?: 'client' | 'aval';
-  
+
   // Para modo 'aval': IDs de personas ya usadas
   usedPersonIds?: string[];
-  
+
   // Para modo 'aval': ID de localidad del borrower para comparar
   borrowerLocationId?: string;
-  
+
   // Para modo 'aval': ID de la persona seleccionada
   selectedPersonId?: string;
-  
+
   // Estado de carga para el autocomplete
   isLoading?: boolean;
-  
+
   // Localidad del líder seleccionado (para comparar con la del cliente)
   selectedLeadLocationId?: string;
-  
+
   // Callback para mostrar alert cuando la localidad es diferente
   onLocationMismatch?: (clientLocation: string, leadLocation: string) => void;
-  
+
   // Configuración
   onInputChange?: (value: string) => void;
   onSearchTextChange?: (text: string) => void;
@@ -124,20 +123,21 @@ interface ClientLoanUnifiedInputProps {
   leaderLocation?: string;
   leaderName?: string;
   showLocationTag?: boolean;
-  
+
   // Placeholders
   namePlaceholder?: string;
   phonePlaceholder?: string;
-  
+
   // Modo de visualización: 'inline' (default) o 'modal' (para mostrar cards)
   displayMode?: 'inline' | 'modal';
-  
+
   // Errores de validación
   nameError?: string;
   phoneError?: string;
-  
+
   // Callback para notificar cuando se marca como "sin teléfono"
   onNoPhoneChange?: (hasNoPhone: boolean) => void;
+  hideErrorMessages?: boolean;
 }
 
 type ClientState = 'new' | 'edited' | 'renewed' | 'newClient';
@@ -177,7 +177,8 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
   displayMode = 'inline',
   nameError,
   phoneError,
-  onNoPhoneChange
+  onNoPhoneChange,
+  hideErrorMessages = false
 }) => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isEditingInline, setIsEditingInline] = useState(false);
@@ -197,13 +198,13 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
   const shouldPreserveFocusRef = useRef(false);
   const justSelectedOptionRef = useRef(false);
   const [selectedPersonLocation, setSelectedPersonLocation] = useState<{ id: string; name: string } | null>(null);
-  
+
   // Query para buscar personas (solo en modo 'aval')
   const [searchPersons, { loading: searchPersonsLoading }] = useLazyQuery(SEARCH_POTENTIAL_COLLATERALS, {
     onCompleted: (data) => {
       if (mode === 'aval') {
         let filteredResults = data.personalDatas || [];
-        
+
         // Filtrar personas ya usadas
         if (usedPersonIds.length > 0) {
           filteredResults = filteredResults.filter((person: any) => {
@@ -213,7 +214,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
             return !usedPersonIds.includes(person.id);
           });
         }
-        
+
         // Convertir a formato de opciones
         const options = filteredResults.map((person: any) => {
           // Priorizar localidad del líder del préstamo donde es aval
@@ -223,14 +224,14 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
             // Obtener localidad del líder del préstamo más reciente donde es aval
             location = person.loansAsCollateral[0]?.lead?.personalData?.addresses?.[0]?.location;
           }
-          
+
           // Fallback: usar localidad de la dirección de la persona
           if (!location && person.addresses && person.addresses.length > 0) {
             location = person.addresses[0]?.location;
           }
-          
+
           const isDifferentLocation = borrowerLocationId && location?.id && location.id !== borrowerLocationId;
-          
+
           return {
             value: person.id,
             label: `${person.fullName} - ${person.phones?.[0]?.number || 'Sin teléfono'}`,
@@ -240,7 +241,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
             isDifferentLocation
           };
         });
-        
+
         setFilteredOptions(options);
         // Solo mostrar dropdown si el input está enfocado y no acabamos de seleccionar una opción
         if (!justSelectedOptionRef.current) {
@@ -252,7 +253,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
       console.error('Error searching persons:', error);
     }
   });
-  
+
   // Query para obtener información de la persona seleccionada (solo en modo 'aval')
   const GET_PERSON_INFO = gql`
     query GetPersonInfo($id: ID!) {
@@ -273,7 +274,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
       }
     }
   `;
-  
+
   const [getPersonInfo] = useLazyQuery(GET_PERSON_INFO, {
     onCompleted: (data) => {
       if (data.personalData?.addresses?.[0]?.location) {
@@ -289,7 +290,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
       setSelectedPersonLocation(null);
     }
   });
-  
+
   // Obtener localidad de la persona cuando se selecciona (modo 'aval')
   useEffect(() => {
     if (mode === 'aval' && selectedPersonId) {
@@ -304,10 +305,10 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
     if (previousLoan && previousLoan.borrower?.personalData) {
       const originalName = previousLoan.borrower.personalData.fullName || '';
       const originalPhone = previousLoan.borrower.personalData.phones?.[0]?.number || '';
-      
+
       const nameChanged = currentName.trim() !== originalName.trim();
       const phoneChanged = currentPhone.trim() !== originalPhone.trim();
-      
+
       if (nameChanged || phoneChanged) {
         setClientState('edited');
       } else {
@@ -316,11 +317,12 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
     } else if (currentName.trim() || currentPhone.trim()) {
       // Check if user is typing a new client (no autocomplete match)
       // New client state: user has typed at least 2 characters AND no autocomplete results match
-      const isTypingNewClient = searchText.trim().length >= 2 && 
-                                filteredOptions.length === 0 && 
-                                !isLoading && 
-                                !(mode === 'aval' && searchPersonsLoading);
-      
+      const isTypingNewClient = searchText.trim().length >= 2 &&
+        filteredOptions.length === 0 &&
+        !isLoading &&
+        !(mode === 'aval' && searchPersonsLoading) &&
+        !(mode === 'aval' && selectedPersonId);
+
       if (isTypingNewClient) {
         setClientState('newClient');
       } else {
@@ -329,25 +331,25 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
     } else {
       setClientState('new');
     }
-  }, [previousLoan, currentName, currentPhone, searchText, filteredOptions.length, isLoading, mode, searchPersonsLoading]);
-  
+  }, [previousLoan, currentName, currentPhone, searchText, filteredOptions.length, isLoading, mode, searchPersonsLoading, selectedPersonId]);
+
   // Filtrar opciones basado en el texto de búsqueda
   useEffect(() => {
     // No hacer nada si acabamos de seleccionar una opción
     if (justSelectedOptionRef.current) {
       return;
     }
-    
+
     if (mode === 'client') {
       // Modo cliente: filtrar préstamos anteriores
       // No mostrar dropdown si ya hay un préstamo seleccionado
       if (searchText.trim().length >= 2 && !hasPreviousLoan && isInputFocused) {
         // Filtrar opciones localmente mientras se busca
-        const filtered = previousLoanOptions.filter(option => 
+        const filtered = previousLoanOptions.filter(option =>
           option.label.toLowerCase().includes(searchText.toLowerCase())
         );
         setFilteredOptions(filtered);
-        
+
         // Solo mostrar dropdown si está cargando o si hay opciones filtradas
         const shouldShow = isLoading || filtered.length > 0;
         setShowDropdown(shouldShow);
@@ -367,7 +369,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
       }
     }
   }, [searchText, previousLoanOptions, mode, searchPersons, isLoading, isInputFocused, filteredOptions.length]);
-  
+
   // Restaurar focus después de re-render si estaba enfocado antes
   useEffect(() => {
     if (shouldPreserveFocusRef.current && inputRef.current && document.activeElement !== inputRef.current) {
@@ -389,12 +391,12 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
     if (isInputFocused || isTypingRef.current || shouldPreserveFocusRef.current) {
       return;
     }
-    
+
     // Si el currentName es el mismo que el último sincronizado, no hacer nada
     if (currentName === lastSyncedNameRef.current) {
       return;
     }
-    
+
     // Si hay préstamo previo, usar el nombre del préstamo
     if (previousLoan && previousLoan.borrower?.personalData?.fullName) {
       const loanName = previousLoan.borrower.personalData.fullName;
@@ -403,7 +405,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
         setSearchText(loanName);
         lastSyncedNameRef.current = loanName;
       }
-    } 
+    }
     // Si no hay préstamo previo y hay un currentName, sincronizar
     // pero solo si el searchText no coincide (para evitar loops cuando el usuario está escribiendo)
     else if (currentName && currentName.trim()) {
@@ -421,11 +423,11 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
       }
     }
   }, [currentName, isInputFocused, previousLoan, searchText]);
-  
+
   // Colores según el estado
   const getStateColor = useCallback((state: ClientState) => {
     const hasData = currentName.trim() || currentPhone.trim();
-    
+
     // Si está enfocado, usar estilo de focus (azul) similar a otros inputs
     if (isInputFocused && !hasData) {
       return {
@@ -435,7 +437,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
         boxShadow: '0 0 0 3px rgba(59, 130, 246, 0.1)'
       };
     }
-    
+
     switch (state) {
       case 'newClient':
         // Blue design for new client creation (no autocomplete match)
@@ -485,9 +487,9 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
         };
     }
   }, [currentName, currentPhone, isInputFocused]);
-  
+
   const stateColors = getStateColor(clientState);
-  
+
   // Abrir modal de edición
   const handleEditClick = () => {
     // Si hay préstamo previo, usar esos datos
@@ -498,7 +500,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
         phones: currentPhone ? [{ id: clientPhoneId || '', number: currentPhone }] : previousLoan.borrower.personalData.phones || []
       });
       setIsEditModalOpen(true);
-    } 
+    }
     // Si no hay préstamo previo pero hay datos de cliente, permitir editar
     else if (currentName.trim() || currentPhone.trim()) {
       setEditingPerson({
@@ -509,12 +511,12 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
       setIsEditModalOpen(true);
     }
   };
-  
+
   const handleEditModalClose = () => {
     setIsEditModalOpen(false);
     setEditingPerson(null);
   };
-  
+
   const handleEditModalSave = async (updatedPerson: any) => {
     onNameChange(updatedPerson.fullName);
     if (updatedPerson.phones?.[0]?.number) {
@@ -525,7 +527,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
     }
     handleEditModalClose();
   };
-  
+
   const handleClear = () => {
     setSearchText('');
     onNameChange('');
@@ -533,10 +535,10 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
     onPreviousLoanClear();
     setShowDropdown(false);
   };
-  
+
   const handleNameChange = (value: string) => {
-    
-    
+
+
     // Si hay un préstamo previo seleccionado y el usuario está modificando el texto
     // (borrando o cambiando), limpiar toda la selección
     if (previousLoan && previousLoan.borrower?.personalData) {
@@ -553,67 +555,67 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
         return;
       }
     }
-    
+
     // Marcar que estamos escribiendo y que debemos preservar el focus
     isTypingRef.current = true;
     shouldPreserveFocusRef.current = true;
-    
+
     // Actualizar searchText primero (estado local)
     setSearchText(value);
-    
+
     // Actualizar lastSyncedNameRef para evitar que el useEffect interfiera
     lastSyncedNameRef.current = value;
-    
+
     // Llamar a onSearchTextChange inmediatamente para disparar la búsqueda
     if (onSearchTextChange) {
       onSearchTextChange(value);
     }
-    
+
     // NO llamar a onNameChange mientras el usuario está escribiendo
     // Solo actualizar el estado local para que el input responda inmediatamente
     // El padre se actualizará solo cuando el input pierda el focus
   };
-  
+
   const handleSelectOption = (option: any, event?: React.MouseEvent) => {
     // Prevenir que el blur cierre el dropdown antes de procesar la selección
     if (event) {
       event.preventDefault();
       event.stopPropagation();
     }
-    
+
     // Marcar que acabamos de seleccionar una opción para evitar que el useEffect reabra el dropdown
     justSelectedOptionRef.current = true;
-    
+
     if (mode === 'client') {
       // Modo cliente: seleccionar préstamo anterior
       // Verificar si la localidad del LEAD del préstamo anterior es diferente a la del líder seleccionado actualmente
       // Comparamos: lead del préstamo anterior vs lead seleccionado actualmente
       const previousLoanLeadLocationId = option.loanData?.lead?.personalData?.addresses?.[0]?.location?.id;
       const previousLoanLeadLocationName = option.loanData?.lead?.personalData?.addresses?.[0]?.location?.name || 'desconocida';
-      
+
       // Get the currently selected lead location name
       const currentLeadLocationName = leaderLocation || 'desconocida';
-      
+
       if (selectedLeadLocationId && previousLoanLeadLocationId && previousLoanLeadLocationId !== selectedLeadLocationId && onLocationMismatch) {
         // Pass both location names to the callback
         onLocationMismatch(previousLoanLeadLocationName, currentLeadLocationName);
       }
-      
+
       onPreviousLoanSelect(option);
-      
+
       // Cerrar el dropdown inmediatamente
       setShowDropdown(false);
       setFilteredOptions([]);
-      
+
       // Actualizar el texto de búsqueda con el nombre del cliente
       const clientName = option.loanData.borrower.personalData.fullName;
       setSearchText(clientName);
-      
+
       // Resetear el flag después de un pequeño delay para permitir que el useEffect se ejecute sin reabrir
       setTimeout(() => {
         justSelectedOptionRef.current = false;
       }, 100);
-      
+
       // Los cambios de nombre y teléfono se manejarán automáticamente
       // cuando el padre actualice los props (currentName, currentPhone)
     } else if (mode === 'aval') {
@@ -621,30 +623,30 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
       const person = option.personData;
       const phone = person.phones?.[0]?.number || '';
       const phoneId = person.phones?.[0]?.id;
-      
+
       // Get aval location from the person's addresses
       const avalLocationId = person.addresses?.[0]?.location?.id;
       const avalLocationName = person.addresses?.[0]?.location?.name || option.location || 'desconocida';
-      
+
       // Get borrower location name (we need to fetch this from the parent or pass it as a prop)
       // For now, we'll use a placeholder - the parent should provide this
       const borrowerLocationName = leaderLocation || 'desconocida';
-      
+
       // Verificar si la localidad del aval es diferente a la del borrower
       if (borrowerLocationId && avalLocationId && borrowerLocationId !== avalLocationId && onLocationMismatch) {
         // Pass both location names to the callback
         onLocationMismatch(avalLocationName, borrowerLocationName);
       }
-      
+
       // Cerrar el dropdown ANTES de actualizar el texto para evitar que se reabra
       setShowDropdown(false);
       setFilteredOptions([]);
-      
+
       // Actualizar el estado local
       setSearchText(person.fullName);
       onNameChange(person.fullName);
       onPhoneChange(phone);
-      
+
       // Notificar al padre con los datos del aval
       onClientDataChange({
         clientName: person.fullName,
@@ -653,26 +655,26 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
         selectedPersonId: person.id,
         selectedPersonPhoneId: phoneId
       });
-      
+
       // Obtener localidad de la persona
       if (person.id) {
         getPersonInfo({ variables: { id: person.id } });
       }
-      
+
       // Resetear el flag después de un pequeño delay para permitir que el useEffect se ejecute sin reabrir
       setTimeout(() => {
         justSelectedOptionRef.current = false;
       }, 100);
     }
   };
-  
+
   // Prevenir que el dropdown se cierre cuando se hace click dentro de él
   const handleDropdownMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
   };
-  
+
   const hasPreviousLoan = previousLoan && previousLoan.borrower?.personalData;
-  
+
   // Sincronizar hasNoPhone con el estado del teléfono
   useEffect(() => {
     if (!currentPhone || currentPhone.trim() === '') {
@@ -686,18 +688,18 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
       onNoPhoneChange?.(false);
     }
   }, [currentPhone, hasPreviousLoan, mode, onNoPhoneChange]);
-  
+
   // Cerrar dropdown cuando se hace clic fuera
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       // Solo cerrar el dropdown si el click fue fuera del componente y no es del mismo modo
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node) && 
-          inputRef.current && !inputRef.current.contains(event.target as Node)) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node) &&
+        inputRef.current && !inputRef.current.contains(event.target as Node)) {
         // Verificar que el elemento clickeado no sea de este mismo componente
         const target = event.target as HTMLElement;
         const clickedAutocomplete = target.closest('[data-autocomplete-id]');
         const isThisComponent = clickedAutocomplete?.getAttribute('data-autocomplete-id') === loanId;
-        
+
         if (!isThisComponent) {
           setShowDropdown(false);
           if (mode === 'aval') {
@@ -712,9 +714,9 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [mode]);
-  
+
   return (
-    <div 
+    <div
       style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}
       data-autocomplete-mode={mode}
       data-autocomplete-id={loanId}
@@ -763,7 +765,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
             alignItems: 'center',
             gap: '8px'
           }}>
-            <div 
+            <div
               onClick={() => {
                 // Hacer que todo el contenedor sea clickable - enfocar el input
                 if (inputRef.current) {
@@ -786,177 +788,179 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                 boxShadow: nameError ? '0 0 0 3px rgba(220, 38, 38, 0.1)' : (stateColors.boxShadow || 'none'),
                 cursor: 'text'
               }}>
-            {/* Nombre del cliente */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              width: '100%',
-              height: '100%'
-            }}>
-              <Input
-                ref={inputRef}
-                type="text"
-                value={searchText}
-                onChange={(e) => handleNameChange(e.target.value)}
-                readOnly={hasPreviousLoan && mode === 'client'}
-                title={hasPreviousLoan ? "Use el icono de editar o la X para limpiar" : ""}
-                style={{
-                  border: 'none',
-                  backgroundColor: 'transparent',
-                  fontSize: '13px',
-                  padding: '0',
-                  outline: 'none',
-                  color: stateColors.textColor,
-                  height: '100%',
-                  flex: currentPhone ? '0 1 auto' : '1',
-                  lineHeight: '20px',
-                  boxSizing: 'border-box',
-                  boxShadow: 'none',
-                  transition: 'none',
-                  cursor: hasPreviousLoan && mode === 'client' ? 'pointer' : 'text',
-                  userSelect: hasPreviousLoan && mode === 'client' ? 'none' : 'auto',
-                  pointerEvents: 'auto'
-                }}
-              onKeyDown={(e) => {
-                // Si hay préstamo previo y el usuario intenta escribir, prevenir y limpiar
-                if (hasPreviousLoan && mode === 'client' && !e.ctrlKey && !e.metaKey) {
-                  // Permitir solo teclas de navegación y selección
-                  const allowedKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'Tab', 'Enter', 'Escape'];
-                  if (!allowedKeys.includes(e.key) && !e.shiftKey) {
-                    e.preventDefault();
-                    handleClear();
-                    // Enfocar el input para que pueda escribir
-                    setTimeout(() => {
-                      inputRef.current?.focus();
-                    }, 0);
-                  }
-                }
-              }}
-              onFocus={() => {
-                setIsInputFocused(true);
-                isTypingRef.current = true; // Marcar como escribiendo al enfocar
-                shouldPreserveFocusRef.current = true; // Marcar que debemos preservar el focus
-                if (onFocus) onFocus();
-                // Solo mostrar dropdown si hay resultados
-                if (searchText.length >= 2 && filteredOptions.length > 0) {
-                  setShowDropdown(true);
-                }
-              }}
-              onBlur={(e) => {
-                // No cerrar el dropdown si el focus se movió al dropdown
-                if (dropdownRef.current && dropdownRef.current.contains(e.relatedTarget as Node)) {
-                  return;
-                }
-                
-                setIsInputFocused(false);
-                shouldPreserveFocusRef.current = false; // Ya no necesitamos preservar el focus
-                isTypingRef.current = false;
-                
-                // Cerrar el dropdown después de un pequeño delay para permitir que el click se procese
-                setTimeout(() => {
-                  setShowDropdown(false);
-                }, 200);
-                
-                // Sincronizar inmediatamente al perder focus con el padre
-                if (searchText !== currentName) {
-                  onNameChange(searchText);
-                  lastSyncedNameRef.current = searchText;
-                  
-                  if (onInputChange) {
-                    onInputChange(searchText);
-                  }
-                  
-                  if (onSearchTextChange) {
-                    onSearchTextChange(searchText);
-                  }
-                }
-                
-                if (onBlur) onBlur();
-              }}
-                placeholder={namePlaceholder}
-              />
-              
-              {/* Teléfono al lado del nombre cuando hay selección */}
-              {currentPhone && (hasPreviousLoan || (mode === 'aval' && selectedPersonId)) && (
-                <span style={{
-                  fontSize: '12px',
-                  color: '#6B7280',
-                  whiteSpace: 'nowrap',
-                  paddingLeft: '8px',
-                  borderLeft: '1px solid #E5E7EB',
-                  marginLeft: '8px'
-                }}>
-                  {currentPhone}
-                </span>
-              )}
-              {/* Badge de deuda pendiente cuando hay préstamo previo */}
-              {hasPreviousLoan && previousLoan?.pendingAmount && parseFloat(previousLoan.pendingAmount) > 0 && (
-                <span style={{
-                  fontSize: '11px',
-                  fontWeight: '600',
-                  color: '#DC2626',
-                  backgroundColor: '#FEE2E2',
-                  padding: '2px 8px',
-                  borderRadius: '4px',
-                  whiteSpace: 'nowrap',
-                  marginLeft: '8px'
-                }}>
-                  Deuda: ${parseFloat(previousLoan.pendingAmount).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              )}
-              
-              {/* Badge de sin deuda cuando hay préstamo previo sin deuda */}
-              {hasPreviousLoan && previousLoan?.pendingAmount && parseFloat(previousLoan.pendingAmount) === 0 && (
-                <span style={{
-                  fontSize: '11px',
-                  fontWeight: '600',
-                  color: '#059669',
-                  backgroundColor: '#D1FAE5',
-                  padding: '2px 8px',
-                  borderRadius: '4px',
-                  whiteSpace: 'nowrap',
-                  marginLeft: '8px'
-                }}>
-                  Sin deuda
-                </span>
-              )}
-              
-              {/* Texto "Sin teléfono" cuando no hay teléfono */}
-              {!currentPhone && (hasPreviousLoan || (mode === 'aval' && selectedPersonId)) && (
-                <span style={{
-                  fontSize: '11px',
-                  color: '#9CA3AF',
-                  fontStyle: 'italic',
-                  whiteSpace: 'nowrap',
-                  paddingLeft: '8px',
-                  borderLeft: '1px solid #E5E7EB',
-                  marginLeft: '8px'
-                }}>
-                  Sin teléfono
-                </span>
-              )}
-            </div>
-            
-            {/* Indicador de dropdown */}
-            {filteredOptions.length > 0 && (
+              {/* Nombre del cliente */}
               <div style={{
-                position: 'absolute',
-                right: '14px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                pointerEvents: 'none',
-                color: '#6B7280',
-                fontSize: '12px'
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                width: '100%',
+                height: '100%'
               }}>
-                ▼
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={searchText}
+                  onChange={(e) => handleNameChange(e.target.value)}
+                  readOnly={hasPreviousLoan && mode === 'client'}
+                  title={hasPreviousLoan ? "Use el icono de editar o la X para limpiar" : ""}
+                  style={{
+                    border: 'none',
+                    backgroundColor: 'transparent',
+                    fontSize: '13px',
+                    padding: '0',
+                    outline: 'none',
+                    color: stateColors.textColor,
+                    height: '100%',
+                    flex: '1',
+                    lineHeight: '20px',
+                    boxSizing: 'border-box',
+                    boxShadow: 'none',
+                    transition: 'none',
+                    cursor: hasPreviousLoan && mode === 'client' ? 'pointer' : 'text',
+                    userSelect: hasPreviousLoan && mode === 'client' ? 'none' : 'auto',
+                    pointerEvents: 'auto',
+                    width: '100%',
+                    minWidth: '0'
+                  }}
+                  onKeyDown={(e) => {
+                    // Si hay préstamo previo y el usuario intenta escribir, prevenir y limpiar
+                    if (hasPreviousLoan && mode === 'client' && !e.ctrlKey && !e.metaKey) {
+                      // Permitir solo teclas de navegación y selección
+                      const allowedKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'Tab', 'Enter', 'Escape'];
+                      if (!allowedKeys.includes(e.key) && !e.shiftKey) {
+                        e.preventDefault();
+                        handleClear();
+                        // Enfocar el input para que pueda escribir
+                        setTimeout(() => {
+                          inputRef.current?.focus();
+                        }, 0);
+                      }
+                    }
+                  }}
+                  onFocus={() => {
+                    setIsInputFocused(true);
+                    isTypingRef.current = true; // Marcar como escribiendo al enfocar
+                    shouldPreserveFocusRef.current = true; // Marcar que debemos preservar el focus
+                    if (onFocus) onFocus();
+                    // Solo mostrar dropdown si hay resultados
+                    if (searchText.length >= 2 && filteredOptions.length > 0) {
+                      setShowDropdown(true);
+                    }
+                  }}
+                  onBlur={(e) => {
+                    // No cerrar el dropdown si el focus se movió al dropdown
+                    if (dropdownRef.current && dropdownRef.current.contains(e.relatedTarget as Node)) {
+                      return;
+                    }
+
+                    setIsInputFocused(false);
+                    shouldPreserveFocusRef.current = false; // Ya no necesitamos preservar el focus
+                    isTypingRef.current = false;
+
+                    // Cerrar el dropdown después de un pequeño delay para permitir que el click se procese
+                    setTimeout(() => {
+                      setShowDropdown(false);
+                    }, 200);
+
+                    // Sincronizar inmediatamente al perder focus con el padre
+                    if (searchText !== currentName) {
+                      onNameChange(searchText);
+                      lastSyncedNameRef.current = searchText;
+
+                      if (onInputChange) {
+                        onInputChange(searchText);
+                      }
+
+                      if (onSearchTextChange) {
+                        onSearchTextChange(searchText);
+                      }
+                    }
+
+                    if (onBlur) onBlur();
+                  }}
+                  placeholder={namePlaceholder}
+                />
+
+                {/* Teléfono al lado del nombre cuando hay selección */}
+                {currentPhone && (hasPreviousLoan || (mode === 'aval' && selectedPersonId)) && (
+                  <span style={{
+                    fontSize: '12px',
+                    color: '#6B7280',
+                    whiteSpace: 'nowrap',
+                    paddingLeft: '8px',
+                    borderLeft: '1px solid #E5E7EB',
+                    marginLeft: '8px'
+                  }}>
+                    {currentPhone}
+                  </span>
+                )}
+                {/* Badge de deuda pendiente cuando hay préstamo previo */}
+                {hasPreviousLoan && previousLoan?.pendingAmount && parseFloat(previousLoan.pendingAmount) > 0 && (
+                  <span style={{
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    color: '#DC2626',
+                    backgroundColor: '#FEE2E2',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    whiteSpace: 'nowrap',
+                    marginLeft: '8px'
+                  }}>
+                    Deuda: ${parseFloat(previousLoan.pendingAmount).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                )}
+
+                {/* Badge de sin deuda cuando hay préstamo previo sin deuda */}
+                {hasPreviousLoan && previousLoan?.pendingAmount && parseFloat(previousLoan.pendingAmount) === 0 && (
+                  <span style={{
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    color: '#059669',
+                    backgroundColor: '#D1FAE5',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    whiteSpace: 'nowrap',
+                    marginLeft: '8px'
+                  }}>
+                    Sin deuda
+                  </span>
+                )}
+
+                {/* Texto "Sin teléfono" cuando no hay teléfono */}
+                {!currentPhone && (hasPreviousLoan || (mode === 'aval' && selectedPersonId)) && (
+                  <span style={{
+                    fontSize: '11px',
+                    color: '#9CA3AF',
+                    fontStyle: 'italic',
+                    whiteSpace: 'nowrap',
+                    paddingLeft: '8px',
+                    borderLeft: '1px solid #E5E7EB',
+                    marginLeft: '8px'
+                  }}>
+                    Sin teléfono
+                  </span>
+                )}
               </div>
-            )}
+
+              {/* Indicador de dropdown */}
+              {filteredOptions.length > 0 && (
+                <div style={{
+                  position: 'absolute',
+                  right: '14px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  pointerEvents: 'none',
+                  color: '#6B7280',
+                  fontSize: '12px'
+                }}>
+                  ▼
+                </div>
+              )}
             </div>
           </div>
-          
+
           {/* Mensaje de error para el nombre */}
-          {nameError && (
+          {!hideErrorMessages && nameError && (
             <div style={{
               display: 'flex',
               alignItems: 'center',
@@ -977,7 +981,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
               <span>{nameError}</span>
             </div>
           )}
-          
+
           {/* Dropdown de autocomplete - JUSTO DESPUÉS DEL INPUT DE NOMBRE */}
           {((showDropdown && searchText.trim().length >= 2) || isLoading || (mode === 'aval' && searchPersonsLoading)) && (
             <div
@@ -992,14 +996,14 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                   <span>Buscando...</span>
                 </div>
               )}
-              
+
               {/* Estado vacío - No se encontraron resultados */}
               {((mode === 'client' && !isLoading) || (mode === 'aval' && !searchPersonsLoading)) && filteredOptions.length === 0 && searchText.trim().length >= 2 && (
                 <div className={styles.emptyState}>
                   No se encontraron resultados
                 </div>
               )}
-              
+
               {/* Opciones */}
               {((mode === 'client' && !isLoading) || (mode === 'aval' && !searchPersonsLoading)) && filteredOptions.length > 0 && (
                 <>
@@ -1009,19 +1013,19 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                       const debtAmount = option.debtAmount || '0';
                       const location = option.location || null;
                       const debtColor = option.debtColor || '#6B7280';
-                      
+
                       // Determinar si es de otra localidad comparando la localidad del borrower con la del lead del préstamo
                       const borrowerLocationId = option.loanData?.borrower?.personalData?.addresses?.[0]?.location?.id;
                       const leadLocationId = option.loanData?.lead?.personalData?.addresses?.[0]?.location?.id;
                       const isDifferentLocation = borrowerLocationId && leadLocationId && borrowerLocationId !== leadLocationId;
-                      
+
                       // Color del badge de localidad: amarillo si es de otra localidad, azul si es de la misma
                       const locationColor = isDifferentLocation ? '#F59E0B' : '#3B82F6';
-                      
+
                       // Extract name and phone from label
                       const clientName = option.loanData?.borrower?.personalData?.fullName || '';
                       const clientPhone = option.loanData?.borrower?.personalData?.phones?.[0]?.number || '';
-                      
+
                       return (
                         <div
                           key={option.value}
@@ -1078,11 +1082,11 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                       const location = option.location || 'Sin localidad';
                       const isDifferentLocation = option.isDifferentLocation || false;
                       const locationColor = option.locationColor || '#3B82F6';
-                      
+
                       // Extract name and phone from personData
                       const personName = option.personData?.fullName || '';
                       const personPhone = option.personData?.phones?.[0]?.number || '';
-                      
+
                       return (
                         <div
                           key={option.value}
@@ -1136,10 +1140,10 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
             </div>
           )}
         </div>
-        
+
         {/* Badge de Nuevo Cliente - ENTRE nombre y teléfono */}
-        
-        
+
+
         {/* SEGUNDO INPUT: Teléfono y badge de localidad */}
         <div style={{
           display: 'flex',
@@ -1147,7 +1151,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
           gap: '8px',
           position: 'relative'
         }}>
-          <div 
+          <div
             onClick={() => {
               // Hacer que todo el contenedor sea clickable - enfocar el input
               if (phoneInputRef.current && !(hasPreviousLoan && mode === 'client')) {
@@ -1189,13 +1193,13 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
               </div>
             ) : (
               <>
-                <Input
+                <input
                   ref={phoneInputRef}
                   type="text"
                   value={currentPhone}
                   readOnly={(hasPreviousLoan && mode === 'client') || hasNoPhone}
                   disabled={(hasPreviousLoan && mode === 'client') || hasNoPhone}
-                  onChange={(e) => {
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                     if (!hasPreviousLoan || mode !== 'client') {
                       onPhoneChange(e.target.value);
                       if (e.target.value.trim() !== '') {
@@ -1222,7 +1226,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                     pointerEvents: 'auto'
                   }}
                 />
-                
+
                 {/* Badge de localidad (solo en modo aval) - DENTRO del input de teléfono */}
                 {mode === 'aval' && selectedPersonLocation && (
                   <span
@@ -1245,7 +1249,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                 )}
               </>
             )}
-            
+
             {/* Botón "Sin teléfono" - Dentro del input, esquina derecha */}
             <button
               type="button"
@@ -1310,9 +1314,9 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
             </button>
           </div>
         </div>
-        
+
         {/* Mensaje de error para el teléfono */}
-        {phoneError && (
+        {!hideErrorMessages && phoneError && (
           <div style={{
             display: 'flex',
             alignItems: 'center',
@@ -1334,7 +1338,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
           </div>
         )}
       </div>
-      
+
       {/* Botones de acción - Solo visibles cuando hay selección - FUERA del contenedor de inputs */}
       {(hasPreviousLoan || (mode === 'aval' && selectedPersonId)) && (
         <div className={styles.buttonGroup} style={{ marginTop: '-46px', marginLeft: 'auto', display: 'flex', gap: '8px' }}>
@@ -1358,7 +1362,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
               <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
             </svg>
           </button>
-          
+
           {/* Botón de limpiar */}
           <button
             className={styles.clearButton}
@@ -1381,7 +1385,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
           </button>
         </div>
       )}
-      
+
       {/* Modal de edición */}
       {isEditModalOpen && editingPerson && (
         <EditPersonModal

@@ -185,6 +185,20 @@ totalDebtAcquired = amountToPay
    - Requested amount > 0
    - Commission >= 0
 
+4. **Edge Case: Cross-Guarantors (Swapped Roles)**
+   - **Scenario**: 
+     - Credit 1: Client A (Titular) with Client B (Aval)
+     - Credit 2: Client B (Titular) with Client A (Aval)
+   - **Requirement**: 
+     - System must NOT create duplicate `PersonalData` records.
+     - Must correctly identify existing persons by name/phone even if roles are swapped.
+     - Single `PersonalData` ID should be used for Client A in both roles, and Client B in both roles.
+
+   - **Batch Creation for New Clients**:
+     - **Scenario**: Client A is NEW (does not exist in DB) and appears multiple times in the batch (e.g., as Titular in Credit 1 and Aval in Credit 2).
+     - **Requirement**: The mutation logic must ensure `PersonalData` is created exactly once for Client A.
+     - The first occurrence triggers creation; subsequent occurrences in the same batch must reuse the newly created record/ID. This deduplication must be handled within the mutation logic.
+
 ### Location Validation
 
 When selecting a client from a different location:

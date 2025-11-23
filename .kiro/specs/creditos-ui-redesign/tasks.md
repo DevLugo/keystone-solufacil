@@ -369,3 +369,17 @@
   - Allow user to proceed or cancel the selection after seeing the warning
   - Ensure the warning is informational, not blocking (user can still proceed)
   - _Requirements: Data validation and user feedback_
+
+- [x] 32. Handle cross-guarantor (swapped roles) edge case
+  - **Scenario**: Credit 1: A (Titular) / B (Aval) AND Credit 2: B (Titular) / A (Aval)
+  - Ensure system does NOT create duplicate `PersonalData` records
+  - Verify existing persons are correctly identified by name/phone even if roles are swapped
+  - Ensure single `PersonalData` ID is used for Client A in both roles, and Client B in both roles
+  - _Requirements: Data integrity, Duplicate prevention_
+
+- [x] 33. Handle new client batch deduplication
+  - **Scenario**: New client A appears multiple times in batch (e.g., as Titular in Credit 1 and Aval in Credit 2)
+  - Ensure `PersonalData` is created exactly once for Client A
+  - First occurrence triggers creation; subsequent occurrences reuse the new ID
+  - Implement deduplication logic within the mutation or pre-processing
+  - _Requirements: Data integrity, Duplicate prevention_

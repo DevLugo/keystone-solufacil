@@ -15,9 +15,9 @@ import {
   AlertDialogCancel,
 } from '../ui/alert-dialog';
 import { CREATE_LOANS_BULK } from '../../graphql/mutations/loans';
-import type { 
-  ExtendedLoanForCredits, 
-  LoanTypeOption, 
+import type {
+  ExtendedLoanForCredits,
+  LoanTypeOption,
   PreviousLoanOption,
   LeadInfo,
   LocationInfo,
@@ -113,10 +113,10 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
   triggerRefresh,
 }) => {
   const { showToast } = useToast();
-  
+
   // Mutación para crear múltiples préstamos
   const [createMultipleLoans] = useMutation(CREATE_LOANS_BULK);
-  
+
   const [modalLoans, setModalLoans] = useState<ExtendedLoanForCredits[]>([
     {
       id: `modal-loan-${Date.now()}`,
@@ -133,13 +133,13 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
       avalAction: 'clear' as const,
       collaterals: [],
       loantype: undefined,
-      borrower: { 
-        id: '', 
-        personalData: { 
-          id: '', 
-          fullName: '', 
-          phones: [{ id: '', number: '' }] 
-        } 
+      borrower: {
+        id: '',
+        personalData: {
+          id: '',
+          fullName: '',
+          phones: [{ id: '', number: '' }]
+        }
       },
       previousLoan: undefined,
       previousLoanOption: null,
@@ -150,18 +150,20 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
   const [isEditingClient, setIsEditingClient] = useState<Record<string, boolean>>({});
   const [isEditingAval, setIsEditingAval] = useState<Record<string, boolean>>({});
   const [validationErrors, setValidationErrors] = useState<Record<string, ValidationError[]>>({});
+  const [touchedFields, setTouchedFields] = useState<Record<string, Record<string, boolean>>>({});
   const [showValidationSummary, setShowValidationSummary] = useState(false);
+  const [isValidationSummaryExpanded, setIsValidationSummaryExpanded] = useState(false);
   const [isSavingPersonalData, setIsSavingPersonalData] = useState<Record<string, boolean>>({});
   const [hasNoPhoneByLoanId, setHasNoPhoneByLoanId] = useState<Record<string, boolean>>({});
   // Guardar valores originales cuando se entra en modo de edición
   const [originalClientData, setOriginalClientData] = useState<Record<string, { name: string; phone: string }>>({});
   const [originalAvalData, setOriginalAvalData] = useState<Record<string, { name: string; phone: string }>>({});
-  
+
   // Mutaciones para actualizar información personal
   const [updatePersonalData] = useMutation(UPDATE_PERSONAL_DATA);
   const [updatePhone] = useMutation(UPDATE_PHONE);
   const [createPhone] = useMutation(CREATE_PHONE);
-  
+
   // Estado para el diálogo de confirmación de eliminación
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
     isOpen: boolean;
@@ -186,7 +188,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
   }, [modalLoans]);
 
   const completedCount = useMemo(() => {
-    return modalLoans.filter(loan => 
+    return modalLoans.filter(loan =>
       loan.borrower?.personalData?.fullName?.trim() &&
       loan.avalName?.trim() &&
       loan.requestedAmount
@@ -227,7 +229,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
 
   // Detectar si hay cambios en progreso (créditos con datos)
   const hasChangesInProgress = useMemo(() => {
-    return modalLoans.some(loan => 
+    return modalLoans.some(loan =>
       loan.borrower?.personalData?.fullName?.trim() ||
       loan.borrower?.personalData?.phones?.[0]?.number?.trim() ||
       loan.avalName?.trim() ||
@@ -254,13 +256,13 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
       avalAction: 'clear' as const,
       collaterals: [],
       loantype: undefined,
-      borrower: { 
-        id: '', 
-        personalData: { 
-          id: '', 
-          fullName: '', 
-          phones: [{ id: '', number: '' }] 
-        } 
+      borrower: {
+        id: '',
+        personalData: {
+          id: '',
+          fullName: '',
+          phones: [{ id: '', number: '' }]
+        }
       },
       previousLoan: undefined,
       previousLoanOption: null,
@@ -268,7 +270,9 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
     setIsEditingClient({});
     setIsEditingAval({});
     setValidationErrors({});
+    setTouchedFields({});
     setShowValidationSummary(false);
+    setIsValidationSummaryExpanded(false);
     setIsSavingPersonalData({});
     setHasNoPhoneByLoanId({});
     setOriginalClientData({});
@@ -312,6 +316,10 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
 
   // Helper para obtener error de un campo específico
   const getFieldError = (loanId: string, fieldName: string): string | undefined => {
+    // Si no está tocado, no mostrar error (excepto si se intentó guardar, que marcaremos todo como tocado)
+    const isTouched = touchedFields[loanId]?.[fieldName];
+    if (!isTouched) return undefined;
+
     const errors = validationErrors[loanId] || [];
     const error = errors.find(e => e.field === fieldName);
     return error?.message;
@@ -319,6 +327,9 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
 
   // Helper para verificar si un campo tiene error
   const hasFieldError = (loanId: string, fieldName: string): boolean => {
+    const isTouched = touchedFields[loanId]?.[fieldName];
+    if (!isTouched) return false;
+
     const errors = validationErrors[loanId] || [];
     return errors.some(e => e.field === fieldName);
   };
@@ -350,10 +361,10 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
 
   const handleSavePersonalData = async (loanId: string, index: number, isAval: boolean = false) => {
     const loan = modalLoans[index];
-    const personalDataId = isAval 
-      ? loan.selectedCollateralId 
+    const personalDataId = isAval
+      ? loan.selectedCollateralId
       : loan.borrower?.personalData?.id;
-    
+
     if (!personalDataId) {
       showToast('error', 'No se puede guardar: ID de persona no encontrado');
       return;
@@ -366,10 +377,10 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
     // Cuando isAval es true, el loanId que se pasa ya incluye '-aval' (ej: 'modal-loan-123-aval')
     // Pero en el estado se usa 'loanId-aval-phone' donde loanId es el base (ej: 'modal-loan-123')
     // Necesitamos extraer el loanId base removiendo el sufijo '-aval'
-    const baseLoanId = isAval && loanId.endsWith('-aval') 
-      ? loanId.replace(/-aval$/, '') 
+    const baseLoanId = isAval && loanId.endsWith('-aval')
+      ? loanId.replace(/-aval$/, '')
       : loanId;
-    const hasNoPhone = isAval 
+    const hasNoPhone = isAval
       ? (hasNoPhoneByLoanId[`${baseLoanId}-aval-phone`] || false)
       : (hasNoPhoneByLoanId[`${loanId}-client-phone`] || false);
 
@@ -393,7 +404,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
         showToast('error', 'El teléfono es requerido');
         return;
       }
-      
+
       // Validar formato del teléfono (10 dígitos)
       const digitsOnly = phoneNumber.trim().replace(/\D/g, '');
       if (digitsOnly.length !== 10) {
@@ -409,11 +420,11 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
         return;
       }
     }
-    
+
     // Limpiar errores de validación antes de guardar
     setValidationErrors(prev => {
       const errors = prev[loanId] || [];
-      const filtered = errors.filter(e => 
+      const filtered = errors.filter(e =>
         e.field !== (isAval ? 'Teléfono del aval' : 'Teléfono del cliente')
       );
       const updated = { ...prev };
@@ -445,7 +456,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
           // Actualizar teléfono existente
           await updatePhone({
             variables: {
-                where: { id: phoneId },
+              where: { id: phoneId },
               data: { number: trimmedPhone }
             }
           });
@@ -459,20 +470,20 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
                   connect: {
                     id: personalDataId
                   }
+                }
+              }
             }
-          }
-        }
-      });
+          });
         }
       }
 
       showToast('success', 'Información actualizada exitosamente');
-      
+
       // Actualizar el estado local del modal con los datos guardados
       setModalLoans(prev => {
         const updated = [...prev];
         if (updated[index]) {
-      if (isAval) {
+          if (isAval) {
             updated[index] = {
               ...updated[index],
               avalName: fullName.trim(),
@@ -480,7 +491,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
               selectedCollateralId: loan.selectedCollateralId,
               selectedCollateralPhoneId: phoneId || loan.selectedCollateralPhoneId
             };
-      } else {
+          } else {
             updated[index] = {
               ...updated[index],
               borrower: {
@@ -501,7 +512,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
         }
         return updated;
       });
-      
+
       // Cerrar el modo de edición PRIMERO para que el UI se actualice inmediatamente
       // Nota: cuando isAval es true, el loanId que se pasa ya incluye el sufijo '-aval' (ej: 'modal-loan-123-aval')
       // El estado isEditingAval usa este mismo formato, así que podemos usar loanId directamente
@@ -518,10 +529,10 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
           return { ...updated };
         });
       }
-      
+
       // Refrescar los datos del préstamo para obtener los valores actualizados de la base de datos
       await refetchLoans();
-      
+
       // Limpiar valores originales ya que se guardaron los cambios
       if (isAval) {
         setOriginalAvalData(prev => {
@@ -562,13 +573,13 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
         avalAction: 'clear' as const,
         collaterals: [],
         loantype: undefined,
-        borrower: { 
-          id: '', 
-          personalData: { 
-            id: '', 
-            fullName: '', 
-            phones: [{ id: '', number: '' }] 
-          } 
+        borrower: {
+          id: '',
+          personalData: {
+            id: '',
+            fullName: '',
+            phones: [{ id: '', number: '' }]
+          }
         },
         previousLoan: undefined,
         previousLoanOption: null,
@@ -602,7 +613,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
       setModalLoans(modalLoans.filter((_, i) => i !== index));
       showToast('success', `Crédito eliminado exitosamente`);
     }
-    
+
     // Cerrar el diálogo
     setDeleteConfirmation({
       isOpen: false,
@@ -631,12 +642,12 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
       if (previousLoanValue?.value) {
         const selectedLoan = previousLoanValue.loanData;
         const pendingAmount = Math.round(parseFloat(selectedLoan.pendingAmountStored || selectedLoan.pendingAmount || '0')).toString();
-        
+
         // Buscar el tipo de préstamo para obtener la comisión por defecto
         const selectedType = loanTypeOptions.find(opt => opt.value === selectedLoan.loantype?.id)?.typeData;
         // Usar loanGrantedComission si está disponible, de lo contrario usar loanPaymentComission o 0
         const commission = (selectedType as any)?.loanGrantedComission ?? (selectedType?.loanPaymentComission ?? 0);
-        
+
         updatedLoan = {
           ...updatedLoan,
           previousLoanOption: previousLoanValue,
@@ -656,13 +667,13 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
           ...updatedLoan,
           previousLoanOption: null,
           previousLoan: undefined,
-          borrower: { 
-            id: '', 
-            personalData: { 
-              id: '', 
-              fullName: '', 
-              phones: [{ id: '', number: '' }] 
-            } 
+          borrower: {
+            id: '',
+            personalData: {
+              id: '',
+              fullName: '',
+              phones: [{ id: '', number: '' }]
+            }
           },
           avalName: '',
           avalPhone: '',
@@ -713,7 +724,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
         pendingAmount: updatedLoan.previousLoan?.pendingAmount || '0',
         rate: updatedLoan.loantype?.rate || '0',
       });
-      
+
       // ✅ CORREGIDO: Usar amountGived directamente sin restar comisión
       // La comisión es un cargo adicional, no se resta del monto entregado
       // Fórmula: amountGived = requestedAmount - pendingAmount
@@ -725,6 +736,29 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
     updatedLoans[index] = updatedLoan;
     setModalLoans(updatedLoans);
 
+    // Marcar campo como tocado
+    setTouchedFields(prev => {
+      const loanTouched = prev[updatedLoan.id] || {};
+      let fieldsToMark: string[] = [];
+
+      if (field === 'clientData') {
+        fieldsToMark = ['Nombre del cliente', 'Teléfono del cliente'];
+      } else if (field === 'avalData') {
+        fieldsToMark = ['Nombre del aval', 'Teléfono del aval'];
+      } else if (field === 'loantype') {
+        fieldsToMark = ['Tipo de préstamo'];
+      } else if (field === 'requestedAmount') {
+        fieldsToMark = ['Monto solicitado'];
+      }
+
+      if (fieldsToMark.length > 0) {
+        const newLoanTouched = { ...loanTouched };
+        fieldsToMark.forEach(f => newLoanTouched[f] = true);
+        return { ...prev, [updatedLoan.id]: newLoanTouched };
+      }
+      return prev;
+    });
+
     // Validar el préstamo actualizado y actualizar errores
     const validation = validateLoanData(updatedLoan, {
       hasNoClientPhone: hasNoPhoneByLoanId[`${updatedLoan.id}-client-phone`] || false,
@@ -735,10 +769,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
       [updatedLoan.id]: validation.errors
     }));
 
-    // Ocultar resumen si ya no hay errores
-    if (!validation.isValid) {
-      setShowValidationSummary(true);
-    }
+    // NO mostrar resumen automáticamente al cambiar inputs
   };
 
   const handleSave = async () => {
@@ -763,13 +794,28 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
 
       if (hasErrors) {
         setValidationErrors(allErrors);
+
+        // Marcar todos los campos como tocados para mostrar errores
+        const allTouched: Record<string, Record<string, boolean>> = {};
+        modalLoans.forEach(loan => {
+          allTouched[loan.id] = {
+            'Nombre del cliente': true,
+            'Teléfono del cliente': true,
+            'Nombre del aval': true,
+            'Teléfono del aval': true,
+            'Tipo de préstamo': true,
+            'Monto solicitado': true
+          };
+        });
+        setTouchedFields(allTouched);
+
         setShowValidationSummary(true);
         showToast('error', 'Por favor completa todos los campos requeridos');
         setIsSavingPersonalData(prev => ({ ...prev, 'saving': false }));
         return;
       }
 
-      const validLoans = modalLoans.filter(loan => 
+      const validLoans = modalLoans.filter(loan =>
         loan.borrower?.personalData?.fullName?.trim() &&
         loan.loantype?.id &&
         loan.requestedAmount &&
@@ -787,20 +833,20 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
         // Si el cliente fue seleccionado del autocomplete o es una renovación, no validar duplicados
         const isSelectedFromAutocomplete = !!(loan as any).borrower?.personalData?.id;
         const isRenewal = !!loan.previousLoan;
-        
+
         if (isSelectedFromAutocomplete || isRenewal) {
           continue; // Skip validation for selected or renewal loans
         }
-        
+
         const cleanName = (loan.borrower?.personalData?.fullName || '').trim().replace(/\s+/g, ' ');
         const cleanPhone = (loan.borrower?.personalData?.phones?.[0]?.number || '').trim().replace(/\s+/g, ' ');
-        
+
         if (cleanName && cleanPhone) {
           const existingClient = allPreviousLoansData?.loans?.find((existingLoan: Loan) => {
             const existingName = (existingLoan.borrower?.personalData?.fullName || '').trim().replace(/\s+/g, ' ');
             const existingPhone = (existingLoan.borrower?.personalData?.phones?.[0]?.number || '').trim().replace(/\s+/g, ' ');
-            return existingName.toLowerCase() === cleanName.toLowerCase() && 
-                   existingPhone === cleanPhone;
+            return existingName.toLowerCase() === cleanName.toLowerCase() &&
+              existingPhone === cleanPhone;
           });
 
           if (existingClient) {
@@ -814,7 +860,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
       // Preparar datos para la mutación
       const loansData = validLoans.map(loan => {
         const phoneNumber = loan.borrower?.personalData?.phones?.[0]?.number || '';
-        
+
         return {
           requestedAmount: (loan.requestedAmount || '0').toString(),
           amountGived: (loan.amountGived || '0').toString(),
@@ -843,7 +889,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
         // Verificar errores en la respuesta
         const responses = data.createMultipleLoans as Array<{ success: boolean; message?: string; loan?: Loan }>;
         const errorResponse = responses.find((response) => !response.success);
-        
+
         if (errorResponse) {
           showToast('error', errorResponse.message || 'Error desconocido al crear el préstamo');
           setIsSavingPersonalData(prev => ({ ...prev, 'saving': false }));
@@ -852,21 +898,21 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
 
         // Refrescar datos
         await Promise.all([refetchRoute(), refetchLoans()]);
-        
+
         // Actualizar balance
         if (onBalanceUpdate) {
-          const totalAmount = responses.reduce((sum, response) => 
+          const totalAmount = responses.reduce((sum, response) =>
             sum + parseFloat(response.loan?.amountGived || '0'), 0
           );
           onBalanceUpdate(-totalAmount);
         }
-        
+
         // Mostrar mensaje de éxito
         showToast('success', `${validLoans.length} crédito(s) guardado(s) exitosamente`);
-        
+
         // Triggear refresh de balances
         triggerRefresh();
-        
+
         // Limpiar estado y cerrar modal
         resetModalState();
         onClose();
@@ -910,23 +956,54 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
               <AlertCircle size={20} />
             </div>
             <div className={styles.validationSummaryContent}>
-              <p className={styles.validationSummaryTitle}>
-                {validationSummary.loansWithErrors.length} {validationSummary.loansWithErrors.length === 1 ? 'crédito incompleto' : 'créditos incompletos'}
-              </p>
-              <div className={styles.validationSummaryMessage}>
-                {validationSummary.loansWithErrors.map(({ index, errors }) => (
-                  <div key={index} style={{ marginBottom: '8px' }}>
-                    <strong>Crédito #{index}:</strong>
-                    <ul style={{ margin: '4px 0 0 20px', padding: 0, listStyle: 'disc' }}>
-                      {errors.map((error, errorIndex) => (
-                        <li key={errorIndex} style={{ marginBottom: '4px', fontSize: '13px' }}>
-                          {error.message}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <p className={styles.validationSummaryTitle}>
+                  {validationSummary.totalErrors} {validationSummary.totalErrors === 1 ? 'error encontrado' : 'errores encontrados'} en {validationSummary.loansWithErrors.length} {validationSummary.loansWithErrors.length === 1 ? 'crédito' : 'créditos'}
+                </p>
+                <button
+                  onClick={() => setIsValidationSummaryExpanded(!isValidationSummaryExpanded)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#DC2626',
+                    textDecoration: 'underline',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    marginLeft: '12px'
+                  }}
+                >
+                  {isValidationSummaryExpanded ? 'Ver menos' : 'Ver detalles'}
+                </button>
               </div>
+
+              {/* Mostrar solo el primer error si no está expandido */}
+              {!isValidationSummaryExpanded && validationSummary.loansWithErrors.length > 0 && (
+                <div className={styles.validationSummaryMessage} style={{ marginTop: '4px' }}>
+                  <span style={{ fontSize: '13px' }}>
+                    Crédito #{validationSummary.loansWithErrors[0].index}: {validationSummary.loansWithErrors[0].errors[0].message}
+                    {validationSummary.totalErrors > 1 && ' ...'}
+                  </span>
+                </div>
+              )}
+
+              {/* Mostrar todos los errores si está expandido */}
+              {isValidationSummaryExpanded && (
+                <div className={styles.validationSummaryMessage} style={{ marginTop: '8px', maxHeight: '200px', overflowY: 'auto' }}>
+                  {validationSummary.loansWithErrors.map(({ index, errors }) => (
+                    <div key={index} style={{ marginBottom: '8px' }}>
+                      <strong>Crédito #{index}:</strong>
+                      <ul style={{ margin: '4px 0 0 20px', padding: 0, listStyle: 'disc' }}>
+                        {errors.map((error, errorIndex) => (
+                          <li key={errorIndex} style={{ marginBottom: '4px', fontSize: '13px' }}>
+                            {error.message}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <button
               onClick={() => setShowValidationSummary(false)}
@@ -971,7 +1048,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
                     {/* Cliente / Renovación */}
                     <div className={styles.fieldGroup}>
                       <label className={styles.fieldLabel}>Cliente / Renovación</label>
-                      
+
                       {/* Card de cliente seleccionado (verde o amarilla si está editando) */}
                       {loan.borrower?.personalData?.id && !isEditingClient[loanId] ? (
                         <div className={styles.selectedClientCard}>
@@ -1086,13 +1163,13 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
                             <div className={styles.fieldGroup}>
                               <label className={styles.fieldLabel}>Teléfono</label>
                               <div style={{ position: 'relative' }}>
-                              <input
-                                type="text"
-                                className={styles.fieldInput}
-                                value={loan.borrower?.personalData?.phones?.[0]?.number || ''}
-                                onChange={(e) => {
-                                  const currentName = loan.borrower?.personalData?.fullName || '';
-                                  handleLoanChange(index, 'clientData', { clientName: currentName, clientPhone: e.target.value });
+                                <input
+                                  type="text"
+                                  className={styles.fieldInput}
+                                  value={loan.borrower?.personalData?.phones?.[0]?.number || ''}
+                                  onChange={(e) => {
+                                    const currentName = loan.borrower?.personalData?.fullName || '';
+                                    handleLoanChange(index, 'clientData', { clientName: currentName, clientPhone: e.target.value });
                                     // Si se escribe algo, desmarcar "sin teléfono"
                                     if (e.target.value.trim() !== '') {
                                       setHasNoPhoneByLoanId(prev => ({
@@ -1102,7 +1179,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
                                     }
                                   }}
                                   disabled={(hasNoPhoneByLoanId[`${loanId}-client-phone`] || false)}
-                                  style={{ 
+                                  style={{
                                     width: '100%',
                                     paddingRight: '40px'
                                   }}
@@ -1255,6 +1332,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
                               [`${loanId}-client-phone`]: hasNoPhone
                             }));
                           }}
+                          hideErrorMessages={true}
                         />
                       )}
                     </div>
@@ -1265,7 +1343,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
                     {/* Aval */}
                     <div className={styles.fieldGroup}>
                       <label className={styles.fieldLabel}>Aval</label>
-                      
+
                       {/* Card de aval seleccionado */}
                       {loan.selectedCollateralId && !isEditingAval[`${loanId}-aval`] ? (
                         <div className={styles.selectedClientCard}>
@@ -1357,18 +1435,18 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
                             <div className={styles.fieldGroup}>
                               <label className={styles.fieldLabel}>Teléfono</label>
                               <div style={{ position: 'relative' }}>
-                              <input
-                                type="text"
-                                className={`${styles.fieldInput} ${hasFieldError(`${loanId}-aval-phone`, 'Teléfono del aval') ? styles.error : ''}`}
-                                value={loan.avalPhone || ''}
-                                onChange={(e) => {
-                                  handleLoanChange(index, 'avalData', {
-                                    avalName: loan.avalName || '',
-                                    avalPhone: e.target.value,
-                                    selectedCollateralId: loan.selectedCollateralId,
-                                    selectedCollateralPhoneId: loan.selectedCollateralPhoneId,
-                                    avalAction: 'update'
-                                  });
+                                <input
+                                  type="text"
+                                  className={`${styles.fieldInput} ${hasFieldError(`${loanId}-aval-phone`, 'Teléfono del aval') ? styles.error : ''}`}
+                                  value={loan.avalPhone || ''}
+                                  onChange={(e) => {
+                                    handleLoanChange(index, 'avalData', {
+                                      avalName: loan.avalName || '',
+                                      avalPhone: e.target.value,
+                                      selectedCollateralId: loan.selectedCollateralId,
+                                      selectedCollateralPhoneId: loan.selectedCollateralPhoneId,
+                                      avalAction: 'update'
+                                    });
                                     // Si se escribe algo, desmarcar "sin teléfono"
                                     if (e.target.value.trim() !== '') {
                                       setHasNoPhoneByLoanId(prev => ({
@@ -1388,9 +1466,9 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
                                       }
                                       return updated;
                                     });
-                                }}
+                                  }}
                                   disabled={(hasNoPhoneByLoanId[`${loanId}-aval-phone`] || false)}
-                                  style={{ 
+                                  style={{
                                     width: '100%',
                                     paddingRight: '40px'
                                   }}
@@ -1466,16 +1544,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
                                   </svg>
                                 </button>
                               </div>
-                              {getFieldError(`${loanId}-aval-phone`, 'Teléfono del aval') && (
-                                <div className={styles.fieldError}>
-                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <circle cx="12" cy="12" r="10" />
-                                    <line x1="12" y1="8" x2="12" y2="12" />
-                                    <line x1="12" y1="16" x2="12.01" y2="16" />
-                                  </svg>
-                                  {getFieldError(`${loanId}-aval-phone`, 'Teléfono del aval')}
-                                </div>
-                              )}
+                              {/* Error message removed as per request */}
                             </div>
                           </div>
                           <div className={styles.editingClientActions}>
@@ -1523,62 +1592,62 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
                         </div>
                       ) : (
                         <div>
-                        <ClientLoanUnifiedInput
-                        loanId={`${loanId}-aval`}
-                        currentName={loan.avalName || ''}
-                        currentPhone={loan.avalPhone || ''}
-                        previousLoanOption={undefined}
-                        previousLoan={undefined}
-                        clientPersonalDataId={loan.selectedCollateralId}
-                        clientPhoneId={loan.selectedCollateralPhoneId}
-                        onNameChange={(name) => {
-                          const currentPhone = loan.avalPhone || '';
-                          handleLoanChange(index, 'avalData', {
-                            avalName: name,
-                            avalPhone: currentPhone,
-                            selectedCollateralId: undefined,
-                            selectedCollateralPhoneId: undefined,
-                            avalAction: 'create'
-                          });
-                        }}
-                        onPhoneChange={(phone) => {
-                          const currentName = loan.avalName || '';
-                          handleLoanChange(index, 'avalData', {
-                            avalName: currentName,
-                            avalPhone: phone,
-                            selectedCollateralId: undefined,
-                            selectedCollateralPhoneId: undefined,
-                            avalAction: 'create'
-                          });
-                        }}
-                        onPreviousLoanSelect={() => {}}
-                        onPreviousLoanClear={() => {
-                          handleLoanChange(index, 'avalData', {
-                            avalName: '',
-                            avalPhone: '',
-                            selectedCollateralId: undefined,
-                            selectedCollateralPhoneId: undefined,
-                            avalAction: 'clear'
-                          });
-                        }}
-                        onClientDataChange={(data) => {
-                          handleLoanChange(index, 'avalData', {
-                            avalName: data.clientName,
-                            avalPhone: data.clientPhone,
-                            selectedCollateralId: data.selectedPersonId,
-                            selectedCollateralPhoneId: data.selectedPersonPhoneId,
-                            avalAction: data.action
-                          });
-                        }}
-                        previousLoanOptions={[]}
-                        mode="aval"
-                        usedPersonIds={usedAvalIds}
-                        borrowerLocationId={loan.borrower?.personalData?.addresses?.[0]?.location?.id}
-                        leaderLocation={loan.borrower?.personalData?.addresses?.[0]?.location?.name || selectedLeadLocation?.name}
-                        selectedPersonId={loan.selectedCollateralId}
-                        onLocationMismatch={onLocationMismatch}
-                        namePlaceholder="Buscar o escribir nombre del aval..."
-                        phonePlaceholder="Teléfono..."
+                          <ClientLoanUnifiedInput
+                            loanId={`${loanId}-aval`}
+                            currentName={loan.avalName || ''}
+                            currentPhone={loan.avalPhone || ''}
+                            previousLoanOption={undefined}
+                            previousLoan={undefined}
+                            clientPersonalDataId={loan.selectedCollateralId}
+                            clientPhoneId={loan.selectedCollateralPhoneId}
+                            onNameChange={(name) => {
+                              const currentPhone = loan.avalPhone || '';
+                              handleLoanChange(index, 'avalData', {
+                                avalName: name,
+                                avalPhone: currentPhone,
+                                selectedCollateralId: undefined,
+                                selectedCollateralPhoneId: undefined,
+                                avalAction: 'create'
+                              });
+                            }}
+                            onPhoneChange={(phone) => {
+                              const currentName = loan.avalName || '';
+                              handleLoanChange(index, 'avalData', {
+                                avalName: currentName,
+                                avalPhone: phone,
+                                selectedCollateralId: undefined,
+                                selectedCollateralPhoneId: undefined,
+                                avalAction: 'create'
+                              });
+                            }}
+                            onPreviousLoanSelect={() => { }}
+                            onPreviousLoanClear={() => {
+                              handleLoanChange(index, 'avalData', {
+                                avalName: '',
+                                avalPhone: '',
+                                selectedCollateralId: undefined,
+                                selectedCollateralPhoneId: undefined,
+                                avalAction: 'clear'
+                              });
+                            }}
+                            onClientDataChange={(data) => {
+                              handleLoanChange(index, 'avalData', {
+                                avalName: data.clientName,
+                                avalPhone: data.clientPhone,
+                                selectedCollateralId: data.selectedPersonId,
+                                selectedCollateralPhoneId: data.selectedPersonPhoneId,
+                                avalAction: data.action
+                              });
+                            }}
+                            previousLoanOptions={[]}
+                            mode="aval"
+                            usedPersonIds={usedAvalIds}
+                            borrowerLocationId={loan.borrower?.personalData?.addresses?.[0]?.location?.id}
+                            leaderLocation={loan.borrower?.personalData?.addresses?.[0]?.location?.name || selectedLeadLocation?.name}
+                            selectedPersonId={loan.selectedCollateralId}
+                            onLocationMismatch={onLocationMismatch}
+                            namePlaceholder="Buscar o escribir nombre del aval..."
+                            phonePlaceholder="Teléfono..."
                             nameError={getFieldError(loanId, 'Nombre del aval')}
                             phoneError={getFieldError(loanId, 'Teléfono del aval')}
                             onNoPhoneChange={(hasNoPhone) => {
@@ -1587,6 +1656,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
                                 [`${loanId}-aval-phone`]: hasNoPhone
                               }));
                             }}
+                            hideErrorMessages={true}
                           />
                         </div>
                       )}
@@ -1614,12 +1684,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
                             <option key={opt.value} value={opt.value}>{opt.label}</option>
                           ))}
                         </select>
-                        {getFieldError(loanId, 'Tipo de préstamo') && (
-                          <div className={styles.fieldError}>
-                            <AlertCircle size={14} />
-                            {getFieldError(loanId, 'Tipo de préstamo')}
-                          </div>
-                        )}
+                        {/* Error message removed as per request */}
                       </div>
 
                       <div className={styles.fieldGroup}>
@@ -1634,12 +1699,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
                             handleLoanChange(index, 'requestedAmount', value);
                           }}
                         />
-                        {getFieldError(loanId, 'Monto solicitado') && (
-                          <div className={styles.fieldError}>
-                            <AlertCircle size={14} />
-                            {getFieldError(loanId, 'Monto solicitado')}
-                          </div>
-                        )}
+                        {/* Error message removed as per request */}
                       </div>
 
                       <div className={styles.fieldGroup}>
@@ -1699,8 +1759,8 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
               <button onClick={handleClose} className={`${styles.footerButton} ${styles.cancel}`}>
                 Cancelar
               </button>
-              <button 
-                onClick={handleSave} 
+              <button
+                onClick={handleSave}
                 disabled={!canSave || isSavingPersonalData['saving']}
                 className={`${styles.footerButton} ${styles.save}`}
               >
@@ -1760,7 +1820,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
               <AlertDialogTitle>¿Cerrar sin guardar?</AlertDialogTitle>
             </div>
             <AlertDialogDescription style={{ marginTop: '8px' }}>
-              Tienes <strong>{completedCount > 0 ? completedCount : modalLoans.length}</strong> crédito(s) en progreso. 
+              Tienes <strong>{completedCount > 0 ? completedCount : modalLoans.length}</strong> crédito(s) en progreso.
               Si cierras ahora, se perderán todos los cambios que no hayas guardado.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1768,7 +1828,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
             <AlertDialogCancel onClick={handleCancelClose}>
               Continuar editando
             </AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={handleConfirmClose}
               style={{ backgroundColor: '#DC2626', color: 'white' }}
             >
@@ -1777,6 +1837,6 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </div >
   );
 };
