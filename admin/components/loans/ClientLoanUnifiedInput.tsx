@@ -138,6 +138,9 @@ interface ClientLoanUnifiedInputProps {
   // Callback para notificar cuando se marca como "sin teléfono"
   onNoPhoneChange?: (hasNoPhone: boolean) => void;
   hideErrorMessages?: boolean;
+
+  // Permitir buscar personas (PersonalData) que no son borrowers aún (solo mode='client')
+  allowPersonSearch?: boolean;
 }
 
 type ClientState = 'new' | 'edited' | 'renewed' | 'newClient';
@@ -178,7 +181,8 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
   nameError,
   phoneError,
   onNoPhoneChange,
-  hideErrorMessages = false
+  hideErrorMessages = false,
+  allowPersonSearch = false
 }) => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isEditingInline, setIsEditingInline] = useState(false);
@@ -246,6 +250,55 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
         // Solo mostrar dropdown si el input está enfocado y no acabamos de seleccionar una opción
         if (!justSelectedOptionRef.current) {
           setShowDropdown(isInputFocused && options.length > 0);
+        }
+      } else if (mode === 'client' && allowPersonSearch) {
+        // Lógica para búsqueda de personas en modo cliente (para nuevos créditos)
+        let filteredResults = data.personalDatas || [];
+
+        // Excluir personas que ya tienen préstamos activos (ya deberían aparecer en la búsqueda normal de préstamos)
+        // Opcional: Si queremos mostrar todos, quitamos este filtro.
+        // Por ahora mostramos todos los que coinciden, diferenciándolos visualmente.
+
+        const personOptions = filteredResults.map((person: any) => {
+          return {
+            value: person.id,
+            label: person.fullName, // Solo nombre, el teléfono se muestra en el subtexto si se quiere
+            personData: person,
+            isPerson: true, // Flag para identificar que es una persona y no un préstamo previo
+            location: person.addresses?.[0]?.location?.name || 'Sin localidad',
+            locationColor: '#10B981', // Verde para diferenciar
+            phone: person.phones?.[0]?.number || ''
+          };
+        });
+
+        // Combinar con las opciones de préstamos ya filtradas (si existen)
+        // Nota: Esto se maneja en el useEffect de filtrado, aquí solo actualizamos las opciones de personas
+        // Pero como searchPersons es async, necesitamos una forma de combinarlo.
+        // Una estrategia es guardar estas opciones en un estado separado y combinarlas en el render o en otro efecto.
+        // Por simplicidad, vamos a actualizar filteredOptions aquí, pero teniendo en cuenta que puede sobrescribir
+        // los resultados de préstamos si no tenemos cuidado.
+        // MEJOR ESTRATEGIA: Disparar esta búsqueda SOLO si no hay coincidencias de préstamos o SIEMPRE y combinar.
+
+        // Vamos a combinar con los resultados actuales de préstamos filtrados
+        setFilteredOptions(prevOptions => {
+          const existingLoanOptions = prevOptions.filter(opt => !opt.isPerson);
+
+          // Filtrar personas que ya están en las opciones de préstamos (por nombre/teléfono similar) para evitar duplicados visuales
+          // Aunque técnicamente son entidades diferentes (Loan vs PersonalData), para el usuario es la misma persona.
+          // Si ya sale como préstamo, mejor que lo seleccione como préstamo (renovación).
+          const uniquePersonOptions = personOptions.filter((pOption: any) => {
+            return !existingLoanOptions.some(lOption =>
+              lOption.label.toLowerCase() === pOption.label.toLowerCase()
+            );
+          });
+
+          return [...existingLoanOptions, ...uniquePersonOptions];
+        });
+
+        if (!justSelectedOptionRef.current) {
+          // Mostrar dropdown si hay resultados (ya sea préstamos o personas)
+          // Nota: filteredOptions se actualiza asíncronamente, así que verificamos la longitud combinada
+          setShowDropdown(isInputFocused);
         }
       }
     },
@@ -340,19 +393,26 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
       return;
     }
 
+    const trimmedSearch = searchText.trim();
+
     if (mode === 'client') {
-      // Modo cliente: filtrar préstamos anteriores
-      // No mostrar dropdown si ya hay un préstamo seleccionado
-      if (searchText.trim().length >= 2 && !hasPreviousLoan && isInputFocused) {
-        // Filtrar opciones localmente mientras se busca
+      if (trimmedSearch) {
+        const searchLower = trimmedSearch.toLowerCase();
         const filtered = previousLoanOptions.filter(option =>
-          option.label.toLowerCase().includes(searchText.toLowerCase())
+          option.label.toLowerCase().includes(searchLower)
         );
         setFilteredOptions(filtered);
+        setShowDropdown(true);
 
-        // Solo mostrar dropdown si está cargando o si hay opciones filtradas
-        const shouldShow = isLoading || filtered.length > 0;
-        setShowDropdown(shouldShow);
+        // Si está habilitada la búsqueda de personas, disparar la query
+        if (allowPersonSearch && trimmedSearch.length >= 3) {
+          searchPersons({
+            variables: {
+              searchTerm: trimmedSearch
+            }
+          });
+        }
+
       } else {
         setFilteredOptions([]);
         setShowDropdown(false);
@@ -368,7 +428,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
         setShowDropdown(false);
       }
     }
-  }, [searchText, previousLoanOptions, mode, searchPersons, isLoading, isInputFocused, filteredOptions.length]);
+  }, [searchText, previousLoanOptions, mode, searchPersons, isLoading, isInputFocused, allowPersonSearch, selectedPersonId]);
 
   // Restaurar focus después de re-render si estaba enfocado antes
   useEffect(() => {
@@ -587,37 +647,52 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
     justSelectedOptionRef.current = true;
 
     if (mode === 'client') {
-      // Modo cliente: seleccionar préstamo anterior
-      // Verificar si la localidad del LEAD del préstamo anterior es diferente a la del líder seleccionado actualmente
-      // Comparamos: lead del préstamo anterior vs lead seleccionado actualmente
-      const previousLoanLeadLocationId = option.loanData?.lead?.personalData?.addresses?.[0]?.location?.id;
-      const previousLoanLeadLocationName = option.loanData?.lead?.personalData?.addresses?.[0]?.location?.name || 'desconocida';
+      if (option.isPerson) {
+        // Selección de Persona (PersonalData) que no es préstamo
+        // Usamos onPreviousLoanSelect para pasar la opción al padre, 
+        // ya que el padre maneja tanto préstamos como personas en este campo ahora.
+        onPreviousLoanSelect(option);
+        
+        setSearchText(option.label);
+        // Actualizar input name
+        if (inputRef.current) inputRef.current.value = option.label;
 
-      // Get the currently selected lead location name
-      const currentLeadLocationName = leaderLocation || 'desconocida';
+        const phone = option.phone || '';
+        if (phoneInputRef.current) phoneInputRef.current.value = phone;
 
-      if (selectedLeadLocationId && previousLoanLeadLocationId && previousLoanLeadLocationId !== selectedLeadLocationId && onLocationMismatch) {
-        // Pass both location names to the callback
-        onLocationMismatch(previousLoanLeadLocationName, currentLeadLocationName);
+        // Eliminamos llamadas redundantes que causan race conditions
+        // onPhoneChange(phone);
+        // onClientDataChange({ ... });
+
+        setClientState('newClient'); // Estado para cliente nuevo (sin préstamo previo)
+      } else {
+        // Selección de Préstamo existente (Renovación)
+        // Verificar si la localidad del LEAD del préstamo anterior es diferente a la del líder seleccionado actualmente
+        const previousLoanLeadLocationId = option.loanData?.lead?.personalData?.addresses?.[0]?.location?.id;
+        const previousLoanLeadLocationName = option.loanData?.lead?.personalData?.addresses?.[0]?.location?.name || 'desconocida';
+        const currentLeadLocationName = leaderLocation || 'desconocida';
+
+        if (selectedLeadLocationId && previousLoanLeadLocationId && previousLoanLeadLocationId !== selectedLeadLocationId && onLocationMismatch) {
+          onLocationMismatch(previousLoanLeadLocationName, currentLeadLocationName);
+        }
+
+        onPreviousLoanSelect(option);
+        
+        // Actualizar el texto de búsqueda con el nombre del cliente
+        const clientName = option.loanData?.borrower?.personalData?.fullName || option.label || '';
+        setSearchText(clientName);
+        
+        setClientState('renewed');
       }
-
-      onPreviousLoanSelect(option);
-
+      
       // Cerrar el dropdown inmediatamente
       setShowDropdown(false);
       setFilteredOptions([]);
-
-      // Actualizar el texto de búsqueda con el nombre del cliente
-      const clientName = option.loanData.borrower.personalData.fullName;
-      setSearchText(clientName);
-
-      // Resetear el flag después de un pequeño delay para permitir que el useEffect se ejecute sin reabrir
+      
+      // Resetear el flag después de un pequeño delay
       setTimeout(() => {
         justSelectedOptionRef.current = false;
       }, 100);
-
-      // Los cambios de nombre y teléfono se manejarán automáticamente
-      // cuando el padre actualice los props (currentName, currentPhone)
     } else if (mode === 'aval') {
       // Modo aval: seleccionar persona
       const person = option.personData;
@@ -627,14 +702,10 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
       // Get aval location from the person's addresses
       const avalLocationId = person.addresses?.[0]?.location?.id;
       const avalLocationName = person.addresses?.[0]?.location?.name || option.location || 'desconocida';
-
-      // Get borrower location name (we need to fetch this from the parent or pass it as a prop)
-      // For now, we'll use a placeholder - the parent should provide this
       const borrowerLocationName = leaderLocation || 'desconocida';
 
       // Verificar si la localidad del aval es diferente a la del borrower
       if (borrowerLocationId && avalLocationId && borrowerLocationId !== avalLocationId && onLocationMismatch) {
-        // Pass both location names to the callback
         onLocationMismatch(avalLocationName, borrowerLocationName);
       }
 
@@ -644,10 +715,15 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
 
       // Actualizar el estado local
       setSearchText(person.fullName);
-      onNameChange(person.fullName);
-      onPhoneChange(phone);
+      if (inputRef.current) inputRef.current.value = person.fullName;
 
-      // Notificar al padre con los datos del aval
+      if (phoneInputRef.current) phoneInputRef.current.value = phone;
+
+      // Eliminamos llamadas redundantes que causan race conditions
+      // onNameChange(person.fullName);
+      // onPhoneChange(phone);
+
+      // Notificar al padre con los datos del aval (UNA SOLA LLAMADA)
       onClientDataChange({
         clientName: person.fullName,
         clientPhone: phone,
@@ -661,11 +737,14 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
         getPersonInfo({ variables: { id: person.id } });
       }
 
-      // Resetear el flag después de un pequeño delay para permitir que el useEffect se ejecute sin reabrir
+      // Resetear el flag después de un pequeño delay
       setTimeout(() => {
         justSelectedOptionRef.current = false;
       }, 100);
     }
+
+    setIsInputFocused(false);
+    if (inputRef.current) inputRef.current.blur();
   };
 
   // Prevenir que el dropdown se cierre cuando se hace click dentro de él
@@ -853,6 +932,12 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                       return;
                     }
 
+                    // Si acabamos de seleccionar una opción, no hacer nada en el blur
+                    // para evitar sobrescribir la selección con onNameChange
+                    if (justSelectedOptionRef.current) {
+                      return;
+                    }
+
                     setIsInputFocused(false);
                     shouldPreserveFocusRef.current = false; // Ya no necesitamos preservar el focus
                     isTypingRef.current = false;
@@ -1009,7 +1094,47 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                 <>
                   {filteredOptions.map((option) => {
                     if (mode === 'client') {
-                      // Modo cliente: mostrar préstamos anteriores
+                      // Verificar si es una persona (nuevo crédito) o un préstamo anterior (renovación)
+                      if (option.isPerson) {
+                        // Renderizar opción de Persona (Nuevo Crédito)
+                        const personName = option.label || option.personData?.fullName || '';
+                        const personPhone = option.phone || option.personData?.phones?.[0]?.number || '';
+                        const location = option.location || 'Sin localidad';
+
+                        return (
+                          <div
+                            key={option.value}
+                            className={styles.dropdownItem}
+                            onMouseDown={(e) => {
+                              e.preventDefault(); // Prevenir que el input pierda focus
+                              handleSelectOption(option, e);
+                            }}
+                            style={{
+                              // borderLeft: '3px solid #10B981' // Removed green border as requested
+                            }}
+                          >
+                            {/* Content left, badges right */}
+                            <div className={styles.dropdownItemContent}>
+                              <span className={styles.dropdownItemName}>{personName}</span>
+                              {personPhone && (
+                                <span className={styles.dropdownItemPhone}>{personPhone}</span>
+                              )}
+                            </div>
+                            <div className={styles.dropdownItemBadges}>
+                              <span className={`${styles.badge}`} style={{ backgroundColor: '#FEF3C7', color: '#92400E' }}>
+                                Sin crédito previo
+                              </span>
+                              {location && location !== 'Sin localidad' && (
+                                <span className={`${styles.badge} ${styles.badgeLocation}`}>
+                                  📍 {location}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // Modo cliente: mostrar préstamos anteriores (Renovación)
                       const debtAmount = option.debtAmount || '0';
                       const location = option.location || null;
                       const debtColor = option.debtColor || '#6B7280';

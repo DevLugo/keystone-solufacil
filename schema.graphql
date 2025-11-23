@@ -2996,6 +2996,7 @@ input MultipleLoanInput {
 input MultipleBorrowerDataInput {
   fullName: String!
   phone: String
+  personalDataId: ID
 }
 
 input AvalDataInput {

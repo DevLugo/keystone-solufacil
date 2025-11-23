@@ -2785,6 +2785,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
                     fields: {
                       fullName: graphql.arg({ type: graphql.nonNull(graphql.String) }),
                       phone: graphql.arg({ type: graphql.String }),
+                      personalDataId: graphql.arg({ type: graphql.ID }), // ✅ NUEVO: ID de PersonalData existente
                     }
                   })
                 }),
@@ -2817,13 +2818,15 @@ export const extendGraphqlSchema = graphql.extend(base => {
               console.log(`🔍 Validando préstamo ${i + 1}/${loans.length}:`, {
                 fullName: loanData.borrowerData?.fullName,
                 phone: loanData.borrowerData?.phone,
+                personalDataId: loanData.borrowerData?.personalDataId,
                 hasBorrowerData: !!loanData.borrowerData,
                 hasPreviousLoanId: !!loanData.previousLoanId,
                 isRenovation: !!loanData.previousLoanId
               });
 
               // Solo validar duplicados si NO es una renovación (no tiene previousLoanId)
-              if (loanData.borrowerData?.fullName && !loanData.previousLoanId) {
+              // Y si NO se proporcionó un personalDataId explícito (si se dio ID, asumimos que es correcto/intencional)
+              if (loanData.borrowerData?.fullName && !loanData.previousLoanId && !loanData.borrowerData?.personalDataId) {
                 // Normalización robusta: eliminar TODOS los espacios múltiples y caracteres especiales
                 const normalizedName = loanData.borrowerData.fullName.trim().replace(/\s+/g, ' ').replace(/\s{2,}/g, ' ').trim();
 
@@ -2870,6 +2873,8 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 }
               } else if (loanData.previousLoanId) {
                 console.log(`✅ Préstamo ${i + 1} es una RENOVACIÓN - Saltando validación de duplicados`);
+              } else if (loanData.borrowerData?.personalDataId) {
+                console.log(`✅ Préstamo ${i + 1} usa PersonalData existente (${loanData.borrowerData.personalDataId}) - Saltando validación de duplicados por nombre`);
               } else {
                 console.log(`⚠️ Préstamo ${i + 1} sin nombre de cliente, saltando validación`);
               }
@@ -2883,7 +2888,33 @@ export const extendGraphqlSchema = graphql.extend(base => {
               const batchPersonalDataMap = new Map<string, string>();
 
               // Helper para obtener o crear PersonalData con deduplicación en lote
-              const getOrCreatePersonalData = async (name: string, phone: string | undefined): Promise<string> => {
+              const getOrCreatePersonalData = async (name: string, phone: string | undefined, explicitId?: string | null): Promise<string> => {
+                // Si se proporciona un ID explícito, usarlo directamente
+                if (explicitId) {
+                  console.log(`🔄 Usando PersonalData explícito: ${explicitId}`);
+
+                  // Verificar si existe y actualizar teléfono si es necesario
+                  if (phone) {
+                    const normalizedPhone = phone.trim();
+                    const existingPhone = await tx.phone.findFirst({
+                      where: {
+                        personalDataId: explicitId,
+                        number: normalizedPhone
+                      }
+                    });
+
+                    if (!existingPhone) {
+                      await tx.phone.create({
+                        data: {
+                          number: normalizedPhone,
+                          personalDataId: explicitId
+                        }
+                      });
+                    }
+                  }
+                  return explicitId;
+                }
+
                 const normalizedName = name.trim().replace(/\s+/g, ' ').replace(/\s{2,}/g, ' ').trim();
                 const normalizedPhone = phone?.trim();
 
@@ -2978,9 +3009,10 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   // Crear o CONECTAR borrower reutilizando PersonalData normalizado (con deduplicación de lote)
                   const rawName = loanData.borrowerData?.fullName || '';
                   const rawPhone = loanData.borrowerData?.phone || '';
+                  const explicitPersonalDataId = loanData.borrowerData?.personalDataId;
 
-                  // Usar el helper para obtener el ID de PersonalData (deduplicado)
-                  const personalDataId = await getOrCreatePersonalData(rawName, rawPhone);
+                  // Usar el helper para obtener el ID de PersonalData (deduplicado o explícito)
+                  const personalDataId = await getOrCreatePersonalData(rawName, rawPhone, explicitPersonalDataId);
 
                   // Buscar/reutilizar Borrower vinculado o crearlo
                   const existingBorrower = await tx.borrower.findFirst({

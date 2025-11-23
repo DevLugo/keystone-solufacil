@@ -638,8 +638,10 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
     let updatedLoan = { ...updatedLoans[index] };
 
     if (field === 'previousLoan') {
-      const previousLoanValue = value as PreviousLoanOption | null;
-      if (previousLoanValue?.value) {
+      const previousLoanValue = value as any;
+      
+      // Caso 1: Es una renovación válida (tiene datos del préstamo anterior)
+      if (previousLoanValue?.value && previousLoanValue.loanData) {
         const selectedLoan = previousLoanValue.loanData;
         const pendingAmount = Math.round(parseFloat(selectedLoan.pendingAmountStored || selectedLoan.pendingAmount || '0')).toString();
 
@@ -662,7 +664,39 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
           requestedAmount: selectedLoan.requestedAmount,
           comissionAmount: commission.toString(),
         };
-      } else {
+      } 
+      // Caso 2: Es una selección de persona existente pero SIN crédito previo (no es renovación)
+      else if (previousLoanValue?.value) {
+        const personData = previousLoanValue.personData || {};
+        const fullName = personData.fullName || previousLoanValue.label || '';
+        const phones = personData.phones || [];
+        const phone = phones.length > 0 ? phones[0].number : '';
+        const phoneId = phones.length > 0 ? phones[0].id : '';
+
+        updatedLoan = {
+          ...updatedLoan,
+          previousLoanOption: null, // Importante: null para que no se marque como renovación
+          previousLoan: undefined,
+          borrower: {
+            id: '', // ID vacío porque será un nuevo préstamo
+            personalData: {
+              id: previousLoanValue.value,
+              fullName: fullName,
+              phones: [{ id: phoneId, number: phone }]
+            }
+          },
+          // Limpiar datos de aval anteriores
+          avalName: '',
+          avalPhone: '',
+          selectedCollateralId: undefined,
+          selectedCollateralPhoneId: undefined,
+          avalAction: 'clear',
+          collaterals: [],
+          // No sobrescribimos loantype ni montos para permitir que el usuario los llene
+        };
+      }
+      // Caso 3: Se limpió la selección
+      else {
         updatedLoan = {
           ...updatedLoan,
           previousLoanOption: null,
@@ -694,11 +728,11 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
       const commission = (value as any)?.loanGrantedComission ?? (value?.loanPaymentComission ?? 0);
       updatedLoan.comissionAmount = commission.toString();
     } else if (field === 'clientData') {
-      const clientDataValue = value as { clientName: string; clientPhone: string };
+      const clientDataValue = value as { clientName: string; clientPhone: string; selectedPersonId?: string };
       updatedLoan.borrower = {
         id: updatedLoan.borrower?.id || '',
         personalData: {
-          id: updatedLoan.borrower?.personalData?.id || '',
+          id: clientDataValue.selectedPersonId || updatedLoan.borrower?.personalData?.id || '',
           fullName: clientDataValue.clientName,
           phones: [{ id: updatedLoan.borrower?.personalData?.phones?.[0]?.id || '', number: clientDataValue.clientPhone }]
         }
@@ -770,6 +804,46 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
     }));
 
     // NO mostrar resumen automáticamente al cambiar inputs
+  };
+
+  const handleShowErrors = () => {
+    // Validar todos los préstamos
+    const allErrors: Record<string, ValidationError[]> = {};
+    let hasErrors = false;
+
+    modalLoans.forEach((loan) => {
+      const loanId = loan.id;
+      const validation = validateLoanData(loan, {
+        hasNoClientPhone: hasNoPhoneByLoanId[`${loanId}-client-phone`] || false,
+        hasNoAvalPhone: hasNoPhoneByLoanId[`${loanId}-aval-phone`] || false
+      });
+      if (!validation.isValid) {
+        allErrors[loan.id] = validation.errors;
+        hasErrors = true;
+      }
+    });
+
+    // Marcar todos los campos como tocados para mostrar errores o campos faltantes
+    const allTouched: Record<string, Record<string, boolean>> = {};
+    modalLoans.forEach(loan => {
+      allTouched[loan.id] = {
+        'Nombre del cliente': true,
+        'Teléfono del cliente': true,
+        'Nombre del aval': true,
+        'Teléfono del aval': true,
+        'Tipo de préstamo': true,
+        'Monto solicitado': true
+      };
+    });
+    setTouchedFields(allTouched);
+
+    if (hasErrors) {
+      setValidationErrors(allErrors);
+      setShowValidationSummary(true);
+      showToast('error', 'Por favor corrige los errores marcados');
+    } else {
+      showToast('warning', 'Por favor completa todos los campos requeridos');
+    }
   };
 
   const handleSave = async () => {
@@ -871,7 +945,8 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
           previousLoanId: loan.previousLoan?.id || undefined,
           borrowerData: {
             fullName: (loan.borrower?.personalData?.fullName || '').trim().replace(/\s+/g, ' '),
-            phone: phoneNumber.trim().replace(/\s+/g, ' ')
+            phone: phoneNumber.trim().replace(/\s+/g, ' '),
+            personalDataId: loan.borrower?.personalData?.id || undefined
           },
           avalData: {
             selectedCollateralId: loan.selectedCollateralId || undefined,
@@ -1333,6 +1408,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
                             }));
                           }}
                           hideErrorMessages={true}
+                          allowPersonSearch={true}
                         />
                       )}
                     </div>
@@ -1766,6 +1842,26 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
               >
                 {isSavingPersonalData['saving'] ? 'Guardando...' : 'Guardar Créditos'}
               </button>
+
+              {(!canSave && !isSavingPersonalData['saving']) && (
+                <button
+                  onClick={handleShowErrors}
+                  title="Ver errores de validación"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#EF4444',
+                    cursor: 'pointer',
+                    padding: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginLeft: '4px'
+                  }}
+                >
+                  <AlertCircle size={24} />
+                </button>
+              )}
             </div>
           </div>
           <p className={styles.completedText}>
