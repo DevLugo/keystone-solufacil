@@ -1066,6 +1066,73 @@ export const CreatePaymentForm = ({
     };
   };
 
+  // Construir filtros WHERE para el dropdown (sin filtrar por portafoliocleanup)
+  const buildWhereClauseForDropdown = useCallback(() => {
+    const baseFilters: any[] = [
+      {
+        finishedDate: {
+          equals: null
+        }
+      },
+      {
+        pendingAmountStored: {
+          gt: "0"
+        }
+      }
+      // NOTA: No incluimos el filtro excludedByCleanup para mostrar todos los clientes con deudas
+    ];
+
+    // Solo filtrar por lead si NO está activo "mostrar todas las localidades"
+    if (!showAllLocalities && selectedLead?.id) {
+      baseFilters.push({
+        lead: {
+          id: {
+            equals: selectedLead.id
+          }
+        }
+      });
+    }
+
+    // Si está activo "mostrar solo incompletos", filtrar casos básicos en el servidor
+    // Nota: Filtramos solo los casos más simples para evitar problemas con Prisma
+    // El filtrado completo se hace en el cliente
+    if (showOnlyIncompleteAvals) {
+      // Filtrar préstamos que:
+      // 1. No tienen collaterals (caso más común)
+      // 2. Tienen collaterals pero sin phones (caso común)
+      // Los demás casos (fullName vacío, number vacío) se filtran en el cliente
+      baseFilters.push({
+        OR: [
+          // Sin collaterals
+          {
+            collaterals: {
+              none: {}
+            }
+          },
+          // Con collaterals pero sin phones
+          {
+            collaterals: {
+              some: {
+                phones: {
+                  none: {}
+                }
+              }
+            }
+          }
+        ]
+      });
+    }
+
+    // Si hay múltiples filtros, usar AND; si solo hay uno, devolverlo directamente
+    if (baseFilters.length === 1) {
+      return baseFilters[0];
+    }
+    
+    return {
+      AND: baseFilters
+    };
+  }, [showAllLocalities, selectedLead?.id, showOnlyIncompleteAvals]);
+
   // Estado para paginación cuando se muestran todas las localidades
   const [paginationState, setPaginationState] = useState({
     take: 100, // Traer 100 préstamos a la vez del servidor
@@ -1189,6 +1256,66 @@ export const CreatePaymentForm = ({
     
     return loans;
   }, [activeLoansData?.loans, showOnlyIncompleteAvals]);
+
+  // Query para el dropdown (sin filtrar por portafoliocleanup) - caso normal (localidad específica)
+  const { data: dropdownLoansData, loading: dropdownLoansLoading, error: dropdownLoansError } = useQuery<{ loans: Loan[] }>(GET_LOANS_BY_LEAD, {
+    variables: { 
+      where: buildWhereClauseForDropdown()
+    },
+    skip: showAllLocalities || !selectedLead, // Skip si está activo "mostrar todas" o no hay lead
+  });
+
+  // Estado para acumular préstamos del dropdown cuando se muestran todas las localidades
+  const [accumulatedDropdownLoans, setAccumulatedDropdownLoans] = useState<Loan[]>([]);
+
+  // Lazy query para el dropdown cuando está activo "mostrar todas las localidades"
+  const [fetchAllDropdownLoans, { loading: allDropdownLoansLoading, error: allDropdownLoansError }] = useLazyQuery<{ 
+    loans: Loan[];
+    loansCount: number;
+  }>(GET_LOANS_WITH_INCOMPLETE_AVALS, {
+    fetchPolicy: 'network-only',
+    notifyOnNetworkStatusChange: true,
+    onCompleted: (data) => {
+      const newLoans = data?.loans || [];
+      setAccumulatedDropdownLoans(newLoans);
+    }
+  });
+
+  // Ejecutar la lazy query del dropdown cuando cambien las dependencias
+  useEffect(() => {
+    if (showAllLocalities && selectedLead) {
+      setAccumulatedDropdownLoans([]);
+      fetchAllDropdownLoans({
+        variables: {
+          where: buildWhereClauseForDropdown(),
+          take: 1000, // Traer muchos préstamos para el dropdown
+          skip: 0
+        }
+      });
+    } else {
+      setAccumulatedDropdownLoans([]);
+    }
+  }, [showAllLocalities, selectedLead?.id, showOnlyIncompleteAvals, fetchAllDropdownLoans, buildWhereClauseForDropdown]);
+
+  // Determinar qué datos usar para el dropdown según el modo
+  const activeDropdownLoansData = showAllLocalities 
+    ? { loans: accumulatedDropdownLoans } 
+    : dropdownLoansData;
+  const activeDropdownLoansLoading = showAllLocalities ? allDropdownLoansLoading : dropdownLoansLoading;
+  const activeDropdownLoansError = showAllLocalities ? allDropdownLoansError : dropdownLoansError;
+
+  // Estado para préstamos del dropdown (sin filtrar por portafoliocleanup)
+  const allLoansForDropdown = useMemo(() => {
+    if (!activeDropdownLoansData?.loans) return [];
+    let loans = activeDropdownLoansData.loans;
+    
+    // Si está activo "mostrar solo incompletos", aplicar filtro completo en el cliente
+    if (showOnlyIncompleteAvals) {
+      loans = loans.filter(hasIncompleteAval);
+    }
+    
+    return loans;
+  }, [activeDropdownLoansData?.loans, showOnlyIncompleteAvals]);
 
   // Función para cargar más préstamos
   const loadMoreLoans = useCallback(async () => {
@@ -4260,7 +4387,11 @@ useEffect(() => {
                         return base.slice(-6);
                       };
 
-                      const selectedLoan = filteredLoans?.find(loan => loan.id === payment.loanId);
+                      // Para pagos agregados por usuario, buscar en allLoansForDropdown primero
+                      // Para pagos existentes, buscar en filteredLoans
+                      const selectedLoan = payment.isUserAdded 
+                        ? (allLoansForDropdown?.find(loan => loan.id === payment.loanId) || filteredLoans?.find(loan => loan.id === payment.loanId))
+                        : filteredLoans?.find(loan => loan.id === payment.loanId);
                       const personalData = selectedLoan?.borrower?.personalData as any;
                       const clientCode = personalData?.clientCode || 
                                        shortCodeFromId(personalData?.id);
@@ -4288,30 +4419,23 @@ useEffect(() => {
                   }}>
                     {payment.isUserAdded ? (
                       // Pagos agregados por usuario: siempre mostrar dropdown
+                      // Usar allLoansForDropdown (sin filtrar por portafoliocleanup) para mostrar todos los clientes con deudas
                       <div 
                         onMouseDown={(e) => e.stopPropagation()}
                         onClick={(e) => e.stopPropagation()}
                       >
                         <Select
-                          options={filteredLoans
+                          options={allLoansForDropdown
                             ?.filter(loan => loan.borrower && loan.borrower.personalData)
                             ?.map(loan => ({
                               value: loan.id,
-                              label: `${loan.borrower?.personalData?.fullName || 'Sin nombre'} (${loan.signDate ? new Date(loan.signDate).toLocaleDateString('es-MX', {
-                                year: 'numeric',
-                                month: '2-digit',
-                                day: '2-digit'
-                              }) : 'Sin fecha'})`
+                              label: loan.borrower?.personalData?.fullName || 'Sin nombre'
                             })) || []}
-                          value={filteredLoans?.find(loan => loan.id === payment.loanId) ? {
+                          value={allLoansForDropdown?.find(loan => loan.id === payment.loanId) ? {
                             value: payment.loanId,
                             label: (() => {
-                            const selectedLoan = filteredLoans?.find(loan => loan.id === payment.loanId);
-                            return `${selectedLoan?.borrower?.personalData?.fullName || 'Sin nombre'} (${selectedLoan?.signDate ? new Date(selectedLoan.signDate).toLocaleDateString('es-MX', {
-                              year: 'numeric',
-                              month: '2-digit',
-                              day: '2-digit'
-                            }) : 'Sin fecha'})`;
+                            const selectedLoan = allLoansForDropdown?.find(loan => loan.id === payment.loanId);
+                            return selectedLoan?.borrower?.personalData?.fullName || 'Sin nombre';
                           })()
                         } : null}
                         onChange={(option) => handleChange(index, 'loanId', (option as Option).value)}
@@ -4328,9 +4452,13 @@ useEffect(() => {
                     color: isStrikethrough ? '#dc2626' : 'inherit',
                     fontWeight: isStrikethrough ? '500' : 'inherit'
                   }}>
-                    {payment.loanId && filteredLoans ? 
+                    {payment.loanId ? 
                       (() => {
-                        const selectedLoan = filteredLoans.find(loan => loan.id === payment.loanId);
+                        // Para pagos agregados por usuario, buscar en allLoansForDropdown primero
+                        // Para pagos existentes, buscar en filteredLoans
+                        const selectedLoan = payment.isUserAdded 
+                          ? (allLoansForDropdown?.find(loan => loan.id === payment.loanId) || filteredLoans?.find(loan => loan.id === payment.loanId))
+                          : filteredLoans?.find(loan => loan.id === payment.loanId);
                         return selectedLoan?.signDate ? 
                           new Date(selectedLoan.signDate).toLocaleDateString('es-MX', {
                             year: 'numeric',
