@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useQuery } from '@apollo/client';
+import { useQuery, NetworkStatus } from '@apollo/client';
 import { PageContainer } from '@keystone-6/core/admin-ui/components';
 import { 
   Select, 
@@ -78,8 +78,22 @@ interface FinancialReportData {
       nominaInterna: number;
       salarioExterno: number;
       viaticos: number;
+      // Campos de semanas completas activas (calculados en backend)
+      activeWeeks: number;
+      workingDaysInCompleteWeeks: number;
+      totalWorkingDays: number;
+      weeklyAverageAdjustmentFactor: number;
+      // Promedios semanales calculados en backend
+      weeklyAverageProfit: number;
+      weeklyAverageExpenses: number;
+      weeklyAverageIncome: number;
     };
   };
+  // Totales anuales de promedios semanales
+  annualWeeklyAverageProfit: number;
+  annualWeeklyAverageExpenses: number;
+  annualWeeklyAverageIncome: number;
+  totalActiveWeeks: number;
 }
 
 const formatCurrency = (amount: number): string => {
@@ -121,10 +135,20 @@ const styles = {
     border: '1px solid #e2e8f0',
     boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)'
   },
+  tableContainer: {
+    overflow: 'auto' as const,
+    maxHeight: 'calc(100vh - 300px)',
+    position: 'relative' as const
+  },
   table: {
     width: '100%',
     borderCollapse: 'collapse' as const,
     fontSize: '12px'
+  },
+  thead: {
+    position: 'sticky' as const,
+    top: 0,
+    zIndex: 10
   },
   th: {
     backgroundColor: '#2b6cb0',
@@ -133,7 +157,10 @@ const styles = {
     textAlign: 'center' as const,
     fontWeight: '600',
     fontSize: '11px',
-    borderRight: '1px solid #1a5490'
+    borderRight: '1px solid #1a5490',
+    position: 'sticky' as const,
+    top: 0,
+    zIndex: 9
   },
   thFirst: {
     backgroundColor: '#2b6cb0',
@@ -142,7 +169,12 @@ const styles = {
     textAlign: 'left' as const,
     fontWeight: '600',
     fontSize: '11px',
-    minWidth: '180px'
+    minWidth: '180px',
+    position: 'sticky' as const,
+    left: 0,
+    top: 0,
+    zIndex: 11,
+    boxShadow: '2px 0 4px rgba(0, 0, 0, 0.1)'
   },
   td: {
     padding: '8px',
@@ -157,7 +189,11 @@ const styles = {
     borderBottom: '1px solid #e2e8f0',
     borderRight: '1px solid #e2e8f0',
     fontWeight: '500',
-    backgroundColor: '#f8fafc'
+    backgroundColor: '#f8fafc',
+    position: 'sticky' as const,
+    left: 0,
+    zIndex: 8,
+    boxShadow: '2px 0 4px rgba(0, 0, 0, 0.1)'
   },
   positiveValue: {
     color: '#38a169'
@@ -183,7 +219,11 @@ const styles = {
     borderRight: '1px solid #e2e8f0',
     fontSize: '10px',
     backgroundColor: '#f7fafc',
-    color: '#4a5568'
+    color: '#4a5568',
+    position: 'sticky' as const,
+    left: 0,
+    zIndex: 8,
+    boxShadow: '2px 0 4px rgba(0, 0, 0, 0.1)'
   },
   subSectionDataCell: {
     padding: '6px 8px',
@@ -201,7 +241,11 @@ const styles = {
     borderRight: '1px solid #e2e8f0',
     fontWeight: '500',
     backgroundColor: '#fef5e7',
-    fontSize: '11px'
+    fontSize: '11px',
+    position: 'sticky' as const,
+    left: 0,
+    zIndex: 8,
+    boxShadow: '2px 0 4px rgba(0, 0, 0, 0.1)'
   }
 };
 
@@ -216,22 +260,36 @@ export default function ReporteFinancieroPage() {
   // Query para rutas
   const { data: routesData, loading: routesLoading } = useQuery(GET_ROUTES);
   
+  // Estado local para rastrear cuando se está generando un nuevo reporte
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+
   // Query para el reporte
   const { 
     data: reportData, 
     loading: reportLoading, 
     error: reportError,
-    refetch: refetchReport 
+    refetch: refetchReport,
+    networkStatus
   } = useQuery(GET_FINANCIAL_REPORT, {
     variables: { routeIds: selectedRoutes, year: selectedYear },
-    skip: !selectedRoutes.length
+    skip: !selectedRoutes.length,
+    notifyOnNetworkStatusChange: true, // Notificar cambios de estado de red (refetch)
+    fetchPolicy: 'network-only' // Siempre hacer fetch desde la red
   });
 
   const processedData: FinancialReportData | null = reportData?.getFinancialReport || null;
 
-  const handleGenerateReport = () => {
+  // Determinar si está cargando (incluyendo refetch)
+  const isLoading = reportLoading || networkStatus === NetworkStatus.refetch;
+
+  const handleGenerateReport = async () => {
     if (selectedRoutes.length > 0) {
-      refetchReport();
+      setIsGeneratingReport(true);
+      try {
+        await refetchReport();
+      } finally {
+        setIsGeneratingReport(false);
+      }
     }
   };
 
@@ -442,13 +500,13 @@ export default function ReporteFinancieroPage() {
               size="small"
               tone="active"
               onClick={handleGenerateReport}
-              isDisabled={!selectedRoutes.length || reportLoading}
+              isDisabled={!selectedRoutes.length || isLoading || isGeneratingReport}
               style={{ 
                 minWidth: '160px',
                 position: 'relative'
               }}
             >
-              {reportLoading ? 'Generando...' : (
+              {(isLoading || isGeneratingReport) ? 'Generando...' : (
                 <>
                   Generar Reporte
                   {selectedRoutes.length > 0 && (
@@ -474,8 +532,37 @@ export default function ReporteFinancieroPage() {
           <GraphQLErrorNotice errors={[reportError]} networkError={undefined} />
         )}
 
-        {/* Reporte */}
-        {processedData && (
+        {/* Estado de carga - Mostrar solo loader cuando está cargando */}
+        {(isLoading || isGeneratingReport) && (
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            border: '1px solid #e2e8f0',
+            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+            padding: '80px 40px',
+            textAlign: 'center'
+          }}>
+            <LoadingDots label="Cargando reporte financiero..." />
+            <div style={{
+              marginTop: '24px',
+              fontSize: '16px',
+              color: '#6b7280',
+              fontWeight: '500'
+            }}>
+              Generando datos financieros...
+            </div>
+            <div style={{
+              marginTop: '8px',
+              fontSize: '14px',
+              color: '#9ca3af'
+            }}>
+              Esto puede tomar unos momentos
+            </div>
+          </div>
+        )}
+
+        {/* Reporte - Solo mostrar cuando no está cargando y hay datos */}
+        {!isLoading && !isGeneratingReport && processedData && (
           <div style={styles.reportCard}>
             <div style={{ padding: '20px', borderBottom: '1px solid #e2e8f0' }}>
               <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '600' }}>
@@ -505,9 +592,9 @@ export default function ReporteFinancieroPage() {
               </div>
             </div>
 
-            <div style={{ overflowX: 'auto' }}>
+            <div style={styles.tableContainer}>
               <table style={styles.table}>
-                <thead>
+                <thead style={styles.thead}>
                   <tr>
                     <th style={styles.thFirst}>CONCEPTO</th>
                     {processedData.months.map((month, index) => (
@@ -959,7 +1046,168 @@ export default function ReporteFinancieroPage() {
                     </td>
                   </tr>
 
+                  {/* SECCIÓN: GANANCIA SEMANAL */}
+                  <tr style={{ backgroundColor: '#dbeafe', fontWeight: '700' }}>
+                    <td colSpan={14} style={{
+                      padding: '12px 16px',
+                      textAlign: 'center',
+                      color: '#1e40af',
+                      fontSize: '12px',
+                      letterSpacing: '1px'
+                    }}>
+                      📅 GANANCIA SEMANAL (Promedio por Semanas Activas)
+                    </td>
+                  </tr>
 
+                  {/* Semanas Activas por Mes */}
+                  <tr style={{ backgroundColor: '#f1f5f9' }}>
+                    <td style={{ ...styles.tdFirst, backgroundColor: '#f1f5f9', fontWeight: '600', fontSize: '11px' }}>
+                      📊 Semanas Activas
+                    </td>
+                    {processedData.months.map((month, index) => {
+                      const monthKey = (index + 1).toString().padStart(2, '0');
+                      const data = processedData.data[monthKey];
+                      const activeWeeks = data?.activeWeeks || 0;
+                      return (
+                        <td key={month} style={{ 
+                          ...styles.td, 
+                          backgroundColor: '#f1f5f9',
+                          fontWeight: '600',
+                          fontSize: '11px',
+                          color: '#475569'
+                        }}>
+                          {activeWeeks} semana{activeWeeks !== 1 ? 's' : ''}
+                        </td>
+                      );
+                    })}
+                    <td style={{ 
+                      ...styles.td, 
+                      backgroundColor: '#f1f5f9', 
+                      fontWeight: '700',
+                      fontSize: '11px',
+                      color: '#1e293b'
+                    }}>
+                      {(() => {
+                        let totalActiveWeeks = 0;
+                        processedData.months.forEach((_, index) => {
+                          const monthKey = (index + 1).toString().padStart(2, '0');
+                          totalActiveWeeks += processedData.data[monthKey]?.activeWeeks || 0;
+                        });
+                        return `${totalActiveWeeks} semanas`;
+                      })()}
+                    </td>
+                  </tr>
+
+                  {/* Ganancia Semanal */}
+                  <tr style={{ backgroundColor: '#eff6ff', borderTop: '2px solid #3b82f6' }}>
+                    <td style={{ ...styles.tdFirst, backgroundColor: '#eff6ff', fontWeight: '700', fontSize: '13px' }}>
+                      💰 GANANCIA SEMANAL (Promedio)
+                    </td>
+                    {processedData.months.map((month, index) => {
+                      const monthKey = (index + 1).toString().padStart(2, '0');
+                      const data = processedData.data[monthKey];
+                      const gananciaSemanal = Number(data?.weeklyAverageProfit || 0);
+                      
+                      return (
+                        <td key={month} style={{ 
+                          ...styles.td, 
+                          backgroundColor: '#eff6ff',
+                          fontWeight: '700',
+                          fontSize: '13px',
+                          border: gananciaSemanal > 0 ? '2px solid #3b82f6' : '1px solid #cbd5e1',
+                          ...getValueColor(gananciaSemanal)
+                        }}>
+                          {gananciaSemanal !== 0 ? formatCurrency(gananciaSemanal) : '-'}
+                        </td>
+                      );
+                    })}
+                    <td style={{ 
+                      ...styles.td, 
+                      backgroundColor: '#eff6ff', 
+                      fontWeight: '700',
+                      fontSize: '12px',
+                      color: '#16a34a',
+                      border: '2px solid #3b82f6'
+                    }}>
+                      {processedData.annualWeeklyAverageProfit !== 0 
+                        ? formatCurrency(processedData.annualWeeklyAverageProfit) 
+                        : '-'}
+                    </td>
+                  </tr>
+
+                  {/* Gastos Semanales */}
+                  <tr style={{ backgroundColor: '#fef2f2', borderTop: '2px solid #ef4444' }}>
+                    <td style={{ ...styles.tdFirst, backgroundColor: '#fef2f2', fontWeight: '700', fontSize: '13px' }}>
+                      💸 GASTOS SEMANALES (Promedio)
+                    </td>
+                    {processedData.months.map((month, index) => {
+                      const monthKey = (index + 1).toString().padStart(2, '0');
+                      const data = processedData.data[monthKey];
+                      const gastosSemanales = Number(data?.weeklyAverageExpenses || 0);
+                      
+                      return (
+                        <td key={month} style={{ 
+                          ...styles.td, 
+                          backgroundColor: '#fef2f2',
+                          fontWeight: '700',
+                          fontSize: '13px',
+                          border: gastosSemanales > 0 ? '2px solid #ef4444' : '1px solid #cbd5e1',
+                          ...getValueColor(-gastosSemanales)
+                        }}>
+                          {gastosSemanales > 0 ? formatCurrency(gastosSemanales) : '-'}
+                        </td>
+                      );
+                    })}
+                    <td style={{ 
+                      ...styles.td, 
+                      backgroundColor: '#fef2f2', 
+                      fontWeight: '700',
+                      fontSize: '12px',
+                      color: '#dc2626',
+                      border: '2px solid #ef4444'
+                    }}>
+                      {processedData.annualWeeklyAverageExpenses > 0 
+                        ? formatCurrency(processedData.annualWeeklyAverageExpenses) 
+                        : '-'}
+                    </td>
+                  </tr>
+
+                  {/* Cobranza Semanal */}
+                  <tr style={{ backgroundColor: '#f0fdf4', borderTop: '2px solid #22c55e' }}>
+                    <td style={{ ...styles.tdFirst, backgroundColor: '#f0fdf4', fontWeight: '700', fontSize: '13px' }}>
+                      💵 COBRANZA SEMANAL (Promedio)
+                    </td>
+                    {processedData.months.map((month, index) => {
+                      const monthKey = (index + 1).toString().padStart(2, '0');
+                      const data = processedData.data[monthKey];
+                      const cobranzaSemanal = Number(data?.weeklyAverageIncome || 0);
+                      
+                      return (
+                        <td key={month} style={{ 
+                          ...styles.td, 
+                          backgroundColor: '#f0fdf4',
+                          fontWeight: '700',
+                          fontSize: '13px',
+                          border: cobranzaSemanal > 0 ? '2px solid #22c55e' : '1px solid #cbd5e1',
+                          ...getValueColor(cobranzaSemanal)
+                        }}>
+                          {cobranzaSemanal > 0 ? formatCurrency(cobranzaSemanal) : '-'}
+                        </td>
+                      );
+                    })}
+                    <td style={{ 
+                      ...styles.td, 
+                      backgroundColor: '#f0fdf4', 
+                      fontWeight: '700',
+                      fontSize: '12px',
+                      color: '#16a34a',
+                      border: '2px solid #22c55e'
+                    }}>
+                      {processedData.annualWeeklyAverageIncome > 0 
+                        ? formatCurrency(processedData.annualWeeklyAverageIncome) 
+                        : '-'}
+                    </td>
+                  </tr>
 
                   {/* SECCIÓN: INVERSIÓN */}
                   <tr style={{ backgroundColor: '#e3f2fd', fontWeight: '700' }}>
@@ -1422,15 +1670,8 @@ export default function ReporteFinancieroPage() {
           </div>
         )}
 
-        {/* Estado de carga */}
-        {reportLoading && (
-          <div style={{ textAlign: 'center', padding: '40px' }}>
-            <LoadingDots label="Cargando reporte financiero..." />
-          </div>
-        )}
-
         {/* Estado sin datos */}
-        {!reportLoading && !processedData && selectedRoutes.length > 0 && (
+        {!isLoading && !isGeneratingReport && !processedData && selectedRoutes.length > 0 && (
           <div style={{
             textAlign: 'center',
             padding: '40px',
@@ -1449,7 +1690,7 @@ export default function ReporteFinancieroPage() {
         )}
 
         {/* Estado sin rutas seleccionadas */}
-        {!reportLoading && !processedData && selectedRoutes.length === 0 && (
+        {!isLoading && !isGeneratingReport && !processedData && selectedRoutes.length === 0 && (
           <div style={{
             textAlign: 'center',
             padding: '40px',

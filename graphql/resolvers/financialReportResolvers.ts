@@ -1,6 +1,148 @@
 import { graphql } from '@keystone-6/core';
 import type { Context } from '.keystone/types';
 
+// Función para determinar si una fecha pertenece a una semana completa activa
+function isDateInCompleteWeek(date: Date, year: number, month: number): boolean {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const firstDay = new Date(year, month - 1, 1);
+  const lastDay = new Date(year, month, 0);
+  
+  const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month - 1;
+  const cutoffDate = isCurrentMonth ? today : lastDay;
+  
+  const dateToCheck = new Date(date);
+  dateToCheck.setHours(0, 0, 0, 0);
+  
+  // Si la fecha está después del cutoff, no está en una semana completa
+  if (dateToCheck > cutoffDate) {
+    return false;
+  }
+  
+  // Encontrar el lunes de la semana a la que pertenece esta fecha
+  const dayOfWeek = dateToCheck.getDay(); // 0 = domingo, 1 = lunes, ..., 6 = sábado
+  const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // Si es domingo, retroceder 6 días; si no, calcular días hasta el lunes
+  const weekMonday = new Date(dateToCheck);
+  weekMonday.setDate(dateToCheck.getDate() + daysToMonday);
+  
+  // Calcular el domingo de esta semana
+  const weekSunday = new Date(weekMonday);
+  weekSunday.setDate(weekMonday.getDate() + 6);
+  weekSunday.setHours(23, 59, 59, 999);
+  
+  // Solo contar si el domingo ya pasó (semana completa terminada)
+  if (weekSunday > cutoffDate) {
+    return false;
+  }
+  
+  // Verificar que la semana tenga al menos 5 días laborables dentro del mes
+  const weekStart = weekMonday > firstDay ? weekMonday : firstDay;
+  const weekEnd = weekSunday < lastDay ? weekSunday : lastDay;
+  
+  let workingDays = 0;
+  for (let d = new Date(weekStart); d <= weekEnd; d.setDate(d.getDate() + 1)) {
+    const dow = d.getDay();
+    if (dow >= 1 && dow <= 5) { // Lunes (1) a Viernes (5)
+      workingDays++;
+    }
+  }
+  
+  return workingDays >= 5;
+}
+
+// Función para calcular semanas completas activas y días laborables en semanas completas
+// Retorna: { activeWeeks: number, workingDaysInCompleteWeeks: number, totalWorkingDays: number, adjustmentFactor: number }
+function getActiveWeeksInfo(year: number, month: number): { 
+  activeWeeks: number; 
+  workingDaysInCompleteWeeks: number; 
+  totalWorkingDays: number;
+  adjustmentFactor: number;
+} {
+  // month es 1-12 (enero = 1)
+  const firstDay = new Date(year, month - 1, 1);
+  const lastDay = new Date(year, month, 0); // Último día del mes
+  
+  // Obtener la fecha actual
+  const today = new Date();
+  today.setHours(0, 0, 0, 0); // Normalizar a medianoche
+  
+  // Determinar hasta qué fecha podemos contar semanas completas
+  // Si es el mes actual, solo contar semanas cuyo domingo ya pasó
+  const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month - 1;
+  const cutoffDate = isCurrentMonth ? today : lastDay;
+  
+  let activeWeeks = 0;
+  let workingDaysInCompleteWeeks = 0;
+  
+  // Contar todos los días laborables del mes (para el factor de ajuste)
+  let totalWorkingDays = 0;
+  for (let d = new Date(firstDay); d <= lastDay && d <= cutoffDate; d.setDate(d.getDate() + 1)) {
+    const dow = d.getDay();
+    if (dow >= 1 && dow <= 5) { // Lunes (1) a Viernes (5)
+      totalWorkingDays++;
+    }
+  }
+  
+  // Encontrar el primer lunes del mes
+  let currentMonday = new Date(firstDay);
+  const firstDayOfWeek = firstDay.getDay(); // 0 = domingo, 1 = lunes, ..., 6 = sábado
+  
+  // Si el primer día no es lunes, encontrar el primer lunes
+  if (firstDayOfWeek !== 1) {
+    const daysToAdd = firstDayOfWeek === 0 ? 1 : 8 - firstDayOfWeek; // Si es domingo, sumar 1; si no, calcular días hasta el próximo lunes
+    currentMonday = new Date(year, month - 1, 1 + daysToAdd);
+  }
+  
+  // Iterar semana por semana (lunes a domingo)
+  while (currentMonday <= lastDay) {
+    // Calcular el domingo de esta semana
+    const weekSunday = new Date(currentMonday);
+    weekSunday.setDate(weekSunday.getDate() + 6);
+    weekSunday.setHours(23, 59, 59, 999); // Fin del domingo
+    
+    // Solo contar semanas cuyo domingo ya pasó (semana completa terminada)
+    if (weekSunday > cutoffDate) {
+      // Esta semana aún no está completa, detener aquí
+      break;
+    }
+    
+    // Determinar el rango de días de esta semana que están dentro del mes
+    const weekStart = currentMonday > firstDay ? currentMonday : firstDay;
+    const weekEnd = weekSunday < lastDay ? weekSunday : lastDay;
+    
+    // Contar días laborables (lunes-viernes) en esta semana dentro del mes
+    let workingDays = 0;
+    for (let d = new Date(weekStart); d <= weekEnd; d.setDate(d.getDate() + 1)) {
+      const dow = d.getDay();
+      if (dow >= 1 && dow <= 5) { // Lunes (1) a Viernes (5)
+        workingDays++;
+      }
+    }
+    
+    // Si tiene al menos 5 días laborables, es una semana completa activa
+    if (workingDays >= 5) {
+      activeWeeks++;
+      workingDaysInCompleteWeeks += workingDays;
+    }
+    
+    // Mover al siguiente lunes
+    currentMonday.setDate(currentMonday.getDate() + 7);
+  }
+  
+  // Calcular factor de ajuste
+  const adjustmentFactor = totalWorkingDays > 0 
+    ? workingDaysInCompleteWeeks / totalWorkingDays 
+    : 1;
+  
+  return {
+    activeWeeks,
+    workingDaysInCompleteWeeks,
+    totalWorkingDays,
+    adjustmentFactor
+  };
+}
+
 // Placeholder importable resolver. Mueve aquí la implementación completa.
 export const getFinancialReport = graphql.field({
     type: graphql.nonNull(graphql.JSON),
@@ -144,11 +286,20 @@ export const getFinancialReport = graphql.field({
             // Campos de desglose de nómina
             nominaInterna: 0,
             salarioExterno: 0,
-            viaticos: 0
+            viaticos: 0,
+            // Campos de semanas completas activas
+            activeWeeks: 0,
+            workingDaysInCompleteWeeks: 0,
+            totalWorkingDays: 0,
+            weeklyAverageAdjustmentFactor: 1,
+            // Promedios semanales calculados
+            weeklyAverageProfit: 0,
+            weeklyAverageExpenses: 0,
+            weeklyAverageIncome: 0
           };
         }
   
-        // 4. Procesar transacciones agrupadas por mes
+        // 4. Procesar transacciones agrupadas por mes (TODAS las transacciones para campos normales)
         for (const transaction of transactions) {
           const transactionDate = transaction.date ? new Date(transaction.date) : new Date();
           const month = transactionDate.getMonth() + 1;
@@ -231,6 +382,63 @@ export const getFinancialReport = graphql.field({
           }
         }
   
+        // 4b. Procesar transacciones filtradas SOLO para promedios semanales
+        // Crear estructura separada solo para promedios semanales
+        const weeklyData: { [key: string]: { profit: number; expenses: number; income: number; badDebt: number } } = {};
+        for (let month = 1; month <= 12; month++) {
+          const monthKey = month.toString().padStart(2, '0');
+          weeklyData[monthKey] = { profit: 0, expenses: 0, income: 0, badDebt: 0 };
+        }
+        
+        for (const transaction of transactions) {
+          const transactionDate = transaction.date ? new Date(transaction.date) : new Date();
+          const month = transactionDate.getMonth() + 1;
+          const monthKey = month.toString().padStart(2, '0');
+          
+          // Solo procesar transacciones que pertenecen a semanas completas
+          if (!isDateInCompleteWeek(transactionDate, year, month)) {
+            continue; // Saltar esta transacción para promedios semanales
+          }
+  
+          const amount = Number(transaction.amount || 0);
+          const weekData = weeklyData[monthKey];
+          
+          if (transaction.type === 'EXPENSE') {
+            // Para gastos, sumar todos los gastos operativos
+            if (transaction.expenseSource === 'GASOLINE') {
+              weekData.expenses += amount;
+            } else {
+              switch (transaction.expenseSource) {
+                case 'NOMINA_SALARY':
+                case 'EXTERNAL_SALARY':
+                case 'VIATIC':
+                case 'TRAVEL_EXPENSES':
+                  weekData.expenses += amount;
+                  break;
+                case 'LOAN_PAYMENT_COMISSION':
+                case 'LOAN_GRANTED_COMISSION':
+                case 'LEAD_COMISSION':
+                  weekData.expenses += amount;
+                  break;
+                case 'LOAN_GRANTED':
+                  // No contar préstamos otorgados en gastos semanales
+                  break;
+                default:
+                  weekData.expenses += amount;
+                  break;
+              }
+            }
+          } else if (transaction.type === 'INCOME') {
+            if (transaction.incomeSource === 'CASH_LOAN_PAYMENT' || 
+                transaction.incomeSource === 'BANK_LOAN_PAYMENT') {
+              const profit = Number(transaction.profitAmount || 0);
+              weekData.income += profit;
+            } else {
+              weekData.income += amount;
+            }
+          }
+        }
+  
         // 5. Preprocesar datos de préstamos para optimizar cálculos mensuales
         const loanMetrics = loans.map(loan => {
           const signDate = new Date(loan.signDate);
@@ -268,6 +476,28 @@ export const getFinancialReport = graphql.field({
             paymentsByMonth
           };
         });
+        
+        // 5b. Agregar badDebtAmount a weeklyData solo si la fecha está en semana completa
+        for (const loan of loanMetrics) {
+          if (loan.badDebtDate) {
+            const badDebtMonth = loan.badDebtDate.getMonth() + 1;
+            const monthKey = badDebtMonth.toString().padStart(2, '0');
+            
+            // Solo incluir si la fecha de badDebt está en una semana completa
+            if (isDateInCompleteWeek(loan.badDebtDate, year, badDebtMonth)) {
+              let totalPaid = 0;
+              for (const payment of loan.paymentsByDate) {
+                if (payment.date <= loan.badDebtDate) {
+                  totalPaid += payment.amount;
+                } else {
+                  break;
+                }
+              }
+              const badDebtAmount = loan.totalToPay - totalPaid;
+              weeklyData[monthKey].badDebt += badDebtAmount;
+            }
+          }
+        }
 
         // 6. Calcular cartera y métricas de préstamos por mes (altamente optimizado)
         let cumulativeCashBalance = 0;
@@ -360,6 +590,13 @@ export const getFinancialReport = graphql.field({
           monthlyData[monthKey].renovados = renewedLoans;
           monthlyData[monthKey].badDebtAmount = badDebtAmount;
   
+          // Calcular información de semanas completas activas
+          const weeksInfo = getActiveWeeksInfo(year, month);
+          monthlyData[monthKey].activeWeeks = weeksInfo.activeWeeks;
+          monthlyData[monthKey].workingDaysInCompleteWeeks = weeksInfo.workingDaysInCompleteWeeks;
+          monthlyData[monthKey].totalWorkingDays = weeksInfo.totalWorkingDays;
+          monthlyData[monthKey].weeklyAverageAdjustmentFactor = weeksInfo.adjustmentFactor;
+  
           // Recalcular métricas finales
           const data = monthlyData[monthKey];
           const operationalExpenses = data.generalExpenses + data.nomina + data.comissions;
@@ -374,7 +611,49 @@ export const getFinancialReport = graphql.field({
           data.operationalProfit = uiGainsTotal - uiExpensesTotal;
           data.profitPercentage = uiGainsTotal > 0 ? ((data.operationalProfit / uiGainsTotal) * 100) : 0;
           data.gainPerPayment = data.paymentsCount > 0 ? (data.operationalProfit / data.paymentsCount) : 0;
+          
+          // Calcular promedios semanales usando datos filtrados (solo semanas completas)
+          const activeWeeks = weeksInfo.activeWeeks;
+          const weekData = weeklyData[monthKey];
+          
+          // Gastos totales para semanas completas (incluyendo badDebt si aplica)
+          const weeklyExpensesTotal = weekData.expenses + weekData.badDebt;
+          
+          // Calcular ganancia operativa solo con datos de semanas completas
+          const weeklyProfit = weekData.income - weeklyExpensesTotal;
+          data.weeklyAverageProfit = activeWeeks > 0 ? weeklyProfit / activeWeeks : 0;
+          
+          // Gastos semanales promedio (solo semanas completas)
+          data.weeklyAverageExpenses = activeWeeks > 0 ? weeklyExpensesTotal / activeWeeks : 0;
+          
+          // Cobranza semanal promedio (solo semanas completas)
+          data.weeklyAverageIncome = activeWeeks > 0 ? weekData.income / activeWeeks : 0;
         }
+  
+        // Calcular totales anuales de promedios semanales usando datos filtrados
+        let totalActiveWeeks = 0;
+        let totalWeeklyProfit = 0;
+        let totalWeeklyExpenses = 0;
+        let totalWeeklyIncome = 0;
+        
+        for (let month = 1; month <= 12; month++) {
+          const monthKey = month.toString().padStart(2, '0');
+          const weekData = weeklyData[monthKey];
+          const activeWeeks = monthlyData[monthKey].activeWeeks;
+          
+          // Usar los datos filtrados de semanas completas
+          const weeklyExpensesTotal = weekData.expenses + weekData.badDebt;
+          const weeklyProfit = weekData.income - weeklyExpensesTotal;
+          
+          totalWeeklyProfit += weeklyProfit;
+          totalWeeklyExpenses += weeklyExpensesTotal;
+          totalWeeklyIncome += weekData.income;
+          totalActiveWeeks += activeWeeks;
+        }
+        
+        const annualWeeklyAverageProfit = totalActiveWeeks > 0 ? totalWeeklyProfit / totalActiveWeeks : 0;
+        const annualWeeklyAverageExpenses = totalActiveWeeks > 0 ? totalWeeklyExpenses / totalActiveWeeks : 0;
+        const annualWeeklyAverageIncome = totalActiveWeeks > 0 ? totalWeeklyIncome / totalActiveWeeks : 0;
   
           return {
             routes: routes.map(route => ({
@@ -386,8 +665,13 @@ export const getFinancialReport = graphql.field({
               'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
               'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'
             ],
-            data: monthlyData
-          };
+            data: monthlyData,
+            // Totales anuales de promedios semanales
+            annualWeeklyAverageProfit,
+            annualWeeklyAverageExpenses,
+            annualWeeklyAverageIncome,
+            totalActiveWeeks
+          } as any;
         })();
         
         return Promise.race([reportPromise, timeoutPromise]);
