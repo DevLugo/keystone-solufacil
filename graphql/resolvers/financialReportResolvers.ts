@@ -173,13 +173,25 @@ export const getFinancialReport = graphql.field({
         const yearEnd = new Date(`${year}-12-31T23:59:59.999Z`);
   
         // 1. Obtener TODAS las transacciones del año en una sola consulta
+        //    Usar snapshotRouteId para preservar el histórico: si existe, manda el snapshot;
+        //    si está vacío, usar la ruta actual de la transacción.
         const transactions = await context.prisma.transaction.findMany({
           where: {
-            route: { id: { in: routeIds } },
             date: {
               gte: yearStart,
               lte: yearEnd,
             },
+            OR: [
+              // Históricos con snapshot fijo
+              { snapshotRouteId: { in: routeIds } },
+              // Registros sin snapshot (string vacío) → usar ruta actual
+              {
+                AND: [
+                  { snapshotRouteId: '' },
+                  { route: { id: { in: routeIds } } }
+                ]
+              }
+            ]
           },
           select: {
             amount: true,
@@ -193,15 +205,32 @@ export const getFinancialReport = graphql.field({
         });
   
         // 2. Obtener préstamos relevantes con consulta optimizada
+        //    También respetar snapshotRouteId para preservar histórico de cartera.
         const loans = await context.prisma.loan.findMany({
           where: {
-            lead: {
-              routes: { id: { in: routeIds } }
-            },
             signDate: { lt: yearEnd }, // Solo préstamos que empezaron antes del final del año
             OR: [
               { finishedDate: null }, // Préstamos activos
               { finishedDate: { gte: yearStart } } // Préstamos que terminaron durante o después del año
+            ],
+            AND: [
+              {
+                OR: [
+                  // Históricos con snapshot fijo
+                  { snapshotRouteId: { in: routeIds } },
+                  // Préstamos sin snapshot (string vacío) → usar ruta actual del líder
+                  {
+                    AND: [
+                      { snapshotRouteId: '' },
+                      {
+                        lead: {
+                          routes: { id: { in: routeIds } }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
             ]
           },
           select: {

@@ -167,7 +167,7 @@ interface Employee {
         };
       };
     }[];
-  };
+  } | null;
 }
 
 interface ActiveLoan {
@@ -329,7 +329,7 @@ const AdministrarRutasPage = () => {
         // Encontrar la ruta que contiene esta localidad
         const route = routes.find((r: Route) => 
           r.employees.some((emp: Employee) => 
-            emp.personalData.addresses[0]?.location.name === loanLocation
+            emp.personalData?.addresses?.[0]?.location.name === loanLocation
           )
         );
         
@@ -360,7 +360,7 @@ const AdministrarRutasPage = () => {
     const stats: Record<string, RouteStats> = {};
 
     routes.forEach((route: Route) => {
-      const routeLocalities = route.employees.map((emp: Employee) => emp.personalData.addresses[0]?.location.name).filter(Boolean);
+      const routeLocalities = route.employees.map((emp: Employee) => emp.personalData?.addresses?.[0]?.location.name).filter(Boolean);
       
       // Contar clientes activos por localidad en esta ruta
       const activeClients = new Set<string>();
@@ -421,7 +421,7 @@ const AdministrarRutasPage = () => {
     let movingClientsCount = 0;
     if (activeLoansData?.loans) {
       const selectedLocalityNames = selectedEmployees.map((emp: Employee) => 
-        emp.personalData.addresses[0]?.location.name
+        emp.personalData?.addresses?.[0]?.location.name
       ).filter(Boolean);
 
       // Agrupar préstamos por cliente para las localidades seleccionadas
@@ -737,7 +737,7 @@ const AdministrarRutasPage = () => {
 
                     <Box css={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       {route.employees.map((employee: Employee) => {
-                        const localityName = employee.personalData.addresses[0]?.location.name || 'Sin ubicación';
+                        const localityName = employee.personalData?.addresses?.[0]?.location.name || 'Sin ubicación';
                         const isSelected = selectedLocalities.has(employee.id);
                         
                         return (
@@ -773,7 +773,7 @@ const AdministrarRutasPage = () => {
                                   const totalClients = (() => {
                                     if (!activeLoansData?.loans) return 0;
                                     
-                                    const localityName = employee.personalData.addresses[0]?.location.name;
+                                    const localityName = employee.personalData?.addresses?.[0]?.location.name;
                                     if (!localityName) return 0;
                                     
                                     const loansByClient: { [clientId: string]: any[] } = {};
@@ -850,7 +850,7 @@ const AdministrarRutasPage = () => {
                               {(() => {
                                 if (!activeLoansData?.loans) return '0 clientes';
                                 
-                                const localityName = employee.personalData.addresses[0]?.location.name;
+                                const localityName = employee.personalData?.addresses?.[0]?.location.name;
                                 if (!localityName) return '0 clientes';
                                 
                                 // Contar clientes activos para esta localidad específica
