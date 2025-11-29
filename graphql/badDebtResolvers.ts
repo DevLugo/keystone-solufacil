@@ -1124,7 +1124,12 @@ export const deadDebtMonthlySummary = graphql.field({
               const deudaPendiente = Number(loan.pendingAmountStored || 0);
               const gananciaPorCobrar = deudaPendiente * (profitAmountNum / totalToPay);
               return Math.max(0, deudaPendiente - gananciaPorCobrar);
-            })()
+            })(),
+            payments: (loan.payments || []).map(payment => ({
+              receivedAt: payment.receivedAt ? payment.receivedAt.toISOString() : null,
+              amount: Number(payment.amount || 0),
+              createdAt: payment.createdAt ? payment.createdAt.toISOString() : null
+            }))
           }))
         });
       }
