@@ -253,7 +253,8 @@ export const createNewLeaderResolver = graphql.field({
           // Crear el nuevo empleado primero
           const newLeader = await tx.employee.create({
             data: {
-              type: 'ROUTE_LEAD',
+              // Registrar como LEAD (líder de ruta/préstamos)
+              type: 'LEAD',
               personalDataId: personalData.id,
               routesId: routeId
             }
@@ -284,10 +285,10 @@ export const createNewLeaderResolver = graphql.field({
             newLeaderId: newLeader.id
           };
         } else {
-          // 7. Crear el nuevo empleado (líder)
+          // 7. Crear el nuevo empleado (líder) como LEAD
           const newLeader = await tx.employee.create({
             data: {
-              type: 'ROUTE_LEAD',
+              type: 'LEAD',
               personalDataId: personalData.id,
               routesId: routeId
             }

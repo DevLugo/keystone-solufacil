@@ -353,7 +353,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
     }
   }, [selectedPersonId, mode, getPersonInfo]);
 
-  // Determinar el estado del cliente
+  // Determinar el estado del cliente (solo debe cambiar a estados de "escritura" cuando este input está activo)
   useEffect(() => {
     if (previousLoan && previousLoan.borrower?.personalData) {
       const originalName = previousLoan.borrower.personalData.fullName || '';
@@ -368,9 +368,12 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
         setClientState('renewed');
       }
     } else if (currentName.trim() || currentPhone.trim()) {
-      // Check if user is typing a new client (no autocomplete match)
-      // New client state: user has typed at least 2 characters AND no autocomplete results match
-      const isTypingNewClient = searchText.trim().length >= 2 &&
+      // Check if el usuario ESTÁ escribiendo en este input (no en otros créditos)
+      // Nuevo cliente: input enfocado, al menos 2 caracteres, sin coincidencias en autocomplete,
+      // y sin cargas en curso para este componente.
+      const isTypingNewClient =
+        isInputFocused &&
+        searchText.trim().length >= 2 &&
         filteredOptions.length === 0 &&
         !isLoading &&
         !(mode === 'aval' && searchPersonsLoading) &&
@@ -379,12 +382,13 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
       if (isTypingNewClient) {
         setClientState('newClient');
       } else {
+        // Cuando no está escribiendo (o no hay suficientes condiciones), usar estado neutral "new"
         setClientState('new');
       }
     } else {
       setClientState('new');
     }
-  }, [previousLoan, currentName, currentPhone, searchText, filteredOptions.length, isLoading, mode, searchPersonsLoading, selectedPersonId]);
+  }, [previousLoan, currentName, currentPhone, searchText, filteredOptions.length, isLoading, mode, searchPersonsLoading, selectedPersonId, isInputFocused]);
 
   // Filtrar opciones basado en el texto de búsqueda
   useEffect(() => {
@@ -396,13 +400,18 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
     const trimmedSearch = searchText.trim();
 
     if (mode === 'client') {
-      if (trimmedSearch) {
+      // Solo mostrar / actualizar autocomplete cuando ESTE input está realmente enfocado en el DOM
+      const isDomFocused =
+        typeof document !== 'undefined' &&
+        inputRef.current === document.activeElement;
+
+      if (trimmedSearch && isDomFocused) {
         const searchLower = trimmedSearch.toLowerCase();
         const filtered = previousLoanOptions.filter(option =>
           option.label.toLowerCase().includes(searchLower)
         );
         setFilteredOptions(filtered);
-        setShowDropdown(true);
+        setShowDropdown(filtered.length > 0);
 
         // Si está habilitada la búsqueda de personas, disparar la query
         if (allowPersonSearch && trimmedSearch.length >= 3) {
@@ -412,8 +421,8 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
             }
           });
         }
-
       } else {
+        // Si no hay texto o el input no está enfocado, ocultar el dropdown para este crédito
         setFilteredOptions([]);
         setShowDropdown(false);
       }
@@ -1068,7 +1077,13 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
           )}
 
           {/* Dropdown de autocomplete - JUSTO DESPUÉS DEL INPUT DE NOMBRE */}
-          {((showDropdown && searchText.trim().length >= 2) || isLoading || (mode === 'aval' && searchPersonsLoading)) && (
+          {(
+            // Mostrar dropdown con resultados solo cuando este input tiene focus y hay texto
+            (showDropdown && searchText.trim().length >= 2) ||
+            // Mostrar loader solo si este input está realmente enfocado
+            (mode === 'client' && isLoading && typeof document !== 'undefined' && inputRef.current === document.activeElement) ||
+            (mode === 'aval' && searchPersonsLoading && typeof document !== 'undefined' && inputRef.current === document.activeElement)
+          ) && (
             <div
               ref={dropdownRef}
               onMouseDown={handleDropdownMouseDown}

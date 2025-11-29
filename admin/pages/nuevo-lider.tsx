@@ -13,13 +13,11 @@ import { Box, jsx } from '@keystone-ui/core';
 import { 
   FaUserPlus, 
   FaMapMarkerAlt, 
-  FaRoute, 
-  FaPhone, 
-  FaCalendarAlt,
   FaExclamationTriangle,
   FaCheckCircle
 } from 'react-icons/fa';
 import ProtectedRoute from '../components/ProtectedRoute';
+import { useAuth } from '../hooks/useAuth';
 
 // Query para obtener todas las rutas
 const GET_ROUTES = gql`
@@ -109,6 +107,7 @@ interface ExistingLeader {
 }
 
 export default function NuevoLiderPage() {
+  const { isAdmin, isCaptura } = useAuth();
   const [formData, setFormData] = useState({
     fullName: '',
     birthDate: '',
@@ -214,9 +213,31 @@ export default function NuevoLiderPage() {
 
   const selectedLocation = locationsData?.locations?.find((loc: Location) => loc.id === formData.locationId);
 
+  // Solo ADMIN y CAPTURA pueden ver esta página
+  const hasAccess = isAdmin || isCaptura;
+
   return (
-    <ProtectedRoute requiredRole="ADMIN">
-      <PageContainer header="Crear Nuevo Líder">
+    <ProtectedRoute requiredRole="NORMAL">
+      {!hasAccess ? (
+        <PageContainer header="Acceso Denegado">
+          <Box css={{ 
+            padding: '32px', 
+            textAlign: 'center',
+            backgroundColor: '#fef2f2',
+            border: '1px solid #fecaca',
+            borderRadius: '12px',
+            margin: '32px'
+          }}>
+            <Box css={{ fontSize: '24px', fontWeight: '700', color: '#dc2626', marginBottom: '16px' }}>
+              🚫 Acceso Denegado
+            </Box>
+            <Box css={{ fontSize: '16px', color: '#7f1d1d' }}>
+              Solo los administradores y capturistas pueden crear nuevos líderes.
+            </Box>
+          </Box>
+        </PageContainer>
+      ) : (
+        <PageContainer header="Crear Nuevo Líder">
         <Box>
           {showSuccess && (
             <Box
@@ -431,6 +452,7 @@ export default function NuevoLiderPage() {
           </form>
         </Box>
       </PageContainer>
+      )}
     </ProtectedRoute>
   );
 }

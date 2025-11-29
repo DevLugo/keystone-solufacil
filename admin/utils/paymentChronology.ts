@@ -234,16 +234,25 @@ export const generatePaymentChronology = (loan: LoanData): PaymentChronologyItem
     }
   }
 
-  // Agregar pagos que estén fuera del período de semanas regulares pero dentro del rango de fechas
+  // Agregar pagos que estén fuera del período de semanas regulares
   const regularPayments = chronology.filter(item => item.type === 'PAYMENT');
   const regularPaymentIds = new Set(regularPayments.map(p => p.id));
-  
+  // Créditos cerrados SOLO si están terminados o renovados (cartera muerta sigue siendo "activo" para pagos)
+  const isClosedLoan =
+    !!loan.finishedDate && (loan.status === 'FINISHED' || loan.status === 'RENOVATED');
+
   sortedPayments.forEach((payment: any) => {
     const paymentId = `payment-${payment.id}`;
     if (!regularPaymentIds.has(paymentId)) {
       const paymentDate = new Date(payment.receivedAt);
-      // Solo agregar si está dentro del rango de fechas del crédito
-      if (paymentDate >= signDate && paymentDate <= endDate) {
+
+      // Regla:
+      // - Créditos CERRADOS (terminado / renovado): solo pagos dentro de [signDate, endDate]
+      // - Créditos ACTIVOS o CARTERA MUERTA: todos los pagos desde signDate en adelante
+      const isInRangeForClosed = paymentDate >= signDate && paymentDate <= endDate;
+      const isInRangeForActiveOrDeadDebt = paymentDate >= signDate;
+
+      if ((isClosedLoan && isInRangeForClosed) || (!isClosedLoan && isInRangeForActiveOrDeadDebt)) {
         chronology.push({
           id: paymentId,
           date: payment.receivedAt,
