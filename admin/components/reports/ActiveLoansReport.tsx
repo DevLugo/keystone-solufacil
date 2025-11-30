@@ -14,7 +14,7 @@ import { ExportButton } from './ExportButton';
 
 // Query para obtener el reporte
 const GET_ACTIVE_LOANS_REPORT = gql`
-  query GetActiveLoansReport($routeId: String!, $year: Int!, $month: Int!, $useActiveWeeks: Boolean!) {
+  query GetActiveLoansReport($routeId: String, $year: Int!, $month: Int!, $useActiveWeeks: Boolean!) {
     getActiveLoansReport(routeId: $routeId, year: $year, month: $month, useActiveWeeks: $useActiveWeeks)
   }
 `;
@@ -782,6 +782,7 @@ export default function ActiveLoansReport() {
   const [useActiveWeeks, setUseActiveWeeks] = useState(true);
   const [showTooltip, setShowTooltip] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [localitiesMinimized, setLocalitiesMinimized] = useState(true); // Por defecto minimizado
 
 
   // 3. FUNCIÓN PRINCIPAL DE EXPORTACIÓN PDF AJUSTADA
@@ -1222,13 +1223,13 @@ export default function ActiveLoansReport() {
     refetch: refetchReport
   } = useQuery(GET_ACTIVE_LOANS_REPORT, {
     variables: {
-      routeId: selectedRoute?.id || '',
+      routeId: selectedRoute?.id === 'ALL' ? 'ALL' : (selectedRoute?.id || ''),
       year: selectedYear,
       month: selectedMonth,
       useActiveWeeks: useActiveWeeks,
     },
     notifyOnNetworkStatusChange: true,
-    skip: !selectedRoute,
+    skip: !selectedRoute, // Aún requiere que haya una selección (puede ser "ALL")
   });
 
   // Query para obtener registros de limpieza de cartera
@@ -1237,20 +1238,31 @@ export default function ActiveLoansReport() {
     loading: cleanupsLoading
   } = useQuery(GET_PORTFOLIO_CLEANUPS, {
     variables: {
-      routeId: selectedRoute?.id || '',
+      routeId: selectedRoute?.id === 'ALL' ? 'ALL' : (selectedRoute?.id || ''),
       year: selectedYear,
       month: selectedMonth,
     },
-    skip: !selectedRoute,
+    skip: !selectedRoute || selectedRoute?.id === 'ALL', // No mostrar cleanups cuando es "ALL"
   });
 
   // Opciones para los selects
   const routeOptions = useMemo(() => {
-    if (!routesData?.routes) return [];
-    return routesData.routes.map((route: Route) => ({
-      label: route.name,
-      value: route.id,
-    }));
+    const options = [];
+    // Agregar opción "Todas las rutas" al inicio
+    options.push({
+      label: 'Todas las rutas',
+      value: 'ALL',
+    });
+    // Agregar rutas individuales
+    if (routesData?.routes) {
+      routesData.routes.forEach((route: Route) => {
+        options.push({
+          label: route.name,
+          value: route.id,
+        });
+      });
+    }
+    return options;
   }, [routesData]);
 
   const yearOptions = useMemo(() => {
@@ -1276,13 +1288,13 @@ export default function ActiveLoansReport() {
     { label: 'Diciembre', value: 12 },
   ];
 
-  // Seleccionar primera ruta por defecto
+  // Seleccionar "Todas las rutas" por defecto
   useEffect(() => {
     if (routeOptions.length > 0 && !selectedRoute) {
-      const firstRoute = routesData.routes[0];
-      setSelectedRoute(firstRoute);
+      // Seleccionar "Todas las rutas" por defecto
+      setSelectedRoute({ id: 'ALL', name: 'Todas las rutas' });
     }
-  }, [routeOptions, selectedRoute, routesData]);
+  }, [routeOptions, selectedRoute]);
 
   // Procesar datos del reporte
   const processedData: ReportData | null = useMemo(() => {
@@ -1677,8 +1689,12 @@ export default function ActiveLoansReport() {
               value={routeOptions.find(opt => opt.value === selectedRoute?.id) || null}
               options={routeOptions}
               onChange={(option) => {
-                const route = routesData.routes.find((r: Route) => r.id === option?.value);
-                setSelectedRoute(route || null);
+                if (option?.value === 'ALL') {
+                  setSelectedRoute({ id: 'ALL', name: 'Todas las rutas' });
+                } else {
+                  const route = routesData?.routes?.find((r: Route) => r.id === option?.value);
+                  setSelectedRoute(route || null);
+                }
               }}
               placeholder="Seleccionar ruta..."
             />
@@ -2089,6 +2105,55 @@ export default function ActiveLoansReport() {
               {processedData.month.name} - {processedData.route.name}
             </div>
             <div style={styles.actionButtons}>
+              <button
+                onClick={() => setLocalitiesMinimized(!localitiesMinimized)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '8px 16px',
+                  backgroundColor: localitiesMinimized ? '#e2e8f0' : 'white',
+                  color: localitiesMinimized ? '#475569' : '#0052CC',
+                  border: '1px solid',
+                  borderColor: localitiesMinimized ? '#cbd5e1' : 'white',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  transition: 'all 150ms cubic-bezier(0.4, 0, 0.2, 1)',
+                  whiteSpace: 'nowrap'
+                }}
+                onMouseEnter={(e) => {
+                  if (localitiesMinimized) {
+                    e.currentTarget.style.backgroundColor = '#f1f5f9';
+                    e.currentTarget.style.borderColor = '#94a3b8';
+                  } else {
+                    e.currentTarget.style.backgroundColor = '#f8fafc';
+                    e.currentTarget.style.borderColor = '#e2e8f0';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (localitiesMinimized) {
+                    e.currentTarget.style.backgroundColor = '#e2e8f0';
+                    e.currentTarget.style.borderColor = '#cbd5e1';
+                  } else {
+                    e.currentTarget.style.backgroundColor = 'white';
+                    e.currentTarget.style.borderColor = 'white';
+                  }
+                }}
+              >
+                {localitiesMinimized ? (
+                  <>
+                    <span>👁️</span>
+                    <span>Mostrar detalles</span>
+                  </>
+                ) : (
+                  <>
+                    <span>👁️‍🗨️</span>
+                    <span>Ocultar detalles</span>
+                  </>
+                )}
+              </button>
               <Button tone="passive" size="small">
                 <FaDownload /> Exportar
               </Button>
@@ -2121,7 +2186,8 @@ export default function ActiveLoansReport() {
                 </tr>
               </thead>
               <tbody>
-                {allLocalities.map(locality => (
+                {/* Mostrar localidades solo si no están minimizadas */}
+                {!localitiesMinimized && allLocalities.map(locality => (
                   <tr key={locality} style={{ ':hover': { backgroundColor: '#f7fafc' } }}>
                     <td style={{ ...styles.td, ...styles.localityName }}>
                       {locality}

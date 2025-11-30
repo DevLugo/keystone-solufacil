@@ -207,6 +207,17 @@
   font-size: 13px;
 }
 
+/* Ocultar spinners de inputs numéricos para prevenir cambios accidentales */
+.fieldInput[type="number"]::-webkit-outer-spin-button,
+.fieldInput[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.fieldInput[type="number"] {
+  -moz-appearance: textfield;
+}
+
 .divider {
   height: 1px;
   background: #e5e7eb;

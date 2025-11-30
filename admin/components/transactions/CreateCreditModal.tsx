@@ -1774,6 +1774,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
                             const value = e.target.value.replace(/[^0-9]/g, '');
                             handleLoanChange(index, 'requestedAmount', value);
                           }}
+                          onWheel={(e) => e.currentTarget.blur()}
                         />
                         {/* Error message removed as per request */}
                       </div>
@@ -1789,6 +1790,7 @@ export const CreateCreditModal: React.FC<CreateCreditModalProps> = ({
                             const value = e.target.value.replace(/[^0-9]/g, '');
                             handleLoanChange(index, 'comissionAmount', value);
                           }}
+                          onWheel={(e) => e.currentTarget.blur()}
                         />
                       </div>
 

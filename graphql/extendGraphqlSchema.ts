@@ -5595,7 +5595,7 @@ export const extendGraphqlSchema = graphql.extend(base => {
       getActiveLoansReport: graphql.field({
         type: graphql.nonNull(graphql.JSON),
         args: {
-          routeId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          routeId: graphql.arg({ type: graphql.String }), // Opcional para permitir "ALL"
           year: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
           month: graphql.arg({ type: graphql.nonNull(graphql.Int) }),
           useActiveWeeks: graphql.arg({ type: graphql.nonNull(graphql.Boolean) }),
@@ -5705,49 +5705,56 @@ export const extendGraphqlSchema = graphql.extend(base => {
             const queryEnd = new Date(year, month, 0, 23, 59, 59, 999);
 
             // ✅ OPTIMIZACIÓN: Query optimizada con filtros de fecha y solo campos necesarios
-            const allLoans = await (context.prisma as any).loan.findMany({
-              where: {
-                lead: {
-                  routes: {
-                    id: routeId
+            // Si routeId === "ALL" o es null, obtener préstamos de todas las rutas
+            const whereClause: any = {
+              OR: [
+                {
+                  signDate: {
+                    gte: queryStart,
+                    lte: queryEnd
                   }
                 },
-                OR: [
-                  {
-                    signDate: {
-                      gte: queryStart,
-                      lte: queryEnd
-                    }
-                  },
-                  {
-                    finishedDate: {
-                      gte: queryStart,
-                      lte: queryEnd
-                    }
-                  },
-                  {
-                    AND: [
-                      {
-                        signDate: {
-                          lte: queryEnd
-                        }
-                      },
-                      {
-                        OR: [
-                          {
-                            finishedDate: null
-                          },
-                          {
-                            finishedDate: {
-                              gte: queryStart
-                            }
-                          }
-                        ]
-                      }
-                    ]
+                {
+                  finishedDate: {
+                    gte: queryStart,
+                    lte: queryEnd
                   }
-                ]
-              },
+                },
+                {
+                  AND: [
+                    {
+                      signDate: {
+                        lte: queryEnd
+                      }
+                    },
+                    {
+                      OR: [
+                        {
+                          finishedDate: null
+                        },
+                        {
+                          finishedDate: {
+                            gte: queryStart
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            };
+
+            // Agregar filtro de ruta solo si routeId no es "ALL" o null
+            if (routeId && routeId !== "ALL") {
+              whereClause.lead = {
+                routes: {
+                  id: routeId
+                }
+              };
+            }
+
+            const allLoans = await (context.prisma as any).loan.findMany({
+              where: whereClause,
               select: {
                 id: true,
                 signDate: true,
@@ -7297,9 +7304,16 @@ export const extendGraphqlSchema = graphql.extend(base => {
             });
 
             // Obtener información de la ruta
-            const route = await context.prisma.route.findUnique({
-              where: { id: routeId }
-            });
+            // Si routeId === "ALL", usar objeto especial para "Todas las rutas"
+            let route: { id: string; name: string } | null = null;
+            if (routeId && routeId !== "ALL") {
+              route = await context.prisma.route.findUnique({
+                where: { id: routeId }
+              });
+            } else {
+              // Cuando es "ALL", crear objeto especial
+              route = { id: "ALL", name: "Todas las rutas" };
+            }
 
             // Debug controlado para validar corte de meses con semanas activas
             try {
@@ -7630,24 +7644,31 @@ export const extendGraphqlSchema = graphql.extend(base => {
               const prevMonthEnd = new Date(prevBase.getFullYear(), prevBase.getMonth() + 1, 0, 23, 59, 59, 999);
 
               // ✅ OPTIMIZACIÓN: Consulta paralela para gasolina
+              // Si routeId === "ALL", no filtrar por ruta
+              const gasolineWhereCurr: any = {
+                type: 'EXPENSE',
+                expenseSource: 'GASOLINE',
+                date: { gte: thisMonthStart, lte: thisMonthEnd }
+              };
+              const gasolineWherePrev: any = {
+                type: 'EXPENSE',
+                expenseSource: 'GASOLINE',
+                date: { gte: prevMonthStart, lte: prevMonthEnd }
+              };
+              
+              if (routeId && routeId !== "ALL") {
+                gasolineWhereCurr.routeId = routeId;
+                gasolineWherePrev.routeId = routeId;
+              }
+
               const [aggCurr, aggPrev] = await Promise.all([
                 context.prisma.transaction.aggregate({
                   _sum: { amount: true },
-                  where: {
-                    routeId,
-                    type: 'EXPENSE',
-                    expenseSource: 'GASOLINE',
-                    date: { gte: thisMonthStart, lte: thisMonthEnd }
-                  }
+                  where: gasolineWhereCurr
                 } as any),
                 context.prisma.transaction.aggregate({
                   _sum: { amount: true },
-                  where: {
-                    routeId,
-                    type: 'EXPENSE',
-                    expenseSource: 'GASOLINE',
-                    date: { gte: prevMonthStart, lte: prevMonthEnd }
-                  }
+                  where: gasolineWherePrev
                 } as any)
               ]);
 

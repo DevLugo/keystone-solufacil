@@ -343,6 +343,25 @@ export const CreateExpensesForm = ({
 }: GastosProps) => {
   const { triggerBalanceRefresh } = useBalanceRefresh();
   
+  // Ocultar spinners de inputs numéricos para prevenir cambios accidentales
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      input[type="number"]::-webkit-outer-spin-button,
+      input[type="number"]::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+      input[type="number"] {
+        -moz-appearance: textfield;
+      }
+    `;
+    document.head.appendChild(style);
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
+
   const [state, setState] = useState<FormState>({
     newTransactions: [],
     transactions: [],
@@ -1784,7 +1803,7 @@ export const CreateExpensesForm = ({
                         />
                       </div>
                     </td>
-                      <td style={tableCellStyle}><TextInput type="number" step="1" value={transaction.amount} onChange={e => handleEditTransaction(index, 'amount', e.target.value)} placeholder="0" style={{ fontSize: '11px', height: '32px' }} /></td>
+                      <td style={tableCellStyle}><TextInput type="number" step="1" value={transaction.amount} onChange={e => handleEditTransaction(index, 'amount', e.target.value)} placeholder="0" style={{ fontSize: '11px', height: '32px' }} onWheel={(e) => e.currentTarget.blur()} /></td>
                       <td style={tableCellStyle}><TextInput value={transaction.description || ''} onChange={e => handleEditTransaction(index, 'description', e.target.value)} placeholder="Descripción del gasto" style={{ fontSize: '11px', height: '32px' }} /></td>
                       <td style={tableCellStyle}>{new Date(new Date(transaction.date).getTime() + new Date().getTimezoneOffset() * 60000).toLocaleDateString('es-MX', { year: 'numeric', month: '2-digit', day: '2-digit' })}</td>
                     <td style={tableCellStyle}>{selectedLead?.personalData?.fullName}</td>
@@ -2013,6 +2032,7 @@ export const CreateExpensesForm = ({
                 value={editingTransaction.amount}
                 onChange={e => updateState({ editingTransaction: { ...editingTransaction, amount: e.target.value } })}
                 placeholder="0"
+                onWheel={(e) => e.currentTarget.blur()}
               />
             </div>
             <div style={{ marginBottom: '24px' }}>
@@ -2309,6 +2329,7 @@ export const CreateExpensesForm = ({
                 value={editingDistributedGroup.amount}
                 onChange={e => updateState({ editingDistributedGroup: { ...editingDistributedGroup, amount: e.target.value } })}
                 placeholder="0"
+                onWheel={(e) => e.currentTarget.blur()}
               />
             </div>
             <div style={{ marginBottom: '16px' }}>

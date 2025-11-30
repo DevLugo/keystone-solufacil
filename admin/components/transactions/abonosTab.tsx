@@ -693,6 +693,25 @@ export const CreatePaymentForm = ({
   showAllLocalities?: boolean,
   showOnlyIncompleteAvals?: boolean
 }) => {
+  // Ocultar spinners de inputs numéricos para prevenir cambios accidentales
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      input[type="number"]::-webkit-outer-spin-button,
+      input[type="number"]::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+      input[type="number"] {
+        -moz-appearance: textfield;
+      }
+    `;
+    document.head.appendChild(style);
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
+
   const [state, setState] = useState<{
     payments: LoanPayment[];
     comission: number;
@@ -4055,6 +4074,7 @@ useEffect(() => {
                           onChange={e => handleEditExistingPayment(payment.id, 'amount', e.target.value)}
                           disabled={isStrikethrough}
                           style={{ height: HEIGHT_SYSTEM.small, fontSize: FONT_SYSTEM.small }}
+                          onWheel={(e) => e.currentTarget.blur()}
                         />
                       ) : (
                         <span style={{
@@ -4080,6 +4100,7 @@ useEffect(() => {
                             onChange={e => handleEditExistingPayment(payment.id, 'comission', e.target.value)}
                             disabled={isStrikethrough}
                             style={{ height: HEIGHT_SYSTEM.small, fontSize: FONT_SYSTEM.small }}
+                            onWheel={(e) => e.currentTarget.blur()}
                           />
                           {payment.loan?.loantype?.loanPaymentComission && 
                            parseFloat(payment.loan.loantype.loanPaymentComission) > 0 && (
@@ -4487,6 +4508,7 @@ useEffect(() => {
                         onChange={(e) => handleChange(index, 'amount', e.target.value)}
                         disabled={isStrikethrough || isDeceased}
                         style={{ height: HEIGHT_SYSTEM.small, fontSize: FONT_SYSTEM.small }}
+                        onWheel={(e) => e.currentTarget.blur()}
                       />
                     </div>
                   </td>
@@ -4507,6 +4529,7 @@ useEffect(() => {
                         onChange={(e) => handleChange(index, 'comission', e.target.value)}
                         disabled={isStrikethrough || isDeceased}
                         style={{ height: HEIGHT_SYSTEM.small, fontSize: FONT_SYSTEM.small }}
+                        onWheel={(e) => e.currentTarget.blur()}
                       />
                     </div>
                   </td>
@@ -4885,6 +4908,7 @@ useEffect(() => {
               value={createFalcoAmount}
               onChange={(e) => updateState({ createFalcoAmount: parseFloat(e.target.value) || 0 })}
               placeholder="0"
+              onWheel={(e) => e.currentTarget.blur()}
             />
           </Box>
           
@@ -5191,6 +5215,7 @@ useEffect(() => {
                 updateState({ falcoPaymentAmount: isNaN(numValue) ? 0 : numValue });
               }}
               placeholder="0"
+              onWheel={(e) => e.currentTarget.blur()}
             />
           </Box>
           
@@ -5342,6 +5367,7 @@ useEffect(() => {
                   padding: '8px 12px',
                   boxSizing: 'border-box'
                 }}
+                onWheel={(e) => e.currentTarget.blur()}
               />
               <div style={{ 
                 fontSize: '12px', 
@@ -5817,6 +5843,7 @@ useEffect(() => {
               value={multaData.amount}
               onChange={(e) => setMultaData(prev => ({ ...prev, amount: e.target.value }))}
               placeholder="0.00"
+              onWheel={(e) => e.currentTarget.blur()}
             />
           </Box>
           

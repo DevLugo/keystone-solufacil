@@ -3125,7 +3125,7 @@ type Query {
   getTransactionsSummary(startDate: String!, endDate: String!, routeId: String): [TransactionSummary!]!
   getMonthlyResume(routeId: String!, year: Int!): JSON!
   getLoansReport(routeId: String!, year: Int!, month: Int!): JSON!
-  getActiveLoansReport(routeId: String!, year: Int!, month: Int!, useActiveWeeks: Boolean!): JSON!
+  getActiveLoansReport(routeId: String, year: Int!, month: Int!, useActiveWeeks: Boolean!): JSON!
   getActiveClientsForLocality(routeId: String!, localityName: String!, year: Int!, month: Int!, weekEndDate: String): JSON!
   getRouteStats(routeId: String!): JSON!
   getFinancialReport(routeIds: [String!]!, year: Int!): JSON!
