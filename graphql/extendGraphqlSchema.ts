@@ -5638,11 +5638,6 @@ export const extendGraphqlSchema = graphql.extend(base => {
                 weekEnd.setDate(weekEnd.getDate() + 6);
                 weekEnd.setHours(23, 59, 59, 999);
 
-                // ✅ CORRECCIÓN: Asegurar que weekEnd no se extienda más allá del mes
-                const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
-                if (weekEnd > monthEnd) {
-                  weekEnd.setTime(monthEnd.getTime());
-                }
 
                 // contar mayoría en L-V para decidir pertenencia al mes
                 let workDaysInMonth = 0;
