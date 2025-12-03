@@ -3,7 +3,7 @@
 import { jsx } from '@keystone-ui/core';
 import React from 'react';
 import { colors, shadows, radius, formatCurrency } from './theme';
-import { useTheme, useThemeColors } from '../../contexts/ThemeContext';
+import { useSafeTheme, useSafeThemeColors } from '../../contexts/ThemeContext';
 
 interface StatCardProps {
   title: string;
@@ -17,23 +17,9 @@ interface StatCardProps {
 }
 
 export function StatCard({ title, value, icon, gradient, trend }: StatCardProps) {
-  // Try to get theme, fallback to light mode values if not in ThemeProvider
-  let themeColors;
-  let isDark = false;
-  try {
-    const theme = useTheme();
-    themeColors = useThemeColors();
-    isDark = theme.isDark;
-  } catch {
-    // Not in ThemeProvider, use default light colors
-    themeColors = {
-      card: colors.card,
-      foreground: colors.foreground,
-      foregroundSecondary: colors.slate[600],
-      foregroundMuted: colors.slate[500],
-      border: colors.slate[100],
-    };
-  }
+  // Use safe hooks that don't throw when outside ThemeProvider
+  const { isDark } = useSafeTheme();
+  const themeColors = useSafeThemeColors();
 
   return (
     <div

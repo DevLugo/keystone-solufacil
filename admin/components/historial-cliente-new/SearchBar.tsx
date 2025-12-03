@@ -4,7 +4,7 @@ import { jsx } from '@keystone-ui/core';
 import React, { useState, useEffect } from 'react';
 import { Search, BarChart4, Trash2, GitMerge, Users } from 'lucide-react';
 import { colors, radius, commonStyles, shadows } from './theme';
-import { useTheme, useThemeColors } from '../../contexts/ThemeContext';
+import { useSafeTheme, useSafeThemeColors } from '../../contexts/ThemeContext';
 
 interface SearchBarProps {
   onSearch: (query: string) => void;
@@ -46,22 +46,9 @@ export function SearchBar({
   showResults?: boolean;
   onSelectResult?: (result: any) => void;
 }) {
-  // Try to get theme, fallback to light mode values if not in ThemeProvider
-  let themeColors;
-  let isDark = false;
-  try {
-    const theme = useTheme();
-    themeColors = useThemeColors();
-    isDark = theme.isDark;
-  } catch {
-    themeColors = {
-      card: colors.card,
-      foreground: colors.foreground,
-      foregroundMuted: colors.mutedForeground,
-      background: colors.background,
-      border: colors.border,
-    };
-  }
+  // Use safe hooks that don't throw when outside ThemeProvider
+  const { isDark } = useSafeTheme();
+  const themeColors = useSafeThemeColors();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

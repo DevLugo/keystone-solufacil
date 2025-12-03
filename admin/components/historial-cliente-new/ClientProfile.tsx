@@ -4,7 +4,7 @@ import { jsx } from '@keystone-ui/core';
 import React from 'react';
 import { User, Key, Phone, BarChart2, Calendar, Trophy, Map, MapPin, Building2, Globe2 } from 'lucide-react';
 import { colors, radius, shadows, commonStyles } from './theme';
-import { useTheme, useThemeColors } from '../../contexts/ThemeContext';
+import { useSafeTheme, useSafeThemeColors } from '../../contexts/ThemeContext';
 
 interface ClientData {
   name: string;
@@ -30,22 +30,9 @@ interface ClientProfileProps {
 export function ClientProfile({
   client
 }: ClientProfileProps) {
-  // Try to get theme, fallback to light mode values if not in ThemeProvider
-  let themeColors;
-  let isDark = false;
-  try {
-    const theme = useTheme();
-    themeColors = useThemeColors();
-    isDark = theme.isDark;
-  } catch {
-    themeColors = {
-      card: colors.card,
-      foreground: colors.foreground,
-      foregroundMuted: colors.mutedForeground,
-      background: colors.background,
-      border: colors.border,
-    };
-  }
+  // Use safe hooks that don't throw when outside ThemeProvider
+  const { isDark } = useSafeTheme();
+  const themeColors = useSafeThemeColors();
 
   return (
     <div css={{ marginBottom: '2rem' }}>

@@ -4,7 +4,7 @@ import { jsx } from '@keystone-ui/core';
 import React from 'react';
 import { X, RefreshCw, Banknote, PiggyBank, Clock, TrendingUp } from 'lucide-react';
 import { colors, radius, shadows } from './theme';
-import { useTheme, useThemeColors } from '../../contexts/ThemeContext';
+import { useSafeTheme, useSafeThemeColors } from '../../contexts/ThemeContext';
 
 interface Payment {
   id: number;
@@ -44,22 +44,9 @@ export function PaymentHistoryModal({
   loan,
   onClose
 }: PaymentHistoryModalProps) {
-  // Try to get theme, fallback to light mode values if not in ThemeProvider
-  let themeColors;
-  let isDark = false;
-  try {
-    const theme = useTheme();
-    themeColors = useThemeColors();
-    isDark = theme.isDark;
-  } catch {
-    themeColors = {
-      card: colors.card,
-      foreground: colors.foreground,
-      foregroundMuted: colors.mutedForeground,
-      background: colors.background,
-      border: colors.border,
-    };
-  }
+  // Use safe hooks that don't throw when outside ThemeProvider
+  const { isDark } = useSafeTheme();
+  const themeColors = useSafeThemeColors();
 
   // Calculate remaining debt after each payment
   const paymentsWithDebt = loan.payments.map((payment, index) => {

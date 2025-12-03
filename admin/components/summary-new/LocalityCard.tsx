@@ -4,7 +4,7 @@ import { jsx } from '@keystone-ui/core';
 import React, { useState } from 'react';
 import { MapPin, ChevronDown, ChevronUp, TrendingUp, TrendingDown } from 'lucide-react';
 import { colors, shadows, radius, gradients, formatCurrency } from './theme';
-import { useTheme, useThemeColors } from '../../contexts/ThemeContext';
+import { useSafeTheme, useSafeThemeColors } from '../../contexts/ThemeContext';
 
 interface Transaction {
   concept: string;
@@ -44,27 +44,9 @@ interface LocalityCardProps {
 export function LocalityCard({ locality }: LocalityCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   
-  // Try to get theme, fallback to light mode values if not in ThemeProvider
-  let themeColors;
-  let isDark = false;
-  try {
-    const theme = useTheme();
-    themeColors = useThemeColors();
-    isDark = theme.isDark;
-  } catch {
-    // Not in ThemeProvider, use default light colors
-    themeColors = {
-      card: colors.card,
-      cardHover: colors.slate[50],
-      foreground: colors.foreground,
-      foregroundSecondary: colors.slate[600],
-      foregroundMuted: colors.slate[500],
-      border: colors.slate[100],
-      borderHover: colors.slate[200],
-      background: colors.background,
-      backgroundSecondary: colors.slate[50],
-    };
-  }
+  // Use safe hooks that don't throw when outside ThemeProvider
+  const { isDark } = useSafeTheme();
+  const themeColors = useSafeThemeColors();
   
   const totalBalance = locality.cashBalance + locality.bankBalance;
   const isPositive = totalBalance >= 0;

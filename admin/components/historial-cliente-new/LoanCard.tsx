@@ -6,7 +6,7 @@ import { ChevronDown, ChevronUp, Phone, Clock, User } from 'lucide-react';
 import { StatusBadge } from './StatusBadge';
 import { PaymentHistoryModal } from './PaymentHistoryModal';
 import { colors, radius, commonStyles } from './theme';
-import { useTheme, useThemeColors } from '../../contexts/ThemeContext';
+import { useSafeTheme, useSafeThemeColors } from '../../contexts/ThemeContext';
 
 interface Payment {
   id: number;
@@ -47,22 +47,9 @@ export function LoanCard({
   isExpanded,
   onToggleExpand
 }: LoanCardProps) {
-  // Try to get theme, fallback to light mode values if not in ThemeProvider
-  let themeColors;
-  let isDark = false;
-  try {
-    const theme = useTheme();
-    themeColors = useThemeColors();
-    isDark = theme.isDark;
-  } catch {
-    themeColors = {
-      card: colors.card,
-      foreground: colors.foreground,
-      foregroundMuted: colors.mutedForeground,
-      background: colors.background,
-      border: colors.border,
-    };
-  }
+  // Use safe hooks that don't throw when outside ThemeProvider
+  const { isDark } = useSafeTheme();
+  const themeColors = useSafeThemeColors();
 
   const progress = loan.totalAmount > 0 ? Math.round((loan.paidAmount / loan.totalAmount) * 100) : 0;
 

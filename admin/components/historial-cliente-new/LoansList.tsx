@@ -5,7 +5,7 @@ import React, { useState } from 'react';
 import { LoanCard } from './LoanCard';
 import { User, AlertCircle } from 'lucide-react';
 import { colors, radius, commonStyles } from './theme';
-import { useTheme, useThemeColors } from '../../contexts/ThemeContext';
+import { useSafeTheme, useSafeThemeColors } from '../../contexts/ThemeContext';
 
 interface Payment {
   id: number;
@@ -48,22 +48,9 @@ export function LoansList({
 }: LoansListProps) {
   const [expandedLoan, setExpandedLoan] = useState<string | null>(null);
 
-  // Try to get theme, fallback to light mode values if not in ThemeProvider
-  let themeColors;
-  let isDark = false;
-  try {
-    const theme = useTheme();
-    themeColors = useThemeColors();
-    isDark = theme.isDark;
-  } catch {
-    themeColors = {
-      card: colors.card,
-      foreground: colors.foreground,
-      foregroundMuted: colors.mutedForeground,
-      background: colors.background,
-      border: colors.border,
-    };
-  }
+  // Use safe hooks that don't throw when outside ThemeProvider
+  const { isDark } = useSafeTheme();
+  const themeColors = useSafeThemeColors();
 
   const toggleLoanExpand = (loanId: string) => {
     setExpandedLoan(expandedLoan === loanId ? null : loanId);

@@ -149,6 +149,39 @@ export function useThemeColors() {
   return isDark ? darkColors : lightColors;
 }
 
+/**
+ * Safe version of useTheme that doesn't throw if used outside ThemeProvider.
+ * Returns default light theme values when not in a ThemeProvider.
+ * This hook MUST be called unconditionally at the top level of your component.
+ */
+export function useSafeTheme(): ThemeContextType {
+  const context = useContext(ThemeContext);
+  // Return default values if not in ThemeProvider
+  if (context === undefined) {
+    return {
+      theme: 'light',
+      toggleTheme: () => {},
+      setTheme: () => {},
+      isDark: false,
+    };
+  }
+  return context;
+}
+
+/**
+ * Safe version of useThemeColors that doesn't throw if used outside ThemeProvider.
+ * Returns light mode colors when not in a ThemeProvider.
+ * This hook MUST be called unconditionally at the top level of your component.
+ */
+export function useSafeThemeColors() {
+  const context = useContext(ThemeContext);
+  // Return light colors if not in ThemeProvider
+  if (context === undefined) {
+    return lightColors;
+  }
+  return context.isDark ? darkColors : lightColors;
+}
+
 // Colores para modo claro
 export const lightColors = {
   // Backgrounds
