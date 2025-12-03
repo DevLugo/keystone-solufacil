@@ -10,7 +10,6 @@ import { DollarSign, TrendingUp, Wallet, CreditCard, ArrowUpCircle } from 'lucid
 // New Components
 import { StatCard } from '../summary-new/StatCard';
 import { LocalityCard } from '../summary-new/LocalityCard';
-import { ExecutiveSummary } from '../summary-new/ExecutiveSummary';
 import { colors, shadows, radius, gradients, formatCurrency } from '../summary-new/theme';
 
 // Import existing modal
@@ -592,8 +591,6 @@ export const SummaryTabNew = ({ selectedDate, selectedRoute, refreshKey }: Summa
           </div>
         </div>
 
-        {/* Executive Summary */}
-        <ExecutiveSummary data={executiveSummary} />
       </div>
 
       {/* Floating Action Button */}

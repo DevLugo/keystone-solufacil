@@ -106,15 +106,15 @@ export function LocalityCard({ locality }: LocalityCardProps) {
           {/* Quick Stats - Hidden on mobile */}
           <div css={{ display: 'none', alignItems: 'center', gap: '1.5rem', '@media (min-width: 768px)': { display: 'flex' } }}>
             <div css={{ textAlign: 'right' }}>
-              <p css={{ fontSize: '0.75rem', color: colors.slate[500], marginBottom: '0.25rem', margin: 0 }}>Balance Total</p>
-              <p css={{ fontSize: '1.125rem', fontWeight: 700, color: isPositive ? colors.green[600] : colors.red[600], margin: 0 }}>
-                {formatCurrency(totalBalance)}
+              <p css={{ fontSize: '0.75rem', color: colors.slate[500], marginBottom: '0.25rem', margin: 0 }}>Balance Efectivo</p>
+              <p css={{ fontSize: '1.125rem', fontWeight: 700, color: locality.cashBalance >= 0 ? colors.green[600] : colors.red[600], margin: 0 }}>
+                {formatCurrency(locality.cashBalance)}
               </p>
             </div>
             <div css={{ textAlign: 'right' }}>
-              <p css={{ fontSize: '0.75rem', color: colors.slate[500], marginBottom: '0.25rem', margin: 0 }}>Colocado</p>
-              <p css={{ fontSize: '1.125rem', fontWeight: 700, color: colors.slate[900], margin: 0 }}>
-                {formatCurrency(locality.totalPlaced.creditsAndLoans)}
+              <p css={{ fontSize: '0.75rem', color: colors.slate[500], marginBottom: '0.25rem', margin: 0 }}>Balance Banco</p>
+              <p css={{ fontSize: '1.125rem', fontWeight: 700, color: locality.bankBalance >= 0 ? colors.green[600] : colors.red[600], margin: 0 }}>
+                {formatCurrency(locality.bankBalance)}
               </p>
             </div>
           </div>
