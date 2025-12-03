@@ -16,6 +16,7 @@ import { CreateExpensesForm } from '../components/transactions/gastosTab';
 import { CreditosTabNew } from '../components/transactions/CreditosTabNew';
 import { CreatePaymentForm } from '../components/transactions/abonosTab';
 import { SummaryTab } from '../components/transactions/SummaryTab';
+import { SummaryTabNew } from '../components/transactions/SummaryTabNew';
 import TransferForm from '../components/transactions/TransferTab';
 import { BalanceRefreshProvider, useBalanceRefresh } from '../contexts/BalanceRefreshContext';
 import { ToastProvider } from '../components/ui/toast';
@@ -286,6 +287,14 @@ function TransaccionesPageContent() {
             refreshKey={refreshKey}
           />
         );
+      case 'summary-new':
+        return (
+          <SummaryTabNew
+            selectedDate={selectedDate}
+            selectedRoute={toRoute(selectedRoute)}
+            refreshKey={refreshKey}
+          />
+        );
       case 'expenses':
         return (
           <CreateExpensesForm
@@ -417,6 +426,7 @@ function TransaccionesPageContent() {
           }}>
             {[
               { key: 'summary', label: 'Resumen', testId: 'tab-summary' },
+              { key: 'summary-new', label: 'Resumen New', testId: 'tab-summary-new' },
               { key: 'payments', label: 'Abonos', testId: 'tab-payments' },
               { key: 'credits', label: 'Créditos', testId: 'tab-credits' },
               { key: 'expenses', label: 'Gastos', testId: 'tab-expenses' },
