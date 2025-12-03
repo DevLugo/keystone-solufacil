@@ -55,3 +55,4 @@ mochawesome-report/
 test-results/
 playwright-report/
 junit.xml
+.aider*
