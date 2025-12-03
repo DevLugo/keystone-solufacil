@@ -4,6 +4,7 @@ import { jsx } from '@keystone-ui/core';
 import React, { useState, useEffect } from 'react';
 import { Search, BarChart4, Trash2, GitMerge, Users } from 'lucide-react';
 import { colors, radius, commonStyles, shadows } from './theme';
+import { useTheme, useThemeColors } from '../../contexts/ThemeContext';
 
 interface SearchBarProps {
   onSearch: (query: string) => void;
@@ -45,6 +46,23 @@ export function SearchBar({
   showResults?: boolean;
   onSelectResult?: (result: any) => void;
 }) {
+  // Try to get theme, fallback to light mode values if not in ThemeProvider
+  let themeColors;
+  let isDark = false;
+  try {
+    const theme = useTheme();
+    themeColors = useThemeColors();
+    isDark = theme.isDark;
+  } catch {
+    themeColors = {
+      card: colors.card,
+      foreground: colors.foreground,
+      foregroundMuted: colors.mutedForeground,
+      background: colors.background,
+      border: colors.border,
+    };
+  }
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchTerm) onSearch(searchTerm);
@@ -54,17 +72,19 @@ export function SearchBar({
     <div css={{ 
       ...commonStyles.card, 
       padding: '1.5rem', 
-      border: `1px solid ${colors.border}`,
+      border: `1px solid ${themeColors.border}`,
+      backgroundColor: themeColors.card,
       marginBottom: '1.5rem',
-      position: 'relative', // Ensure z-index context if needed, though dropdown is relative to input container
-      zIndex: 20
+      position: 'relative',
+      zIndex: 20,
+      transition: 'all 0.3s ease',
     }}>
       <div css={{ flex: 1 }}>
         <div css={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-          <Search size={20} color={colors.mutedForeground} />
-          <h2 css={{ fontSize: '1.25rem', fontWeight: 500, margin: 0 }}>Búsqueda de Cliente</h2>
+          <Search size={20} color={themeColors.foregroundMuted} />
+          <h2 css={{ fontSize: '1.25rem', fontWeight: 500, margin: 0, color: themeColors.foreground, transition: 'color 0.3s ease' }}>Búsqueda de Cliente</h2>
         </div>
-        <p css={{ color: colors.mutedForeground, marginBottom: '1rem', fontSize: '0.875rem', marginTop: 0 }}>
+        <p css={{ color: themeColors.foregroundMuted, marginBottom: '1rem', fontSize: '0.875rem', marginTop: 0 }}>
           Buscar Cliente (Nombre, Clave Única) - La información de ruta y
           localidad aparecerá en los resultados
         </p>
@@ -78,16 +98,20 @@ export function SearchBar({
               css={{
                 width: '100%',
                 borderRadius: radius.lg,
-                border: `1px solid ${colors.input}`,
-                backgroundColor: colors.background,
+                border: `1px solid ${themeColors.border}`,
+                backgroundColor: themeColors.background,
+                color: themeColors.foreground,
                 padding: '0.625rem 1rem',
                 fontSize: '0.875rem',
                 boxShadow: shadows.sm,
-                transition: 'border-color 0.2s',
+                transition: 'all 0.2s ease',
                 outline: 'none',
+                '&::placeholder': {
+                  color: themeColors.foregroundMuted,
+                },
                 '&:focus': {
                   borderColor: colors.primary,
-                  boxShadow: `0 0 0 2px ${colors.blue[100]}`
+                  boxShadow: `0 0 0 2px ${isDark ? colors.blue[800] : colors.blue[100]}`
                 }
               }}
             />
@@ -100,10 +124,10 @@ export function SearchBar({
                 left: 0,
                 right: 0,
                 zIndex: 50,
-                backgroundColor: 'white',
+                backgroundColor: themeColors.card,
                 borderRadius: '0.5rem',
-                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-                border: `1px solid ${colors.border}`,
+                boxShadow: isDark ? '0 4px 6px -1px rgba(0, 0, 0, 0.4)' : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                border: `1px solid ${themeColors.border}`,
                 maxHeight: '20rem',
                 overflowY: 'auto',
                 marginTop: '0.25rem',
@@ -115,13 +139,13 @@ export function SearchBar({
                     css={{
                       padding: '0.75rem 1rem',
                       cursor: 'pointer',
-                      borderBottom: `1px solid ${colors.muted}`,
-                      '&:hover': { backgroundColor: colors.muted },
+                      borderBottom: `1px solid ${isDark ? colors.slate[700] : colors.muted}`,
+                      '&:hover': { backgroundColor: isDark ? colors.slate[700] : colors.muted },
                       '&:last-child': { borderBottom: 'none' }
                     }}
                   >
-                    <div css={{ fontWeight: 500, color: colors.foreground }}>{result.name}</div>
-                    <div css={{ fontSize: '0.875rem', color: colors.mutedForeground, display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <div css={{ fontWeight: 500, color: themeColors.foreground }}>{result.name}</div>
+                    <div css={{ fontSize: '0.875rem', color: themeColors.foregroundMuted, display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                       <span>🔑 {result.clientCode}</span>
                       <span>📍 {result.location}</span>
                       <span>🗺️ {result.route}</span>

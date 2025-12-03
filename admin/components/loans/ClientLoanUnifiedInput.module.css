@@ -9,12 +9,10 @@
   max-height: 300px;
   overflow-y: auto;
   overflow-x: hidden;
-  background: white;
-  border: 1px solid #e5e7eb;
+  background: var(--theme-card);
+  border: 1px solid var(--theme-border);
   border-radius: 8px;
-  box-shadow: 
-    0 10px 15px -3px rgba(0, 0, 0, 0.1),
-    0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--theme-shadow-lg);
   padding: 4px;
   z-index: 9999;
   animation: dropdownFadeIn 150ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -41,12 +39,12 @@
 }
 
 .dropdown::-webkit-scrollbar-thumb {
-  background: #d1d5db;
+  background: var(--theme-scrollbar-thumb);
   border-radius: 3px;
 }
 
 .dropdown::-webkit-scrollbar-thumb:hover {
-  background: #9ca3af;
+  background: var(--theme-scrollbar-thumb-hover);
 }
 
 /* Dropdown item with content left, badges right layout */
@@ -59,11 +57,11 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
-  background: white;
+  background: var(--theme-card);
 }
 
 .dropdownItem:hover {
-  background: #f9fafb;
+  background: var(--theme-card-hover);
   transform: translateX(2px);
 }
 
@@ -79,14 +77,14 @@
 .dropdownItemName {
   font-size: 12px;
   font-weight: 400;
-  color: #111827;
+  color: var(--theme-foreground);
   line-height: 1.4;
 }
 
 /* Phone - 10px as per mockup */
 .dropdownItemPhone {
   font-size: 10px;
-  color: #6b7280;
+  color: var(--theme-foreground-muted);
   line-height: 1.3;
 }
 
@@ -102,7 +100,7 @@
 .clientName {
   font-size: 12px;
   font-weight: 400;
-  color: #111827;
+  color: var(--theme-foreground);
   letter-spacing: 0;
   line-height: 1.4;
   flex: 0 1 70%;
@@ -142,30 +140,30 @@
 
 /* Semantic badge colors matching mockup */
 .badgeDebt {
-  background: #fecaca;
-  color: #7f1d1d;
+  background: var(--theme-destructive-bg);
+  color: var(--theme-destructive-foreground);
 }
 
 .badgeNoDebt {
-  background: #bbf7d0;
-  color: #14532d;
+  background: var(--theme-success-bg);
+  color: var(--theme-success-foreground);
 }
 
 .badgeLocation {
-  background: #bfdbfe;
-  color: #1e3a8a;
+  background: var(--theme-info-bg);
+  color: var(--theme-info-foreground);
 }
 
 .badgeLeader {
-  background: #ddd6fe;
-  color: #581c87;
+  background: var(--theme-purple-bg);
+  color: var(--theme-purple-foreground);
 }
 
 /* Estado de carga compacto */
 .loadingState {
   padding: 12px 10px;
   text-align: center;
-  color: #6b7280;
+  color: var(--theme-foreground-muted);
   font-size: 12px;
   display: flex;
   align-items: center;
@@ -176,8 +174,8 @@
 .loadingSpinner {
   width: 12px;
   height: 12px;
-  border: 2px solid #e5e7eb;
-  border-top-color: #3b82f6;
+  border: 2px solid var(--theme-border);
+  border-top-color: var(--theme-primary);
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
 }
@@ -190,7 +188,7 @@
 .emptyState {
   padding: 12px 10px;
   text-align: center;
-  color: #9ca3af;
+  color: var(--theme-foreground-muted);
   font-size: 12px;
 }
 
@@ -200,8 +198,8 @@
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
+  background: var(--theme-info-bg);
+  border: 1px solid var(--theme-info-border);
   border-radius: 6px;
   font-size: 12px;
   margin-bottom: 6px;
@@ -209,7 +207,7 @@
 
 .selectedLoanName {
   font-weight: 600;
-  color: #1e40af;
+  color: var(--theme-info-foreground);
 }
 
 .clearButton {
@@ -219,9 +217,9 @@
   width: 16px;
   height: 16px;
   border-radius: 3px;
-  background: white;
-  border: 1px solid #bfdbfe;
-  color: #1e40af;
+  background: var(--theme-card);
+  border: 1px solid var(--theme-info-border);
+  color: var(--theme-info-foreground);
   cursor: pointer;
   transition: all 120ms ease;
   font-size: 11px;
@@ -229,9 +227,9 @@
 }
 
 .clearButton:hover {
-  background: #1e40af;
-  color: white;
-  border-color: #1e40af;
+  background: var(--theme-primary);
+  color: var(--theme-primary-foreground);
+  border-color: var(--theme-primary);
 }
 
 .clearButton:active {
@@ -243,31 +241,33 @@
   width: 100%;
   padding: 8px 12px;
   font-size: 13px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--theme-input-border);
   border-radius: 6px;
   transition: all 120ms ease;
-  background: white;
+  background: var(--theme-input);
+  color: var(--theme-foreground);
 }
 
 /* Container del input unificado - border thickness consistente */
 .unifiedInputContainer {
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--theme-input-border);
   border-radius: 8px;
   transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out, background-color 0.15s ease-in-out;
+  background: var(--theme-input);
 }
 
 .input:focus {
   outline: none;
-  border-color: #3b82f6;
+  border-color: var(--theme-primary);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 
 .input:hover:not(:focus) {
-  border-color: #9ca3af;
+  border-color: var(--theme-border-hover);
 }
 
 .input::placeholder {
-  color: #9ca3af;
+  color: var(--theme-input-placeholder);
 }
 
 /* Separador de inputs */
@@ -283,11 +283,11 @@
   align-items: center;
   gap: 5px;
   padding: 6px 10px;
-  background: #fef3c7;
-  border: 1px solid #fde68a;
+  background: var(--theme-warning-bg);
+  border: 1px solid var(--theme-warning-border);
   border-radius: 5px;
   font-size: 11px;
-  color: #92400e;
+  color: var(--theme-warning-foreground);
   margin-top: 6px;
 }
 
@@ -307,17 +307,17 @@
   border: none;
   cursor: pointer;
   transition: all 120ms cubic-bezier(0.4, 0, 0.2, 1);
-  color: #6b7280;
+  color: var(--theme-foreground-muted);
   padding: 0;
 }
 
 .actionButton:hover {
-  background: #f3f4f6;
-  color: #111827;
+  background: var(--theme-muted);
+  color: var(--theme-foreground);
 }
 
 .actionButton:active {
-  background: #e5e7eb;
+  background: var(--theme-background-tertiary);
   transform: scale(0.95);
 }
 
@@ -332,18 +332,18 @@
 }
 
 .editButton:hover {
-  background: #eff6ff;
-  color: #2563eb;
+  background: var(--theme-info-bg);
+  color: var(--theme-primary);
 }
 
 /* Botón de limpiar - color rojo en hover */
-.clearButton {
+.clearButtonAction {
   composes: actionButton;
 }
 
-.clearButton:hover {
-  background: #fef2f2;
-  color: #dc2626;
+.clearButtonAction:hover {
+  background: var(--theme-destructive-bg);
+  color: var(--theme-destructive);
 }
 
 /* Container de botones */

@@ -3,6 +3,7 @@ import { useLazyQuery, gql } from '@apollo/client';
 import EditPersonModal from './EditPersonModal';
 import { SEARCH_POTENTIAL_COLLATERALS } from '../../graphql/queries/loans';
 import styles from './ClientLoanUnifiedInput.module.css';
+import { useThemeColors } from '../../contexts/ThemeContext';
 
 interface Loan {
   id: string;
@@ -184,6 +185,9 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
   hideErrorMessages = false,
   allowPersonSearch = false
 }) => {
+  // Theme colors for dark/light mode support
+  const themeColors = useThemeColors();
+  
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isEditingInline, setIsEditingInline] = useState(false);
   const [editingPerson, setEditingPerson] = useState<any>(null);
@@ -241,7 +245,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
             label: `${person.fullName} - ${person.phones?.[0]?.number || 'Sin teléfono'}`,
             personData: person,
             location: location?.name || 'Sin localidad',
-            locationColor: isDifferentLocation ? '#F59E0B' : '#3B82F6',
+            locationColor: isDifferentLocation ? themeColors.warning : themeColors.primary,
             isDifferentLocation
           };
         });
@@ -266,7 +270,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
             personData: person,
             isPerson: true, // Flag para identificar que es una persona y no un préstamo previo
             location: person.addresses?.[0]?.location?.name || 'Sin localidad',
-            locationColor: '#10B981', // Verde para diferenciar
+            locationColor: themeColors.success, // Verde para diferenciar
             phone: person.phones?.[0]?.number || ''
           };
         });
@@ -500,9 +504,9 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
     // Si está enfocado, usar estilo de focus (azul) similar a otros inputs
     if (isInputFocused && !hasData) {
       return {
-        border: '1px solid #3B82F6',
-        backgroundColor: '#FFFFFF',
-        textColor: '#111827',
+        border: `1px solid ${themeColors.primary}`,
+        backgroundColor: themeColors.input,
+        textColor: themeColors.foreground,
         boxShadow: '0 0 0 3px rgba(59, 130, 246, 0.1)'
       };
     }
@@ -511,51 +515,51 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
       case 'newClient':
         // Blue design for new client creation (no autocomplete match)
         return {
-          border: '1px solid #3B82F6',
-          backgroundColor: '#EFF6FF',
-          textColor: '#1E40AF',
+          border: `1px solid ${themeColors.primary}`,
+          backgroundColor: themeColors.infoBackground,
+          textColor: themeColors.infoForeground,
           boxShadow: isInputFocused ? '0 0 0 3px rgba(59, 130, 246, 0.15)' : 'none'
         };
       case 'new':
-        // Solo mostrar verde si hay datos, sino usar estilo neutral
+        // Solo mostrar estilo de selección si hay datos, sino usar estilo neutral
         if (hasData) {
           return {
-            border: '1px solid #10B981', // Verde para nuevo con datos
-            backgroundColor: '#ECFDF5',
-            textColor: '#065F46',
-            boxShadow: isInputFocused ? '0 0 0 3px rgba(16, 185, 129, 0.1)' : 'none'
+            border: `1px solid ${themeColors.primary}`, // Azul sutil para cliente con datos
+            backgroundColor: themeColors.card,
+            textColor: themeColors.foreground,
+            boxShadow: isInputFocused ? '0 0 0 3px rgba(59, 130, 246, 0.1)' : 'none'
           };
         }
         // Estilo neutral cuando está vacío
         return {
-          border: '1px solid #D1D5DB',
-          backgroundColor: '#FFFFFF',
-          textColor: '#374151',
+          border: `1px solid ${themeColors.border}`,
+          backgroundColor: themeColors.input,
+          textColor: themeColors.foreground,
           boxShadow: 'none'
         };
       case 'edited':
         return {
-          border: '1px solid #F59E0B', // Amarillo para editado
-          backgroundColor: '#FFFBEB',
-          textColor: '#92400E',
+          border: `1px solid ${themeColors.warning}`, // Amarillo para editado
+          backgroundColor: themeColors.warningBackground,
+          textColor: themeColors.warningForeground,
           boxShadow: isInputFocused ? '0 0 0 3px rgba(245, 158, 11, 0.1)' : 'none'
         };
       case 'renewed':
         return {
-          border: '1px solid #3B82F6', // Azul para renovado sin cambios
-          backgroundColor: '#EFF6FF',
-          textColor: '#1E40AF',
+          border: `1px solid ${themeColors.primary}`, // Azul para renovado sin cambios
+          backgroundColor: themeColors.infoBackground,
+          textColor: themeColors.infoForeground,
           boxShadow: isInputFocused ? '0 0 0 3px rgba(59, 130, 246, 0.1)' : 'none'
         };
       default:
         return {
-          border: '1px solid #D1D5DB',
-          backgroundColor: '#FFFFFF',
-          textColor: '#374151',
+          border: `1px solid ${themeColors.border}`,
+          backgroundColor: themeColors.input,
+          textColor: themeColors.foreground,
           boxShadow: 'none'
         };
     }
-  }, [currentName, currentPhone, isInputFocused]);
+  }, [currentName, currentPhone, isInputFocused, themeColors]);
 
   const stateColors = getStateColor(clientState);
 
@@ -823,12 +827,12 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
             alignItems: 'center',
             gap: '6px',
             padding: '8px 12px',
-            backgroundColor: '#EFF6FF',
-            border: '1px solid #BFDBFE',
+            backgroundColor: themeColors.infoBackground,
+            border: `1px solid ${themeColors.info}`,
             borderRadius: '6px',
             fontSize: '12px',
             fontWeight: '500',
-            color: '#1E40AF',
+            color: themeColors.infoForeground,
             width: 'fit-content'
           }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -863,9 +867,9 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
               style={{
                 flex: 1,
                 position: 'relative',
-                border: nameError ? '1px solid #DC2626' : stateColors.border,
+                border: nameError ? `1px solid ${themeColors.destructive}` : stateColors.border,
                 borderRadius: '8px',
-                backgroundColor: nameError ? '#FEF2F2' : stateColors.backgroundColor,
+                backgroundColor: nameError ? themeColors.destructiveBackground : stateColors.backgroundColor,
                 transition: 'border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out, background-color 0.15s ease-in-out',
                 display: 'flex',
                 alignItems: 'center',
@@ -979,10 +983,10 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                 {currentPhone && (hasPreviousLoan || (mode === 'aval' && selectedPersonId)) && (
                   <span style={{
                     fontSize: '12px',
-                    color: '#6B7280',
+                    color: themeColors.foregroundMuted,
                     whiteSpace: 'nowrap',
                     paddingLeft: '8px',
-                    borderLeft: '1px solid #E5E7EB',
+                    borderLeft: `1px solid ${themeColors.border}`,
                     marginLeft: '8px'
                   }}>
                     {currentPhone}
@@ -993,8 +997,8 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                   <span style={{
                     fontSize: '11px',
                     fontWeight: '600',
-                    color: '#DC2626',
-                    backgroundColor: '#FEE2E2',
+                    color: themeColors.destructive,
+                    backgroundColor: themeColors.destructiveBackground,
                     padding: '2px 8px',
                     borderRadius: '4px',
                     whiteSpace: 'nowrap',
@@ -1009,8 +1013,8 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                   <span style={{
                     fontSize: '11px',
                     fontWeight: '600',
-                    color: '#059669',
-                    backgroundColor: '#D1FAE5',
+                    color: themeColors.successForeground,
+                    backgroundColor: themeColors.successBackground,
                     padding: '2px 8px',
                     borderRadius: '4px',
                     whiteSpace: 'nowrap',
@@ -1024,11 +1028,11 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                 {!currentPhone && (hasPreviousLoan || (mode === 'aval' && selectedPersonId)) && (
                   <span style={{
                     fontSize: '11px',
-                    color: '#9CA3AF',
+                    color: themeColors.foregroundMuted,
                     fontStyle: 'italic',
                     whiteSpace: 'nowrap',
                     paddingLeft: '8px',
-                    borderLeft: '1px solid #E5E7EB',
+                    borderLeft: `1px solid ${themeColors.border}`,
                     marginLeft: '8px'
                   }}>
                     Sin teléfono
@@ -1044,7 +1048,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                   top: '50%',
                   transform: 'translateY(-50%)',
                   pointerEvents: 'none',
-                  color: '#6B7280',
+                  color: themeColors.foregroundMuted,
                   fontSize: '12px'
                 }}>
                   ▼
@@ -1061,11 +1065,11 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
               gap: '6px',
               marginTop: '4px',
               padding: '6px 10px',
-              backgroundColor: '#FEF2F2',
-              border: '1px solid #FECACA',
+              backgroundColor: themeColors.destructiveBackground,
+              border: `1px solid ${themeColors.destructive}`,
               borderRadius: '6px',
               fontSize: '12px',
-              color: '#DC2626'
+              color: themeColors.destructive
             }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <circle cx="12" cy="12" r="10" />
@@ -1136,7 +1140,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                               )}
                             </div>
                             <div className={styles.dropdownItemBadges}>
-                              <span className={`${styles.badge}`} style={{ backgroundColor: '#FEF3C7', color: '#92400E' }}>
+                              <span className={`${styles.badge}`} style={{ backgroundColor: themeColors.warningBackground, color: themeColors.warningForeground }}>
                                 Sin crédito previo
                               </span>
                               {location && location !== 'Sin localidad' && (
@@ -1152,7 +1156,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                       // Modo cliente: mostrar préstamos anteriores (Renovación)
                       const debtAmount = option.debtAmount || '0';
                       const location = option.location || null;
-                      const debtColor = option.debtColor || '#6B7280';
+                      const debtColor = option.debtColor || themeColors.foregroundMuted;
 
                       // Determinar si es de otra localidad comparando la localidad del borrower con la del lead del préstamo
                       const borrowerLocationId = option.loanData?.borrower?.personalData?.addresses?.[0]?.location?.id;
@@ -1160,7 +1164,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                       const isDifferentLocation = borrowerLocationId && leadLocationId && borrowerLocationId !== leadLocationId;
 
                       // Color del badge de localidad: amarillo si es de otra localidad, azul si es de la misma
-                      const locationColor = isDifferentLocation ? '#F59E0B' : '#3B82F6';
+                      const locationColor = isDifferentLocation ? themeColors.warning : themeColors.primary;
 
                       // Extract name and phone from label
                       const clientName = option.loanData?.borrower?.personalData?.fullName || '';
@@ -1175,7 +1179,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                             handleSelectOption(option, e);
                           }}
                           style={{
-                            borderLeft: isDifferentLocation ? '3px solid #F59E0B' : 'none'
+                            borderLeft: isDifferentLocation ? `3px solid ${themeColors.warning}` : 'none'
                           }}
                         >
                           {/* Content left, badges right */}
@@ -1195,8 +1199,8 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                                   borderRadius: '4px',
                                   fontSize: '9px',
                                   fontWeight: '600',
-                                  backgroundColor: '#FEF3C7',
-                                  color: '#92400E',
+                                  backgroundColor: themeColors.warningBackground,
+                                  color: themeColors.warningForeground,
                                   flexShrink: 0
                                 }}
                                 title="Otra localidad"
@@ -1221,7 +1225,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                       // Modo aval: mostrar personas
                       const location = option.location || 'Sin localidad';
                       const isDifferentLocation = option.isDifferentLocation || false;
-                      const locationColor = option.locationColor || '#3B82F6';
+                      const locationColor = option.locationColor || themeColors.primary;
 
                       // Extract name and phone from personData
                       const personName = option.personData?.fullName || '';
@@ -1236,7 +1240,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                             handleSelectOption(option, e);
                           }}
                           style={{
-                            borderLeft: isDifferentLocation ? '3px solid #F59E0B' : 'none'
+                            borderLeft: isDifferentLocation ? `3px solid ${themeColors.warning}` : 'none'
                           }}
                         >
                           {/* Content left, badges right */}
@@ -1256,8 +1260,8 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                                   borderRadius: '4px',
                                   fontSize: '9px',
                                   fontWeight: '600',
-                                  backgroundColor: '#FEF3C7',
-                                  color: '#92400E',
+                                  backgroundColor: themeColors.warningBackground,
+                                  color: themeColors.warningForeground,
                                   flexShrink: 0
                                 }}
                                 title="Otra localidad"
@@ -1301,9 +1305,9 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
             style={{
               flex: 1,
               position: 'relative',
-              border: phoneError && !hasNoPhone ? '1px solid #DC2626' : (hasNoPhone ? '1px solid #9CA3AF' : (clientState === 'newClient' ? stateColors.border : '1px solid #D1D5DB')),
+              border: phoneError && !hasNoPhone ? `1px solid ${themeColors.destructive}` : (hasNoPhone ? `1px solid ${themeColors.foregroundMuted}` : (clientState === 'newClient' ? stateColors.border : `1px solid ${themeColors.border}`)),
               borderRadius: '8px',
-              backgroundColor: phoneError && !hasNoPhone ? '#FEF2F2' : (hasNoPhone ? '#F3F4F6' : (clientState === 'newClient' ? stateColors.backgroundColor : '#FFFFFF')),
+              backgroundColor: phoneError && !hasNoPhone ? themeColors.destructiveBackground : (hasNoPhone ? themeColors.muted : (clientState === 'newClient' ? stateColors.backgroundColor : themeColors.input)),
               transition: 'border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out, background-color 0.15s ease-in-out',
               display: 'flex',
               alignItems: 'center',
@@ -1320,7 +1324,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                 alignItems: 'center',
                 gap: '6px',
                 fontSize: '13px',
-                color: '#6B7280',
+                color: themeColors.foregroundMuted,
                 fontStyle: 'italic',
                 width: '100%'
               }}>
@@ -1355,7 +1359,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                     fontSize: '13px',
                     padding: '0',
                     outline: 'none',
-                    color: clientState === 'newClient' ? stateColors.textColor : '#6b7280',
+                    color: clientState === 'newClient' ? stateColors.textColor : themeColors.foreground,
                     height: '100%',
                     width: '100%',
                     lineHeight: '20px',
@@ -1377,8 +1381,8 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                       borderRadius: '4px',
                       fontSize: '10px',
                       fontWeight: '600',
-                      backgroundColor: borrowerLocationId && selectedPersonLocation.id === borrowerLocationId ? '#D1FAE5' : '#FEF3C7',
-                      color: borrowerLocationId && selectedPersonLocation.id === borrowerLocationId ? '#065F46' : '#92400E',
+                      backgroundColor: borrowerLocationId && selectedPersonLocation.id === borrowerLocationId ? themeColors.successBackground : themeColors.warningBackground,
+                      color: borrowerLocationId && selectedPersonLocation.id === borrowerLocationId ? themeColors.successForeground : themeColors.warningForeground,
                       flexShrink: 0,
                       marginLeft: '8px'
                     }}
@@ -1422,8 +1426,8 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
                 padding: '0',
                 borderRadius: '6px',
                 border: 'none',
-                backgroundColor: hasNoPhone ? '#DC2626' : 'transparent',
-                color: hasNoPhone ? '#FFFFFF' : '#6B7280',
+                backgroundColor: hasNoPhone ? themeColors.destructive : 'transparent',
+                color: hasNoPhone ? themeColors.primaryForeground : themeColors.foregroundMuted,
                 cursor: 'pointer',
                 transition: 'all 150ms cubic-bezier(0.4, 0, 0.2, 1)',
                 flexShrink: 0,
@@ -1431,18 +1435,18 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
               }}
               onMouseEnter={(e) => {
                 if (!hasNoPhone) {
-                  e.currentTarget.style.backgroundColor = '#F3F4F6';
-                  e.currentTarget.style.color = '#374151';
+                  e.currentTarget.style.backgroundColor = themeColors.muted;
+                  e.currentTarget.style.color = themeColors.foreground;
                 } else {
-                  e.currentTarget.style.backgroundColor = '#B91C1C';
+                  e.currentTarget.style.backgroundColor = themeColors.destructive;
                 }
               }}
               onMouseLeave={(e) => {
                 if (!hasNoPhone) {
                   e.currentTarget.style.backgroundColor = 'transparent';
-                  e.currentTarget.style.color = '#6B7280';
+                  e.currentTarget.style.color = themeColors.foregroundMuted;
                 } else {
-                  e.currentTarget.style.backgroundColor = '#DC2626';
+                  e.currentTarget.style.backgroundColor = themeColors.destructive;
                 }
               }}
               title={hasNoPhone ? 'Hacer clic para agregar teléfono' : 'Marcar como sin teléfono'}
@@ -1463,11 +1467,11 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
             gap: '6px',
             marginTop: '4px',
             padding: '6px 10px',
-            backgroundColor: '#FEF2F2',
-            border: '1px solid #FECACA',
+            backgroundColor: themeColors.destructiveBackground,
+            border: `1px solid ${themeColors.destructive}`,
             borderRadius: '6px',
             fontSize: '12px',
-            color: '#DC2626'
+            color: themeColors.destructive
           }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10" />

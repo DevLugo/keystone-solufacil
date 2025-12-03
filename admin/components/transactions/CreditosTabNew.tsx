@@ -39,6 +39,10 @@ import type {
 } from '../../types/loan';
 import styles from './CreditosTabNew.module.css';
 
+// Theme Context
+import { ThemeProvider, useTheme, useThemeColors } from '../../contexts/ThemeContext';
+import { ThemeToggle } from '../ui/ThemeToggle';
+
 interface CreditosTabNewProps {
   selectedDate: Date | null;
   selectedRoute: string | null;
@@ -61,6 +65,27 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
   selectedLead,
   onBalanceUpdate
 }) => {
+  return (
+    <ThemeProvider>
+      <CreditosTabNewContent
+        selectedDate={selectedDate}
+        selectedRoute={selectedRoute}
+        selectedLead={selectedLead}
+        onBalanceUpdate={onBalanceUpdate}
+      />
+    </ThemeProvider>
+  );
+};
+
+// Componente interno que usa el tema
+const CreditosTabNewContent: React.FC<CreditosTabNewProps> = ({
+  selectedDate,
+  selectedRoute,
+  selectedLead,
+  onBalanceUpdate
+}) => {
+  const { isDark } = useTheme();
+  const themeColors = useThemeColors();
   const { triggerRefresh } = useBalanceRefresh();
   const { showToast } = useToast();
 
@@ -879,7 +904,23 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
   }
 
   return (
-    <div style={{ paddingTop: '24px' }}>
+    <div style={{ 
+      paddingTop: '24px',
+      minHeight: '100vh',
+      background: themeColors.pageGradient,
+      backgroundColor: themeColors.background,
+      transition: 'background 0.3s ease',
+    }}>
+      {/* Theme Toggle */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'flex-end',
+        marginBottom: '1rem',
+        paddingRight: '1rem',
+      }}>
+        <ThemeToggle size="md" showLabel />
+      </div>
+
       {/* AlertDialog de localidad diferente */}
       <AlertDialog
         open={locationMismatchDialogOpen.open}
@@ -928,8 +969,8 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
 
           {/* Comisión Masiva */}
           {pendingLoans.length > 0 && (
-            <div className={styles.kpiChip} style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-              <span style={{ fontSize: '12px', color: '#6b7280' }}>Comisión:</span>
+            <div className={styles.kpiChip} style={{ background: themeColors.backgroundSecondary, border: `1px solid ${themeColors.border}` }}>
+              <span style={{ fontSize: '12px', color: themeColors.foregroundMuted }}>Comisión:</span>
               <Input
                 type="number"
                 value={massCommission}
@@ -1105,10 +1146,12 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
 
       {/* Tabla de Préstamos */}
       <div style={{
-        backgroundColor: 'white',
+        backgroundColor: themeColors.card,
         borderRadius: '8px',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+        boxShadow: isDark ? '0 1px 3px rgba(0, 0, 0, 0.3)' : '0 1px 3px rgba(0, 0, 0, 0.05)',
         marginTop: '24px',
+        transition: 'all 0.3s ease',
+        border: `1px solid ${themeColors.border}`,
       }}>
         <div ref={existingLoansTableRef} style={{
           padding: '12px',
@@ -1128,7 +1171,7 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                 width: '64px',
                 height: '64px',
                 borderRadius: '50%',
-                backgroundColor: '#f3f4f6',
+                backgroundColor: themeColors.muted,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -1151,14 +1194,14 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
               <h3 style={{
                 fontSize: '16px',
                 fontWeight: '600',
-                color: '#111827',
+                color: themeColors.foreground,
                 marginBottom: '8px',
               }}>
                 No hay créditos registrados
               </h3>
               <p style={{
                 fontSize: '14px',
-                color: '#6b7280',
+                color: themeColors.foregroundMuted,
                 marginBottom: '24px',
                 maxWidth: '400px',
               }}>
@@ -1240,7 +1283,7 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            backgroundColor: themeColors.modalOverlay,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -1250,26 +1293,28 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
         >
           <div
             style={{
-              backgroundColor: 'white',
+              backgroundColor: themeColors.card,
               padding: '32px',
               borderRadius: '12px',
               width: '500px',
               maxWidth: '90%',
               maxHeight: '90vh',
               overflow: 'auto',
+              border: `1px solid ${themeColors.border}`,
+              transition: 'all 0.3s ease',
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 style={{ margin: '0 0 16px 0', fontSize: '20px', fontWeight: '600', color: '#1a1f36' }}>
+            <h2 style={{ margin: '0 0 16px 0', fontSize: '20px', fontWeight: '600', color: themeColors.foreground }}>
               Editar Préstamo
             </h2>
-            <p style={{ margin: '0 0 24px 0', color: '#697386', fontSize: '14px' }}>
+            <p style={{ margin: '0 0 24px 0', color: themeColors.foregroundMuted, fontSize: '14px' }}>
               Modifica los detalles del préstamo seleccionado
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: themeColors.foreground }}>
                   Deuda Pendiente del Préstamo Anterior
                 </label>
                 <input
@@ -1281,16 +1326,17 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                     width: '100%',
                     padding: '10px 16px',
                     fontSize: '14px',
-                    border: '1px solid #E5E7EB',
+                    border: `1px solid ${themeColors.border}`,
                     borderRadius: '8px',
-                    backgroundColor: '#f3f4f6',
+                    backgroundColor: themeColors.muted,
+                    color: themeColors.foreground,
                     cursor: 'not-allowed',
                   }}
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: themeColors.foreground }}>
                   Tipo de Préstamo
                 </label>
                 <select
@@ -1327,9 +1373,10 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                     width: '100%',
                     padding: '10px 16px',
                     fontSize: '14px',
-                    border: '1px solid #E5E7EB',
+                    border: `1px solid ${themeColors.border}`,
                     borderRadius: '8px',
-                    backgroundColor: 'white',
+                    backgroundColor: themeColors.card,
+                    color: themeColors.foreground,
                   }}
                 >
                   {loanTypeOptions.map((option: LoanTypeOption) => (
@@ -1341,7 +1388,7 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
               </div>
 
               <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: themeColors.foreground }}>
                   Monto Solicitado
                 </label>
                 <input
@@ -1364,15 +1411,16 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                     width: '100%',
                     padding: '10px 16px',
                     fontSize: '14px',
-                    border: '1px solid #E5E7EB',
+                    border: `1px solid ${themeColors.border}`,
                     borderRadius: '8px',
-                    backgroundColor: 'white',
+                    backgroundColor: themeColors.card,
+                    color: themeColors.foreground,
                   }}
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: themeColors.foreground }}>
                   Monto Entregado
                 </label>
                 <input
@@ -1384,16 +1432,17 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                     width: '100%',
                     padding: '10px 16px',
                     fontSize: '14px',
-                    border: '1px solid #E5E7EB',
+                    border: `1px solid ${themeColors.border}`,
                     borderRadius: '8px',
-                    backgroundColor: '#f3f4f6',
+                    backgroundColor: themeColors.muted,
+                    color: themeColors.foreground,
                     cursor: 'not-allowed',
                   }}
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: themeColors.foreground }}>
                   Monto a Pagar
                 </label>
                 <input
@@ -1405,16 +1454,17 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                     width: '100%',
                     padding: '10px 16px',
                     fontSize: '14px',
-                    border: '1px solid #E5E7EB',
+                    border: `1px solid ${themeColors.border}`,
                     borderRadius: '8px',
-                    backgroundColor: '#f3f4f6',
+                    backgroundColor: themeColors.muted,
+                    color: themeColors.foreground,
                     cursor: 'not-allowed',
                   }}
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: themeColors.foreground }}>
                   Comisión
                 </label>
                 <input
@@ -1432,15 +1482,16 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                     width: '100%',
                     padding: '10px 16px',
                     fontSize: '14px',
-                    border: '1px solid #E5E7EB',
+                    border: `1px solid ${themeColors.border}`,
                     borderRadius: '8px',
-                    backgroundColor: 'white',
+                    backgroundColor: themeColors.card,
+                    color: themeColors.foreground,
                   }}
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: themeColors.foreground }}>
                   Aval
                 </label>
                 {(editingLoan as any).selectedCollateralId && !isEditingAval ? (
@@ -1576,13 +1627,13 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                             });
 
                             if (data?.updatePersonalData) {
-                              showToast('Datos del aval actualizados correctamente', 'success');
+                              showToast('success', 'Datos del aval actualizados correctamente');
                               setIsEditingAval(false);
                               // Update local state with returned data if needed, but we already updated editingLoan
                             }
                           } catch (error) {
                             console.error('Error updating aval data:', error);
-                            showToast('Error al actualizar los datos del aval', 'error');
+                            showToast('error', 'Error al actualizar los datos del aval');
                           } finally {
                             setIsSavingPersonalData(false);
                           }
@@ -1694,7 +1745,7 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            backgroundColor: themeColors.modalOverlay,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -1704,20 +1755,21 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
         >
           <div
             style={{
-              backgroundColor: 'white',
+              backgroundColor: themeColors.card,
               padding: '24px',
               borderRadius: '12px',
               width: '400px',
               maxWidth: '90%',
               boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+              border: `1px solid ${themeColors.border}`,
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '600', color: '#1a1f36' }}>
+            <h2 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '600', color: themeColors.foreground }}>
               Mover {loans.length} préstamo(s)
             </h2>
             <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: themeColors.foreground }}>
                 Fecha de destino
               </label>
               <input
@@ -1728,9 +1780,10 @@ export const CreditosTabNew: React.FC<CreditosTabNewProps> = ({
                   width: '100%',
                   padding: '10px 16px',
                   fontSize: '14px',
-                  border: '1px solid #E5E7EB',
+                  border: `1px solid ${themeColors.border}`,
                   borderRadius: '8px',
-                  backgroundColor: 'white',
+                  backgroundColor: themeColors.card,
+                  color: themeColors.foreground,
                 }}
               />
             </div>

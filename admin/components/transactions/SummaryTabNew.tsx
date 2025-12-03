@@ -14,6 +14,10 @@ import { LocalityCard } from '../summary-new/LocalityCard';
 // Unified Theme
 import { colors, shadows, radius, gradients, formatCurrency, loadingStyles, pageStyles } from '../../styles';
 
+// Theme Context
+import { ThemeProvider, useTheme, useThemeColors } from '../../contexts/ThemeContext';
+import { ThemeToggle } from '../ui/ThemeToggle';
+
 // Import existing modal
 import { BankIncomeModal } from './BankIncomeModal';
 
@@ -528,14 +532,100 @@ export const SummaryTabNew = ({ selectedDate, selectedRoute, refreshKey }: Summa
   if (error) return <div css={{ padding: '1rem', color: colors.red[600] }}>Error: {error.message}</div>;
 
   return (
+    <SummaryTabContent
+      executiveSummary={executiveSummary}
+      localities={localities}
+      totalTransactions={totalTransactions}
+      showBankIncomeModal={showBankIncomeModal}
+      setShowBankIncomeModal={setShowBankIncomeModal}
+      handleCloseModal={handleCloseModal}
+      bankIncomes={bankIncomes}
+      totalAmount={totalAmount}
+      bankIncomeLoading={bankIncomeLoading}
+      onlyAbonos={onlyAbonos}
+      setOnlyAbonos={setOnlyAbonos}
+      customStartDate={customStartDate}
+      setCustomStartDate={setCustomStartDate}
+      customEndDate={customEndDate}
+      setCustomEndDate={setCustomEndDate}
+      selectedRouteIds={selectedRouteIds}
+      setSelectedRouteIds={setSelectedRouteIds}
+      availableRoutes={availableRoutes}
+      handleRefreshBankIncome={handleRefreshBankIncome}
+      handleResetFilters={handleResetFilters}
+    />
+  );
+};
+
+// Componente interno que usa el tema
+interface SummaryTabContentProps {
+  executiveSummary: ExecutiveSummaryData;
+  localities: LocalitySummary[];
+  totalTransactions: number;
+  showBankIncomeModal: boolean;
+  setShowBankIncomeModal: (show: boolean) => void;
+  handleCloseModal: () => void;
+  bankIncomes: any[];
+  totalAmount: number;
+  bankIncomeLoading: boolean;
+  onlyAbonos: boolean;
+  setOnlyAbonos: (value: boolean) => void;
+  customStartDate: string;
+  setCustomStartDate: (value: string) => void;
+  customEndDate: string;
+  setCustomEndDate: (value: string) => void;
+  selectedRouteIds: string[];
+  setSelectedRouteIds: (value: string[]) => void;
+  availableRoutes: Array<{ id: string; name: string }>;
+  handleRefreshBankIncome: () => void;
+  handleResetFilters: () => void;
+}
+
+const SummaryTabContentInner = ({
+  executiveSummary,
+  localities,
+  totalTransactions,
+  showBankIncomeModal,
+  setShowBankIncomeModal,
+  handleCloseModal,
+  bankIncomes,
+  totalAmount,
+  bankIncomeLoading,
+  onlyAbonos,
+  setOnlyAbonos,
+  customStartDate,
+  setCustomStartDate,
+  customEndDate,
+  setCustomEndDate,
+  selectedRouteIds,
+  setSelectedRouteIds,
+  availableRoutes,
+  handleRefreshBankIncome,
+  handleResetFilters,
+}: SummaryTabContentProps) => {
+  const { isDark } = useTheme();
+  const themeColors = useThemeColors();
+
+  return (
     <div
       css={{
         minHeight: '100vh',
-        background: gradients.pageBackground,
+        background: themeColors.pageGradient,
         padding: '1.5rem',
+        transition: 'background 0.3s ease',
       }}
     >
       <div css={{ maxWidth: '1400px', margin: '0 auto' }}>
+        {/* Theme Toggle Header */}
+        <div css={{ 
+          display: 'flex', 
+          justifyContent: 'flex-end', 
+          marginBottom: '1rem',
+          padding: '0.5rem',
+        }}>
+          <ThemeToggle size="md" showLabel />
+        </div>
+
         {/* Stats Overview */}
         <div
           css={{
@@ -583,7 +673,13 @@ export const SummaryTabNew = ({ selectedDate, selectedRoute, refreshKey }: Summa
 
         {/* Localities Grid */}
         <div css={{ marginBottom: '2rem' }}>
-          <h2 css={{ fontSize: '1.25rem', fontWeight: 700, color: colors.slate[900], marginBottom: '1rem' }}>
+          <h2 css={{ 
+            fontSize: '1.25rem', 
+            fontWeight: 700, 
+            color: themeColors.foreground, 
+            marginBottom: '1rem',
+            transition: 'color 0.3s ease',
+          }}>
             Localidades
           </h2>
           <div css={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -669,4 +765,11 @@ export const SummaryTabNew = ({ selectedDate, selectedRoute, refreshKey }: Summa
     </div>
   );
 };
+
+// Wrapper que provee el ThemeProvider
+const SummaryTabContent = (props: SummaryTabContentProps) => (
+  <ThemeProvider>
+    <SummaryTabContentInner {...props} />
+  </ThemeProvider>
+);
 

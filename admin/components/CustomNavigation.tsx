@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { NavigationContainer, NavItem, ListNavItems } from '@keystone-6/core/admin-ui/components';
 import type { NavigationProps } from '@keystone-6/core/admin-ui/components';
 import './CustomNavigation.css';
+// Global theme CSS variables for Shadcn components
+import '../styles/theme-variables.css';
 
 interface MenuItem {
   label: string;

@@ -2,7 +2,7 @@
 .modalOverlay {
   position: fixed;
   inset: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: var(--theme-modal-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -22,9 +22,9 @@
 
 /* Modal Container */
 .modalContainer {
-  background: white;
+  background: var(--theme-modal-bg);
   border-radius: 12px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--theme-shadow-lg);
   max-width: 1200px;
   width: 100%;
   max-height: 90vh;
@@ -50,7 +50,7 @@
   align-items: flex-start;
   justify-content: space-between;
   padding: 20px 24px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--theme-border);
 }
 
 .headerContent {
@@ -60,7 +60,7 @@
 .modalTitle {
   font-size: 18px;
   font-weight: 600;
-  color: #111827;
+  color: var(--theme-foreground);
   margin: 0 0 4px 0;
   letter-spacing: -0.01em;
   line-height: 1.3;
@@ -68,7 +68,7 @@
 
 .modalSubtitle {
   font-size: 13px;
-  color: #6b7280;
+  color: var(--theme-foreground-muted);
   margin: 0;
   font-weight: 400;
   line-height: 1.4;
@@ -80,7 +80,7 @@
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  color: #6b7280;
+  color: var(--theme-foreground-muted);
   transition: all 0.15s ease;
   display: flex;
   align-items: center;
@@ -88,8 +88,8 @@
 }
 
 .closeButton:hover {
-  background: #f3f4f6;
-  color: #111827;
+  background: var(--theme-muted);
+  color: var(--theme-foreground);
 }
 
 /* Content */
@@ -108,14 +108,14 @@
 /* Credit Card */
 .creditCard {
   padding: 16px 18px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--theme-border);
   border-radius: 8px;
-  background: #f9fafb;
+  background: var(--theme-background-secondary);
   transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .creditCard:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--theme-shadow-md);
   transform: translateY(-1px);
 }
 
@@ -129,7 +129,7 @@
 .creditTitle {
   font-size: 13px;
   font-weight: 500;
-  color: #374151;
+  color: var(--theme-foreground-secondary);
   margin: 0;
   letter-spacing: -0.01em;
 }
@@ -142,7 +142,7 @@
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  color: #dc2626;
+  color: var(--theme-destructive);
   transition: all 0.15s ease;
   display: flex;
   align-items: center;
@@ -150,8 +150,8 @@
 }
 
 .removeButton:hover {
-  background: #fef2f2;
-  color: #dc2626;
+  background: var(--theme-destructive-bg);
+  color: var(--theme-destructive);
 }
 
 /* Form Fields */
@@ -171,7 +171,7 @@
   display: block;
   font-size: 13px;
   font-weight: 500;
-  color: #374151;
+  color: var(--theme-foreground-secondary);
   margin: 0 0 6px 0;
   letter-spacing: -0.01em;
 }
@@ -180,10 +180,10 @@
   width: 100%;
   padding: 9px 12px;
   font-size: 13px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--theme-input-border);
   border-radius: 8px;
-  background: white;
-  color: #111827;
+  background: var(--theme-input);
+  color: var(--theme-foreground);
   transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
   font-family: inherit;
   height: 38px;
@@ -191,19 +191,19 @@
 
 .fieldInput:focus {
   outline: none;
-  border-color: #2563eb;
+  border-color: var(--theme-primary);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
 .fieldInput:disabled {
-  background: #f3f4f6;
-  color: #6b7280;
+  background: var(--theme-input-disabled-bg);
+  color: var(--theme-input-disabled-text);
   cursor: not-allowed;
-  border-color: #e5e7eb;
+  border-color: var(--theme-border);
 }
 
 .fieldInput::placeholder {
-  color: #9ca3af;
+  color: var(--theme-input-placeholder);
   font-size: 13px;
 }
 
@@ -220,7 +220,7 @@
 
 .divider {
   height: 1px;
-  background: #e5e7eb;
+  background: var(--theme-border);
   margin: 14px 0;
 }
 
@@ -290,9 +290,9 @@
   padding: 10px;
   margin-top: 4px;
   background: transparent;
-  border: 2px dashed #d1d5db;
+  border: 2px dashed var(--theme-border-hover);
   border-radius: 8px;
-  color: #6b7280;
+  color: var(--theme-foreground-muted);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -306,17 +306,17 @@
 }
 
 .addCreditButton:hover {
-  background: #f9fafb;
-  border-color: #9ca3af;
-  color: #374151;
+  background: var(--theme-background-secondary);
+  border-color: var(--theme-foreground-muted);
+  color: var(--theme-foreground-secondary);
   transform: translateY(-1px);
 }
 
 /* Footer */
 .modalFooter {
   padding: 20px 24px;
-  border-top: 1px solid #e5e7eb;
-  background: #f9fafb;
+  border-top: 1px solid var(--theme-border);
+  background: var(--theme-modal-header-bg);
 }
 
 .footerContent {
@@ -339,7 +339,7 @@
 
 .totalLabel {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--theme-foreground-muted);
   text-transform: none;
   letter-spacing: 0;
   margin: 0;
@@ -354,11 +354,11 @@
 }
 
 .totalValue.requested {
-  color: #111827;
+  color: var(--theme-foreground);
 }
 
 .totalValue.delivered {
-  color: #059669;
+  color: var(--theme-success);
 }
 
 .footerActions {
@@ -383,31 +383,31 @@
 }
 
 .footerButton.cancel {
-  background: white;
-  color: #374151;
-  border: 1px solid #d1d5db;
+  background: var(--theme-card);
+  color: var(--theme-foreground-secondary);
+  border: 1px solid var(--theme-border-hover);
 }
 
 .footerButton.cancel:hover {
-  background: #f9fafb;
-  border-color: #9ca3af;
+  background: var(--theme-card-hover);
+  border-color: var(--theme-foreground-muted);
 }
 
 .footerButton.save {
-  background: #2563eb;
-  color: white;
+  background: var(--theme-primary);
+  color: var(--theme-primary-foreground);
   border: none;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--theme-shadow-sm);
 }
 
 .footerButton.save:hover {
-  background: #1d4ed8;
+  background: var(--theme-primary-hover);
   box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
   transform: translateY(-1px);
 }
 
 .footerButton.save:disabled {
-  background: #d1d5db;
+  background: var(--theme-muted);
   cursor: not-allowed;
   opacity: 0.6;
   box-shadow: none;
@@ -415,7 +415,7 @@
 
 .completedText {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--theme-foreground-muted);
   margin: 0;
   font-weight: 400;
 }
@@ -430,35 +430,37 @@
 }
 
 .modalContent::-webkit-scrollbar-track {
-  background: #f3f4f6;
+  background: var(--theme-scrollbar-track);
   border-radius: 4px;
 }
 
 .modalContent::-webkit-scrollbar-thumb {
-  background: #d1d5db;
+  background: var(--theme-scrollbar-thumb);
   border-radius: 4px;
   transition: background 150ms ease;
 }
 
 .modalContent::-webkit-scrollbar-thumb:hover {
-  background: #9ca3af;
+  background: var(--theme-scrollbar-thumb-hover);
 }
 
-/* Selected Client Card (Verde) */
+/* Selected Client Card - Diseño sutil con borde izquierdo */
 .selectedClientCard {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px;
-  background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
-  border: 1px solid #6ee7b7;
+  background: var(--theme-card);
+  border: 1px solid var(--theme-border);
+  border-left: 3px solid var(--theme-success);
   border-radius: 8px;
   gap: 10px;
   transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .selectedClientCard:hover {
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15);
+  background: var(--theme-card-hover);
+  box-shadow: var(--theme-shadow-sm);
 }
 
 .selectedClientContent {
@@ -474,14 +476,14 @@
   gap: 5px;
   font-size: 10px;
   font-weight: 600;
-  color: #065f46;
+  color: var(--theme-success);
   letter-spacing: 0.025em;
   text-transform: uppercase;
 }
 
 .selectedClientDot {
   font-size: 7px;
-  color: #10b981;
+  color: var(--theme-success);
   line-height: 1;
 }
 
@@ -494,14 +496,14 @@
 .selectedClientName {
   font-size: 13px;
   font-weight: 600;
-  color: #064e3b;
+  color: var(--theme-foreground);
   letter-spacing: -0.01em;
   line-height: 1.4;
 }
 
 .selectedClientPhone {
   font-size: 12px;
-  color: #065f46;
+  color: var(--theme-foreground-muted);
   font-weight: 400;
   line-height: 1.3;
 }
@@ -528,21 +530,21 @@
 }
 
 .selectedClientEditBtn {
-  color: #047857;
+  color: var(--theme-primary);
 }
 
 .selectedClientEditBtn:hover {
-  background: rgba(16, 185, 129, 0.25);
-  color: #065f46;
+  background: var(--theme-info-bg);
+  color: var(--theme-primary);
 }
 
 .selectedClientClearBtn {
-  color: #dc2626;
+  color: var(--theme-foreground-muted);
 }
 
 .selectedClientClearBtn:hover {
-  background: rgba(220, 38, 38, 0.15);
-  color: #b91c1c;
+  background: var(--theme-destructive-bg);
+  color: var(--theme-destructive);
 }
 
 /* Editing Client Card (Amarilla) */
@@ -551,8 +553,8 @@
   flex-direction: column;
   gap: 12px;
   padding: 14px;
-  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-  border: 1px solid #fbbf24;
+  background: linear-gradient(135deg, var(--theme-warning-bg) 0%, var(--theme-warning-border) 100%);
+  border: 1px solid var(--theme-warning);
   border-radius: 8px;
   transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -567,13 +569,13 @@
   gap: 8px;
   font-size: 12px;
   font-weight: 500;
-  color: #92400e;
+  color: var(--theme-warning-foreground);
   letter-spacing: -0.01em;
 }
 
 .editingClientWarning svg {
   flex-shrink: 0;
-  color: #f59e0b;
+  color: var(--theme-warning);
   width: 16px;
   height: 16px;
 }
@@ -607,42 +609,42 @@
 }
 
 .editingClientCancelBtn {
-  background: white;
-  color: #92400e;
-  border: 1px solid #fbbf24;
+  background: var(--theme-card);
+  color: var(--theme-warning-foreground);
+  border: 1px solid var(--theme-warning);
 }
 
 .editingClientCancelBtn:hover {
-  background: #fef3c7;
-  border-color: #f59e0b;
+  background: var(--theme-warning-bg);
+  border-color: var(--theme-warning);
 }
 
 .editingClientSelectBtn {
-  background: #fef2f2;
-  color: #dc2626;
-  border: 1px solid #fca5a5;
+  background: var(--theme-destructive-bg);
+  color: var(--theme-destructive);
+  border: 1px solid var(--theme-destructive-border);
 }
 
 .editingClientSelectBtn:hover {
-  background: #fee2e2;
-  border-color: #f87171;
+  background: var(--theme-destructive-bg);
+  border-color: var(--theme-destructive);
 }
 
 .editingClientSaveBtn {
-  background: #3B82F6;
-  color: white;
-  border: 1px solid #2563EB;
+  background: var(--theme-primary);
+  color: var(--theme-primary-foreground);
+  border: 1px solid var(--theme-primary);
 }
 
 .editingClientSaveBtn:hover:not(:disabled) {
-  background: #2563EB;
-  border-color: #1D4ED8;
+  background: var(--theme-primary-hover);
+  border-color: var(--theme-primary-hover);
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
 }
 
 .editingClientSaveBtn:disabled {
-  background: #9CA3AF;
-  border-color: #6B7280;
+  background: var(--theme-muted);
+  border-color: var(--theme-muted-foreground);
   cursor: not-allowed;
   opacity: 0.6;
 }
@@ -653,8 +655,8 @@
   align-items: flex-start;
   gap: 10px;
   padding: 14px 18px;
-  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
-  border-bottom: 1px solid #fca5a5;
+  background: linear-gradient(135deg, var(--theme-destructive-bg) 0%, var(--theme-destructive-border) 100%);
+  border-bottom: 1px solid var(--theme-destructive-border);
   animation: slideDown 0.2s ease-out;
 }
 
@@ -671,7 +673,7 @@
 
 .validationSummaryIcon {
   flex-shrink: 0;
-  color: #dc2626;
+  color: var(--theme-destructive);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -687,7 +689,7 @@
 .validationSummaryTitle {
   font-size: 13px;
   font-weight: 600;
-  color: #991b1b;
+  color: var(--theme-destructive-foreground);
   margin: 0;
   letter-spacing: -0.01em;
   line-height: 1.4;
@@ -695,7 +697,7 @@
 
 .validationSummaryMessage {
   font-size: 12px;
-  color: #b91c1c;
+  color: var(--theme-destructive);
   margin: 0;
   font-weight: 400;
   line-height: 1.5;
@@ -708,7 +710,7 @@
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  color: #dc2626;
+  color: var(--theme-destructive);
   transition: all 0.15s ease;
   display: flex;
   align-items: center;
@@ -717,17 +719,17 @@
 
 .validationSummaryClose:hover {
   background: rgba(220, 38, 38, 0.15);
-  color: #991b1b;
+  color: var(--theme-destructive-foreground);
 }
 
 /* Field Error State */
 .fieldInput.error {
-  border-color: #dc2626;
-  background: #fef2f2;
+  border-color: var(--theme-destructive);
+  background: var(--theme-destructive-bg);
 }
 
 .fieldInput.error:focus {
-  border-color: #dc2626;
+  border-color: var(--theme-destructive);
   box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
 }
 
@@ -736,7 +738,7 @@
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: #dc2626;
+  color: var(--theme-destructive);
   margin-top: 4px;
   font-weight: 500;
   animation: fadeIn 0.15s ease-out;

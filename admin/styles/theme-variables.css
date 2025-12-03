@@ -1,0 +1,233 @@
+/**
+ * Theme CSS Variables
+ * 
+ * Este archivo define las variables CSS globales para el sistema de temas.
+ * Todos los componentes Shadcn deben usar estas variables para que los cambios
+ * de tema se apliquen automáticamente.
+ * 
+ * Uso: var(--theme-background), var(--theme-foreground), etc.
+ */
+
+:root {
+  /* ============================================
+     LIGHT MODE (Default)
+     ============================================ */
+  
+  /* Backgrounds */
+  --theme-background: #ffffff;
+  --theme-background-secondary: #f8fafc;
+  --theme-background-tertiary: #f1f5f9;
+  
+  /* Foregrounds */
+  --theme-foreground: #0f172a;
+  --theme-foreground-secondary: #475569;
+  --theme-foreground-muted: #64748b;
+  
+  /* Cards */
+  --theme-card: #ffffff;
+  --theme-card-hover: #f8fafc;
+  
+  /* Borders */
+  --theme-border: #e2e8f0;
+  --theme-border-hover: #cbd5e1;
+  
+  /* Inputs */
+  --theme-input: #ffffff;
+  --theme-input-border: #d1d5db;
+  --theme-input-placeholder: #9ca3af;
+  --theme-input-disabled-bg: #f3f4f6;
+  --theme-input-disabled-text: #6b7280;
+  
+  /* Muted */
+  --theme-muted: #f3f4f6;
+  --theme-muted-foreground: #9ca3af;
+  
+  /* Modal */
+  --theme-modal-overlay: rgba(0, 0, 0, 0.5);
+  --theme-modal-bg: #ffffff;
+  --theme-modal-header-bg: #f8fafc;
+  
+  /* Primary */
+  --theme-primary: #2563eb;
+  --theme-primary-foreground: #ffffff;
+  --theme-primary-hover: #1d4ed8;
+  
+  /* Success */
+  --theme-success: #10b981;
+  --theme-success-bg: #f0fdf4;
+  --theme-success-foreground: #065f46;
+  --theme-success-border: #bbf7d0;
+  
+  /* Destructive */
+  --theme-destructive: #ef4444;
+  --theme-destructive-bg: #fef2f2;
+  --theme-destructive-foreground: #991b1b;
+  --theme-destructive-border: #fecaca;
+  
+  /* Warning */
+  --theme-warning: #f59e0b;
+  --theme-warning-bg: #fffbeb;
+  --theme-warning-foreground: #92400e;
+  --theme-warning-border: #fde68a;
+  
+  /* Info / Blue */
+  --theme-info: #3b82f6;
+  --theme-info-bg: #eff6ff;
+  --theme-info-foreground: #1e40af;
+  --theme-info-border: #bfdbfe;
+  
+  /* Purple */
+  --theme-purple: #8b5cf6;
+  --theme-purple-bg: #ede9fe;
+  --theme-purple-foreground: #6d28d9;
+  --theme-purple-border: #ddd6fe;
+  
+  /* Pink */
+  --theme-pink: #ec4899;
+  --theme-pink-bg: #fdf2f8;
+  --theme-pink-foreground: #be185d;
+  --theme-pink-border: #fbcfe8;
+  
+  /* Amber */
+  --theme-amber: #f59e0b;
+  --theme-amber-bg: #fef3c7;
+  --theme-amber-foreground: #92400e;
+  --theme-amber-border: #fde68a;
+  
+  /* Neutral */
+  --theme-neutral-bg: #f3f4f6;
+  --theme-neutral-foreground: #374151;
+  --theme-neutral-border: #e5e7eb;
+  
+  /* Shadows */
+  --theme-shadow-color: rgba(0, 0, 0, 0.1);
+  --theme-shadow-sm: 0 1px 2px 0 var(--theme-shadow-color);
+  --theme-shadow-md: 0 4px 6px -1px var(--theme-shadow-color);
+  --theme-shadow-lg: 0 10px 15px -3px var(--theme-shadow-color);
+  
+  /* Gradients */
+  --theme-page-gradient: linear-gradient(to bottom right, #f8fafc, #eff6ff, #faf5ff);
+  --theme-card-gradient: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  --theme-kpi-gradient: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  
+  /* Table */
+  --theme-table-header-bg: #f9fafb;
+  --theme-table-row-hover: #f9fafb;
+  --theme-table-border: #f3f4f6;
+  
+  /* Scrollbar */
+  --theme-scrollbar-track: #f3f4f6;
+  --theme-scrollbar-thumb: #d1d5db;
+  --theme-scrollbar-thumb-hover: #9ca3af;
+}
+
+/* ============================================
+   DARK MODE
+   ============================================ */
+
+[data-theme="dark"] {
+  /* Backgrounds */
+  --theme-background: #0f172a;
+  --theme-background-secondary: #1e293b;
+  --theme-background-tertiary: #334155;
+  
+  /* Foregrounds */
+  --theme-foreground: #f8fafc;
+  --theme-foreground-secondary: #cbd5e1;
+  --theme-foreground-muted: #94a3b8;
+  
+  /* Cards */
+  --theme-card: #1e293b;
+  --theme-card-hover: #334155;
+  
+  /* Borders */
+  --theme-border: #334155;
+  --theme-border-hover: #475569;
+  
+  /* Inputs */
+  --theme-input: #1e293b;
+  --theme-input-border: #334155;
+  --theme-input-placeholder: #64748b;
+  --theme-input-disabled-bg: #0f172a;
+  --theme-input-disabled-text: #64748b;
+  
+  /* Muted */
+  --theme-muted: #334155;
+  --theme-muted-foreground: #64748b;
+  
+  /* Modal */
+  --theme-modal-overlay: rgba(0, 0, 0, 0.7);
+  --theme-modal-bg: #1e293b;
+  --theme-modal-header-bg: #0f172a;
+  
+  /* Primary */
+  --theme-primary: #3b82f6;
+  --theme-primary-foreground: #ffffff;
+  --theme-primary-hover: #60a5fa;
+  
+  /* Success */
+  --theme-success: #22c55e;
+  --theme-success-bg: #14532d;
+  --theme-success-foreground: #86efac;
+  --theme-success-border: #22c55e;
+  
+  /* Destructive */
+  --theme-destructive: #f87171;
+  --theme-destructive-bg: #7f1d1d;
+  --theme-destructive-foreground: #fecaca;
+  --theme-destructive-border: #dc2626;
+  
+  /* Warning */
+  --theme-warning: #fbbf24;
+  --theme-warning-bg: #78350f;
+  --theme-warning-foreground: #fcd34d;
+  --theme-warning-border: #f59e0b;
+  
+  /* Info / Blue */
+  --theme-info: #60a5fa;
+  --theme-info-bg: #1e3a8a;
+  --theme-info-foreground: #93c5fd;
+  --theme-info-border: #3b82f6;
+  
+  /* Purple */
+  --theme-purple: #a78bfa;
+  --theme-purple-bg: #4c1d95;
+  --theme-purple-foreground: #c4b5fd;
+  --theme-purple-border: #8b5cf6;
+  
+  /* Pink */
+  --theme-pink: #f472b6;
+  --theme-pink-bg: #831843;
+  --theme-pink-foreground: #f9a8d4;
+  --theme-pink-border: #ec4899;
+  
+  /* Amber */
+  --theme-amber: #fbbf24;
+  --theme-amber-bg: #78350f;
+  --theme-amber-foreground: #fcd34d;
+  --theme-amber-border: #f59e0b;
+  
+  /* Neutral */
+  --theme-neutral-bg: #334155;
+  --theme-neutral-foreground: #e2e8f0;
+  --theme-neutral-border: #475569;
+  
+  /* Shadows */
+  --theme-shadow-color: rgba(0, 0, 0, 0.5);
+  
+  /* Gradients */
+  --theme-page-gradient: linear-gradient(to bottom right, #0f172a, #1e1b4b, #1e293b);
+  --theme-card-gradient: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  --theme-kpi-gradient: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  
+  /* Table */
+  --theme-table-header-bg: #0f172a;
+  --theme-table-row-hover: #334155;
+  --theme-table-border: #334155;
+  
+  /* Scrollbar */
+  --theme-scrollbar-track: #1e293b;
+  --theme-scrollbar-thumb: #475569;
+  --theme-scrollbar-thumb-hover: #64748b;
+}
+

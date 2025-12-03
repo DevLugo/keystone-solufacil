@@ -4,6 +4,7 @@ import { jsx } from '@keystone-ui/core';
 import React, { useState } from 'react';
 import { MapPin, ChevronDown, ChevronUp, TrendingUp, TrendingDown } from 'lucide-react';
 import { colors, shadows, radius, gradients, formatCurrency } from './theme';
+import { useTheme, useThemeColors } from '../../contexts/ThemeContext';
 
 interface Transaction {
   concept: string;
@@ -43,16 +44,38 @@ interface LocalityCardProps {
 export function LocalityCard({ locality }: LocalityCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   
+  // Try to get theme, fallback to light mode values if not in ThemeProvider
+  let themeColors;
+  let isDark = false;
+  try {
+    const theme = useTheme();
+    themeColors = useThemeColors();
+    isDark = theme.isDark;
+  } catch {
+    // Not in ThemeProvider, use default light colors
+    themeColors = {
+      card: colors.card,
+      cardHover: colors.slate[50],
+      foreground: colors.foreground,
+      foregroundSecondary: colors.slate[600],
+      foregroundMuted: colors.slate[500],
+      border: colors.slate[100],
+      borderHover: colors.slate[200],
+      background: colors.background,
+      backgroundSecondary: colors.slate[50],
+    };
+  }
+  
   const totalBalance = locality.cashBalance + locality.bankBalance;
   const isPositive = totalBalance >= 0;
 
   return (
     <div
       css={{
-        backgroundColor: colors.card,
+        backgroundColor: themeColors.card,
         borderRadius: radius['2xl'],
         boxShadow: shadows.lg,
-        border: `1px solid ${colors.slate[100]}`,
+        border: `1px solid ${themeColors.border}`,
         overflow: 'hidden',
         transition: 'all 0.3s ease',
         '&:hover': {
@@ -74,7 +97,7 @@ export function LocalityCard({ locality }: LocalityCardProps) {
           cursor: 'pointer',
           transition: 'background-color 0.2s ease',
           '&:hover': {
-            backgroundColor: colors.slate[50],
+            backgroundColor: isDark ? colors.slate[700] : colors.slate[50],
           },
         }}
       >
@@ -93,10 +116,10 @@ export function LocalityCard({ locality }: LocalityCardProps) {
             <MapPin size={24} color="white" />
           </div>
           <div css={{ textAlign: 'left' }}>
-            <h3 css={{ fontSize: '1.25rem', fontWeight: 700, color: colors.slate[900], margin: 0 }}>
+            <h3 css={{ fontSize: '1.25rem', fontWeight: 700, color: themeColors.foreground, margin: 0, transition: 'color 0.3s ease' }}>
               {locality.locationKey}
             </h3>
-            <p css={{ fontSize: '0.875rem', color: colors.slate[500], margin: 0 }}>
+            <p css={{ fontSize: '0.875rem', color: themeColors.foregroundMuted, margin: 0, transition: 'color 0.3s ease' }}>
               {locality.transactions.length} transacciones
             </p>
           </div>
@@ -106,30 +129,30 @@ export function LocalityCard({ locality }: LocalityCardProps) {
           {/* Quick Stats - Hidden on mobile */}
           <div css={{ display: 'none', alignItems: 'center', gap: '1.5rem', '@media (min-width: 768px)': { display: 'flex' } }}>
             <div css={{ textAlign: 'right' }}>
-              <p css={{ fontSize: '0.75rem', color: colors.slate[500], marginBottom: '0.25rem', margin: 0 }}>Balance Efectivo</p>
-              <p css={{ fontSize: '1.125rem', fontWeight: 700, color: locality.cashBalance >= 0 ? colors.green[600] : colors.red[600], margin: 0 }}>
+              <p css={{ fontSize: '0.75rem', color: themeColors.foregroundMuted, marginBottom: '0.25rem', margin: 0 }}>Balance Efectivo</p>
+              <p css={{ fontSize: '1.125rem', fontWeight: 700, color: locality.cashBalance >= 0 ? colors.green[500] : colors.red[500], margin: 0 }}>
                 {formatCurrency(locality.cashBalance)}
               </p>
             </div>
             <div css={{ textAlign: 'right' }}>
-              <p css={{ fontSize: '0.75rem', color: colors.slate[500], marginBottom: '0.25rem', margin: 0 }}>Balance Banco</p>
-              <p css={{ fontSize: '1.125rem', fontWeight: 700, color: locality.bankBalance >= 0 ? colors.green[600] : colors.red[600], margin: 0 }}>
+              <p css={{ fontSize: '0.75rem', color: themeColors.foregroundMuted, marginBottom: '0.25rem', margin: 0 }}>Balance Banco</p>
+              <p css={{ fontSize: '1.125rem', fontWeight: 700, color: locality.bankBalance >= 0 ? colors.green[500] : colors.red[500], margin: 0 }}>
                 {formatCurrency(locality.bankBalance)}
               </p>
             </div>
           </div>
 
           {isExpanded ? (
-            <ChevronUp size={20} color={colors.slate[400]} />
+            <ChevronUp size={20} color={isDark ? colors.slate[400] : colors.slate[400]} />
           ) : (
-            <ChevronDown size={20} color={colors.slate[400]} />
+            <ChevronDown size={20} color={isDark ? colors.slate[400] : colors.slate[400]} />
           )}
         </div>
       </button>
 
       {/* Expanded Content */}
       {isExpanded && (
-        <div css={{ padding: '0 1.5rem 1.5rem', borderTop: `1px solid ${colors.slate[100]}` }}>
+        <div css={{ padding: '0 1.5rem 1.5rem', borderTop: `1px solid ${themeColors.border}` }}>
           {/* Balance Cards */}
           <div css={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem', marginTop: '1.5rem', marginBottom: '1.5rem', '@media (min-width: 768px)': { gridTemplateColumns: 'repeat(3, 1fr)' } }}>
             <BalanceCard
@@ -137,12 +160,14 @@ export function LocalityCard({ locality }: LocalityCardProps) {
               value={locality.cashBalance}
               gradient="linear-gradient(to bottom right, #eff6ff, #dbeafe)"
               iconBg={colors.blue[500]}
+              isDarkMode={isDark}
             />
             <BalanceCard
               label="Banco"
               value={locality.bankBalance}
               gradient="linear-gradient(to bottom right, #faf5ff, #f3e8ff)"
               iconBg={colors.purple[500]}
+              isDarkMode={isDark}
             />
             <BalanceCard
               label="Total"
@@ -151,13 +176,14 @@ export function LocalityCard({ locality }: LocalityCardProps) {
               iconBg={colors.green[500]}
               showTrend
               isPositive={isPositive}
+              isDarkMode={isDark}
             />
           </div>
 
           {/* Transactions */}
           {locality.transactions.length > 0 ? (
             <div css={{ marginBottom: '1.5rem' }}>
-              <h4 css={{ fontSize: '0.875rem', fontWeight: 600, color: colors.slate[700], marginBottom: '0.75rem', margin: '0 0 0.75rem 0' }}>
+              <h4 css={{ fontSize: '0.875rem', fontWeight: 600, color: themeColors.foregroundSecondary, marginBottom: '0.75rem', margin: '0 0 0.75rem 0' }}>
                 Transacciones
               </h4>
               <div css={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -169,11 +195,11 @@ export function LocalityCard({ locality }: LocalityCardProps) {
                       alignItems: 'center',
                       justifyContent: 'space-between',
                       padding: '0.75rem',
-                      backgroundColor: colors.slate[50],
+                      backgroundColor: isDark ? colors.slate[700] : colors.slate[50],
                       borderRadius: radius.lg,
                       transition: 'background-color 0.2s ease',
                       '&:hover': {
-                        backgroundColor: colors.slate[100],
+                        backgroundColor: isDark ? colors.slate[600] : colors.slate[100],
                       },
                     }}
                   >
@@ -186,14 +212,14 @@ export function LocalityCard({ locality }: LocalityCardProps) {
                           backgroundColor: transaction.isCommission ? colors.red[500] : (transaction.isIncome ? colors.green[500] : colors.blue[500]),
                         }}
                       />
-                      <span css={{ fontSize: '0.875rem', color: colors.slate[700] }}>
+                      <span css={{ fontSize: '0.875rem', color: themeColors.foregroundSecondary }}>
                         {transaction.concept}
                       </span>
                       <span
                         css={{
                           fontSize: '0.75rem',
-                          color: colors.slate[500],
-                          backgroundColor: colors.slate[200],
+                          color: themeColors.foregroundMuted,
+                          backgroundColor: isDark ? colors.slate[600] : colors.slate[200],
                           padding: '0.125rem 0.5rem',
                           borderRadius: radius.full,
                         }}
@@ -205,7 +231,7 @@ export function LocalityCard({ locality }: LocalityCardProps) {
                       css={{
                         fontSize: '0.875rem',
                         fontWeight: 600,
-                        color: transaction.isCommission ? colors.red[600] : (transaction.isIncome ? colors.green[600] : colors.slate[900]),
+                        color: transaction.isCommission ? colors.red[500] : (transaction.isIncome ? colors.green[500] : themeColors.foreground),
                       }}
                     >
                       {formatCurrency(transaction.total)}
@@ -215,7 +241,7 @@ export function LocalityCard({ locality }: LocalityCardProps) {
               </div>
             </div>
           ) : (
-            <div css={{ textAlign: 'center', padding: '2rem', color: colors.slate[400] }}>
+            <div css={{ textAlign: 'center', padding: '2rem', color: themeColors.foregroundMuted }}>
               <p css={{ fontSize: '0.875rem', margin: 0 }}>Sin transacciones registradas</p>
             </div>
           )}
@@ -225,41 +251,41 @@ export function LocalityCard({ locality }: LocalityCardProps) {
             css={{
               marginTop: '1.5rem',
               paddingTop: '1.5rem',
-              borderTop: `1px solid ${colors.slate[200]}`,
+              borderTop: `1px solid ${themeColors.border}`,
               display: 'grid',
               gridTemplateColumns: '1fr 1fr',
               gap: '1rem',
             }}
           >
             <div>
-              <p css={{ fontSize: '0.75rem', color: colors.slate[500], marginBottom: '0.25rem', margin: '0 0 0.25rem 0' }}>
+              <p css={{ fontSize: '0.75rem', color: themeColors.foregroundMuted, marginBottom: '0.25rem', margin: '0 0 0.25rem 0' }}>
                 Créditos + Préstamos
               </p>
-              <p css={{ fontSize: '1.125rem', fontWeight: 700, color: colors.slate[900], margin: 0 }}>
+              <p css={{ fontSize: '1.125rem', fontWeight: 700, color: themeColors.foreground, margin: 0 }}>
                 {formatCurrency(locality.totalPlaced.creditsAndLoans)}
               </p>
             </div>
             <div>
-              <p css={{ fontSize: '0.75rem', color: colors.slate[500], marginBottom: '0.25rem', margin: '0 0 0.25rem 0' }}>
+              <p css={{ fontSize: '0.75rem', color: themeColors.foregroundMuted, marginBottom: '0.25rem', margin: '0 0 0.25rem 0' }}>
                 Comisiones
               </p>
-              <p css={{ fontSize: '1.125rem', fontWeight: 700, color: colors.red[600], margin: 0 }}>
+              <p css={{ fontSize: '1.125rem', fontWeight: 700, color: colors.red[500], margin: 0 }}>
                 {formatCurrency(locality.totalPlaced.commissions)}
               </p>
             </div>
             <div>
-              <p css={{ fontSize: '0.75rem', color: colors.slate[500], marginBottom: '0.25rem', margin: '0 0 0.25rem 0' }}>
+              <p css={{ fontSize: '0.75rem', color: themeColors.foregroundMuted, marginBottom: '0.25rem', margin: '0 0 0.25rem 0' }}>
                 Cobranza Efectivo
               </p>
-              <p css={{ fontSize: '1.125rem', fontWeight: 700, color: colors.green[600], margin: 0 }}>
+              <p css={{ fontSize: '1.125rem', fontWeight: 700, color: colors.green[500], margin: 0 }}>
                 {formatCurrency(locality.totalPlaced.collectionCash)}
               </p>
             </div>
             <div>
-              <p css={{ fontSize: '0.75rem', color: colors.slate[500], marginBottom: '0.25rem', margin: '0 0 0.25rem 0' }}>
+              <p css={{ fontSize: '0.75rem', color: themeColors.foregroundMuted, marginBottom: '0.25rem', margin: '0 0 0.25rem 0' }}>
                 Cobranza Banco
               </p>
-              <p css={{ fontSize: '1.125rem', fontWeight: 700, color: colors.green[600], margin: 0 }}>
+              <p css={{ fontSize: '1.125rem', fontWeight: 700, color: colors.green[500], margin: 0 }}>
                 {formatCurrency(locality.totalPlaced.collectionBank)}
               </p>
             </div>
@@ -277,6 +303,7 @@ function BalanceCard({
   iconBg,
   showTrend,
   isPositive,
+  isDarkMode = false,
 }: {
   label: string;
   value: number;
@@ -284,13 +311,15 @@ function BalanceCard({
   iconBg: string;
   showTrend?: boolean;
   isPositive?: boolean;
+  isDarkMode?: boolean;
 }) {
   return (
     <div
       css={{
-        background: gradient,
+        background: isDarkMode ? colors.slate[700] : gradient,
         borderRadius: radius.xl,
         padding: '1rem',
+        transition: 'background 0.3s ease',
       }}
     >
       <div css={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
@@ -315,7 +344,7 @@ function BalanceCard({
             <TrendingUp size={16} color="white" />
           )}
         </div>
-        <span css={{ fontSize: '0.875rem', fontWeight: 500, color: colors.slate[900] }}>
+        <span css={{ fontSize: '0.875rem', fontWeight: 500, color: isDarkMode ? colors.slate[200] : colors.slate[900] }}>
           {label}
         </span>
       </div>
@@ -323,7 +352,7 @@ function BalanceCard({
         css={{
           fontSize: '1.5rem',
           fontWeight: 700,
-          color: value >= 0 ? colors.green[600] : colors.red[600],
+          color: value >= 0 ? colors.green[500] : colors.red[500],
           margin: 0,
         }}
       >

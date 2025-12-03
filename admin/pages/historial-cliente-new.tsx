@@ -17,6 +17,10 @@ import { LoansList } from '../components/historial-cliente-new/LoansList';
 // Unified Theme
 import { colors, pageStyles, spacing } from '../styles';
 
+// Theme Context
+import { ThemeProvider, useTheme, useThemeColors } from '../contexts/ThemeContext';
+import { ThemeToggle } from '../components/ui/ThemeToggle';
+
 // GraphQL Queries (Copied from original file)
 const GET_ROUTES = gql`
   query GetRoutes {
@@ -383,76 +387,156 @@ const HistorialClienteNewPage: React.FC = () => {
 
   return (
     <PageContainer header="Historial de Cliente (Nueva Versión)">
-      <div css={pageStyles.container}>
-        
-        <SearchBar 
-          onSearch={(term) => {
-            setSearchTerm(term);
-            setShowAutocomplete(true); // Trigger autocomplete
-          }}
+      <ThemeProvider>
+        <HistorialClienteContent
           searchTerm={searchTerm}
-          onSearchTermChange={(term) => {
-             setSearchTerm(term);
-             setShowAutocomplete(true);
-          }}
-          onClear={handleClearSearch}
-          onMerge={canMergeClients ? () => {} : undefined} // TODO: Implement merge modal logic
-          onShowDuplicates={() => {}} // TODO: Implement duplicates modal
-          showDuplicates={false}
-          duplicateCount={potentialDuplicates.length}
-          hasSelectedClient={!!selectedClient}
-          onGeneratePDF={handleGeneratePDF}
-          isLoading={historyLoading}
-          selectedClientName={selectedClient?.name}
-          selectedClientCode={selectedClient?.clientCode}
-          // New props for integrated dropdown
-          searchResults={clientResults}
-          showResults={showAutocomplete}
-          onSelectResult={handleClientSelect}
+          setSearchTerm={setSearchTerm}
+          setShowAutocomplete={setShowAutocomplete}
+          handleClearSearch={handleClearSearch}
+          canMergeClients={canMergeClients}
+          potentialDuplicates={potentialDuplicates}
+          selectedClient={selectedClient}
+          handleGeneratePDF={handleGeneratePDF}
+          historyLoading={historyLoading}
+          clientResults={clientResults}
+          showAutocomplete={showAutocomplete}
+          handleClientSelect={handleClientSelect}
+          historyError={historyError}
+          showClientHistory={showClientHistory}
+          historyResult={historyResult}
+          getClientProfileData={getClientProfileData}
+          mapLoanToCard={mapLoanToCard}
         />
-
-        {historyError && (
-          <GraphQLErrorNotice networkError={historyError.networkError} errors={historyError.graphQLErrors} />
-        )}
-
-        {historyLoading && (
-          <div css={{ display: 'flex', justifyContent: 'center', padding: spacing[12] }}>
-            <LoadingDots label="Cargando historial..." />
-          </div>
-        )}
-
-        {showClientHistory && historyResult && (
-          <div css={{ animation: 'fadeIn 0.3s ease-in-out' }}>
-            <ClientProfile client={getClientProfileData()!} />
-            
-            {historyResult.loansAsClient.length > 0 && (
-              <div css={{ marginBottom: spacing[8] }}>
-                <LoansList 
-                  loans={historyResult.loansAsClient.map(mapLoanToCard)} 
-                  title="Préstamos como Cliente"
-                />
-              </div>
-            )}
-
-            {historyResult.loansAsCollateral.length > 0 && (
-              <div css={{ marginBottom: spacing[8] }}>
-                <LoansList 
-                  loans={historyResult.loansAsCollateral.map(mapLoanToCard)} 
-                  title="Préstamos como Aval"
-                  isCollateral
-                />
-              </div>
-            )}
-
-            {historyResult.loansAsClient.length === 0 && historyResult.loansAsCollateral.length === 0 && (
-               <div css={{ textAlign: 'center', padding: spacing[12], color: colors.mutedForeground }}>
-                 No hay historial de préstamos para este cliente.
-               </div>
-            )}
-          </div>
-        )}
-      </div>
+      </ThemeProvider>
     </PageContainer>
+  );
+};
+
+// Componente interno que usa el tema
+interface HistorialClienteContentProps {
+  searchTerm: string;
+  setSearchTerm: (term: string) => void;
+  setShowAutocomplete: (show: boolean) => void;
+  handleClearSearch: () => void;
+  canMergeClients: boolean;
+  potentialDuplicates: Array<{client1: ClientSearchResult, client2: ClientSearchResult, similarity: number}>;
+  selectedClient: ClientSearchResult | null;
+  handleGeneratePDF: (detailed: boolean) => Promise<void>;
+  historyLoading: boolean;
+  clientResults: ClientSearchResult[];
+  showAutocomplete: boolean;
+  handleClientSelect: (client: ClientSearchResult) => void;
+  historyError: any;
+  showClientHistory: boolean;
+  historyResult: ClientHistoryData | null;
+  getClientProfileData: () => any;
+  mapLoanToCard: (loan: LoanDetails) => any;
+}
+
+const HistorialClienteContent = ({
+  searchTerm,
+  setSearchTerm,
+  setShowAutocomplete,
+  handleClearSearch,
+  canMergeClients,
+  potentialDuplicates,
+  selectedClient,
+  handleGeneratePDF,
+  historyLoading,
+  clientResults,
+  showAutocomplete,
+  handleClientSelect,
+  historyError,
+  showClientHistory,
+  historyResult,
+  getClientProfileData,
+  mapLoanToCard,
+}: HistorialClienteContentProps) => {
+  const { isDark } = useTheme();
+  const themeColors = useThemeColors();
+
+  return (
+    <div css={{
+      ...pageStyles.container,
+      backgroundColor: themeColors.background,
+      background: themeColors.pageGradient,
+      transition: 'background 0.3s ease',
+    }}>
+      {/* Theme Toggle */}
+      <div css={{ 
+        display: 'flex', 
+        justifyContent: 'flex-end', 
+        marginBottom: spacing[4],
+      }}>
+        <ThemeToggle size="md" showLabel />
+      </div>
+      
+      <SearchBar 
+        onSearch={(term) => {
+          setSearchTerm(term);
+          setShowAutocomplete(true);
+        }}
+        searchTerm={searchTerm}
+        onSearchTermChange={(term) => {
+           setSearchTerm(term);
+           setShowAutocomplete(true);
+        }}
+        onClear={handleClearSearch}
+        onMerge={canMergeClients ? () => {} : undefined}
+        onShowDuplicates={() => {}}
+        showDuplicates={false}
+        duplicateCount={potentialDuplicates.length}
+        hasSelectedClient={!!selectedClient}
+        onGeneratePDF={handleGeneratePDF}
+        isLoading={historyLoading}
+        selectedClientName={selectedClient?.name}
+        selectedClientCode={selectedClient?.clientCode}
+        searchResults={clientResults}
+        showResults={showAutocomplete}
+        onSelectResult={handleClientSelect}
+      />
+
+      {historyError && (
+        <GraphQLErrorNotice networkError={historyError.networkError} errors={historyError.graphQLErrors} />
+      )}
+
+      {historyLoading && (
+        <div css={{ display: 'flex', justifyContent: 'center', padding: spacing[12] }}>
+          <LoadingDots label="Cargando historial..." />
+        </div>
+      )}
+
+      {showClientHistory && historyResult && (
+        <div css={{ animation: 'fadeIn 0.3s ease-in-out' }}>
+          <ClientProfile client={getClientProfileData()!} />
+          
+          {historyResult.loansAsClient.length > 0 && (
+            <div css={{ marginBottom: spacing[8] }}>
+              <LoansList 
+                loans={historyResult.loansAsClient.map(mapLoanToCard)} 
+                title="Préstamos como Cliente"
+              />
+            </div>
+          )}
+
+          {historyResult.loansAsCollateral.length > 0 && (
+            <div css={{ marginBottom: spacing[8] }}>
+              <LoansList 
+                loans={historyResult.loansAsCollateral.map(mapLoanToCard)} 
+                title="Préstamos como Aval"
+                isCollateral
+              />
+            </div>
+          )}
+
+          {historyResult.loansAsClient.length === 0 && historyResult.loansAsCollateral.length === 0 && (
+             <div css={{ textAlign: 'center', padding: spacing[12], color: themeColors.foregroundMuted }}>
+               No hay historial de préstamos para este cliente.
+             </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 };
 
