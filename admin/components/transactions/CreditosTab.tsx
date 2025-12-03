@@ -34,6 +34,9 @@ import { calculateAmountToPay } from '../../utils/loanCalculations';
 import KPIBar from './KPIBar';
 import { useBalanceRefresh } from '../../hooks/useBalanceRefresh';
 
+// Unified Theme
+import { colors, shadows, radius, spacing, typography, transitions, gradients, loadingStyles, commonStyles } from '../../styles';
+
 // Hook personalizado para prevenir navegación del navegador durante scroll horizontal
 const usePreventSwipeBack = (containerRef: React.RefObject<HTMLElement>) => {
   const [isScrolling, setIsScrolling] = useState(false);
@@ -2666,54 +2669,57 @@ export const CreditosTab = ({ selectedDate, selectedRoute, selectedLead, onBalan
   );
 };
 
-// Styles
+// Styles - Using Unified Theme
 const tableHeaderStyle = {
-  padding: '8px 12px',
+  padding: `${spacing[2]} ${spacing[3]}`,
   textAlign: 'left' as const,
-  fontWeight: '500',
-  color: '#374151',
+  fontWeight: typography.fontWeight.medium,
+  color: colors.slate[700],
   whiteSpace: 'normal' as const,
-  fontSize: '12px',
+  fontSize: '0.75rem',
   lineHeight: '1.2',
   minWidth: '80px',
   maxWidth: '120px',
+  backgroundColor: colors.slate[50],
+  borderBottom: `1px solid ${colors.border}`,
 };
 
 const tableCellStyle = {
-  padding: '12px 16px',
-  color: '#1a1f36',
-  fontSize: '11px',
-  verticalAlign: 'middle', // Usamos verticalAlign para celdas de tabla
+  padding: `${spacing[3]} ${spacing[4]}`,
+  color: colors.foreground,
+  fontSize: '0.6875rem',
+  verticalAlign: 'middle' as const,
   whiteSpace: 'nowrap' as const,
   height: '80px',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   position: 'relative' as const,
+  borderBottom: `1px solid ${colors.border}`,
 } as const;
 
 const tooltipStyle = {
   position: 'fixed' as const,
-  backgroundColor: '#1a1f36',
+  backgroundColor: colors.slate[900],
   color: 'white',
-  padding: '8px 12px',
-  borderRadius: '6px',
-  fontSize: '13px',
+  padding: `${spacing[2]} ${spacing[3]}`,
+  borderRadius: radius.md,
+  fontSize: '0.8125rem',
   zIndex: 1000,
   maxWidth: '300px',
   whiteSpace: 'normal' as const,
-  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+  boxShadow: shadows.lg,
   display: 'none',
   pointerEvents: 'none' as const,
 };
 
 const inputStyle = {
   width: '100%',
-  padding: '10px 16px',
-  fontSize: '14px',
-  border: '1px solid #E5E7EB',
-  borderRadius: '8px',
+  padding: `${spacing[2.5]} ${spacing[4]}`,
+  fontSize: '0.875rem',
+  border: `1px solid ${colors.border}`,
+  borderRadius: radius.lg,
   outline: 'none',
-  transition: 'all 0.2s ease',
+  transition: transitions.fast,
   height: '50px !important',
 };
 
@@ -2721,15 +2727,15 @@ const menuItemStyle = {
   display: 'flex',
   alignItems: 'center',
   width: '100%',
-  padding: '8px 16px',
-  fontSize: '14px',
-  color: '#1a1f36',
+  padding: `${spacing[2]} ${spacing[4]}`,
+  fontSize: '0.875rem',
+  color: colors.foreground,
   backgroundColor: 'transparent',
   border: 'none',
   cursor: 'pointer',
   textAlign: 'left' as const,
-  transition: 'background-color 0.2s ease',
+  transition: transitions.fast,
   ':hover': {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: colors.slate[50],
   },
 };

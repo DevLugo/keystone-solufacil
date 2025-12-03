@@ -37,9 +37,9 @@ export function StatusBadge({
         };
       case 'purple':
         return {
-          backgroundColor: colors.purpleColors[100],
-          color: colors.purpleColors[700],
-          border: `1px solid ${colors.purpleColors[200]}`,
+          backgroundColor: colors.purple[100],
+          color: colors.purple[700],
+          border: `1px solid ${colors.purple[200]}`,
         };
       default:
         return {

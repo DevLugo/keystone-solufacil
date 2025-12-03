@@ -250,7 +250,7 @@ function Button({ type = 'button', variant = 'primary', children, onClick, icon,
       case 'secondary':
         return { ...base, backgroundColor: colors.slate[500], color: 'white', '&:hover': { backgroundColor: disabled ? colors.slate[500] : colors.slate[600] } };
       case 'purple':
-        return { ...base, backgroundColor: colors.purpleColors[500], color: 'white', '&:hover': { backgroundColor: disabled ? colors.purpleColors[500] : colors.purpleColors[600] } };
+        return { ...base, backgroundColor: colors.purple[500], color: 'white', '&:hover': { backgroundColor: disabled ? colors.purple[500] : colors.purple[600] } };
       case 'warning':
         return { ...base, backgroundColor: colors.amber[500], color: 'white', '&:hover': { backgroundColor: disabled ? colors.amber[500] : colors.amber[600] } };
       case 'outline-success':

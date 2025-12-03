@@ -10,7 +10,9 @@ import { DollarSign, TrendingUp, Wallet, CreditCard, ArrowUpCircle } from 'lucid
 // New Components
 import { StatCard } from '../summary-new/StatCard';
 import { LocalityCard } from '../summary-new/LocalityCard';
-import { colors, shadows, radius, gradients, formatCurrency } from '../summary-new/theme';
+
+// Unified Theme
+import { colors, shadows, radius, gradients, formatCurrency, loadingStyles, pageStyles } from '../../styles';
 
 // Import existing modal
 import { BankIncomeModal } from './BankIncomeModal';
@@ -425,7 +427,7 @@ export const SummaryTabNew = ({ selectedDate, selectedRoute, refreshKey }: Summa
     }, {});
 
     // Build transactions for each locality
-    Object.values(groupedByLocality).forEach((loc: LocalitySummary) => {
+    (Object.values(groupedByLocality) as LocalitySummary[]).forEach((loc) => {
       const transactions: Transaction[] = [];
 
       const creditoTotal = loc.details.reduce((sum, item) => sum + item.credito, 0);

@@ -64,7 +64,7 @@ export function PaymentHistoryModal({
 
   const getRowStyles = (payment: Payment, index: number) => {
     if (isDoublePayment(payment)) {
-      return { backgroundColor: colors.purpleColors[50], borderLeft: `4px solid ${colors.purpleColors[500]}` };
+      return { backgroundColor: colors.purple[50], borderLeft: `4px solid ${colors.purple[500]}` };
     }
     switch (payment.status) {
       case 'overpaid':
@@ -143,19 +143,19 @@ export function PaymentHistoryModal({
           }}>
             {loan.renovationId && (
               <SummaryCard 
-                icon={<RefreshCw size={16} color={colors.purpleColors[600]} />} 
-                bg={colors.purpleColors[50]} 
-                border={colors.purpleColors[100]} 
+                icon={<RefreshCw size={16} color={colors.purple[600]} />} 
+                bg={colors.purple[50]} 
+                border={colors.purple[100]} 
                 label="Renovación" 
                 value={loan.renovationId} 
-                valueColor={colors.purpleColors[700]}
+                valueColor={colors.purple[700]}
                 isMono
               />
             )}
             <SummaryCard icon={<Banknote size={16} color={colors.green[600]} />} bg={colors.green[50]} border={colors.green[100]} label="Prestado" value={`$${loan.amount.toLocaleString('es-MX')}`} />
             <SummaryCard icon={<PiggyBank size={16} color={colors.blue[600]} />} bg={colors.blue[50]} border={colors.blue[100]} label="Total" value={`$${loan.totalAmount.toLocaleString('es-MX')}`} />
             <SummaryCard icon={<TrendingUp size={16} color={colors.amber[600]} />} bg={colors.amber[50]} border={colors.amber[100]} label="Intereses" value={`$${loan.interestAmount.toLocaleString('es-MX')}`} />
-            <SummaryCard icon={<Clock size={16} color={colors.purpleColors[600]} />} bg={colors.purpleColors[50]} border={colors.purpleColors[100]} label="Duración" value={`${loan.weekCount} semanas`} /> {/* Changed to purple/indigo */}
+            <SummaryCard icon={<Clock size={16} color={colors.purple[600]} />} bg={colors.purple[50]} border={colors.purple[100]} label="Duración" value={`${loan.weekCount} semanas`} /> {/* Changed to purple/indigo */}
             <SummaryCard icon={<TrendingUp size={16} color={colors.red[600]} />} bg={colors.red[50]} border={colors.red[100]} label="Tasa" value={`${loan.interestRate}%`} />
           </div>
 
@@ -166,7 +166,7 @@ export function PaymentHistoryModal({
             </div>
             <div css={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.75rem', '@media (min-width: 640px)': { gridTemplateColumns: 'repeat(4, 1fr)' } }}>
               <LegendItem color={colors.green[50]} border={colors.green[400]} label="Adelanto/Sobrepago" />
-              <LegendItem color={colors.purpleColors[50]} border={colors.purpleColors[500]} label="Pago Doble (misma semana)" />
+              <LegendItem color={colors.purple[50]} border={colors.purple[500]} label="Pago Doble (misma semana)" />
               <LegendItem color={colors.amber[50]} border={colors.amber[400]} label="Pago Parcial" />
               <LegendItem color={colors.red[50]} border={colors.red[400]} label="Sin Pago" />
             </div>
@@ -195,7 +195,7 @@ export function PaymentHistoryModal({
                         {isDoublePayment(payment) && (
                           <span css={{ 
                             display: 'inline-flex', alignItems: 'center', gap: '0.25rem', 
-                            backgroundColor: colors.purpleColors[600], color: 'white', 
+                            backgroundColor: colors.purple[600], color: 'white', 
                             padding: '0.125rem 0.5rem', borderRadius: '9999px', 
                             fontSize: '10px', fontWeight: 700, whiteSpace: 'nowrap' 
                           }}>

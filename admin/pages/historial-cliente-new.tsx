@@ -13,7 +13,9 @@ import { useAuth } from '../hooks/useAuth';
 import { SearchBar } from '../components/historial-cliente-new/SearchBar';
 import { ClientProfile } from '../components/historial-cliente-new/ClientProfile';
 import { LoansList } from '../components/historial-cliente-new/LoansList';
-import { colors } from '../components/historial-cliente-new/theme';
+
+// Unified Theme
+import { colors, pageStyles, spacing } from '../styles';
 
 // GraphQL Queries (Copied from original file)
 const GET_ROUTES = gql`
@@ -381,13 +383,7 @@ const HistorialClienteNewPage: React.FC = () => {
 
   return (
     <PageContainer header="Historial de Cliente (Nueva Versión)">
-      <div css={{ 
-        padding: '1.5rem', 
-        maxWidth: '1400px', 
-        margin: '0 auto',
-        backgroundColor: '#f8fafc', // background-color
-        minHeight: '100vh'
-      }}>
+      <div css={pageStyles.container}>
         
         <SearchBar 
           onSearch={(term) => {
@@ -420,7 +416,7 @@ const HistorialClienteNewPage: React.FC = () => {
         )}
 
         {historyLoading && (
-          <div css={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
+          <div css={{ display: 'flex', justifyContent: 'center', padding: spacing[12] }}>
             <LoadingDots label="Cargando historial..." />
           </div>
         )}
@@ -430,7 +426,7 @@ const HistorialClienteNewPage: React.FC = () => {
             <ClientProfile client={getClientProfileData()!} />
             
             {historyResult.loansAsClient.length > 0 && (
-              <div css={{ marginBottom: '2rem' }}>
+              <div css={{ marginBottom: spacing[8] }}>
                 <LoansList 
                   loans={historyResult.loansAsClient.map(mapLoanToCard)} 
                   title="Préstamos como Cliente"
@@ -439,8 +435,7 @@ const HistorialClienteNewPage: React.FC = () => {
             )}
 
             {historyResult.loansAsCollateral.length > 0 && (
-              <div css={{ marginBottom: '2rem' }}>
-                 {/* Reuse LoansList but with different styling/title */}
+              <div css={{ marginBottom: spacing[8] }}>
                 <LoansList 
                   loans={historyResult.loansAsCollateral.map(mapLoanToCard)} 
                   title="Préstamos como Aval"
@@ -450,7 +445,7 @@ const HistorialClienteNewPage: React.FC = () => {
             )}
 
             {historyResult.loansAsClient.length === 0 && historyResult.loansAsCollateral.length === 0 && (
-               <div css={{ textAlign: 'center', padding: '3rem', color: colors.mutedForeground }}>
+               <div css={{ textAlign: 'center', padding: spacing[12], color: colors.mutedForeground }}>
                  No hay historial de préstamos para este cliente.
                </div>
             )}

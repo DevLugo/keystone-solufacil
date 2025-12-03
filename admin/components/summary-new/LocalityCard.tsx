@@ -142,7 +142,7 @@ export function LocalityCard({ locality }: LocalityCardProps) {
               label="Banco"
               value={locality.bankBalance}
               gradient="linear-gradient(to bottom right, #faf5ff, #f3e8ff)"
-              iconBg={colors.purpleColors[500]}
+              iconBg={colors.purple[500]}
             />
             <BalanceCard
               label="Total"
