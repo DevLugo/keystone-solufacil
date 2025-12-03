@@ -1,7 +1,7 @@
 /** @jsxRuntime classic */
 /** @jsx jsx */
 import { jsx } from '@keystone-ui/core';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Search, BarChart4, Trash2, GitMerge, Users } from 'lucide-react';
 import { colors, radius, commonStyles, shadows } from './theme';
 import { useSafeTheme, useSafeThemeColors } from '../../contexts/ThemeContext';
@@ -49,6 +49,37 @@ export function SearchBar({
   // Use safe hooks that don't throw when outside ThemeProvider
   const { isDark } = useSafeTheme();
   const themeColors = useSafeThemeColors();
+  
+  // Ref and state for fixed dropdown positioning
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
+
+  // Update dropdown position when results are shown
+  useEffect(() => {
+    if (showResults && searchResults.length > 0 && inputRef.current) {
+      const updatePosition = () => {
+        const rect = inputRef.current?.getBoundingClientRect();
+        if (rect) {
+          setDropdownPosition({
+            top: rect.bottom + 4, // 4px gap
+            left: rect.left,
+            width: rect.width,
+          });
+        }
+      };
+      
+      updatePosition();
+      
+      // Update on scroll/resize
+      window.addEventListener('scroll', updatePosition, true);
+      window.addEventListener('resize', updatePosition);
+      
+      return () => {
+        window.removeEventListener('scroll', updatePosition, true);
+        window.removeEventListener('resize', updatePosition);
+      };
+    }
+  }, [showResults, searchResults.length]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,6 +109,7 @@ export function SearchBar({
         <form onSubmit={handleSubmit} css={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
           <div css={{ position: 'relative' }}>
             <input
+              ref={inputRef}
               type="text"
               value={searchTerm}
               onChange={(e) => onSearchTermChange(e.target.value)}
@@ -103,21 +135,22 @@ export function SearchBar({
               }}
             />
             
-            {/* Integrated Autocomplete Dropdown */}
-            {showResults && searchResults.length > 0 && (
+            {/* Integrated Autocomplete Dropdown - Fixed position to escape container overflow */}
+            {showResults && searchResults.length > 0 && dropdownPosition.width > 0 && (
               <div css={{
-                position: 'absolute',
-                top: '100%',
-                left: 0,
-                right: 0,
-                zIndex: 50,
+                position: 'fixed',
+                top: dropdownPosition.top,
+                left: dropdownPosition.left,
+                width: dropdownPosition.width,
+                zIndex: 9999,
                 backgroundColor: themeColors.card,
                 borderRadius: '0.5rem',
-                boxShadow: isDark ? '0 4px 6px -1px rgba(0, 0, 0, 0.4)' : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                boxShadow: isDark 
+                  ? '0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.4)' 
+                  : '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
                 border: `1px solid ${themeColors.border}`,
-                maxHeight: '20rem',
+                maxHeight: '60vh',
                 overflowY: 'auto',
-                marginTop: '0.25rem',
               }}>
                 {searchResults.map((result: any) => (
                   <div
@@ -127,6 +160,7 @@ export function SearchBar({
                       padding: '0.75rem 1rem',
                       cursor: 'pointer',
                       borderBottom: `1px solid ${isDark ? colors.slate[700] : colors.muted}`,
+                      transition: 'background-color 0.15s ease',
                       '&:hover': { backgroundColor: isDark ? colors.slate[700] : colors.muted },
                       '&:last-child': { borderBottom: 'none' }
                     }}
