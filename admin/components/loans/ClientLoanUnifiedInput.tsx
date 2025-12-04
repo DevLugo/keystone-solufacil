@@ -1509,7 +1509,7 @@ const ClientLoanUnifiedInput: React.FC<ClientLoanUnifiedInputProps> = ({
 
           {/* Botón de limpiar */}
           <button
-            className={styles.clearButton}
+            className={styles.clearButtonAction}
             onClick={handleClear}
             title="Limpiar selección"
             type="button"
