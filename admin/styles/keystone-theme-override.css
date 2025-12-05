@@ -1,0 +1,370 @@
+/**
+ * Keystone Theme Override
+ *
+ * Sobrescribe los estilos de Keystone UI para usar las variables de tema
+ * y soportar dark/light mode en toda la aplicación
+ */
+
+/* ============================================
+   LAYOUT PRINCIPAL
+   ============================================ */
+
+/* PageContainer wrapper */
+body {
+  background-color: var(--theme-background) !important;
+  color: var(--theme-foreground) !important;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Grid principal del PageContainer */
+[class*="PageContainer"] > div {
+  background-color: var(--theme-background) !important;
+}
+
+/* ============================================
+   HEADER / NAVBAR
+   ============================================ */
+
+/* Header principal */
+header {
+  background-color: var(--theme-card) !important;
+  border-bottom-color: var(--theme-border) !important;
+  transition: all 0.3s ease !important;
+}
+
+/* Logo container */
+header > div:first-child {
+  background-color: var(--theme-card) !important;
+  border-color: var(--theme-border) !important;
+}
+
+/* ============================================
+   SIDEBAR / NAVEGACIÓN LATERAL
+   ============================================ */
+
+/* Sidebar container */
+aside {
+  background-color: var(--theme-card) !important;
+  border-right-color: var(--theme-border) !important;
+  transition: all 0.3s ease !important;
+}
+
+/* Navigation container */
+nav[role="navigation"] {
+  background-color: var(--theme-card) !important;
+}
+
+/* User info section */
+nav[role="navigation"] > div:first-child {
+  background-color: transparent !important;
+  border-bottom-color: var(--theme-border) !important;
+}
+
+/* Navigation items (ya migrados, pero reforzamos) */
+nav[role="navigation"] li a {
+  color: var(--theme-foreground-secondary) !important;
+  transition: all 0.3s ease !important;
+}
+
+nav[role="navigation"] li a:hover {
+  background-color: var(--theme-card-hover) !important;
+  color: var(--theme-foreground) !important;
+}
+
+nav[role="navigation"] li a[aria-current="location"] {
+  background-color: var(--theme-background-secondary) !important;
+  color: var(--theme-foreground) !important;
+}
+
+/* ============================================
+   MAIN CONTENT AREA
+   ============================================ */
+
+/* Main content */
+main {
+  background-color: var(--theme-background) !important;
+  transition: all 0.3s ease !important;
+}
+
+/* ============================================
+   BORDERS Y DIVIDERS
+   ============================================ */
+
+/* Todos los borders */
+[class*="border"] {
+  border-color: var(--theme-border) !important;
+}
+
+/* Dividers horizontales */
+hr {
+  border-color: var(--theme-border) !important;
+}
+
+/* ============================================
+   CARDS Y CONTAINERS
+   ============================================ */
+
+/* Cards generales */
+[class*="card"],
+[class*="Card"] {
+  background-color: var(--theme-card) !important;
+  border-color: var(--theme-border) !important;
+  transition: all 0.3s ease !important;
+}
+
+/* ============================================
+   TABLES (Keystone UI)
+   ============================================ */
+
+/* Table headers */
+table thead,
+table thead tr,
+table thead th {
+  background-color: var(--theme-table-header-bg) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-foreground) !important;
+}
+
+/* Table rows */
+table tbody tr {
+  background-color: var(--theme-card) !important;
+  border-color: var(--theme-border) !important;
+  transition: all 0.2s ease !important;
+}
+
+table tbody tr:hover {
+  background-color: var(--theme-table-row-hover) !important;
+}
+
+/* Table cells */
+table td,
+table th {
+  border-color: var(--theme-border) !important;
+  color: var(--theme-foreground-secondary) !important;
+}
+
+/* ============================================
+   INPUTS Y FORMS (Keystone UI)
+   ============================================ */
+
+/* Input fields */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+input[type="search"],
+input[type="url"],
+input[type="tel"],
+input[type="date"],
+input[type="datetime-local"],
+textarea,
+select {
+  background-color: var(--theme-input) !important;
+  border-color: var(--theme-input-border) !important;
+  color: var(--theme-foreground) !important;
+  transition: all 0.3s ease !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--theme-input-placeholder) !important;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--theme-primary) !important;
+  outline-color: var(--theme-primary) !important;
+}
+
+input:disabled,
+textarea:disabled,
+select:disabled {
+  background-color: var(--theme-input-disabled-bg) !important;
+  color: var(--theme-input-disabled-text) !important;
+}
+
+/* ============================================
+   BUTTONS (Keystone UI - solo base)
+   ============================================ */
+
+/* Solo sobrescribimos botones base, no los de acción */
+button[class*="secondary"],
+button[class*="ghost"] {
+  background-color: var(--theme-card) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-foreground) !important;
+  transition: all 0.3s ease !important;
+}
+
+button[class*="secondary"]:hover,
+button[class*="ghost"]:hover {
+  background-color: var(--theme-card-hover) !important;
+  border-color: var(--theme-border-hover) !important;
+}
+
+/* ============================================
+   MODALS Y DIALOGS
+   ============================================ */
+
+/* Modal overlay */
+[class*="overlay"],
+[class*="Overlay"] {
+  background-color: var(--theme-modal-overlay) !important;
+}
+
+/* Modal content */
+[class*="modal"],
+[class*="Modal"],
+[class*="dialog"],
+[class*="Dialog"] {
+  background-color: var(--theme-modal-bg) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-foreground) !important;
+}
+
+/* Modal header */
+[class*="modal"] header,
+[class*="Modal"] header,
+[class*="dialog"] header,
+[class*="Dialog"] header {
+  background-color: var(--theme-modal-header-bg) !important;
+  border-bottom-color: var(--theme-border) !important;
+}
+
+/* ============================================
+   SCROLLBARS
+   ============================================ */
+
+/* Webkit browsers (Chrome, Safari, Edge) */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--theme-scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--theme-scrollbar-thumb);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--theme-scrollbar-thumb-hover);
+}
+
+/* ============================================
+   TEXT Y TYPOGRAPHY
+   ============================================ */
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--theme-foreground) !important;
+}
+
+/* Paragraphs y texto general */
+p, span, div {
+  color: inherit;
+}
+
+/* Links */
+a {
+  color: var(--theme-primary) !important;
+  transition: color 0.2s ease !important;
+}
+
+a:hover {
+  color: var(--theme-primary-hover) !important;
+}
+
+/* ============================================
+   BADGES Y LABELS
+   ============================================ */
+
+/* Badges */
+[class*="badge"],
+[class*="Badge"] {
+  background-color: var(--theme-neutral-bg) !important;
+  border-color: var(--theme-neutral-border) !important;
+  color: var(--theme-neutral-foreground) !important;
+}
+
+/* ============================================
+   ALERTS Y NOTIFICATIONS
+   ============================================ */
+
+/* Success */
+[class*="success"] {
+  background-color: var(--theme-success-bg) !important;
+  border-color: var(--theme-success-border) !important;
+  color: var(--theme-success-foreground) !important;
+}
+
+/* Error / Destructive */
+[class*="error"],
+[class*="danger"],
+[class*="destructive"] {
+  background-color: var(--theme-destructive-bg) !important;
+  border-color: var(--theme-destructive-border) !important;
+  color: var(--theme-destructive-foreground) !important;
+}
+
+/* Warning */
+[class*="warning"] {
+  background-color: var(--theme-warning-bg) !important;
+  border-color: var(--theme-warning-border) !important;
+  color: var(--theme-warning-foreground) !important;
+}
+
+/* Info */
+[class*="info"] {
+  background-color: var(--theme-info-bg) !important;
+  border-color: var(--theme-info-border) !important;
+  color: var(--theme-info-foreground) !important;
+}
+
+/* ============================================
+   SHADOWS
+   ============================================ */
+
+/* Box shadows (ajustar según tema) */
+[class*="shadow"] {
+  box-shadow: var(--theme-shadow-md) !important;
+}
+
+/* ============================================
+   SPECIFIC KEYSTONE UI COMPONENTS
+   ============================================ */
+
+/* Keystone UI Button component */
+[class*="Button-module"] {
+  transition: all 0.3s ease !important;
+}
+
+/* Keystone UI Text component */
+[class*="Text-module"] {
+  color: inherit !important;
+}
+
+/* Keystone UI Stack component */
+[class*="Stack-module"] {
+  background-color: transparent !important;
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+
+/* Asegurar transiciones suaves */
+* {
+  transition-property: background-color, border-color, color, fill, stroke;
+  transition-duration: 0.3s;
+  transition-timing-function: ease;
+}
+
+/* Excluir animaciones de movimiento */
+*:not([class*="animate"]):not([class*="motion"]) {
+  transition-property: background-color, border-color, color !important;
+}

@@ -7,24 +7,25 @@
   align-items: center;
   justify-content: space-between;
   padding: 0.75rem 1rem;
-  background: #f8f9fa;
-  border: 1px solid #e9ecef;
+  background: var(--theme-background-secondary);
+  border: 1px solid var(--theme-border);
   border-radius: 0.375rem;
   cursor: pointer;
-  transition: background-color 0.15s ease;
+  transition: all 0.3s ease;
   font-weight: 600;
-  color: #495057;
+  color: var(--theme-foreground-secondary);
   font-size: 0.875rem;
 }
 
 .section-header:hover {
-  background: #e9ecef;
+  background: var(--theme-card-hover);
+  border-color: var(--theme-border-hover);
 }
 
 .section-header.expanded {
-  background: #dee2e6;
-  border-color: #adb5bd;
-  color: #212529;
+  background: var(--theme-card-hover);
+  border-color: var(--theme-border-hover);
+  color: var(--theme-foreground);
 }
 
 .section-title {
@@ -36,8 +37,8 @@
 
 .section-arrow {
   font-size: 0.875rem;
-  transition: transform 0.15s ease;
-  color: #6c757d;
+  transition: transform 0.3s ease;
+  color: var(--theme-foreground-muted);
   font-weight: bold;
 }
 
@@ -48,72 +49,73 @@
 .section-items {
   margin-top: 0.25rem;
   padding-left: 1.5rem;
-  border-left: 1px solid #dee2e6;
+  border-left: 1px solid var(--theme-border);
 }
 
 .section-items a {
   display: block;
   padding: 0.5rem 0.75rem;
-  color: #495057;
+  color: var(--theme-foreground-secondary);
   text-decoration: none;
   font-size: 0.875rem;
   border-radius: 0.25rem;
-  transition: all 0.15s ease;
+  transition: all 0.3s ease;
   margin: 0.125rem 0;
 }
 
 .section-items a:hover {
-  background: #f8f9fa;
-  color: #212529;
+  background: var(--theme-background-secondary);
+  color: var(--theme-foreground);
   padding-left: 1rem;
 }
 
 /* Dashboard destacado */
 .menu-section:first-child a {
   font-weight: 600;
-  color: #212529;
+  color: var(--theme-foreground);
   padding: 0.75rem 1rem;
-  background: #f8f9fa;
-  border: 1px solid #e9ecef;
+  background: var(--theme-background-secondary);
+  border: 1px solid var(--theme-border);
   border-radius: 0.375rem;
   margin: 0.5rem 0;
+  transition: all 0.3s ease;
 }
 
 .menu-section:first-child a:hover {
-  background: #e9ecef;
-  border-color: #adb5bd;
+  background: var(--theme-card-hover);
+  border-color: var(--theme-border-hover);
 }
 
 /* Estilos para el toggle de listas de Keystone */
 .keystone-lists-toggle {
   display: block;
   padding: 0.5rem 0.75rem;
-  color: #495057;
+  color: var(--theme-info-foreground);
   text-decoration: none;
   font-size: 0.875rem;
   border-radius: 0.25rem;
-  transition: all 0.15s ease;
+  transition: all 0.3s ease;
   margin: 0.125rem 0;
   cursor: pointer;
-  background: #e3f2fd;
-  border: 1px solid #bbdefb;
-  color: #1565c0;
+  background: var(--theme-info-bg);
+  border: 1px solid var(--theme-info-border);
 }
 
 .keystone-lists-toggle:hover {
-  background: #bbdefb;
-  border-color: #90caf9;
-  color: #0d47a1;
+  background: var(--theme-info);
+  border-color: var(--theme-info);
+  color: var(--theme-primary-foreground);
 }
 
 /* Sección de listas de Keystone */
 .keystone-lists-section {
   margin: 1rem 0;
   padding: 1rem;
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
+  background: var(--theme-card);
+  border: 1px solid var(--theme-border);
   border-radius: 0.5rem;
-  border-left: 4px solid #007bff;
+  border-left: 4px solid var(--theme-primary);
+  transition: all 0.3s ease;
 }
 
 .keystone-lists-header {
@@ -122,24 +124,24 @@
   align-items: center;
   margin-bottom: 1rem;
   padding-bottom: 0.5rem;
-  border-bottom: 1px solid #dee2e6;
+  border-bottom: 1px solid var(--theme-border);
   font-weight: 600;
-  color: #495057;
+  color: var(--theme-foreground);
 }
 
 .close-keystone-lists {
-  background: #dc3545;
-  color: white;
+  background: var(--theme-destructive);
+  color: var(--theme-destructive-foreground);
   border: none;
   border-radius: 0.25rem;
   padding: 0.25rem 0.5rem;
   cursor: pointer;
   font-size: 0.75rem;
-  transition: background-color 0.15s ease;
+  transition: all 0.3s ease;
 }
 
 .close-keystone-lists:hover {
-  background: #c82333;
+  opacity: 0.9;
 }
 
 /* Responsive */

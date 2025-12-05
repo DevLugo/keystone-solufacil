@@ -1,9 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { NavigationContainer, NavItem, ListNavItems } from '@keystone-6/core/admin-ui/components';
-import type { NavigationProps } from '@keystone-6/core/admin-ui/components';
+import { NavigationContainer, NavItem, ListNavItems } from './layout/Navigation';
 import './CustomNavigation.css';
 // Global theme CSS variables for Shadcn components
 import '../styles/theme-variables.css';
+
+// Type for navigation props
+interface NavigationProps {
+  authenticatedItem?: {
+    label: string;
+    state: 'authenticated' | 'unauthenticated';
+  } | null;
+  lists?: Array<{
+    key: string;
+    path: string;
+    label: string;
+    isSingleton?: boolean;
+  }>;
+}
 
 interface MenuItem {
   label: string;
@@ -203,7 +216,7 @@ export function CustomNavigation({ authenticatedItem, lists }: NavigationProps) 
   };
 
   return (
-    <NavigationContainer authenticatedItem={authenticatedItem}>
+    <NavigationContainer authenticatedItem={authenticatedItem || undefined}>
       {/* Dashboard */}
       <NavItem href="/">Dashboard</NavItem>
       

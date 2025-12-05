@@ -3,7 +3,7 @@
 import { jsx } from '@keystone-ui/core';
 import React from 'react';
 import { Sun, Moon } from 'lucide-react';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useSafeTheme } from '../../contexts/ThemeContext';
 import { radius, transitions } from '../../styles';
 
 interface ThemeToggleProps {
@@ -12,7 +12,7 @@ interface ThemeToggleProps {
 }
 
 export function ThemeToggle({ size = 'md', showLabel = false }: ThemeToggleProps) {
-  const { theme, toggleTheme, isDark } = useTheme();
+  const { theme, toggleTheme, isDark } = useSafeTheme();
   
   const sizes = {
     sm: { button: 32, icon: 16, padding: 6 },
@@ -83,7 +83,7 @@ export function ThemeToggle({ size = 'md', showLabel = false }: ThemeToggleProps
 
 // Versión con switch animado
 export function ThemeSwitch({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
-  const { isDark, toggleTheme } = useTheme();
+  const { isDark, toggleTheme } = useSafeTheme();
   
   const sizes = {
     sm: { width: 44, height: 24, thumb: 18 },
