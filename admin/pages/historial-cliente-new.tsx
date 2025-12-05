@@ -19,7 +19,6 @@ import { colors, pageStyles, spacing } from '../styles';
 
 // Theme Context
 import { ThemeProvider, useTheme, useThemeColors } from '../contexts/ThemeContext';
-import { ThemeToggle } from '../components/ui/ThemeToggle';
 
 // GraphQL Queries (Copied from original file)
 const GET_ROUTES = gql`
@@ -462,15 +461,6 @@ const HistorialClienteContent = ({
       background: themeColors.pageGradient,
       transition: 'background 0.3s ease',
     }}>
-      {/* Theme Toggle */}
-      <div css={{ 
-        display: 'flex', 
-        justifyContent: 'flex-end', 
-        marginBottom: spacing[4],
-      }}>
-        <ThemeToggle size="md" showLabel />
-      </div>
-      
       <SearchBar 
         onSearch={(term) => {
           setSearchTerm(term);

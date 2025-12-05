@@ -22,7 +22,6 @@ import { ToastProvider } from '../components/ui/toast';
 
 // Theme Context
 import { ThemeProvider, useTheme, useThemeColors } from '../contexts/ThemeContext';
-import { ThemeToggle } from '../components/ui/ThemeToggle';
 
 const GET_TRANSACTIONS_SUMMARY = gql`
   query GetTransactionsSummary($date: DateTime!, $nextDate: DateTime!) {
@@ -392,15 +391,7 @@ function TransaccionesPageContent() {
   return (
     <PageContainer 
       header={
-        <div css={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center',
-          width: '100%',
-        }}>
-          <h2 css={{ margin: 0 }}>Transacciones</h2>
-          <ThemeToggle size="md" showLabel />
-        </div>
+        <h2 css={{ margin: 0 }}>Transacciones</h2>
       }
     >
       <div css={{

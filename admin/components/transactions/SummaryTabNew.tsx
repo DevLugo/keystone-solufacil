@@ -16,7 +16,6 @@ import { colors, shadows, radius, gradients, formatCurrency, loadingStyles, page
 
 // Theme Context
 import { ThemeProvider, useTheme, useThemeColors } from '../../contexts/ThemeContext';
-import { ThemeToggle } from '../ui/ThemeToggle';
 
 // Import existing modal
 import { BankIncomeModal } from './BankIncomeModal';
@@ -616,16 +615,6 @@ const SummaryTabContentInner = ({
       }}
     >
       <div css={{ maxWidth: '1400px', margin: '0 auto' }}>
-        {/* Theme Toggle Header */}
-        <div css={{ 
-          display: 'flex', 
-          justifyContent: 'flex-end', 
-          marginBottom: '1rem',
-          padding: '0.5rem',
-        }}>
-          <ThemeToggle size="md" showLabel />
-        </div>
-
         {/* Stats Overview */}
         <div
           css={{

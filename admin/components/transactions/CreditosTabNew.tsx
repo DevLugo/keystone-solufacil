@@ -41,7 +41,6 @@ import styles from './CreditosTabNew.module.css';
 
 // Theme Context
 import { ThemeProvider, useTheme, useThemeColors } from '../../contexts/ThemeContext';
-import { ThemeToggle } from '../ui/ThemeToggle';
 
 interface CreditosTabNewProps {
   selectedDate: Date | null;
@@ -911,16 +910,6 @@ const CreditosTabNewContent: React.FC<CreditosTabNewProps> = ({
       backgroundColor: themeColors.background,
       transition: 'background 0.3s ease',
     }}>
-      {/* Theme Toggle */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'flex-end',
-        marginBottom: '1rem',
-        paddingRight: '1rem',
-      }}>
-        <ThemeToggle size="md" showLabel />
-      </div>
-
       {/* AlertDialog de localidad diferente */}
       <AlertDialog
         open={locationMismatchDialogOpen.open}
