@@ -1280,9 +1280,8 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         const requestedAmount = parseFloat(loan.requestedAmount?.toString() || '0');
         const totalDebtAcquired = requestedAmount * (1 + rate);
 
-        // Total Pagado = Suma de transacciones CASH_LOAN_PAYMENT o BANK_LOAN_PAYMENT
-        const totalPaid = (loan.transactions || []).reduce((sum: number, tx: any) => {
-          return sum + parseFloat(tx.amount?.toString() || '0');
+        const totalPaid = (loan.payments || []).reduce((sum: number, payment: any) => {
+          return sum + parseFloat(payment.amount?.toString() || '0');
         }, 0);
 
         // Monto pendiente calculado
