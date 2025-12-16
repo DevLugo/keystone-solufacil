@@ -5945,18 +5945,14 @@ export const extendGraphqlSchema = graphql.extend(base => {
                   return false;
                 }
               }
-
-              // ✅ PUNTO 3: Si para la semana de revisión ya se pagó por completo, entonces no se contempla
-              // ✅ OPTIMIZACIÓN: Usar datos pre-calculados
-              const totalDebt = loan._calculated?.totalDebt || (Number(loan.amountGived || 0) + Number(loan.profitAmount || 0));
-
-              // Calcular el total pagado hasta la fecha de referencia
+     
+              // Calcular deuda total = monto solicitado * (1 + tasa de interés)
+              const rate = parseFloat(loan.loantype?.rate?.toString() || '0');
+              const requestedAmount = parseFloat(loan.requestedAmount?.toString() || '0');
+              const totalDebt = requestedAmount * (1 + rate);
               let totalPaid = 0;
               for (const payment of loan.payments || []) {
-                const paymentDate = new Date(payment.receivedAt || payment.createdAt);
-                if (paymentDate <= date) {
-                  totalPaid += parseFloat((payment.amount || 0).toString());
-                }
+                totalPaid += parseFloat((payment.amount || 0).toString());
               }
 
               // Calcular el monto pendiente real
