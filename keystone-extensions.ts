@@ -1233,7 +1233,6 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         where: {
           AND: [
             { finishedDate: null },           // ✅ Solo préstamos NO finalizados
-            { pendingAmountStored: { gt: "0" } }, // ✅ Solo con monto pendiente > 0
             { excludedByCleanup: null },     // ✅ NO excluidos por limpieza
             leaderId ? { leadId: leaderId as string } : {}
           ]
@@ -1256,6 +1255,12 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
           },
           loantype: true,
           payments: true,
+          transactions: {
+            where: {
+              incomeSource: { in: ['CASH_LOAN_PAYMENT', 'BANK_LOAN_PAYMENT'] }
+            },
+            select: { amount: true }
+          },
           lead: {
             include: {
               personalData: true
@@ -1268,8 +1273,28 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
         ]
       }) as any[];
 
-      // Ya no necesitamos filtrar aquí porque se hace en la consulta Prisma
-      const filteredActiveLoans = activeLoans;
+      // Calcular pendingAmount dinámicamente y filtrar préstamos con monto pendiente > 0
+      const filteredActiveLoans = activeLoans.map((loan: any) => {
+        // Deuda Adquirida = requestedAmount * (rate + 1)
+        const rate = loan.loantype?.rate ? parseFloat(loan.loantype.rate.toString()) : 0;
+        const requestedAmount = parseFloat(loan.requestedAmount?.toString() || '0');
+        const totalDebtAcquired = requestedAmount * (1 + rate);
+
+        // Total Pagado = Suma de transacciones CASH_LOAN_PAYMENT o BANK_LOAN_PAYMENT
+        const totalPaid = (loan.transactions || []).reduce((sum: number, tx: any) => {
+          return sum + parseFloat(tx.amount?.toString() || '0');
+        }, 0);
+
+        // Monto pendiente calculado
+        const calculatedPendingAmount = totalDebtAcquired - totalPaid;
+
+        return {
+          ...loan,
+          calculatedPendingAmount,
+          totalDebtAcquired,
+          totalPaid
+        };
+      }).filter((loan: any) => loan.calculatedPendingAmount > 0);
       
 
 
@@ -1367,7 +1392,8 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
           }
           return 0;
         })();
-        const pendingAmountStored = loan.pendingAmountStored ? parseFloat(loan.pendingAmountStored.toString()) : 0;
+        // Usar el monto pendiente calculado dinámicamente
+        const pendingAmountStored = loan.calculatedPendingAmount || 0;
 
         // Totales pagados bajo lógica de semanas activas del mes
         const now = new Date();
@@ -1418,7 +1444,7 @@ app.post('/export-cartera-pdf', express.json(), async (req, res) => {
           console.log(`   - Semanas sin pago: ${vdoResult.weeksWithoutPayment}`);
           console.log(`   - PAGO VDO calculado: ${arrearsAmount}`);
           console.log(`   - Abono parcial calculado: ${abonoParcialAmount}`);
-          console.log(`   - Monto pendiente almacenado: ${pendingAmountStored}`);
+          console.log(`   - Monto pendiente calculado: ${pendingAmountStored} (Deuda: ${loan.totalDebtAcquired}, Pagado: ${loan.totalPaid})`);
           console.log(`   - Rango de semana: ${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}`);
           console.log(`   - Fecha actual: ${new Date().toLocaleDateString()}`);
           console.log(`   - loanForCalc:`, JSON.stringify(loanForCalc, null, 2));
